@@ -1,0 +1,68 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin/members?tab=invites",
+  "operation": "revoke_pending_invite",
+  "records": [
+    {
+      "method": "DELETE",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/invites",
+      "path": "/backend-api/accounts/{account_id}/invites",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "content-type": "application/json",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members?tab=invites",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/invites",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/invites",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": {
+        "email_address": "{email}"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true
+        }
+      }
+    }
+  ],
+  "browser_request_log": [
+    {
+      "at": "2026-06-17T15:59:10.795Z",
+      "channel": "fetch",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/invites",
+      "method": "DELETE",
+      "headers": {
+        "authorization": "<redacted>",
+        "chatgpt-account-id": "{account_id}",
+        "content-type": "application/json",
+        "oai-client-build-number": "7559038",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-device-id": "<redacted>",
+        "oai-language": "zh-CN",
+        "oai-session-id": "<redacted>",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/invites",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/invites"
+      },
+      "body": {
+        "email_address": "{email}"
+      }
+    }
+  ]
+}

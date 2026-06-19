@@ -1,0 +1,85 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin/members",
+  "operation": "open_members_page",
+  "records": [
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users?offset=0&limit=25&query=",
+      "path": "/backend-api/accounts/{account_id}/users?offset=0&limit=25&query=",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/users",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/users",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "items": [
+            {
+              "id": "{user_id}",
+              "account_user_id": "{user_id}__{account_id}",
+              "email": "{email}",
+              "verified_email": null,
+              "role": "standard-user",
+              "seat_type": "default",
+              "credit_limits": null,
+              "name": "{member_name}",
+              "created_time": "2026-06-16T09:35:08.216159Z",
+              "is_scim_managed": false,
+              "deactivated_time": null
+            },
+            {
+              "id": "{user_id}",
+              "account_user_id": "{user_id}__{account_id}",
+              "email": "{email}",
+              "verified_email": null,
+              "role": "standard-user",
+              "seat_type": "usage_based",
+              "credit_limits": null,
+              "name": "{member_name}",
+              "created_time": "2026-06-16T09:05:45.038308Z",
+              "is_scim_managed": false,
+              "deactivated_time": null
+            },
+            {
+              "id": "{user_id}",
+              "account_user_id": "{user_id}__{account_id}",
+              "email": "{email}",
+              "verified_email": null,
+              "role": "account-owner",
+              "seat_type": "usage_based",
+              "credit_limits": null,
+              "name": "{owner_name}",
+              "created_time": "2026-06-16T06:29:44.889968Z",
+              "is_scim_managed": false,
+              "deactivated_time": null
+            }
+          ],
+          "total": 3,
+          "limit": 25,
+          "offset": 0
+        }
+      }
+    }
+  ]
+}

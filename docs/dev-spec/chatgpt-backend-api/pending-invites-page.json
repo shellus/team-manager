@@ -1,0 +1,89 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin/members?tab=invites",
+  "operation": "open_pending_invites_page",
+  "records": [
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/invites?offset=0&limit=25&query=",
+      "path": "/backend-api/accounts/{account_id}/invites?offset=0&limit=25&query=",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members?tab=invites",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/invites",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/invites",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "items": [
+            {
+              "id": "{uuid}",
+              "email_address": "{email}",
+              "role": "standard-user",
+              "status": 2,
+              "seat_type": "usage_based",
+              "created_time": "2026-06-17T15:57:12.517604Z",
+              "is_scim_managed": false
+            }
+          ],
+          "total": 1,
+          "limit": 25,
+          "offset": 0
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "url": "https://chatgpt.com/backend-api/sentinel/heartbeat",
+      "path": "/backend-api/sentinel/heartbeat",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members?tab=invites",
+        "x-openai-target-path": "/backend-api/sentinel/heartbeat",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/sentinel/heartbeat",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "status": "OK"
+        }
+      }
+    }
+  ]
+}

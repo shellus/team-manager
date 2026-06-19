@@ -1,0 +1,39 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin",
+  "operation": "rename_team",
+  "request": {
+    "method": "PATCH",
+    "url": "https://chatgpt.com/backend-api/accounts/{account_id}",
+    "target_path": "/backend-api/accounts/{account_id}",
+    "target_route": "/backend-api/accounts/{account_id}",
+    "headers": {
+      "authorization": "<redacted>",
+      "chatgpt-account-id": "{account_id}",
+      "content-type": "application/json",
+      "oai-client-build-number": "7559038",
+      "oai-client-version": "prod-{hex_id}",
+      "oai-device-id": "<redacted>",
+      "oai-language": "zh-CN",
+      "oai-session-id": "<redacted>",
+      "x-openai-target-path": "/backend-api/accounts/{account_id}",
+      "x-openai-target-route": "/backend-api/accounts/{account_id}"
+    },
+    "body": {
+      "name": "{workspace_name_debug}",
+      "profile_picture_id": "{profile_picture_id}",
+      "profile_picture_url": "{profile_picture_url}"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true
+    }
+  },
+  "notes": [
+    "网页请求会带当前头像字段，但 team-manager 仅发送 {\"name\": \"...\"} 已实测成功。",
+    "PATCH /backend-api/accounts/{account_id}/settings 返回 405 Method Not Allowed，不能用于改 Team 名称。"
+  ]
+}

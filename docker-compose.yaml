@@ -1,0 +1,6 @@
+services:
+  team-manager:
+    image: team-manager:local
+    build:
+      context: .
+      dockerfile: Dockerfile

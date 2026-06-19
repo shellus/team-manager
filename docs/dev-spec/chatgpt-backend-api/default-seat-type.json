@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-06-18",
+  "source": "playwright-remote ChatGPT Web bundle + team-manager curl_cffi transport verification",
+  "page": "https://chatgpt.com/admin",
+  "operation": "set_default_workspace_seat_type",
+  "request": {
+    "method": "POST",
+    "url": "https://chatgpt.com/backend-api/accounts/{account_id}/settings/default_seat_type",
+    "target_path": "/backend-api/accounts/{account_id}/settings/default_seat_type",
+    "target_route": "/backend-api/accounts/{account_id}/settings/default_seat_type",
+    "headers": {
+      "authorization": "<redacted>",
+      "chatgpt-account-id": "{account_id}",
+      "content-type": "application/json",
+      "oai-device-id": "<redacted>",
+      "oai-session-id": "<redacted>",
+      "x-openai-target-path": "/backend-api/accounts/{account_id}/settings/default_seat_type",
+      "x-openai-target-route": "/backend-api/accounts/{account_id}/settings/default_seat_type"
+    },
+    "body": {
+      "value": "usage_based"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body_shape": {
+      "id": "{account_id}",
+      "default_seat_type": "usage_based",
+      "seat_type_credit_limits": {},
+      "permissions": {}
+    }
+  },
+  "verification": {
+    "before": {
+      "default_seat_type": null
+    },
+    "after": {
+      "default_seat_type": "usage_based"
+    }
+  },
+  "notes": [
+    "ChatGPT Web bundle contains safePost(`/accounts/{account_id}/settings/default_seat_type`, requestBody: { value: defaultSeatType }).",
+    "PATCH /backend-api/accounts/{account_id}/settings and POST /backend-api/accounts/{account_id}/settings both return 405 Method Not Allowed.",
+    "This setting controls the workspace default for new members when an invite does not specify a seat type; explicit invite body seat_type still takes precedence."
+  ]
+}

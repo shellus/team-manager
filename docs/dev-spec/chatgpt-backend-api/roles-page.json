@@ -1,0 +1,42 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin/permissions",
+  "operation": "open_roles_page",
+  "records": [
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/rbac/workspace/{account_id}/roles?account_id={account_id}&consistency=strong",
+      "path": "/backend-api/rbac/workspace/{account_id}/roles?account_id={account_id}&consistency=strong",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/permissions",
+        "x-openai-target-path": "/backend-api/rbac/workspace/{account_id}/roles",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/rbac/workspace/{workspace_id}/roles",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 401,
+        "body": {
+          "detail": "RBAC not enabled"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1179 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin/billing",
+  "operation": "open_billing_page",
+  "records": [
+    {
+      "method": "POST",
+      "url": "https://chatgpt.com/backend-api/sentinel/heartbeat",
+      "path": "/backend-api/sentinel/heartbeat",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/permissions",
+        "x-openai-target-path": "/backend-api/sentinel/heartbeat",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/sentinel/heartbeat",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "status": "OK"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/checkout_pricing_config/countries",
+      "path": "/backend-api/checkout_pricing_config/countries",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/checkout_pricing_config/countries",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/checkout_pricing_config/countries",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "countries": [
+            "MY",
+            "SC",
+            "GG",
+            "KZ",
+            "SG",
+            "TW",
+            "AZ",
+            "JP",
+            "KG",
+            "MQ",
+            "AO",
+            "EE",
+            "LB",
+            "GQ",
+            "TF",
+            "ID",
+            "JE",
+            "ML",
+            "LK",
+            "XK",
+            "IS",
+            "PY",
+            "VG",
+            "KE",
+            "FO",
+            "BR",
+            "EC",
+            "NU",
+            "AS",
+            "AG",
+            "AQ",
+            "RE",
+            "CG",
+            "AR",
+            "OM",
+            "BM",
+            "MH",
+            "KM",
+            "CL",
+            "PL",
+            "GB",
+            "GD",
+            "MZ",
+            "US2",
+            "SX",
+            "BF",
+            "BW",
+            "PA",
+            "TD",
+            "GT",
+            "MD",
+            "BA",
+            "SL",
+            "NO",
+            "SH",
+            "NA",
+            "CR",
+            "DO",
+            "AD",
+            "CI",
+            "GW",
+            "VU",
+            "YT",
+            "BE",
+            "IE",
+            "RO",
+            "CH",
+            "GM",
+            "IM",
+            "ES",
+            "GH",
+            "PM",
+            "KN",
+            "BT",
+            "BQ",
+            "VI",
+            "TN",
+            "NI",
+            "TL",
+            "ET",
+            "GP",
+            "MU",
+            "TM",
+            "AM",
+            "RS",
+            "ST",
+            "NZ",
+            "SD",
+            "NP",
+            "NC",
+            "RW",
+            "TV",
+            "SV",
+            "LS",
+            "HN",
+            "TZ",
+            "IL",
+            "NF",
+            "MR",
+            "SK",
+            "PS",
+            "AT",
+            "ZW",
+            "QA",
+            "HT",
+            "WF",
+            "MG",
+            "AI",
+            "AF",
+            "VN",
+            "BB",
+            "NG",
+            "UA",
+            "SS",
+            "PT",
+            "GY",
+            "BL",
+            "UG",
+            "FK",
+            "DM",
+            "YE",
+            "MC",
+            "BS",
+            "MV",
+            "IQ",
+            "ZA",
+            "SM",
+            "PN",
+            "CW",
+            "SA",
+            "CK",
+            "CF",
+            "DK",
+            "IT",
+            "MP",
+            "GF",
+            "SJ",
+            "TO",
+            "CD",
+            "PE",
+            "BD",
+            "FR",
+            "CA",
+            "VC",
+            "TG",
+            "AE",
+            "BZ",
+            "BJ",
+            "PR",
+            "TR",
+            "KH",
+            "LC",
+            "TH",
+            "JO",
+            "LI",
+            "EG",
+            "DZ",
+            "FM",
+            "SN",
+            "PF",
+            "GA",
+            "PG",
+            "TC",
+            "GR",
+            "AX",
+            "LV",
+            "CZ",
+            "TJ",
+            "HU",
+            "ZM",
+            "LR",
+            "JM",
+            "BO",
+            "PH",
+            "BH",
+            "BG",
+            "EU",
+            "VA",
+            "UY",
+            "CV",
+            "LU",
+            "MK",
+            "MT",
+            "SI",
+            "KI",
+            "US",
+            "CY",
+            "LT",
+            "CO",
+            "GU",
+            "NR",
+            "AU",
+            "BN",
+            "KW",
+            "GE",
+            "FJ",
+            "DE",
+            "GL",
+            "SO",
+            "SE",
+            "NE",
+            "NL",
+            "PW",
+            "MX",
+            "MS",
+            "PK",
+            "SZ",
+            "ER",
+            "UZ",
+            "TK",
+            "GN",
+            "TT",
+            "KR",
+            "BI",
+            "HR",
+            "MN",
+            "AL",
+            "MM",
+            "ME",
+            "IN",
+            "DJ",
+            "MA",
+            "MF",
+            "WS",
+            "FI",
+            "SB",
+            "LY",
+            "SR",
+            "GI",
+            "AW",
+            "MW",
+            "LA",
+            "CM",
+            "KY"
+          ]
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/credits/pleas",
+      "path": "/backend-api/credits/pleas",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/credits/pleas",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/credits/pleas",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "pleas": [],
+          "cursor": null
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/subscriptions/{org_id}/settings",
+      "path": "/backend-api/subscriptions/{org_id}/settings",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/subscriptions/{org_id}/settings",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/subscriptions/{organization_id}/settings",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "overage_limit": null,
+          "alert_recipients": [],
+          "alert_thresholds": []
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/codex_invite_promo_status",
+      "path": "/backend-api/accounts/{account_id}/codex_invite_promo_status",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/codex_invite_promo_status",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/codex_invite_promo_status",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "eligible": false,
+          "redemption_cap_reached": false
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/promo_campaign/check_coupon?coupon=team_seats_promo",
+      "path": "/backend-api/promo_campaign/check_coupon?coupon=team_seats_promo",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/promo_campaign/check_coupon",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/promo_campaign/check_coupon",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "coupon": "team_seats_promo",
+          "state": "not_eligible",
+          "redemption": {
+            "redeemed": false,
+            "redeemed_at": null,
+            "redeemed_by_user": false,
+            "redeemed_by_workspace": false,
+            "user_redeemed_at": null,
+            "workspace_redeemed_at": null,
+            "promotion_length_days": null,
+            "expires_at": null
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/promo_campaign/check_coupon?coupon=team-1-month-free",
+      "path": "/backend-api/promo_campaign/check_coupon?coupon=team-1-month-free",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/promo_campaign/check_coupon",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/promo_campaign/check_coupon",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "coupon": "team-1-month-free",
+          "state": "temporary_disabled",
+          "redemption": {
+            "redeemed": false,
+            "redeemed_at": null,
+            "redeemed_by_user": false,
+            "redeemed_by_workspace": false,
+            "user_redeemed_at": null,
+            "workspace_redeemed_at": null,
+            "promotion_length_days": null,
+            "expires_at": null
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/checkout_pricing_config/configs/JP",
+      "path": "/backend-api/checkout_pricing_config/configs/JP",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/checkout_pricing_config/configs/JP",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/checkout_pricing_config/configs/{country_code}",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "country_code": "JP",
+          "currency_config": {
+            "free": {
+              "month": {
+                "tax": "inclusive",
+                "amount": 0
+              }
+            },
+            "go": {
+              "month": {
+                "amount": 1400,
+                "tax": "inclusive",
+                "psp_override": {
+                  "amount": 1273,
+                  "tax": "exclusive"
+                }
+              }
+            },
+            "plus": {
+              "month": {
+                "amount": 3000,
+                "tax": "inclusive",
+                "psp_override": {
+                  "amount": 2727,
+                  "tax": "exclusive"
+                }
+              },
+              "year": {
+                "amount": 2500,
+                "tax": "inclusive",
+                "psp_override": {
+                  "amount": 2272.75,
+                  "tax": "exclusive"
+                }
+              }
+            },
+            "pro": {
+              "month": {
+                "amount": 30000,
+                "tax": "inclusive",
+                "psp_override": {
+                  "amount": 27273,
+                  "tax": "exclusive"
+                }
+              }
+            },
+            "business": {
+              "month": {
+                "amount": 3850,
+                "tax": "exclusive"
+              },
+              "year": {
+                "amount": 3050,
+                "tax": "exclusive"
+              }
+            },
+            "amount_per_credit": 6.2,
+            "vat_display": {
+              "inclusive_tax_display": "tax_name_only",
+              "exclusive_tax_display": "tax_name_only",
+              "show_reverse_charge_disclaimer": false
+            },
+            "tax_type": "jct",
+            "symbol_code": "JPY",
+            "promos": {
+              "business_free_trial": {
+                "enabled": true,
+                "type": "value",
+                "amount": 0,
+                "cost_message": "0*"
+              },
+              "business_one_dollar": {
+                "enabled": false
+              },
+              "plus_intro_offer_3m": {
+                "enabled": false
+              },
+              "plus_intro_offer_12m": {
+                "enabled": false
+              }
+            },
+            "pricing_rollout_gate": "is_pricing_enabled_for_jpy",
+            "tax_percent": 10,
+            "symbol": "¥",
+            "free_workspace": {
+              "month": {
+                "tax": "inclusive",
+                "amount": 0
+              }
+            },
+            "business_non_profit": {
+              "month": {
+                "amount": 1530,
+                "tax": "exclusive"
+              },
+              "year": {
+                "amount": 1225,
+                "tax": "exclusive"
+              }
+            },
+            "prolite": {
+              "month": {
+                "amount": 16800,
+                "tax": "inclusive",
+                "psp_override": {
+                  "amount": 15272.73,
+                  "tax": "exclusive"
+                }
+              }
+            },
+            "minor_unit_exponent": 0
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/subscriptions/{account_id}/usage/export_data_freshness",
+      "path": "/backend-api/subscriptions/{account_id}/usage/export_data_freshness",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/subscriptions/{account_id}/usage/export_data_freshness",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/subscriptions/{workspace_id}/usage/export_data_freshness",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "most_recent_result": "2026-06-16T23:59:59Z"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/invoices?limit=4&account_id={account_id}",
+      "path": "/backend-api/invoices?limit=4&account_id={account_id}",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/invoices",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/invoices",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "data": [
+            {
+              "id": "in_1TiqUqC6h1nxGoI3Yhn6shXR",
+              "object": "invoice",
+              "account_country": "US",
+              "account_name": "OpenAI OpCo, LLC",
+              "account_tax_ids": null,
+              "amount_due": 2600,
+              "amount_overpaid": 0,
+              "amount_paid": 2600,
+              "amount_remaining": 0,
+              "amount_shipping": 0,
+              "application": null,
+              "application_fee_amount": null,
+              "attempt_count": 1,
+              "attempted": true,
+              "auto_advance": false,
+              "automatic_tax": {
+                "disabled_reason": null,
+                "enabled": true,
+                "liability": {
+                  "type": "self"
+                },
+                "provider": "stripe",
+                "status": "complete"
+              },
+              "automatically_finalizes_at": null,
+              "billing_reason": "subscription_create",
+              "charge": "ch_3TiqUrC6h1nxGoI32FWPydxi",
+              "collection_method": "charge_automatically",
+              "created": 1781591356,
+              "currency": "cad",
+              "custom_fields": null,
+              "customer": "cus_UiGUjmug0rEzSQ",
+              "customer_account": null,
+              "customer_address": {
+                "city": "Midland",
+                "country": "US",
+                "line1": "12885 Hill Pine Road",
+                "line2": null,
+                "postal_code": "28107",
+                "state": "NC"
+              },
+              "customer_email": "{email}",
+              "customer_name": "Ge Jiaxiang",
+              "customer_phone": null,
+              "customer_shipping": null,
+              "customer_tax_exempt": "none",
+              "customer_tax_ids": [],
+              "default_payment_method": null,
+              "default_source": null,
+              "default_tax_rates": [],
+              "description": null,
+              "discount": {
+                "id": "di_1TiqUqC6h1nxGoI37lg7Hheb",
+                "object": "discount",
+                "checkout_session": "<redacted>",
+                "coupon": {
+                  "id": "KVjN9zD7",
+                  "object": "coupon",
+                  "amount_off": 4200,
+                  "created": 1774658949,
+                  "currency": "cad",
+                  "duration": "repeating",
+                  "duration_in_months": 48,
+                  "livemode": true,
+                  "max_redemptions": null,
+                  "metadata": {
+                    "campaign_id": "smb-channel-partner-ignite-CA-CAD",
+                    "cancellation_policy": "term_end",
+                    "tranche_id": "{hex_id}"
+                  },
+                  "name": "smb_channel_partner_ignite_CA_69c72584f4",
+                  "percent_off": null,
+                  "redeem_by": null,
+                  "script": null,
+                  "times_redeemed": 15,
+                  "type": "amount_off",
+                  "valid": true
+                },
+                "customer": "cus_UiGUjmug0rEzSQ",
+                "customer_account": null,
+                "end": 1907821756,
+                "invoice": null,
+                "invoice_item": null,
+                "promotion_code": null,
+                "start": 1781591356,
+                "subscription": "sub_1TiqUqC6h1nxGoI34n8w3m3Q",
+                "subscription_item": null
+              },
+              "discounts": [
+                "di_1TiqUqC6h1nxGoI37lg7Hheb"
+              ],
+              "due_date": null,
+              "effective_at": 1781591356,
+              "ending_balance": 0,
+              "footer": null,
+              "from_invoice": null,
+              "hosted_invoice_url": "https://invoice.stripe.com/i/acct_1HOrSwC6h1nxGoI3/live_YWNjdF8xSE9yU3dDNmgxbnhHb0kzLF9VaUgyaXZuOEt0WkExTDVvbXBycHNTUERKNUhVOW5TLDE3MjI1MDc4OA0200Oebx3WeO?s=ap",
+              "invoice_pdf": "https://pay.stripe.com/invoice/acct_1HOrSwC6h1nxGoI3/live_YWNjdF8xSE9yU3dDNmgxbnhHb0kzLF9VaUgyaXZuOEt0WkExTDVvbXBycHNTUERKNUhVOW5TLDE3MjI1MDc4OA0200Oebx3WeO/pdf?s=ap",
+              "issuer": {
+                "type": "self"
+              },
+              "last_finalization_error": null,
+              "latest_revision": null,
+              "lines": {
+                "object": "list",
+                "data": [
+                  {
+                    "id": "il_1TiqUqC6h1nxGoI32PDA9C4m",
+                    "object": "line_item",
+                    "amount": 6800,
+                    "amount_excluding_tax": 6800,
+                    "currency": "cad",
+                    "description": "2 seat × ChatGPT Business Subscription (at $34.00 / month)",
+                    "discount_amounts": [
+                      {
+                        "amount": 4200,
+                        "discount": "di_1TiqUqC6h1nxGoI37lg7Hheb"
+                      }
+                    ],
+                    "discountable": true,
+                    "discounts": [],
+                    "invoice": "in_1TiqUqC6h1nxGoI3Yhn6shXR",
+                    "livemode": true,
+                    "metadata": {
+                      "account_id": "{account_id}",
+                      "account_name": "W",
+                      "billing_details_country": "CA",
+                      "billing_details_currency": "CAD",
+                      "client_device_id": "<redacted>",
+                      "processor_entity": "openai_llc",
+                      "referral_credit_ids": "[]",
+                      "request_client_type": "desktop_web",
+                      "request_country": "CA",
+                      "subscription_price_id": "price_1TBo26C6h1nxGoI3oku4gF50",
+                      "subscription_quantity": "2",
+                      "system": "chatgpt",
+                      "user_email_domain_type": "social",
+                      "user_facing_promo_code": "igniteca",
+                      "user_origin_tag": "chatgptteamplan",
+                      "user_ref": "{user_id}",
+                      "user_reftype": "chatgpt_user_id"
+                    },
+                    "parent": {
+                      "invoice_item_details": null,
+                      "license_fee_subscription_details": null,
+                      "subscription_item_details": {
+                        "invoice_item": null,
+                        "proration": false,
+                        "proration_details": {
+                          "credited_items": null
+                        },
+                        "subscription": "sub_1TiqUqC6h1nxGoI34n8w3m3Q",
+                        "subscription_item": "si_UiH2g1E4m227cf"
+                      },
+                      "type": "subscription_item_details"
+                    },
+                    "period": {
+                      "end": 1784183356,
+                      "start": 1781591356
+                    },
+                    "plan": {
+                      "id": "price_1TBo26C6h1nxGoI3oku4gF50",
+                      "object": "plan",
+                      "active": true,
+                      "aggregate_usage": null,
+                      "amount": 3400,
+                      "amount_decimal": "3400",
+                      "billing_scheme": "per_unit",
+                      "created": 1773717062,
+                      "currency": "cad",
+                      "interval": "month",
+                      "interval_count": 1,
+                      "livemode": true,
+                      "metadata": {},
+                      "meter": null,
+                      "nickname": "CA_team_monthly_cad_v2026_03_16",
+                      "product": "prod_OiZDwBWI98CZl8",
+                      "tiers_mode": null,
+                      "transform_usage": null,
+                      "trial_period_days": null,
+                      "usage_type": "licensed"
+                    },
+                    "pretax_credit_amounts": [
+                      {
+                        "amount": 4200,
+                        "discount": "di_1TiqUqC6h1nxGoI37lg7Hheb",
+                        "type": "discount"
+                      }
+                    ],
+                    "price": {
+                      "id": "price_1TBo26C6h1nxGoI3oku4gF50",
+                      "object": "price",
+                      "active": true,
+                      "billing_scheme": "per_unit",
+                      "created": 1773717062,
+                      "currency": "cad",
+                      "custom_unit_amount": null,
+                      "livemode": true,
+                      "lookup_key": null,
+                      "metadata": {},
+                      "migrate_to": null,
+                      "nickname": "CA_team_monthly_cad_v2026_03_16",
+                      "product": "prod_OiZDwBWI98CZl8",
+                      "recurring": {
+                        "aggregate_usage": null,
+                        "interval": "month",
+                        "interval_count": 1,
+                        "meter": null,
+                        "trial_period_days": null,
+                        "usage_type": "licensed"
+                      },
+                      "tax_behavior": "exclusive",
+                      "tiers_mode": null,
+                      "transform_quantity": null,
+                      "type": "recurring",
+                      "unit_amount": 3400,
+                      "unit_amount_decimal": "3400"
+                    },
+                    "pricing": {
+                      "price_details": {
+                        "price": "price_1TBo26C6h1nxGoI3oku4gF50",
+                        "product": "prod_OiZDwBWI98CZl8"
+                      },
+                      "type": "price_details",
+                      "unit_amount_decimal": "3400"
+                    },
+                    "proration": false,
+                    "proration_details": {
+                      "credited_items": null
+                    },
+                    "quantity": 2,
+                    "quantity_decimal": "2",
+                    "rendering": null,
+                    "subscription": "sub_1TiqUqC6h1nxGoI34n8w3m3Q",
+                    "subscription_item": "si_UiH2g1E4m227cf",
+                    "subtotal": 6800,
+                    "tax_amounts": [
+                      {
+                        "amount": 0,
+                        "inclusive": false,
+                        "tax_rate": "txr_1TPfeaC6h1nxGoI36WjtKqz2",
+                        "taxability_reason": "product_exempt",
+                        "taxable_amount": 0
+                      }
+                    ],
+                    "tax_rates": [],
+                    "taxes": [
+                      {
+                        "amount": 0,
+                        "filing_amount": {
+                          "amount": 0,
+                          "currency": "usd",
+                          "exchange_rate": 0.713638
+                        },
+                        "tax_behavior": "exclusive",
+                        "tax_rate_details": {
+                          "tax_rate": "txr_1TPfeaC6h1nxGoI36WjtKqz2"
+                        },
+                        "taxability_reason": "product_exempt",
+                        "taxable_amount": 0,
+                        "type": "tax_rate_details"
+                      }
+                    ],
+                    "type": "subscription",
+                    "unit_amount_excluding_tax": "3400"
+                  }
+                ],
+                "has_more": false,
+                "total_count": 1,
+                "url": "/v1/invoices/in_1TiqUqC6h1nxGoI3Yhn6shXR/lines"
+              },
+              "livemode": true,
+              "metadata": {
+                "oai_txn_skipped": "True"
+              },
+              "next_payment_attempt": null,
+              "number": "7EHXOGWB-0001",
+              "on_behalf_of": null,
+              "paid": true,
+              "paid_out_of_band": false,
+              "parent": {
+                "quote_details": null,
+                "subscription_details": {
+                  "metadata": {
+                    "account_id": "{account_id}",
+                    "account_name": "W",
+                    "billing_details_country": "CA",
+                    "billing_details_currency": "CAD",
+                    "client_device_id": "<redacted>",
+                    "processor_entity": "openai_llc",
+                    "referral_credit_ids": "[]",
+                    "request_client_type": "desktop_web",
+                    "request_country": "CA",
+                    "subscription_price_id": "price_1TBo26C6h1nxGoI3oku4gF50",
+                    "subscription_quantity": "2",
+                    "system": "chatgpt",
+                    "user_email_domain_type": "social",
+                    "user_facing_promo_code": "igniteca",
+                    "user_origin_tag": "chatgptteamplan",
+                    "user_ref": "{user_id}",
+                    "user_reftype": "chatgpt_user_id"
+                  },
+                  "subscription": "sub_1TiqUqC6h1nxGoI34n8w3m3Q"
+                },
+                "type": "subscription_details"
+              },
+              "payment_intent": "pi_3TiqUrC6h1nxGoI322G5z9al",
+              "payment_settings": {
+                "default_mandate": null,
+                "payment_method_options": {
+                  "acss_debit": null,
+                  "bancontact": null,
+                  "card": {
+                    "request_three_d_secure": "automatic"
+                  },
+                  "customer_balance": null,
+                  "konbini": null,
+                  "payto": null,
+                  "pix": null,
+                  "sepa_debit": null,
+                  "upi": null,
+                  "us_bank_account": null
+                },
+                "payment_method_types": null
+              },
+              "period_end": 1781591356,
+              "period_start": 1781591356,
+              "post_payment_credit_notes_amount": 0,
+              "pre_payment_credit_notes_amount": 0,
+              "quote": null,
+              "receipt_number": null,
+              "rendering": null,
+              "shipping_cost": null,
+              "shipping_details": null,
+              "starting_balance": 0,
+              "statement_descriptor": null,
+              "status": "paid",
+              "status_transitions": {
+                "finalized_at": 1781591356,
+                "marked_uncollectible_at": null,
+                "paid_at": 1781591380,
+                "voided_at": null
+              },
+              "subscription": "sub_1TiqUqC6h1nxGoI34n8w3m3Q",
+              "subscription_details": {
+                "metadata": {
+                  "account_id": "{account_id}",
+                  "account_name": "W",
+                  "billing_details_country": "CA",
+                  "billing_details_currency": "CAD",
+                  "client_device_id": "<redacted>",
+                  "processor_entity": "openai_llc",
+                  "referral_credit_ids": "[]",
+                  "request_client_type": "desktop_web",
+                  "request_country": "CA",
+                  "subscription_price_id": "price_1TBo26C6h1nxGoI3oku4gF50",
+                  "subscription_quantity": "2",
+                  "system": "chatgpt",
+                  "user_email_domain_type": "social",
+                  "user_facing_promo_code": "igniteca",
+                  "user_origin_tag": "chatgptteamplan",
+                  "user_ref": "{user_id}",
+                  "user_reftype": "chatgpt_user_id"
+                }
+              },
+              "subtotal": 6800,
+              "subtotal_excluding_tax": 6800,
+              "tax": 0,
+              "tax_filing_currency": "usd",
+              "test_clock": null,
+              "total": 2600,
+              "total_discount_amounts": [
+                {
+                  "amount": 4200,
+                  "discount": "di_1TiqUqC6h1nxGoI37lg7Hheb"
+                }
+              ],
+              "total_excluding_tax": 2600,
+              "total_pretax_credit_amounts": [
+                {
+                  "amount": 4200,
+                  "discount": "di_1TiqUqC6h1nxGoI37lg7Hheb",
+                  "type": "discount"
+                }
+              ],
+              "total_tax_amounts": [
+                {
+                  "amount": 0,
+                  "filing_amount": {
+                    "amount": 0,
+                    "currency": "usd",
+                    "exchange_rate": 0.713638
+                  },
+                  "inclusive": false,
+                  "tax_rate": "txr_1TPfeaC6h1nxGoI36WjtKqz2",
+                  "taxability_reason": "product_exempt",
+                  "taxable_amount": 0
+                }
+              ],
+              "total_taxes": [
+                {
+                  "amount": 0,
+                  "filing_amount": {
+                    "amount": 0,
+                    "currency": "usd",
+                    "exchange_rate": 0.713638
+                  },
+                  "tax_behavior": "exclusive",
+                  "tax_rate_details": {
+                    "tax_rate": "txr_1TPfeaC6h1nxGoI36WjtKqz2"
+                  },
+                  "taxability_reason": "product_exempt",
+                  "taxable_amount": 0,
+                  "type": "tax_rate_details"
+                }
+              ],
+              "transfer_data": null,
+              "webhooks_delivered_at": 1781591365
+            }
+          ],
+          "has_more": false
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users/seat_type_counts",
+      "path": "/backend-api/accounts/{account_id}/users/seat_type_counts",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/billing",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/users/seat_type_counts",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/users/seat_type_counts",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "seat_type_counts": {
+            "default": 1,
+            "usage_based": 2
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@team-manager/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "test": "tsx --test src/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@team-manager/shared": "workspace:*",
+    "hono": "^4.6.0",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "tsx": "latest"
+  }
+}

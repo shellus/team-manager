@@ -1,0 +1,737 @@
+{
+  "captured_at": "2026-06-17",
+  "source": "playwright-remote logged-in ChatGPT Web page",
+  "page": "https://chatgpt.com/admin/members",
+  "operation": "member_seat_change_{member_name}_to_Codex",
+  "records": [
+    {
+      "method": "PATCH",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users/{user_id}",
+      "path": "/backend-api/accounts/{account_id}/users/{user_id}",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "content-type": "application/json",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/users/{user_id}",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/users/{user_id}",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": {
+        "seat_type": "usage_based"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "success": true
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users?offset=0&limit=25&query=",
+      "path": "/backend-api/accounts/{account_id}/users?offset=0&limit=25&query=",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/users",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/users",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "items": [
+            {
+              "id": "{user_id}",
+              "account_user_id": "{user_id}__{account_id}",
+              "email": "{email}",
+              "verified_email": null,
+              "role": "standard-user",
+              "seat_type": "default",
+              "credit_limits": null,
+              "name": "{member_name}",
+              "created_time": "2026-06-16T09:35:08.216159Z",
+              "is_scim_managed": false,
+              "deactivated_time": null
+            },
+            {
+              "id": "{user_id}",
+              "account_user_id": "{user_id}__{account_id}",
+              "email": "{email}",
+              "verified_email": null,
+              "role": "standard-user",
+              "seat_type": "usage_based",
+              "credit_limits": null,
+              "name": "{member_name}",
+              "created_time": "2026-06-16T09:05:45.038308Z",
+              "is_scim_managed": false,
+              "deactivated_time": null
+            },
+            {
+              "id": "{user_id}",
+              "account_user_id": "{user_id}__{account_id}",
+              "email": "{email}",
+              "verified_email": null,
+              "role": "account-owner",
+              "seat_type": "usage_based",
+              "credit_limits": null,
+              "name": "{owner_name}",
+              "created_time": "2026-06-16T06:29:44.889968Z",
+              "is_scim_managed": false,
+              "deactivated_time": null
+            }
+          ],
+          "total": 3,
+          "limit": 25,
+          "offset": 0
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "url": "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=0",
+      "path": "/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=0",
+      "headers": {
+        "oai-language": "zh-CN",
+        "sec-ch-ua-platform": "\"Linux\"",
+        "authorization": "<redacted>",
+        "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"147.0.7727.116\", \"Not.A/Brand\";v=\"8.0.0.0\", \"Chromium\";v=\"147.0.7727.116\"",
+        "chatgpt-account-id": "{account_id}",
+        "sec-ch-ua": "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+        "sec-ch-ua-bitness": "\"64\"",
+        "sec-ch-ua-model": "\"\"",
+        "sec-ch-ua-mobile": "?0",
+        "oai-client-build-number": "7559038",
+        "sec-ch-ua-arch": "\"x86\"",
+        "sec-ch-ua-full-version": "\"147.0.7727.116\"",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-session-id": "<redacted>",
+        "referer": "https://chatgpt.com/admin/members",
+        "x-openai-target-path": "/backend-api/accounts/check/v4-2023-04-27",
+        "oai-device-id": "<redacted>",
+        "x-openai-target-route": "/backend-api/accounts/check/{version}",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+        "sec-ch-ua-platform-version": "\"\""
+      },
+      "body": "",
+      "response": {
+        "status": 200,
+        "body": {
+          "accounts": {
+            "{account_id}": {
+              "account": {
+                "account_user_role": "account-owner",
+                "account_user_id": "{user_id}__{account_id}",
+                "account_owner_id": "{user_id}",
+                "account_residency_region": "no_constraint",
+                "account_compute_residency": "no_constraint",
+                "account_compute_residency_display_name": "No Constraint",
+                "account_compute_residency_description": "No inference residency constraints",
+                "processor": {
+                  "a001": {
+                    "has_customer_object": true,
+                    "processor_entity": "openai_llc"
+                  },
+                  "b001": {
+                    "has_transaction_history": false
+                  },
+                  "c001": {
+                    "has_transaction_history": false
+                  }
+                },
+                "account_id": "{account_id}",
+                "organization_id": "{org_id}",
+                "is_most_recent_expired_subscription_gratis": false,
+                "has_previously_paid_subscription": true,
+                "name": "{workspace_name}",
+                "profile_picture_id": "{profile_picture_id}",
+                "profile_picture_url": "{profile_picture_url}",
+                "structure": "workspace",
+                "workspace_type": null,
+                "plan_type": "self_serve_business_usage_based",
+                "pthdnu": "{hex_id}",
+                "is_deactivated": false,
+                "eligible_for_reactivation": true,
+                "promo_data": {},
+                "user_segmentation_info": null,
+                "reseller_hosted_account": false,
+                "reseller_id": null,
+                "ekm_config": null,
+                "is_hipaa_compliant_workspace": false,
+                "hipaa_workspace_baa_metadata": null,
+                "is_finserv_enabled_workspace": false,
+                "is_fedramp_compliant_workspace": false,
+                "is_conversation_classifier_enabled_for_workspace": false,
+                "started_as_free_workspace": false,
+                "disable_account_switching": true,
+                "enable_account_switching": false
+              },
+              "features": [
+                "app_pairing",
+                "aura_available",
+                "basispoints",
+                "beta_features",
+                "bizmo_settings",
+                "breeze_available",
+                "browsing_available",
+                "canvas",
+                "canvas_code_execution",
+                "canvas_code_network_access",
+                "canvas_o1",
+                "caterpillar",
+                "chat_preferences_available",
+                "chatgpt_ios_attest",
+                "code_interpreter_available",
+                "codex_agent_network_access",
+                "codex_only",
+                "codex_security",
+                "codex_usage_leaderboard",
+                "d3_controls",
+                "d3_editor",
+                "d3_editor_gpts",
+                "dalle_3",
+                "disable_model_upsell",
+                "disable_upgrade_ui",
+                "file_library_auto_reference",
+                "gizmo_reviews",
+                "gizmo_support_emails",
+                "gpt4_1",
+                "gpt4_1_mini",
+                "gpt5",
+                "gpt5_mini",
+                "gpt5_pro",
+                "hermes",
+                "hippo_in_chat_allowed",
+                "hive",
+                "hive_knowledge_retrieval",
+                "image_gen_tool_enabled",
+                "include_user_identifier_in_survey_download",
+                "mfa",
+                "model_ab_use_v2",
+                "model_switcher",
+                "n7jupd",
+                "new_plugin_oauth_endpoint",
+                "no_auth_training_enabled_by_default",
+                "o1_launch",
+                "o3",
+                "o3-mini",
+                "o3_pro",
+                "o4_mini",
+                "plugins_available",
+                "privacy_policy_nov_2023",
+                "project_group_chats",
+                "project_sharing",
+                "search_tool",
+                "sentinel_enabled_for_subscription",
+                "share_multimodal_links",
+                "share_retrieval_links",
+                "shareable_links",
+                "sites",
+                "skills",
+                "snc",
+                "starter_prompts",
+                "sunshine_available",
+                "system_message2",
+                "user_settings_announcements",
+                "video_screen_sharing",
+                "voice_advanced_ga",
+                "voice_file_upload",
+                "voice_image_upload_wingman",
+                "voice_mode_tool_enabled",
+                "voice_text_upload",
+                "voice_text_upload_wingman",
+                "wham",
+                "wham_access",
+                "wham_local_access",
+                "windows_computer_use",
+                "workspace_client_application_apple",
+                "workspace_context_connectors_confluence",
+                "workspace_context_connectors_gdrive",
+                "workspace_context_connectors_java",
+                "workspace_context_connectors_notion",
+                "workspace_context_connectors_o365_business",
+                "workspace_context_connectors_o365_personal",
+                "workspace_context_connectors_slack",
+                "workspace_gpt_apps",
+                "workspace_gpt_custom_actions",
+                "workspace_ip_allowlist",
+                "workspace_share_links",
+                "writing_blocks_document_mode"
+              ],
+              "entitlement": {
+                "subscription_id": "{uuid}",
+                "has_active_subscription": true,
+                "is_active_subscription_gratis": false,
+                "subscription_plan": "chatgptteamplan",
+                "expires_at": "2026-07-16T12:29:16+00:00",
+                "renews_at": "2026-07-16T06:29:16+00:00",
+                "cancels_at": null,
+                "billing_period": "monthly",
+                "scheduled_plan_change": null,
+                "billing_currency": "CAD",
+                "discount": {
+                  "discount_type": "fixed",
+                  "amount": 42,
+                  "duration_num_periods": 48,
+                  "discount_expires_at": "2030-06-16T06:29:16+00:00",
+                  "discount_start_in_num_periods": null,
+                  "cancellation_policy": "term_end",
+                  "promo_campaign_id": "smb-channel-partner-ignite-CA-CAD",
+                  "quantity_off": null
+                },
+                "applied_discounts": [
+                  {
+                    "discount_type": "fixed",
+                    "amount": 42,
+                    "duration_num_periods": 48,
+                    "discount_expires_at": "2030-06-16T06:29:16+00:00",
+                    "discount_start_in_num_periods": null,
+                    "cancellation_policy": "term_end",
+                    "promo_campaign_id": "smb-channel-partner-ignite-CA-CAD",
+                    "quantity_off": null
+                  }
+                ],
+                "trial": null,
+                "is_eligible_for_cp": false,
+                "is_delinquent": false,
+                "became_delinquent_timestamp": null,
+                "grace_period_end_timestamp": null,
+                "grace_period_id": null
+              },
+              "last_active_subscription": {
+                "subscription_id": "{uuid}",
+                "purchase_origin_platform": "chatgpt_web",
+                "will_renew": true,
+                "cancellation_outcome": null
+              },
+              "is_eligible_for_yearly_plus_subscription": false,
+              "can_access_with_session": "<redacted>",
+              "sso_connection_name": null,
+              "eligible_promo_campaigns": {},
+              "eligible_offers": {
+                "offers": [
+                  {
+                    "id": "chatgptfreeplan",
+                    "epl_enabled": null,
+                    "revenuecat_offering_ids": []
+                  },
+                  {
+                    "id": "chatgptteamplan",
+                    "epl_enabled": false,
+                    "revenuecat_offering_ids": []
+                  },
+                  {
+                    "id": "chatgptfreeworkspaceplan",
+                    "epl_enabled": false,
+                    "revenuecat_offering_ids": []
+                  }
+                ],
+                "default_offer_id": "chatgptteamplan"
+              }
+            },
+            "{uuid}": {
+              "account": {
+                "account_user_role": "account-owner",
+                "account_user_id": "{user_id}__{uuid}",
+                "account_owner_id": "{user_id}",
+                "account_residency_region": "no_constraint",
+                "account_compute_residency": "no_constraint",
+                "account_compute_residency_display_name": "No Constraint",
+                "account_compute_residency_description": "No inference residency constraints",
+                "processor": {
+                  "a001": {
+                    "has_customer_object": false,
+                    "processor_entity": "openai_llc"
+                  },
+                  "b001": {
+                    "has_transaction_history": false
+                  },
+                  "c001": {
+                    "has_transaction_history": true
+                  }
+                },
+                "account_id": "{uuid}",
+                "organization_id": null,
+                "is_most_recent_expired_subscription_gratis": false,
+                "has_previously_paid_subscription": true,
+                "name": null,
+                "profile_picture_id": null,
+                "profile_picture_url": null,
+                "structure": "personal",
+                "workspace_type": null,
+                "plan_type": "free",
+                "pthdnu": "{hex_id}",
+                "is_deactivated": false,
+                "eligible_for_reactivation": true,
+                "promo_data": {},
+                "user_segmentation_info": null,
+                "reseller_hosted_account": false,
+                "reseller_id": null,
+                "ekm_config": null,
+                "is_hipaa_compliant_workspace": false,
+                "hipaa_workspace_baa_metadata": null,
+                "is_finserv_enabled_workspace": false,
+                "is_fedramp_compliant_workspace": false,
+                "is_conversation_classifier_enabled_for_workspace": true,
+                "started_as_free_workspace": false,
+                "disable_account_switching": true,
+                "enable_account_switching": false
+              },
+              "features": [
+                "aura_available",
+                "basispoints",
+                "bizmo_settings",
+                "breeze_available",
+                "canvas",
+                "canvas_code_execution",
+                "canvas_code_network_access",
+                "canvas_o1",
+                "caterpillar",
+                "chat_preferences_available",
+                "chatgpt_ios_attest",
+                "codex_only",
+                "d3_controls",
+                "d3_editor",
+                "d3_editor_gpts",
+                "gizmo_reviews",
+                "gizmo_support_emails",
+                "gpt4_1",
+                "gpt4_1_mini",
+                "gpt5",
+                "gpt5_mini",
+                "gpt5_pro",
+                "image_gen_tool_enabled",
+                "mfa",
+                "model_ab_use_v2",
+                "n7jupd",
+                "new_plugin_oauth_endpoint",
+                "no_auth_training_enabled_by_default",
+                "o1_launch",
+                "o3",
+                "o3-mini",
+                "o3_pro",
+                "o4_mini",
+                "privacy_policy_nov_2023",
+                "search_tool",
+                "sentinel_enabled_for_subscription",
+                "share_multimodal_links",
+                "share_retrieval_links",
+                "shareable_links",
+                "snc",
+                "starter_prompts",
+                "user_settings_announcements",
+                "video_screen_sharing",
+                "voice_advanced_ga",
+                "voice_file_upload",
+                "voice_image_upload_wingman",
+                "voice_mode_tool_enabled",
+                "voice_text_upload",
+                "voice_text_upload_wingman",
+                "wham",
+                "workspace_ip_allowlist",
+                "writing_blocks_document_mode"
+              ],
+              "entitlement": {
+                "subscription_id": "{uuid}",
+                "has_active_subscription": false,
+                "is_active_subscription_gratis": false,
+                "subscription_plan": "chatgptplusplan",
+                "expires_at": "2026-04-29T23:10:55+00:00",
+                "renews_at": null,
+                "cancels_at": null,
+                "billing_period": "monthly",
+                "scheduled_plan_change": null,
+                "billing_currency": "USD",
+                "discount": null,
+                "applied_discounts": [],
+                "trial": null,
+                "is_eligible_for_cp": false,
+                "is_delinquent": false,
+                "became_delinquent_timestamp": null,
+                "grace_period_end_timestamp": "2026-04-28T22:10:56+00:00",
+                "grace_period_id": null
+              },
+              "last_active_subscription": {
+                "subscription_id": "{uuid}",
+                "purchase_origin_platform": "chatgpt_mobile_android",
+                "will_renew": false,
+                "cancellation_outcome": null
+              },
+              "is_eligible_for_yearly_plus_subscription": false,
+              "can_access_with_session": "<redacted>",
+              "sso_connection_name": null,
+              "eligible_promo_campaigns": {},
+              "eligible_offers": {
+                "offers": [
+                  {
+                    "id": "chatgptfreeplan",
+                    "epl_enabled": null,
+                    "revenuecat_offering_ids": []
+                  },
+                  {
+                    "id": "chatgptteamplan",
+                    "epl_enabled": false,
+                    "revenuecat_offering_ids": []
+                  },
+                  {
+                    "id": "chatgptfreeworkspaceplan",
+                    "epl_enabled": false,
+                    "revenuecat_offering_ids": []
+                  }
+                ],
+                "default_offer_id": "chatgptteamplan"
+              }
+            },
+            "default": {
+              "account": {
+                "account_user_role": "account-owner",
+                "account_user_id": "{user_id}__{uuid}",
+                "account_owner_id": "{user_id}",
+                "account_residency_region": "no_constraint",
+                "account_compute_residency": "no_constraint",
+                "account_compute_residency_display_name": "No Constraint",
+                "account_compute_residency_description": "No inference residency constraints",
+                "processor": {
+                  "a001": {
+                    "has_customer_object": false,
+                    "processor_entity": "openai_llc"
+                  },
+                  "b001": {
+                    "has_transaction_history": false
+                  },
+                  "c001": {
+                    "has_transaction_history": true
+                  }
+                },
+                "account_id": "{uuid}",
+                "organization_id": null,
+                "is_most_recent_expired_subscription_gratis": false,
+                "has_previously_paid_subscription": true,
+                "name": null,
+                "profile_picture_id": null,
+                "profile_picture_url": null,
+                "structure": "personal",
+                "workspace_type": null,
+                "plan_type": "free",
+                "pthdnu": "{hex_id}",
+                "is_deactivated": false,
+                "eligible_for_reactivation": true,
+                "promo_data": {},
+                "user_segmentation_info": null,
+                "reseller_hosted_account": false,
+                "reseller_id": null,
+                "ekm_config": null,
+                "is_hipaa_compliant_workspace": false,
+                "hipaa_workspace_baa_metadata": null,
+                "is_finserv_enabled_workspace": false,
+                "is_fedramp_compliant_workspace": false,
+                "is_conversation_classifier_enabled_for_workspace": true,
+                "started_as_free_workspace": false,
+                "disable_account_switching": true,
+                "enable_account_switching": false
+              },
+              "features": [
+                "aura_available",
+                "basispoints",
+                "bizmo_settings",
+                "breeze_available",
+                "canvas",
+                "canvas_code_execution",
+                "canvas_code_network_access",
+                "canvas_o1",
+                "caterpillar",
+                "chat_preferences_available",
+                "chatgpt_ios_attest",
+                "codex_only",
+                "d3_controls",
+                "d3_editor",
+                "d3_editor_gpts",
+                "gizmo_reviews",
+                "gizmo_support_emails",
+                "gpt4_1",
+                "gpt4_1_mini",
+                "gpt5",
+                "gpt5_mini",
+                "gpt5_pro",
+                "image_gen_tool_enabled",
+                "mfa",
+                "model_ab_use_v2",
+                "n7jupd",
+                "new_plugin_oauth_endpoint",
+                "no_auth_training_enabled_by_default",
+                "o1_launch",
+                "o3",
+                "o3-mini",
+                "o3_pro",
+                "o4_mini",
+                "privacy_policy_nov_2023",
+                "search_tool",
+                "sentinel_enabled_for_subscription",
+                "share_multimodal_links",
+                "share_retrieval_links",
+                "shareable_links",
+                "snc",
+                "starter_prompts",
+                "user_settings_announcements",
+                "video_screen_sharing",
+                "voice_advanced_ga",
+                "voice_file_upload",
+                "voice_image_upload_wingman",
+                "voice_mode_tool_enabled",
+                "voice_text_upload",
+                "voice_text_upload_wingman",
+                "wham",
+                "workspace_ip_allowlist",
+                "writing_blocks_document_mode"
+              ],
+              "entitlement": {
+                "subscription_id": "{uuid}",
+                "has_active_subscription": false,
+                "is_active_subscription_gratis": false,
+                "subscription_plan": "chatgptplusplan",
+                "expires_at": "2026-04-29T23:10:55+00:00",
+                "renews_at": null,
+                "cancels_at": null,
+                "billing_period": "monthly",
+                "scheduled_plan_change": null,
+                "billing_currency": "USD",
+                "discount": null,
+                "applied_discounts": [],
+                "trial": null,
+                "is_eligible_for_cp": false,
+                "is_delinquent": false,
+                "became_delinquent_timestamp": null,
+                "grace_period_end_timestamp": "2026-04-28T22:10:56+00:00",
+                "grace_period_id": null
+              },
+              "last_active_subscription": {
+                "subscription_id": "{uuid}",
+                "purchase_origin_platform": "chatgpt_mobile_android",
+                "will_renew": false,
+                "cancellation_outcome": null
+              },
+              "is_eligible_for_yearly_plus_subscription": false,
+              "can_access_with_session": "<redacted>",
+              "sso_connection_name": null,
+              "eligible_promo_campaigns": {},
+              "eligible_offers": {
+                "offers": [
+                  {
+                    "id": "chatgptfreeplan",
+                    "epl_enabled": null,
+                    "revenuecat_offering_ids": []
+                  },
+                  {
+                    "id": "chatgptteamplan",
+                    "epl_enabled": false,
+                    "revenuecat_offering_ids": []
+                  },
+                  {
+                    "id": "chatgptfreeworkspaceplan",
+                    "epl_enabled": false,
+                    "revenuecat_offering_ids": []
+                  }
+                ],
+                "default_offer_id": "chatgptteamplan"
+              }
+            }
+          },
+          "account_ordering": [
+            "{account_id}",
+            "{uuid}"
+          ]
+        }
+      }
+    }
+  ],
+  "browser_request_log": [
+    {
+      "at": "2026-06-17T15:53:09.544Z",
+      "channel": "fetch",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users/{user_id}",
+      "method": "PATCH",
+      "headers": {
+        "authorization": "<redacted>",
+        "chatgpt-account-id": "{account_id}",
+        "content-type": "application/json",
+        "oai-client-build-number": "7559038",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-device-id": "<redacted>",
+        "oai-language": "zh-CN",
+        "oai-session-id": "<redacted>",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/users/{user_id}",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/users/{user_id}"
+      },
+      "body": {
+        "seat_type": "usage_based"
+      }
+    },
+    {
+      "at": "2026-06-17T15:53:12.865Z",
+      "channel": "fetch",
+      "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users?offset=0&limit=25&query=",
+      "method": "GET",
+      "headers": {
+        "authorization": "<redacted>",
+        "chatgpt-account-id": "{account_id}",
+        "oai-client-build-number": "7559038",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-device-id": "<redacted>",
+        "oai-language": "zh-CN",
+        "oai-session-id": "<redacted>",
+        "x-openai-target-path": "/backend-api/accounts/{account_id}/users",
+        "x-openai-target-route": "/backend-api/accounts/{account_id}/users"
+      },
+      "body": ""
+    },
+    {
+      "at": "2026-06-17T15:53:12.880Z",
+      "channel": "fetch",
+      "url": "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=0",
+      "method": "GET",
+      "headers": {
+        "authorization": "<redacted>",
+        "chatgpt-account-id": "{account_id}",
+        "oai-client-build-number": "7559038",
+        "oai-client-version": "prod-{hex_id}",
+        "oai-device-id": "<redacted>",
+        "oai-language": "zh-CN",
+        "oai-session-id": "<redacted>",
+        "x-openai-target-path": "/backend-api/accounts/check/v4-2023-04-27",
+        "x-openai-target-route": "/backend-api/accounts/check/{version}"
+      },
+      "body": ""
+    }
+  ]
+}

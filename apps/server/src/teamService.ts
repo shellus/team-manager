@@ -1,0 +1,337 @@
+import type { Account, AccountView, Member, PendingInvite, SeatType, InviteRequest } from '@team-manager/shared';
+import { parseChatGptSessionInput } from '@team-manager/shared';
+import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/shared';
+import { AccountStore } from './accountStore.js';
+import { ChatGptApi, refreshAccessToken, tokenNeedsRefresh } from './chatgptApi.js';
+import { createTransport, type Transport } from './transport.js';
+
+/** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
+export class TeamService {
+  constructor(
+    private readonly store: AccountStore,
+    private readonly transport: Transport = createTransport()
+  ) {}
+
+  /** 取母号并在 token 临过期时刷新（刷新后回写 store） */
+  private async clientFor(id: string): Promise<{ account: Account; api: ChatGptApi }> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+
+    if (account.refreshToken && tokenNeedsRefresh(account.accessToken)) {
+      try {
+        const r = await refreshAccessToken(account.refreshToken);
+        const updated = await this.store.update(id, {
+          accessToken: r.accessToken,
+          refreshToken: r.refreshToken ?? account.refreshToken,
+          lastRefreshAt: Date.now(),
+          lastError: undefined
+        });
+        if (updated) return { account: updated, api: new ChatGptApi(updated, this.transport) };
+      } catch (e) {
+        await this.store.update(id, { lastError: `刷新失败: ${(e as Error).message}` });
+        // 刷新失败仍用旧 token 尝试（可能尚未真正过期）
+      }
+    }
+    const fresh = this.store.get(id)!;
+    return { account: fresh, api: new ChatGptApi(fresh, this.transport) };
+  }
+
+  private viewFromAccount(account: Account): AccountView {
+    return {
+      id: account.id,
+      label: account.label,
+      accountId: account.accountId,
+      email: account.email,
+      planType: account.planType,
+      role: account.role,
+      workspaceName: account.workspaceName,
+      status: account.status ?? 'unknown',
+      chatgptSeatCount: account.chatgptSeatCount,
+      memberCount: account.memberCount,
+      membersCache: account.membersCache,
+      membersCachedAt: account.membersCachedAt,
+      defaultSeat: account.defaultSeat,
+      defaultSeatCachedAt: account.defaultSeatCachedAt,
+      pendingInviteCount: account.pendingInviteCount,
+      pendingInvitesCache: account.pendingInvitesCache,
+      pendingInvitesCachedAt: account.pendingInvitesCachedAt,
+      lastRefreshAt: account.lastRefreshAt,
+      lastError: account.lastError
+    };
+  }
+
+  /** 母号列表只读本地缓存，不触发 ChatGPT 慢请求。 */
+  async listAccounts(): Promise<AccountView[]> {
+    return this.store.list().map((account) => this.viewFromAccount(account));
+  }
+
+  /** 慢速状态同步：显式调用，避免阻塞主页面列表。 */
+  async refreshAccount(id: string): Promise<AccountView> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+
+    try {
+      const { api } = await this.clientFor(id);
+      const check = await api.checkAccount();
+      const members = await api.listMembers();
+      const now = Date.now();
+      const updated = await this.store.update(id, {
+        planType: check.planType ?? account.planType,
+        role: check.role ?? account.role,
+        workspaceName: check.workspaceName ?? account.workspaceName,
+        memberCount: members.length,
+        chatgptSeatCount: members.filter((m) => m.seat === 'default').length,
+        membersCache: members,
+        membersCachedAt: now,
+        status: 'active',
+        lastRefreshAt: now,
+        lastError: undefined
+      });
+      return this.viewFromAccount(updated!);
+    } catch (e) {
+      const updated = await this.store.update(id, {
+        status: 'invalid',
+        lastRefreshAt: Date.now(),
+        lastError: (e as Error).message
+      });
+      return this.viewFromAccount(updated!);
+    }
+  }
+
+  async addAccount(input: Omit<Account, 'id'>): Promise<AccountView> {
+    const account = await this.store.add(input);
+    return this.viewFromAccount(account);
+  }
+
+  async updateLocalProfile(id: string, input: { label?: unknown; session?: unknown }): Promise<AccountView> {
+    const existing = this.store.get(id);
+    if (!existing) throw new ServiceError(404, `母号不存在: ${id}`);
+
+    const label = typeof input.label === 'string' ? input.label.trim() : '';
+    if (!label) throw new ServiceError(400, '缺少本地备注名');
+
+    const patch: Partial<Account> = {
+      label,
+      lastError: undefined
+    };
+
+    if (input.session !== undefined) {
+      const session = parseChatGptSessionInput(input.session);
+      if ('error' in session) throw new ServiceError(400, session.error);
+      patch.email = session.user.email;
+      patch.accountId = session.account.id;
+      patch.accessToken = session.accessToken;
+      patch.status = 'unknown';
+    }
+
+    const updated = await this.store.update(id, patch);
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
+  async removeAccount(id: string): Promise<boolean> {
+    return this.store.remove(id);
+  }
+
+  /** 成员列表默认读本地缓存，不触发 ChatGPT 慢请求。 */
+  async listCachedMembers(id: string): Promise<Member[]> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return account.membersCache ?? [];
+  }
+
+  /** 显式刷新成员列表，并把结果写回本地缓存。 */
+  async refreshMembers(id: string): Promise<Member[]> {
+    const { api } = await this.clientFor(id);
+    const members = await api.listMembers();
+    const now = Date.now();
+    await this.store.update(id, {
+      memberCount: members.length,
+      chatgptSeatCount: members.filter((m) => m.seat === 'default').length,
+      membersCache: members,
+      membersCachedAt: now,
+      lastRefreshAt: now,
+      lastError: undefined
+    });
+    return members;
+  }
+
+  /** 服务内部需要真实关系时仍显式走刷新。HTTP 默认接口不再调用它。 */
+  async listMembers(id: string): Promise<Member[]> {
+    return this.refreshMembers(id);
+  }
+
+  /** 当前 ChatGPT 席位（default）占用数 */
+  private async chatgptSeatCount(api: ChatGptApi): Promise<number> {
+    const members = await api.listMembers();
+    return members.filter((m) => m.seat === 'default').length;
+  }
+
+  /** 邀请：若是 ChatGPT 席位且可能增加账单，要求调用方显式确认。 */
+  async invite(id: string, req: InviteRequest): Promise<unknown> {
+    const { api } = await this.clientFor(id);
+    if (req.seat === 'default') {
+      const count = await this.chatgptSeatCount(api);
+      if (count >= MAX_CHATGPT_SEATS && !req.confirmBillingRisk) {
+        throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
+      }
+    }
+    return api.invite(req.email, req.seat, req.role);
+  }
+
+  async listCachedPendingInvites(id: string): Promise<PendingInvite[]> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return account.pendingInvitesCache ?? [];
+  }
+
+  async countCachedPendingInvites(id: string): Promise<number> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return account.pendingInviteCount ?? account.pendingInvitesCache?.length ?? 0;
+  }
+
+  async refreshPendingInvites(id: string): Promise<PendingInvite[]> {
+    const { api } = await this.clientFor(id);
+    const invites = await api.listPendingInvites();
+    const now = Date.now();
+    await this.store.update(id, {
+      pendingInviteCount: invites.length,
+      pendingInvitesCache: invites,
+      pendingInvitesCachedAt: now,
+      lastRefreshAt: now,
+      lastError: undefined
+    });
+    return invites;
+  }
+
+  async listPendingInvites(id: string): Promise<PendingInvite[]> {
+    return this.refreshPendingInvites(id);
+  }
+
+  async countPendingInvites(id: string): Promise<number> {
+    const { api } = await this.clientFor(id);
+    const count = await api.countPendingInvites();
+    await this.store.update(id, {
+      pendingInviteCount: count,
+      lastRefreshAt: Date.now(),
+      lastError: undefined
+    });
+    return count;
+  }
+
+  async findEmailRelation(id: string, email: string): Promise<{ status: 'member' | 'invited' | 'unknown'; seat?: SeatType }> {
+    const target = email.trim().toLowerCase();
+    if (!target) throw new ServiceError(400, '缺少邮箱');
+
+    const members = await this.listMembers(id);
+    const member = members.find((item) => item.email.toLowerCase() === target);
+    if (member) return { status: 'member', seat: member.seat };
+
+    const invites = await this.listPendingInvites(id);
+    const invite = invites.find((item) => item.email.toLowerCase() === target);
+    if (invite) return { status: 'invited', seat: invite.seat };
+
+    return { status: 'unknown' };
+  }
+
+  async revokePendingInvite(id: string, email: string): Promise<unknown> {
+    const trimmed = email.trim();
+    if (!trimmed) throw new ServiceError(400, '缺少邀请邮箱');
+    const { api } = await this.clientFor(id);
+    return api.revokePendingInvite(trimmed);
+  }
+
+  async removeMember(id: string, userId: string): Promise<unknown> {
+    const { api } = await this.clientFor(id);
+    return api.removeMember(userId);
+  }
+
+  /** 改子号席位：升到 ChatGPT 席位且可能增加账单时要求调用方显式确认。 */
+  async setMemberSeat(
+    id: string,
+    userId: string,
+    seat: SeatType,
+    confirmBillingRisk = false
+  ): Promise<unknown> {
+    const { api } = await this.clientFor(id);
+    const members = await api.listMembers();
+    const target = members.find((m) => m.userId === userId);
+    if (!target) throw new ServiceError(404, `成员不存在: ${userId}`);
+    if (target.seat === seat) return { success: true, skipped: true };
+
+    if (seat === 'default') {
+      const currentDefault = members.filter((m) => m.seat === 'default').length;
+      const projected = currentDefault + 1;
+      if (projected > MAX_CHATGPT_SEATS && !confirmBillingRisk) {
+        throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
+      }
+    }
+    return api.setMemberSeat(userId, seat);
+  }
+
+  async getCachedSettings(id: string): Promise<Record<string, unknown>> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return account.defaultSeat ? { default_seat_type: account.defaultSeat } : {};
+  }
+
+  async refreshSettings(id: string): Promise<Record<string, unknown>> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.getSettings();
+    const defaultSeat = settings.default_seat_type;
+    const now = Date.now();
+    const patch: Partial<Account> = {
+      lastRefreshAt: now,
+      lastError: undefined
+    };
+    if (defaultSeat === 'default' || defaultSeat === 'usage_based') {
+      patch.defaultSeat = defaultSeat;
+      patch.defaultSeatCachedAt = now;
+    }
+    await this.store.update(id, patch);
+    return settings;
+  }
+
+  async getSettings(id: string): Promise<Record<string, unknown>> {
+    return this.refreshSettings(id);
+  }
+
+  async setDefaultSeat(id: string, seat: SeatType): Promise<unknown> {
+    const { api } = await this.clientFor(id);
+    const result = await api.setDefaultSeat(seat);
+    const now = Date.now();
+    await this.store.update(id, {
+      defaultSeat: seat,
+      defaultSeatCachedAt: now,
+      lastRefreshAt: now,
+      lastError: undefined
+    });
+    return result;
+  }
+
+  async renameTeam(id: string, name: string): Promise<AccountView> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new ServiceError(400, '缺少 Team 名称');
+
+    const { api } = await this.clientFor(id);
+    await api.renameWorkspace(trimmed);
+    const updated = await this.store.update(id, {
+      workspaceName: trimmed,
+      lastRefreshAt: Date.now(),
+      lastError: undefined
+    });
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+}
+
+export class ServiceError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ServiceError';
+  }
+}
