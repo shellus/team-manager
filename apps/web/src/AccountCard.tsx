@@ -39,7 +39,10 @@ export function AccountCard({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(account.workspaceName ?? '');
   const [renameBusy, setRenameBusy] = useState(false);
-  const seatCount = account.chatgptSeatCount;
+  const memberCount = account.membersCache ? account.membersCache.length : undefined;
+  const seatCount = account.membersCache
+    ? account.membersCache.filter((member) => member.seat === 'default').length
+    : undefined;
   const atLimit = seatCount !== undefined && seatCount >= MAX_CHATGPT_SEATS;
   const status = account.status ?? 'unknown';
   const statusLabel =
@@ -121,7 +124,7 @@ export function AccountCard({
       <div className="card-meta-line">
         <span>{planLabel(account.planType)}</span>
         <span>{roleLabel(account.role)}</span>
-        <span>成员 {account.memberCount ?? '暂无'}</span>
+        <span>成员 {memberCount ?? '暂无'}</span>
         <span className={atLimit ? 'seat-warn' : ''}>
           ChatGPT {seatCount ?? '暂无'} / {MAX_CHATGPT_SEATS}
           {atLimit && '（满）'}

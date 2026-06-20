@@ -260,9 +260,7 @@ export function App() {
                 onSync={() => {
                   void syncAccount(selected.id);
                 }}
-                onChanged={() => {
-                  void refresh();
-                }}
+                onAccountChanged={mergeAccount}
               />
             )}
             {(!selected || mode === 'empty') && (

@@ -94,14 +94,22 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     () => subaccounts.find((subaccount) => subaccount.id === selectedId) ?? subaccounts[0] ?? null,
     [selectedId, subaccounts]
   );
+  const parentAccountById = useMemo(
+    () => new Map(accounts.map((account) => [account.id, account])),
+    [accounts]
+  );
+  const linkLabel = useCallback(
+    (link: SubaccountTeamLink) => parentAccountById.get(link.accountId)?.label ?? link.accountId,
+    [parentAccountById]
+  );
   const teamLinks = useMemo(
     () =>
       [...(selected?.teamLinks ?? [])].sort(
         (a, b) =>
           TEAM_LINK_STATUS_ORDER[a.status] - TEAM_LINK_STATUS_ORDER[b.status] ||
-          (a.accountLabel ?? a.accountId).localeCompare(b.accountLabel ?? b.accountId)
+          linkLabel(a).localeCompare(linkLabel(b))
       ),
-    [selected?.teamLinks]
+    [linkLabel, selected?.teamLinks]
   );
   const memberLinkCount = teamLinks.filter((link) => link.status === 'member').length;
   const invitedLinkCount = teamLinks.filter((link) => link.status === 'invited').length;
@@ -109,16 +117,20 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     (latest, link) => (latest ? Math.max(latest, link.updatedAt) : link.updatedAt),
     undefined
   );
-  const parentAccountIdById = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account.accountId])),
-    [accounts]
-  );
   const credentialByAccountId = useMemo(
     () => new Map((selected?.codexCredentials ?? []).map((credential) => [credential.accountId, credential])),
     [selected?.codexCredentials]
   );
   const credentialCount = selected?.codexCredentials.length ?? 0;
   const quotaCacheCount = selected?.codexCredentials.filter((credential) => credential.lastQuotaAt).length ?? 0;
+  const latestAuthCredential = useMemo(
+    () => [...(selected?.codexCredentials ?? [])].sort((a, b) => (b.lastAuthAt ?? 0) - (a.lastAuthAt ?? 0))[0],
+    [selected?.codexCredentials]
+  );
+  const latestQuotaCredential = useMemo(
+    () => [...(selected?.codexCredentials ?? [])].sort((a, b) => (b.lastQuotaAt ?? 0) - (a.lastQuotaAt ?? 0))[0],
+    [selected?.codexCredentials]
+  );
 
   const mergeSubaccount = useCallback((updated: SubaccountView) => {
     setSubaccounts((current) => {
@@ -155,7 +167,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   }, [load]);
 
   useEffect(() => {
-    setQuota(selected?.lastQuota ?? null);
+    setQuota(null);
     setCredentialJson('');
     setAuthSession(null);
     setCallbackUrl('');
@@ -166,7 +178,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     } else {
       setLogs([]);
     }
-  }, [selected?.id, selected?.lastQuota, loadLogs]);
+  }, [selected?.id, loadLogs]);
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -294,12 +306,12 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   };
 
   const linkChatgptAccountId = (link: SubaccountTeamLink) =>
-    link.chatgptAccountId ?? parentAccountIdById.get(link.accountId) ?? '';
+    parentAccountById.get(link.accountId)?.accountId ?? '';
 
   const renderCredentialRow = (link: SubaccountTeamLink) => {
     const accountId = linkChatgptAccountId(link);
     const credential = accountId ? credentialByAccountId.get(accountId) : undefined;
-    const label = link.accountLabel ?? link.accountId;
+    const label = linkLabel(link);
     const busyStart = targetKey('codex-start', accountId);
     const busyAuto = targetKey('codex-auto', accountId);
     const busyQuota = targetKey('quota-refresh', accountId);
@@ -497,15 +509,15 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
               <strong>{selected?.hasWebSession ? '已录入' : '未录入'}</strong>
               <em>{selected?.chatgptAccountId ? `account ${selected.chatgptAccountId}` : '用于 ChatGPT Web 请求'}</em>
             </div>
-            <div className={`credential-card ${selected?.hasCodexCredential ? 'ready' : ''}`}>
+            <div className={`credential-card ${credentialCount > 0 ? 'ready' : ''}`}>
               <span>Codex 凭证</span>
               <strong>{credentialCount} 份</strong>
-              <em>{selected?.lastAuthAt ? `最近授权 ${formatRelativeTime(selected.lastAuthAt)}` : '按 Team workspace 单独生成'}</em>
+              <em>{latestAuthCredential?.lastAuthAt ? `最近授权 ${formatRelativeTime(latestAuthCredential.lastAuthAt)}` : '按 Team workspace 单独生成'}</em>
             </div>
             <div className={`credential-card ${quotaCacheCount > 0 ? 'ready' : ''}`}>
               <span>额度缓存</span>
               <strong>{quotaCacheCount} 份</strong>
-              <em>{selected?.lastQuotaAt ? `最近刷新 ${formatRelativeTime(selected.lastQuotaAt)}` : '每个 Team 单独刷新'}</em>
+              <em>{latestQuotaCredential?.lastQuotaAt ? `最近刷新 ${formatRelativeTime(latestQuotaCredential.lastQuotaAt)}` : '每个 Team 单独刷新'}</em>
             </div>
           </div>
           {teamLinks.length === 0 && (
@@ -605,7 +617,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
             <div className="link-list">
               {teamLinks.map((link) => (
                 <div className="link-row" key={link.accountId}>
-                  <span title={link.accountLabel ?? link.accountId}>{link.accountLabel ?? link.accountId}</span>
+                  <span title={linkLabel(link)}>{linkLabel(link)}</span>
                   <span>{link.seat === 'default' ? 'ChatGPT 席位' : 'Codex 席位'}</span>
                   <span className={`link-status status-${link.status}`}>{TEAM_LINK_STATUS_LABEL[link.status]}</span>
                   <span>同步 {formatTime(link.updatedAt)}</span>

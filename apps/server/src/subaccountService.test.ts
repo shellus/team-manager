@@ -262,8 +262,6 @@ describe('Subaccount API', () => {
       });
       await subaccountStore.saveTeamLink(subaccount.id, {
         accountId: mother.id,
-        accountLabel: '母号 A',
-        chatgptAccountId: 'workspace-account-id',
         seat: 'usage_based',
         status: 'member'
       });
@@ -403,7 +401,7 @@ describe('Subaccount API', () => {
       });
       const completedJson = (await completed.json()) as ApiResult<SubaccountView>;
       assert.equal(completedJson.data!.status, 'codex_ready');
-      assert.equal(completedJson.data!.hasCodexCredential, true);
+      assert.equal(completedJson.data!.codexCredentials.length, 1);
 
       const credential = await app.request(`/api/subaccounts/${subaccount.id}/codex-credential`, {
         headers: authHeaders
@@ -440,7 +438,7 @@ describe('Subaccount API', () => {
 
       assert.equal(completed.status, 200);
       assert.equal(completedJson.data!.status, 'codex_ready');
-      assert.equal(completedJson.data!.hasCodexCredential, true);
+      assert.equal(completedJson.data!.codexCredentials.length, 1);
       assert.equal(codexAutoAuth.requests.length, 1);
       assert.equal(codexAutoAuth.requests[0]!.email, 'child@example.com');
       assert.match(new URL(codexAutoAuth.requests[0]!.authUrl).searchParams.get('login_hint') ?? '', /child@example.com/);
@@ -582,8 +580,8 @@ describe('Subaccount API', () => {
 
       const listed = await app.request('/api/subaccounts', { headers: authHeaders });
       const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
-      assert.equal(listedJson.data![0]!.lastQuota?.windows[0]!.usedPercent, 28);
-      assert.equal(typeof listedJson.data![0]!.lastQuotaAt, 'number');
+      assert.equal(listedJson.data![0]!.codexCredentials[0]!.lastQuota?.windows[0]!.usedPercent, 28);
+      assert.equal(typeof listedJson.data![0]!.codexCredentials[0]!.lastQuotaAt, 'number');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -640,7 +638,8 @@ describe('Subaccount API', () => {
         resend_emails: true
       });
       assert.equal(invitedJson.data!.teamLinks[0]!.accountId, mother.id);
-      assert.equal(invitedJson.data!.teamLinks[0]!.accountLabel, '母号 A');
+      assert.equal('accountLabel' in invitedJson.data!.teamLinks[0]!, false);
+      assert.equal('chatgptAccountId' in invitedJson.data!.teamLinks[0]!, false);
       assert.equal(invitedJson.data!.teamLinks[0]!.seat, 'usage_based');
       assert.equal(invitedJson.data!.teamLinks[0]!.status, 'invited');
     } finally {
@@ -695,17 +694,18 @@ describe('Subaccount API', () => {
         headers: authHeaders
       });
       const syncedJson = (await synced.json()) as ApiResult<SubaccountView>;
-      const links = syncedJson.data!.teamLinks.sort((a, b) => a.accountLabel!.localeCompare(b.accountLabel!));
+      const links = new Map(syncedJson.data!.teamLinks.map((link) => [link.accountId, link]));
 
       assert.equal(synced.status, 200);
-      assert.equal(links.length, 2);
-      assert.deepEqual(
-        links.map((link) => [link.accountId, link.accountLabel, link.status, link.seat]),
-        [
-          [mother.id, '母号 A', 'member', 'usage_based'],
-          [invitedMother.id, '母号 B', 'invited', 'default']
-        ]
-      );
+      assert.equal(links.size, 2);
+      assert.equal('accountLabel' in links.get(mother.id)!, false);
+      assert.equal('chatgptAccountId' in links.get(mother.id)!, false);
+      assert.equal(links.get(mother.id)!.status, 'member');
+      assert.equal(links.get(mother.id)!.seat, 'usage_based');
+      assert.equal('accountLabel' in links.get(invitedMother.id)!, false);
+      assert.equal('chatgptAccountId' in links.get(invitedMother.id)!, false);
+      assert.equal(links.get(invitedMother.id)!.status, 'invited');
+      assert.equal(links.get(invitedMother.id)!.seat, 'default');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

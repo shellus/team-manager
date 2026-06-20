@@ -4,6 +4,28 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Account } from '@team-manager/shared';
 
+type StoredAccount = Account & {
+  memberCount?: unknown;
+  chatgptSeatCount?: unknown;
+  pendingInviteCount?: unknown;
+};
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function stripLegacyDerivedFields(input: StoredAccount): { account: Account; changed: boolean } {
+  const changed =
+    hasOwn(input, 'memberCount') || hasOwn(input, 'chatgptSeatCount') || hasOwn(input, 'pendingInviteCount');
+  const {
+    memberCount: _memberCount,
+    chatgptSeatCount: _chatgptSeatCount,
+    pendingInviteCount: _pendingInviteCount,
+    ...account
+  } = input;
+  return { account, changed };
+}
+
 /** 母号持久化：单个 JSON 文件 data/accounts.json，含凭证，仅后端读写。 */
 export class AccountStore {
   private readonly file: string;
@@ -21,10 +43,16 @@ export class AccountStore {
     if (existsSync(this.file)) {
       try {
         const raw = await readFile(this.file, 'utf8');
-        const arr = JSON.parse(raw) as Account[];
+        const arr = JSON.parse(raw) as StoredAccount[];
+        let changed = false;
         for (const a of arr) {
-          if (a && a.id) this.accounts.set(a.id, a);
+          if (a && typeof a.id === 'string') {
+            const sanitized = stripLegacyDerivedFields(a);
+            changed = changed || sanitized.changed;
+            this.accounts.set(sanitized.account.id, sanitized.account);
+          }
         }
+        if (changed) await this.persist();
       } catch (e) {
         throw new Error(`读取 accounts.json 失败: ${(e as Error).message}`);
       }
@@ -48,7 +76,7 @@ export class AccountStore {
 
   async add(input: Omit<Account, 'id'>): Promise<Account> {
     this.ensureLoaded();
-    const account: Account = { ...input, id: randomUUID() };
+    const { account } = stripLegacyDerivedFields({ ...input, id: randomUUID() });
     this.accounts.set(account.id, account);
     await this.persist();
     return account;
@@ -58,7 +86,7 @@ export class AccountStore {
     this.ensureLoaded();
     const existing = this.accounts.get(id);
     if (!existing) return undefined;
-    const merged = { ...existing, ...patch, id };
+    const { account: merged } = stripLegacyDerivedFields({ ...existing, ...patch, id });
     this.accounts.set(id, merged);
     await this.persist();
     return merged;
@@ -72,7 +100,7 @@ export class AccountStore {
   }
 
   private async persist(): Promise<void> {
-    const arr = [...this.accounts.values()];
+    const arr = [...this.accounts.values()].map((account) => stripLegacyDerivedFields(account).account);
     await writeFile(this.file, JSON.stringify(arr, null, 2), 'utf8');
   }
 }

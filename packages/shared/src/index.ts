@@ -24,13 +24,10 @@ export interface Account {
   role?: MemberRole;
   workspaceName?: string;
   status?: 'active' | 'invalid' | 'unknown';
-  chatgptSeatCount?: number;  // 当前 seat=default 成员数缓存
-  memberCount?: number;       // 成员数缓存
   membersCache?: Member[];    // 成员列表缓存，供前端先显示再后台刷新
   membersCachedAt?: number;
   defaultSeat?: SeatType;     // 新成员默认席位缓存
   defaultSeatCachedAt?: number;
-  pendingInviteCount?: number;// 待处理邀请数缓存
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   lastRefreshAt?: number;
@@ -53,13 +50,10 @@ export interface AccountView {
   role?: MemberRole;
   workspaceName?: string;
   status?: 'active' | 'invalid' | 'unknown';
-  chatgptSeatCount?: number;  // 当前 seat=default 成员数缓存
-  memberCount?: number;
   membersCache?: Member[];
   membersCachedAt?: number;
   defaultSeat?: SeatType;
   defaultSeatCachedAt?: number;
-  pendingInviteCount?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   lastRefreshAt?: number;
@@ -126,21 +120,15 @@ export interface SubaccountView {
   chatgptAccountId?: string;
   status: SubaccountStatus;
   hasWebSession: boolean;
-  hasCodexCredential: boolean;
   codexCredentials: SubaccountCodexCredentialView[];
   teamLinks: SubaccountTeamLink[];
-  lastQuota?: CodexQuotaSnapshot;
-  lastQuotaAt?: number;
   createdAt: number;
   updatedAt: number;
-  lastAuthAt?: number;
   lastError?: string;
 }
 
 export interface SubaccountTeamLink {
   accountId: string;             // team-manager 母号内部 id
-  accountLabel?: string;
-  chatgptAccountId?: string;     // ChatGPT workspace account_id，用于匹配 Codex OAuth 选择的 workspace
   seat: SeatType;
   status: 'invited' | 'member' | 'removed' | 'unknown';
   updatedAt: number;
@@ -148,7 +136,6 @@ export interface SubaccountTeamLink {
 
 /** 子号在某个 ChatGPT workspace 下生成的 Codex 凭证，敏感字段仅后端持久化。 */
 export interface SubaccountCodexCredential {
-  accountId: string;             // Codex token claim 中的 chatgpt_account_id
   credential: CodexCredentialJson;
   lastQuota?: CodexQuotaSnapshot;
   lastQuotaAt?: number;

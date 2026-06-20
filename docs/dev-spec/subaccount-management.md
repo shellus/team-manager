@@ -6,11 +6,15 @@
 
 - 子号池：`data/subaccounts.json`
   - 记录邮箱、备注名、ChatGPT account id、web session 状态、按 Team workspace 保存的 Codex 凭证状态，以及该子号加入过的母号关系。
-  - `codexCredentials[]` 按 `accountId` 保存多份凭证；该 `accountId` 来自 Codex `id_token` claim 中的 `chatgpt_account_id`。
+  - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证；该值来自 Codex `id_token` claim 中的 `chatgpt_account_id`。
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
 - 子号 session JSON 录入：
   - 只接受一种格式：`user.email`、`account.id`、`accessToken`。
   - 不支持扁平字段，不做回退兼容。
+- 子号本地资料编辑：
+  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注名 `label`。
+  - 请求带新的 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken`。
+  - 保留已有 Codex 凭证、Team 关联和授权日志，响应仍为脱敏视图。
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
   - 固定 redirect URI：`http://localhost:1455/auth/callback`。
@@ -44,6 +48,7 @@
 
 - `GET /api/subaccounts`
 - `POST /api/subaccounts/session`
+- `PATCH /api/subaccounts/:id/local-profile`
 - `DELETE /api/subaccounts/:id`
 - `POST /api/subaccounts/:id/codex-auth/start`，可传 `chatgptAccountId`
 - `POST /api/subaccounts/:id/codex-auth/auto`，可传 `chatgptAccountId`

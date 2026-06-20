@@ -271,11 +271,8 @@ export async function buildApp({
         seat: body.seat!,
         confirmBillingRisk: body.confirmBillingRisk
       });
-      const account = (await service.listAccounts()).find((item) => item.id === body.accountId);
       return subaccountStore.saveTeamLink(c.req.param('id'), {
         accountId: body.accountId!,
-        accountLabel: account?.label,
-        chatgptAccountId: account?.accountId,
         seat: body.seat!,
         status: 'invited'
       });
@@ -303,8 +300,6 @@ export async function buildApp({
           if (relation.status === 'member' || relation.status === 'invited') {
             updated = await subaccountStore.saveTeamLink(id, {
               accountId: account.id,
-              accountLabel: account.label,
-              chatgptAccountId: account.accountId,
               seat: relation.seat ?? existing?.seat ?? 'usage_based',
               status: relation.status
             });
@@ -312,8 +307,6 @@ export async function buildApp({
           } else if (existing) {
             updated = await subaccountStore.saveTeamLink(id, {
               accountId: account.id,
-              accountLabel: account.label,
-              chatgptAccountId: account.accountId,
               seat: existing.seat,
               status: 'removed'
             });
@@ -324,8 +317,6 @@ export async function buildApp({
           if (existing) {
             updated = await subaccountStore.saveTeamLink(id, {
               accountId: account.id,
-              accountLabel: account.label,
-              chatgptAccountId: account.accountId,
               seat: existing.seat,
               status: 'unknown'
             });

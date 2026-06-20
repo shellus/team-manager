@@ -21,6 +21,32 @@ export interface AppendSubaccountLogInput {
   data?: Record<string, unknown>;
 }
 
+type LegacySubaccountCodexCredential = SubaccountCodexCredential & {
+  accountId?: unknown;
+};
+
+type LegacySubaccountTeamLink = SubaccountTeamLink & {
+  accountLabel?: unknown;
+  chatgptAccountId?: unknown;
+};
+
+type LegacySubaccount = Subaccount & {
+  codexCredential?: CodexCredentialJson;
+  codexCredentials?: LegacySubaccountCodexCredential[];
+  teamLinks?: LegacySubaccountTeamLink[];
+  lastQuota?: CodexQuotaSnapshot;
+  lastQuotaAt?: number;
+  lastAuthAt?: number;
+};
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function codexCredentialAccountId(item: SubaccountCodexCredential): string {
+  return item.credential.account_id.trim();
+}
+
 /** 子号持久化：敏感 session / Codex 凭证仅存在运行时 data/，API 默认只返回脱敏视图。 */
 export class SubaccountStore {
   private readonly file: string;
@@ -48,10 +74,15 @@ export class SubaccountStore {
     try {
       const raw = await readFile(this.file, 'utf8');
       const arr = JSON.parse(raw) as unknown[];
+      let changed = false;
       for (const rawAccount of arr) {
-        const account = normalizeStoredSubaccount(rawAccount);
-        if (account?.id) this.subaccounts.set(account.id, account);
+        const normalized = normalizeStoredSubaccount(rawAccount);
+        if (normalized?.account.id) {
+          changed = changed || normalized.changed;
+          this.subaccounts.set(normalized.account.id, normalized.account);
+        }
       }
+      if (changed) await this.persist();
     } catch (e) {
       throw new Error(`读取 subaccounts.json 失败: ${(e as Error).message}`);
     }
@@ -165,7 +196,6 @@ export class SubaccountStore {
     const accountId = credential.account_id.trim();
     if (!accountId) throw new Error('Codex 凭证缺少 account_id');
     const credentials = upsertCodexCredential(existing.codexCredentials ?? [], {
-      accountId,
       credential,
       lastAuthAt: now
     });
@@ -211,7 +241,7 @@ export class SubaccountStore {
     if (!credential) throw new Error(`子号没有该 Team 的 Codex 凭证: ${accountId}`);
     const now = Date.now();
     const credentials = (existing.codexCredentials ?? []).map((item) =>
-      item.accountId === accountId ? { ...item, lastQuota: snapshot, lastQuotaAt: now } : item
+      codexCredentialAccountId(item) === accountId ? { ...item, lastQuota: snapshot, lastQuotaAt: now } : item
     );
     const merged: Subaccount = {
       ...existing,
@@ -262,7 +292,6 @@ export class SubaccountStore {
 
   private toView(account: Subaccount): SubaccountView {
     const credentials = account.codexCredentials ?? [];
-    const latestCredential = this.getLatestCodexCredential(account);
     return {
       id: account.id,
       email: account.email,
@@ -270,9 +299,8 @@ export class SubaccountStore {
       chatgptAccountId: account.chatgptAccountId,
       status: account.status,
       hasWebSession: Boolean(account.webAccessToken),
-      hasCodexCredential: credentials.length > 0,
       codexCredentials: credentials.map((item) => ({
-        accountId: item.accountId,
+        accountId: codexCredentialAccountId(item),
         hasCredential: true,
         planType: item.credential.plan_type,
         lastQuota: item.lastQuota,
@@ -280,11 +308,8 @@ export class SubaccountStore {
         lastAuthAt: item.lastAuthAt
       })),
       teamLinks: account.teamLinks ?? [],
-      lastQuota: latestCredential?.lastQuota,
-      lastQuotaAt: latestCredential?.lastQuotaAt,
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
-      lastAuthAt: latestCredential?.lastAuthAt,
       lastError: account.lastError
     };
   }
@@ -300,45 +325,89 @@ export class SubaccountStore {
     accountId: string
   ): SubaccountCodexCredential | undefined {
     const target = accountId.trim();
-    return (account?.codexCredentials ?? []).find((item) => item.accountId === target);
+    return (account?.codexCredentials ?? []).find((item) => codexCredentialAccountId(item) === target);
   }
 
   private async persist(): Promise<void> {
-    await writeFile(this.file, JSON.stringify([...this.subaccounts.values()], null, 2), 'utf8');
+    await writeFile(this.file, JSON.stringify([...this.subaccounts.values()].map(sanitizeSubaccount), null, 2), 'utf8');
   }
 }
 
-function normalizeStoredSubaccount(raw: unknown): Subaccount | undefined {
+function normalizeStoredSubaccount(raw: unknown): { account: Subaccount; changed: boolean } | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
-  const record = raw as Subaccount & {
-    codexCredential?: CodexCredentialJson;
-    lastQuota?: CodexQuotaSnapshot;
-    lastQuotaAt?: number;
-    lastAuthAt?: number;
-  };
+  const record = raw as LegacySubaccount;
   if (!record.id) return undefined;
-  const credentials = [...(record.codexCredentials ?? [])];
-  if (record.codexCredential?.account_id) {
+  let changed =
+    hasOwn(record, 'codexCredential') ||
+    hasOwn(record, 'lastQuota') ||
+    hasOwn(record, 'lastQuotaAt') ||
+    hasOwn(record, 'lastAuthAt');
+  const credentials: SubaccountCodexCredential[] = [];
+  for (const item of record.codexCredentials ?? []) {
+    if (!item.credential?.account_id?.trim()) {
+      changed = true;
+      continue;
+    }
+    changed = changed || hasOwn(item, 'accountId');
     credentials.push({
-      accountId: record.codexCredential.account_id,
+      credential: item.credential,
+      lastQuota: item.lastQuota,
+      lastQuotaAt: item.lastQuotaAt,
+      lastAuthAt: item.lastAuthAt
+    });
+  }
+  if (record.codexCredential?.account_id) {
+    changed = true;
+    credentials.push({
       credential: record.codexCredential,
       lastQuota: record.lastQuota,
       lastQuotaAt: record.lastQuotaAt,
       lastAuthAt: record.lastAuthAt
     });
   }
-  return {
+  const teamLinks = (record.teamLinks ?? []).map((link) => {
+    changed = changed || hasOwn(link, 'accountLabel') || hasOwn(link, 'chatgptAccountId');
+    return {
+      accountId: link.accountId,
+      seat: link.seat,
+      status: link.status,
+      updatedAt: link.updatedAt
+    };
+  });
+  const account = sanitizeSubaccount({
     id: record.id,
     email: record.email,
     label: record.label,
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
     codexCredentials: dedupeCodexCredentials(credentials),
-    teamLinks: record.teamLinks,
+    teamLinks,
     status: record.status,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     lastError: record.lastError
+  });
+  return { account, changed };
+}
+
+function sanitizeSubaccount(input: Subaccount): Subaccount {
+  return {
+    id: input.id,
+    email: input.email,
+    label: input.label,
+    chatgptAccountId: input.chatgptAccountId,
+    webAccessToken: input.webAccessToken,
+    codexCredentials: dedupeCodexCredentials(input.codexCredentials ?? []),
+    teamLinks: (input.teamLinks ?? []).map((link) => ({
+      accountId: link.accountId,
+      seat: link.seat,
+      status: link.status,
+      updatedAt: link.updatedAt
+    })),
+    status: input.status,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    lastError: input.lastError
   };
 }
 
@@ -346,19 +415,26 @@ function upsertCodexCredential(
   current: SubaccountCodexCredential[],
   next: SubaccountCodexCredential
 ): SubaccountCodexCredential[] {
+  const accountId = codexCredentialAccountId(next);
   return dedupeCodexCredentials([
     next,
-    ...current.filter((item) => item.accountId !== next.accountId)
+    ...current.filter((item) => codexCredentialAccountId(item) !== accountId)
   ]);
 }
 
 function dedupeCodexCredentials(items: SubaccountCodexCredential[]): SubaccountCodexCredential[] {
   const byAccountId = new Map<string, SubaccountCodexCredential>();
   for (const item of items) {
-    if (!item.accountId.trim()) continue;
-    const existing = byAccountId.get(item.accountId);
+    const accountId = codexCredentialAccountId(item);
+    if (!accountId) continue;
+    const existing = byAccountId.get(accountId);
     if (!existing || (item.lastAuthAt ?? 0) >= (existing.lastAuthAt ?? 0)) {
-      byAccountId.set(item.accountId, item);
+      byAccountId.set(accountId, {
+        credential: item.credential,
+        lastQuota: item.lastQuota,
+        lastQuotaAt: item.lastQuotaAt,
+        lastAuthAt: item.lastAuthAt
+      });
     }
   }
   return [...byAccountId.values()];

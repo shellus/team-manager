@@ -46,13 +46,10 @@ export class TeamService {
       role: account.role,
       workspaceName: account.workspaceName,
       status: account.status ?? 'unknown',
-      chatgptSeatCount: account.chatgptSeatCount,
-      memberCount: account.memberCount,
       membersCache: account.membersCache,
       membersCachedAt: account.membersCachedAt,
       defaultSeat: account.defaultSeat,
       defaultSeatCachedAt: account.defaultSeatCachedAt,
-      pendingInviteCount: account.pendingInviteCount,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       lastRefreshAt: account.lastRefreshAt,
@@ -79,8 +76,6 @@ export class TeamService {
         planType: check.planType ?? account.planType,
         role: check.role ?? account.role,
         workspaceName: check.workspaceName ?? account.workspaceName,
-        memberCount: members.length,
-        chatgptSeatCount: members.filter((m) => m.seat === 'default').length,
         membersCache: members,
         membersCachedAt: now,
         status: 'active',
@@ -140,43 +135,52 @@ export class TeamService {
     return account.membersCache ?? [];
   }
 
-  /** 显式刷新成员列表，并把结果写回本地缓存。 */
-  async refreshMembers(id: string): Promise<Member[]> {
-    const { api } = await this.clientFor(id);
-    const members = await api.listMembers();
+  private async saveMemberCache(id: string, members: Member[]): Promise<Account> {
     const now = Date.now();
-    await this.store.update(id, {
-      memberCount: members.length,
-      chatgptSeatCount: members.filter((m) => m.seat === 'default').length,
+    const updated = await this.store.update(id, {
       membersCache: members,
       membersCachedAt: now,
       lastRefreshAt: now,
       lastError: undefined
     });
-    return members;
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return updated;
+  }
+
+  private async refreshMemberCache(id: string, api: ChatGptApi): Promise<Account> {
+    return this.saveMemberCache(id, await api.listMembers());
+  }
+
+  /** 显式刷新成员列表，并把结果写回本地缓存。 */
+  async refreshMembers(id: string): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    return this.viewFromAccount(await this.refreshMemberCache(id, api));
   }
 
   /** 服务内部需要真实关系时仍显式走刷新。HTTP 默认接口不再调用它。 */
   async listMembers(id: string): Promise<Member[]> {
-    return this.refreshMembers(id);
+    const { api } = await this.clientFor(id);
+    const updated = await this.refreshMemberCache(id, api);
+    return updated.membersCache ?? [];
   }
 
-  /** 当前 ChatGPT 席位（default）占用数 */
-  private async chatgptSeatCount(api: ChatGptApi): Promise<number> {
+  /** 邀请前实时统计远端 ChatGPT 席位（default）占用数。 */
+  private async countRemoteChatgptSeats(api: ChatGptApi): Promise<number> {
     const members = await api.listMembers();
     return members.filter((m) => m.seat === 'default').length;
   }
 
   /** 邀请：若是 ChatGPT 席位且可能增加账单，要求调用方显式确认。 */
-  async invite(id: string, req: InviteRequest): Promise<unknown> {
+  async invite(id: string, req: InviteRequest): Promise<AccountView> {
     const { api } = await this.clientFor(id);
     if (req.seat === 'default') {
-      const count = await this.chatgptSeatCount(api);
+      const count = await this.countRemoteChatgptSeats(api);
       if (count >= MAX_CHATGPT_SEATS && !req.confirmBillingRisk) {
         throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
       }
     }
-    return api.invite(req.email, req.seat, req.role);
+    await api.invite(req.email, req.seat, req.role);
+    return this.viewFromAccount(await this.refreshPendingInviteCache(id, api));
   }
 
   async listCachedPendingInvites(id: string): Promise<PendingInvite[]> {
@@ -188,36 +192,39 @@ export class TeamService {
   async countCachedPendingInvites(id: string): Promise<number> {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
-    return account.pendingInviteCount ?? account.pendingInvitesCache?.length ?? 0;
+    return account.pendingInvitesCache?.length ?? 0;
   }
 
-  async refreshPendingInvites(id: string): Promise<PendingInvite[]> {
-    const { api } = await this.clientFor(id);
-    const invites = await api.listPendingInvites();
+  private async savePendingInviteCache(id: string, invites: PendingInvite[]): Promise<Account> {
     const now = Date.now();
-    await this.store.update(id, {
-      pendingInviteCount: invites.length,
+    const updated = await this.store.update(id, {
       pendingInvitesCache: invites,
       pendingInvitesCachedAt: now,
       lastRefreshAt: now,
       lastError: undefined
     });
-    return invites;
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return updated;
+  }
+
+  private async refreshPendingInviteCache(id: string, api: ChatGptApi): Promise<Account> {
+    return this.savePendingInviteCache(id, await api.listPendingInvites());
+  }
+
+  async refreshPendingInvites(id: string): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    return this.viewFromAccount(await this.refreshPendingInviteCache(id, api));
   }
 
   async listPendingInvites(id: string): Promise<PendingInvite[]> {
-    return this.refreshPendingInvites(id);
+    const { api } = await this.clientFor(id);
+    const updated = await this.refreshPendingInviteCache(id, api);
+    return updated.pendingInvitesCache ?? [];
   }
 
   async countPendingInvites(id: string): Promise<number> {
     const { api } = await this.clientFor(id);
-    const count = await api.countPendingInvites();
-    await this.store.update(id, {
-      pendingInviteCount: count,
-      lastRefreshAt: Date.now(),
-      lastError: undefined
-    });
-    return count;
+    return api.countPendingInvites();
   }
 
   async findEmailRelation(id: string, email: string): Promise<{ status: 'member' | 'invited' | 'unknown'; seat?: SeatType }> {
@@ -235,16 +242,18 @@ export class TeamService {
     return { status: 'unknown' };
   }
 
-  async revokePendingInvite(id: string, email: string): Promise<unknown> {
+  async revokePendingInvite(id: string, email: string): Promise<AccountView> {
     const trimmed = email.trim();
     if (!trimmed) throw new ServiceError(400, '缺少邀请邮箱');
     const { api } = await this.clientFor(id);
-    return api.revokePendingInvite(trimmed);
+    await api.revokePendingInvite(trimmed);
+    return this.viewFromAccount(await this.refreshPendingInviteCache(id, api));
   }
 
-  async removeMember(id: string, userId: string): Promise<unknown> {
+  async removeMember(id: string, userId: string): Promise<AccountView> {
     const { api } = await this.clientFor(id);
-    return api.removeMember(userId);
+    await api.removeMember(userId);
+    return this.viewFromAccount(await this.refreshMemberCache(id, api));
   }
 
   /** 改子号席位：升到 ChatGPT 席位且可能增加账单时要求调用方显式确认。 */
@@ -253,12 +262,14 @@ export class TeamService {
     userId: string,
     seat: SeatType,
     confirmBillingRisk = false
-  ): Promise<unknown> {
+  ): Promise<AccountView> {
     const { api } = await this.clientFor(id);
     const members = await api.listMembers();
     const target = members.find((m) => m.userId === userId);
     if (!target) throw new ServiceError(404, `成员不存在: ${userId}`);
-    if (target.seat === seat) return { success: true, skipped: true };
+    if (target.seat === seat) {
+      return this.viewFromAccount(await this.saveMemberCache(id, members));
+    }
 
     if (seat === 'default') {
       const currentDefault = members.filter((m) => m.seat === 'default').length;
@@ -267,7 +278,8 @@ export class TeamService {
         throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
       }
     }
-    return api.setMemberSeat(userId, seat);
+    await api.setMemberSeat(userId, seat);
+    return this.viewFromAccount(await this.refreshMemberCache(id, api));
   }
 
   async getCachedSettings(id: string): Promise<Record<string, unknown>> {
@@ -276,7 +288,7 @@ export class TeamService {
     return account.defaultSeat ? { default_seat_type: account.defaultSeat } : {};
   }
 
-  async refreshSettings(id: string): Promise<Record<string, unknown>> {
+  async refreshSettings(id: string): Promise<AccountView> {
     const { api } = await this.clientFor(id);
     const settings = await api.getSettings();
     const defaultSeat = settings.default_seat_type;
@@ -289,25 +301,28 @@ export class TeamService {
       patch.defaultSeat = defaultSeat;
       patch.defaultSeatCachedAt = now;
     }
-    await this.store.update(id, patch);
-    return settings;
+    const updated = await this.store.update(id, patch);
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
   }
 
   async getSettings(id: string): Promise<Record<string, unknown>> {
-    return this.refreshSettings(id);
+    const view = await this.refreshSettings(id);
+    return view.defaultSeat ? { default_seat_type: view.defaultSeat } : {};
   }
 
-  async setDefaultSeat(id: string, seat: SeatType): Promise<unknown> {
+  async setDefaultSeat(id: string, seat: SeatType): Promise<AccountView> {
     const { api } = await this.clientFor(id);
-    const result = await api.setDefaultSeat(seat);
+    await api.setDefaultSeat(seat);
     const now = Date.now();
-    await this.store.update(id, {
+    const updated = await this.store.update(id, {
       defaultSeat: seat,
       defaultSeatCachedAt: now,
       lastRefreshAt: now,
       lastError: undefined
     });
-    return result;
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
   }
 
   async renameTeam(id: string, name: string): Promise<AccountView> {

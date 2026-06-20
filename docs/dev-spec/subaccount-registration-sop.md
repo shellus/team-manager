@@ -1,6 +1,6 @@
 # 子号注册与授权 SOP（现状与操作手册）
 
-记录"从空邮箱 → 注册 OpenAI 子号 → 加入 Team → 生成可用 codex 凭证"全链路的实测现状、操作步骤与已知卡点。配合 [`seat-and-credential-model.md`](./seat-and-credential-model.md) 使用。基线日期 2026-06-19。
+记录"从空邮箱 → 注册 OpenAI 子号 → 加入 Team → 生成可用 codex 凭证"全链路的实测现状、操作步骤与已知卡点。配合 [`../core/seat-and-credential-model.md`](../core/seat-and-credential-model.md) 使用。基线日期 2026-06-19。
 
 ## 一、关键事实（实测，2026-06-19）
 

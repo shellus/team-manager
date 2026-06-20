@@ -64,22 +64,20 @@ export const apiClient = {
   addAccount: (payload: Record<string, unknown>) => call<AccountView>('POST', '/accounts', payload),
   removeAccount: (id: string) => call<boolean>('DELETE', `/accounts/${id}`),
   listMembers: (id: string) => call<Member[]>('GET', `/accounts/${id}/members`),
-  refreshMembers: (id: string) => call<Member[]>('POST', `/accounts/${id}/members/refresh`),
+  refreshMembers: (id: string) => call<AccountView>('POST', `/accounts/${id}/members/refresh`),
   invite: (id: string, email: string, seat: SeatType, confirmBillingRisk = false) =>
-    call('POST', `/accounts/${id}/invites`, { email, seat, confirmBillingRisk }),
+    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, confirmBillingRisk }),
   listPendingInvites: (id: string) => call<PendingInvite[]>('GET', `/accounts/${id}/invites`),
-  refreshPendingInvites: (id: string) => call<PendingInvite[]>('POST', `/accounts/${id}/invites/refresh`),
-  countPendingInvites: (id: string) => call<number>('GET', `/accounts/${id}/invites/count`),
-  refreshPendingInviteCount: (id: string) => call<number>('POST', `/accounts/${id}/invites/count/refresh`),
+  refreshPendingInvites: (id: string) => call<AccountView>('POST', `/accounts/${id}/invites/refresh`),
   revokePendingInvite: (id: string, email: string) =>
-    call('DELETE', `/accounts/${id}/invites`, { email }),
-  removeMember: (id: string, userId: string) => call('DELETE', `/accounts/${id}/members/${userId}`),
+    call<AccountView>('DELETE', `/accounts/${id}/invites`, { email }),
+  removeMember: (id: string, userId: string) => call<AccountView>('DELETE', `/accounts/${id}/members/${userId}`),
   setMemberSeat: (id: string, userId: string, seat: SeatType, confirmBillingRisk = false) =>
-    call('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),
+    call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),
   getSettings: (id: string) => call<Record<string, unknown>>('GET', `/accounts/${id}/settings`),
-  refreshSettings: (id: string) => call<Record<string, unknown>>('POST', `/accounts/${id}/settings/refresh`),
+  refreshSettings: (id: string) => call<AccountView>('POST', `/accounts/${id}/settings/refresh`),
   setDefaultSeat: (id: string, defaultSeat: SeatType) =>
-    call('PATCH', `/accounts/${id}/settings`, { defaultSeat }),
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { defaultSeat }),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
   importSubaccountSession: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),

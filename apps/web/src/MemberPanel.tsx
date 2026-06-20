@@ -10,9 +10,9 @@ type BillingRisk =
   | { kind: 'invite'; email: string; seat: SeatType }
   | { kind: 'member-seat'; userId: string; email: string; seat: SeatType };
 
-type RunOptions = {
+type RunOptions<T> = {
   risk?: BillingRisk;
-  after?: () => Promise<void> | void;
+  after?: (result: T) => Promise<void> | void;
 };
 
 function formatDateTime(value: string) {
@@ -41,21 +41,16 @@ function isBillingRiskError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409 && error.message === BILLING_RISK_CONFIRM_MESSAGE;
 }
 
-function defaultSeatFromSettings(settings: Record<string, unknown>): SeatType | '' {
-  const value = settings.default_seat_type;
-  return value === 'default' || value === 'usage_based' ? value : '';
-}
-
 export function MemberPanel({
   account,
   syncing,
   onSync,
-  onChanged
+  onAccountChanged
 }: {
   account: AccountView;
   syncing: boolean;
   onSync: () => void;
-  onChanged: () => void;
+  onAccountChanged: (account: AccountView) => void;
 }) {
   const [members, setMembers] = useState<Member[]>(() => account.membersCache ?? []);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(() => account.pendingInvitesCache ?? []);
@@ -63,12 +58,7 @@ export function MemberPanel({
   const [pendingInvitesCachedAt, setPendingInvitesCachedAt] = useState(account.pendingInvitesCachedAt);
   const [defaultSeatCachedAt, setDefaultSeatCachedAt] = useState(account.defaultSeatCachedAt);
   const [membersRefreshing, setMembersRefreshing] = useState(false);
-  const [invitesLoading, setInvitesLoading] = useState(false);
   const [invitesRefreshing, setInvitesRefreshing] = useState(false);
-  const [invitesLoaded, setInvitesLoaded] = useState(false);
-  const [inviteCount, setInviteCount] = useState<number | undefined>(
-    account.pendingInviteCount ?? account.pendingInvitesCache?.length
-  );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [activePanel, setActivePanel] = useState<ActivePanel>(null);
@@ -80,110 +70,50 @@ export function MemberPanel({
   const [confirmKickId, setConfirmKickId] = useState('');
   const [confirmRevokeEmail, setConfirmRevokeEmail] = useState('');
 
-  const loadCachedMembers = useCallback(async () => {
-    try {
-      setMembers(await apiClient.listMembers(account.id));
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, [account.id]);
-
-  const loadSettings = useCallback(async () => {
-    try {
-      const settings = await apiClient.getSettings(account.id);
-      const ds = defaultSeatFromSettings(settings);
-      if (ds) {
-        setDefaultSeat(ds);
-        setDefaultSeatDraft(ds);
-        setInviteSeat(ds);
-      } else {
-        setDefaultSeat('');
-        setDefaultSeatDraft('usage_based');
-      }
-    } catch {
-      setDefaultSeat('');
-      setDefaultSeatDraft('usage_based');
-    }
-  }, [account.id]);
+  const applyAccountView = useCallback(
+    (updated: AccountView) => {
+      onAccountChanged(updated);
+      setMembers(updated.membersCache ?? []);
+      setPendingInvites(updated.pendingInvitesCache ?? []);
+      setMembersCachedAt(updated.membersCachedAt);
+      setPendingInvitesCachedAt(updated.pendingInvitesCachedAt);
+      setDefaultSeatCachedAt(updated.defaultSeatCachedAt);
+      setDefaultSeat(updated.defaultSeat ?? '');
+      setDefaultSeatDraft(updated.defaultSeat ?? 'usage_based');
+      setInviteSeat(updated.defaultSeat ?? 'usage_based');
+    },
+    [onAccountChanged]
+  );
 
   const refreshSettings = useCallback(async () => {
     try {
-      const settings = await apiClient.refreshSettings(account.id);
-      const ds = defaultSeatFromSettings(settings);
-      if (ds) {
-        setDefaultSeat(ds);
-        setDefaultSeatDraft(ds);
-        setInviteSeat(ds);
-      }
-      setDefaultSeatCachedAt(Date.now());
+      applyAccountView(await apiClient.refreshSettings(account.id));
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [account.id]);
+  }, [account.id, applyAccountView]);
 
-  const refreshMembers = useCallback(async (): Promise<boolean> => {
+  const refreshMembers = useCallback(async () => {
     setMembersRefreshing(true);
     try {
-      setMembers(await apiClient.refreshMembers(account.id));
-      setMembersCachedAt(Date.now());
-      return true;
+      applyAccountView(await apiClient.refreshMembers(account.id));
     } catch (e) {
       setError((e as Error).message);
-      return false;
     } finally {
       setMembersRefreshing(false);
     }
-  }, [account.id]);
-
-  const loadCachedInviteCount = useCallback(async (fallback?: number) => {
-    try {
-      setInviteCount(await apiClient.countPendingInvites(account.id));
-    } catch {
-      setInviteCount(fallback);
-    }
-  }, [account.id]);
-
-  const refreshInviteCount = useCallback(async (fallback?: number) => {
-    try {
-      setInviteCount(await apiClient.refreshPendingInviteCount(account.id));
-    } catch {
-      setInviteCount(fallback);
-    }
-  }, [account.id]);
-
-  useEffect(() => {
-    setInviteCount(account.pendingInviteCount ?? account.pendingInvitesCache?.length);
-  }, [account.pendingInviteCount, account.pendingInvitesCache]);
-
-  const loadCachedInvites = useCallback(async () => {
-    setInvitesLoading(true);
-    try {
-      const invites = await apiClient.listPendingInvites(account.id);
-      setPendingInvites(invites);
-      setInviteCount(invites.length);
-      setPendingInvitesCachedAt(account.pendingInvitesCachedAt);
-      setInvitesLoaded(true);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setInvitesLoading(false);
-    }
-  }, [account.id]);
+  }, [account.id, applyAccountView]);
 
   const refreshInvites = useCallback(async () => {
     setInvitesRefreshing(true);
     try {
-      const invites = await apiClient.refreshPendingInvites(account.id);
-      setPendingInvites(invites);
-      setInviteCount(invites.length);
-      setPendingInvitesCachedAt(Date.now());
-      setInvitesLoaded(true);
+      applyAccountView(await apiClient.refreshPendingInvites(account.id));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setInvitesRefreshing(false);
     }
-  }, [account.id]);
+  }, [account.id, applyAccountView]);
 
   useEffect(() => {
     setMembers(account.membersCache ?? []);
@@ -191,51 +121,51 @@ export function MemberPanel({
     setMembersCachedAt(account.membersCachedAt);
     setPendingInvitesCachedAt(account.pendingInvitesCachedAt);
     setDefaultSeatCachedAt(account.defaultSeatCachedAt);
-    setInvitesLoaded(false);
-    setInviteCount(account.pendingInviteCount ?? account.pendingInvitesCache?.length);
     setDefaultSeat(account.defaultSeat ?? '');
     setDefaultSeatDraft(account.defaultSeat ?? 'usage_based');
     setInviteSeat(account.defaultSeat ?? 'usage_based');
+  }, [
+    account.id,
+    account.membersCache,
+    account.membersCachedAt,
+    account.pendingInvitesCache,
+    account.pendingInvitesCachedAt,
+    account.defaultSeat,
+    account.defaultSeatCachedAt
+  ]);
+
+  useEffect(() => {
     setError('');
     setBusy('');
     setActivePanel(null);
     setBillingRisk(null);
     setConfirmKickId('');
     setConfirmRevokeEmail('');
-    void loadCachedMembers();
-    void loadSettings();
-    void loadCachedInviteCount(account.pendingInviteCount ?? account.pendingInvitesCache?.length);
-  }, [account.id, account.membersCachedAt, account.pendingInvitesCachedAt, account.defaultSeatCachedAt, loadCachedMembers, loadSettings, loadCachedInviteCount]);
-
-  useEffect(() => {
-    if (account.membersCache) setMembers(account.membersCache);
-  }, [account.id, account.membersCachedAt, account.membersCache]);
+  }, [account.id]);
 
   const loadedChatgptSeats = members.filter((m) => m.seat === 'default').length;
-  const chatgptSeats = members.length > 0 ? loadedChatgptSeats : account.chatgptSeatCount;
+  const hasMemberSnapshot = Boolean(account.membersCache || membersCachedAt);
+  const hasInviteSnapshot = Boolean(account.pendingInvitesCache || pendingInvitesCachedAt);
+  const chatgptSeats = hasMemberSnapshot ? loadedChatgptSeats : undefined;
+  const memberCount = hasMemberSnapshot ? members.length : undefined;
+  const inviteCount = hasInviteSnapshot ? pendingInvites.length : undefined;
   const atLimit = typeof chatgptSeats === 'number' && chatgptSeats >= MAX_CHATGPT_SEATS;
 
   const refreshMemberRowsAfterChange = async () => {
-    if (await refreshMembers()) onChanged();
+    await refreshMembers();
   };
 
   const refreshInviteRowsAfterChange = async () => {
-    if (invitesLoaded || activePanel === 'invites') await refreshInvites();
-    else await refreshInviteCount(account.pendingInviteCount ?? account.pendingInvitesCache?.length);
-    onChanged();
+    await refreshInvites();
   };
 
-  const refreshSettingsAfterChange = () => {
-    onChanged();
-  };
-
-  const run = async (key: string, fn: () => Promise<unknown>, options: RunOptions = {}) => {
+  const run = async <T,>(key: string, fn: () => Promise<T>, options: RunOptions<T> = {}) => {
     setBusy(key);
     setError('');
     setBillingRisk(null);
     try {
-      await fn();
-      await options.after?.();
+      const result = await fn();
+      await options.after?.(result);
     } catch (e) {
       if (options.risk && isBillingRiskError(e)) {
         setBillingRisk(options.risk);
@@ -252,8 +182,6 @@ export function MemberPanel({
     setBillingRisk(null);
     if (panel === 'invites') {
       setPendingInvites((current) => (current.length > 0 ? current : account.pendingInvitesCache ?? []));
-      setInvitesLoaded(true);
-      void loadCachedInvites();
     }
   };
 
@@ -264,12 +192,13 @@ export function MemberPanel({
     void run(
       'invite',
       async () => {
-        await apiClient.invite(account.id, email, seat, confirmBillingRisk);
+        const updated = await apiClient.invite(account.id, email, seat, confirmBillingRisk);
+        applyAccountView(updated);
         setInviteEmail('');
+        return updated;
       },
       {
-        risk: { kind: 'invite', email, seat },
-        after: refreshInviteRowsAfterChange
+        risk: { kind: 'invite', email, seat }
       }
     );
   };
@@ -284,7 +213,7 @@ export function MemberPanel({
       () => apiClient.setMemberSeat(account.id, member.userId, seat, confirmBillingRisk),
       {
         risk: { kind: 'member-seat', userId: member.userId, email: member.email, seat },
-        after: refreshMemberRowsAfterChange
+        after: applyAccountView
       }
     );
   };
@@ -353,7 +282,7 @@ export function MemberPanel({
         </div>
         <div className="seat-summary">
           <span>成员</span>
-          <strong>{members.length || account.memberCount || '暂无'}</strong>
+          <strong>{memberCount ?? '暂无'}</strong>
         </div>
         <div className="seat-summary">
           <span>默认席位</span>
@@ -439,10 +368,9 @@ export function MemberPanel({
               disabled={busy === 'default-seat'}
               onClick={() =>
                 void run('default-seat', async () => {
-                  await apiClient.setDefaultSeat(account.id, defaultSeatDraft);
-                  setDefaultSeat(defaultSeatDraft);
+                  applyAccountView(await apiClient.setDefaultSeat(account.id, defaultSeatDraft));
                   setActivePanel(null);
-                }, { after: refreshSettingsAfterChange })
+                })
               }
             >
               {busy === 'default-seat' ? '保存中' : '保存'}
@@ -488,13 +416,13 @@ export function MemberPanel({
                 </tr>
               </thead>
               <tbody>
-                {(invitesLoading || invitesRefreshing) && pendingInvites.length === 0 && (
+                {invitesRefreshing && pendingInvites.length === 0 && (
                   <>
                     <tr className="skeleton-row"><td colSpan={5} /></tr>
                     <tr className="skeleton-row"><td colSpan={5} /></tr>
                   </>
                 )}
-                {!invitesLoading && !invitesRefreshing && pendingInvites.length === 0 && (
+                {!invitesRefreshing && pendingInvites.length === 0 && (
                   <tr>
                     <td colSpan={5} className="table-empty">暂无待处理邀请</td>
                   </tr>
@@ -521,9 +449,9 @@ export function MemberPanel({
                               disabled={busy === `revoke-${invite.email}`}
                               onClick={() =>
                                 void run(`revoke-${invite.email}`, async () => {
-                                  await apiClient.revokePendingInvite(account.id, invite.email);
+                                  applyAccountView(await apiClient.revokePendingInvite(account.id, invite.email));
                                   setConfirmRevokeEmail('');
-                                }, { after: refreshInviteRowsAfterChange })
+                                })
                               }
                             >
                               {busy === `revoke-${invite.email}` ? '撤销中' : '确认撤销'}
@@ -624,8 +552,10 @@ export function MemberPanel({
                             onClick={() =>
                               void run(
                                 `kick-${m.userId}`,
-                                () => apiClient.removeMember(account.id, m.userId),
-                                { after: refreshMemberRowsAfterChange }
+                                async () => {
+                                  applyAccountView(await apiClient.removeMember(account.id, m.userId));
+                                  setConfirmKickId('');
+                                }
                               )
                             }
                           >
