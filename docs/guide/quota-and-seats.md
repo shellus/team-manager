@@ -1,0 +1,48 @@
+# 额度与席位轮转
+
+team-manager 关注的是 ChatGPT Team 席位在 Codex 使用中的 Team 额度窗口，不是 usage-based/Codex 余额积分。额度判断以目标 workspace 凭证实时返回为准。
+
+## 额度维度
+
+Codex 凭证绑定到“ChatGPT 账号 × Team workspace”。同一个账号在 Team A 的额度用完，不代表它在 Team B 的额度也用完。
+
+刷新额度时，系统使用该 workspace 对应的 Codex credential：
+
+- `access_token` 用于鉴权。
+- `account_id` 作为 `Chatgpt-Account-Id` 上下文。
+- 返回结果缓存到该凭证的 `lastQuota` 和 `lastQuotaAt`。
+
+## 席位与额度关系
+
+| 子号在 Team 中的席位 | 凭证可用性 | 额度表现 |
+|---|---|---|
+| ChatGPT 席位 | 可使用 Team 额度 | `wham/usage` 返回额度窗口 |
+| Codex 席位 | 没有 ChatGPT Team 席位额度 | 无 Codex 余额时会表现为余额或积分不足 |
+
+ChatGPT 席位额度窗口可能存在不同灰度策略。系统不写死固定金额或周期，展示以实时 `wham/usage` 返回为准。
+
+## 腾 ChatGPT 席位
+
+常规腾位流程：
+
+1. 在母号页刷新成员列表。
+2. 查看 ChatGPT 席位已用数量。
+3. 将暂时不用 ChatGPT 额度的成员切到 Codex 席位。
+4. 邀请或切换新的成员到 ChatGPT 席位。
+5. 确认同一时间点 ChatGPT 席位数量不超过已购数量。
+
+仅为腾出 ChatGPT 席位时，不应移除成员。移除会破坏该账号与该 Team 的 membership，可能导致该 Team 下凭证不可用。
+
+## 额度恢复后的复用
+
+同一账号仍在同一 Team 下时，把成员从 Codex 席位切回 ChatGPT 席位即可继续复用原 Team 凭证，不需要重新生成凭证。
+
+跨 Team 搬迁不同。账号从原 Team 移除并加入另一个 Team 后，需要在目标 Team 下重新授权，生成绑定目标 Team workspace 的新凭证。
+
+## 推荐操作策略
+
+- 默认新成员席位设置为 Codex 席位。
+- 需要 ChatGPT Team 额度时，再把目标成员切到 ChatGPT 席位。
+- 额度用尽或暂时不用额度时，优先切回 Codex 席位。
+- 保留同一 Team 下已有凭证，避免重复授权。
+- 移除成员只用于明确离开 Team 或跨 Team 搬迁，不用于常规腾位。

@@ -1,5 +1,6 @@
 import type {
   CodexCredentialJson,
+  CodexAuthRuntimeStatus,
   CodexQuotaSnapshot,
   Subaccount,
   SubaccountAuthLog,
@@ -41,6 +42,61 @@ export class SubaccountService {
     return this.store.list();
   }
 
+  async getCodexAuthRuntimeStatus(): Promise<CodexAuthRuntimeStatus> {
+    const workerUrl = process.env.TEAMMGR_CURL_CFFI_URL?.trim().replace(/\/+$/, '');
+    if (!workerUrl) {
+      return {
+        workerConfigured: false,
+        workerReachable: false,
+        codexAutoAuth: false,
+        flaresolverr: false,
+        gongxiMail: false,
+        phoneOtp: false,
+        error: '未配置 TEAMMGR_CURL_CFFI_URL'
+      };
+    }
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(`${workerUrl}/health`, { signal: controller.signal }).finally(() =>
+        clearTimeout(timer)
+      );
+      const data = (await response.json().catch(() => ({}))) as {
+        capabilities?: Record<string, unknown>;
+        phonePoolCount?: unknown;
+        phonePoolError?: unknown;
+      };
+      const capabilities = data.capabilities ?? {};
+      const workerReachable = response.ok;
+      return {
+        workerConfigured: true,
+        workerReachable,
+        codexAutoAuth: workerReachable && capabilities.codexAutoAuth === true,
+        flaresolverr: capabilities.flaresolverr === true,
+        gongxiMail: capabilities.gongxiMail === true,
+        phoneOtp: capabilities.phoneOtp === true,
+        phonePoolCount: typeof data.phonePoolCount === 'number' ? data.phonePoolCount : undefined,
+        error:
+          workerReachable
+            ? typeof data.phonePoolError === 'string' && data.phonePoolError
+              ? data.phonePoolError
+              : undefined
+            : `curl_cffi worker health 返回 HTTP ${response.status}`
+      };
+    } catch (e) {
+      return {
+        workerConfigured: true,
+        workerReachable: false,
+        codexAutoAuth: false,
+        flaresolverr: false,
+        gongxiMail: false,
+        phoneOtp: false,
+        error: (e as Error).message
+      };
+    }
+  }
+
   async importSession(raw: unknown): Promise<SubaccountView> {
     let view: SubaccountView;
     try {
@@ -57,6 +113,22 @@ export class SubaccountService {
       status: 'session_ready',
       message: '已录入子号 ChatGPT session JSON',
       data: { email: view.email, accountIdPresent: Boolean(view.chatgptAccountId) }
+    });
+    return view;
+  }
+
+  async importCodexCredential(raw: unknown): Promise<SubaccountView> {
+    const credential = parseCodexCredentialInput(raw);
+    const view = await this.store.importCodexCredential(credential);
+    await this.store.appendLog(view.id, {
+      phase: 'codex_credential_import',
+      status: view.status,
+      message: '已导入已有 Codex credential JSON',
+      data: {
+        email: view.email,
+        accountId: credential.account_id,
+        planType: credential.plan_type
+      }
     });
     return view;
   }
@@ -255,6 +327,37 @@ export class SubaccountService {
 function cleanTargetAccountId(value?: string): string | undefined {
   const target = value?.trim();
   return target || undefined;
+}
+
+function parseCodexCredentialInput(raw: unknown): CodexCredentialJson {
+  if (!raw || typeof raw !== 'object') {
+    throw new ServiceError(400, '录入内容必须是 Codex credential JSON');
+  }
+  const record = raw as Record<string, unknown>;
+  const credential: CodexCredentialJson = {
+    id_token: readRequiredString(record, 'id_token'),
+    access_token: readRequiredString(record, 'access_token'),
+    refresh_token: readRequiredString(record, 'refresh_token'),
+    account_id: readRequiredString(record, 'account_id'),
+    last_refresh: readRequiredString(record, 'last_refresh'),
+    email: readRequiredString(record, 'email'),
+    type: readRequiredString(record, 'type') as 'codex',
+    expired: readRequiredString(record, 'expired'),
+    plan_type: readOptionalString(record, 'plan_type')
+  };
+  if (credential.type !== 'codex') throw new ServiceError(400, 'Codex credential type 必须是 codex');
+  return credential;
+}
+
+function readRequiredString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  if (typeof value !== 'string' || !value.trim()) throw new ServiceError(400, `Codex 凭证缺少 ${key}`);
+  return value.trim();
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function assertCredentialMatchesTarget(credential: CodexCredentialJson, target?: string): void {

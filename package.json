@@ -8,11 +8,15 @@
     "build": "corepack pnpm --filter @team-manager/shared build && corepack pnpm --filter @team-manager/web build && corepack pnpm --filter @team-manager/server build",
     "typecheck": "corepack pnpm --filter @team-manager/shared build && corepack pnpm -r typecheck",
     "test": "corepack pnpm --filter @team-manager/server test",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "start": "node apps/server/dist/index.js"
   },
   "devDependencies": {
     "@types/node": "latest",
     "typescript": "latest",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitepress": "^1.6.4"
   }
 }

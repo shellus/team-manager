@@ -8,6 +8,7 @@
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
+- curl_cffi worker、GongXi-Mail、短信接码和授权页面 clearance 属于运行环境能力，不是账号业务模型字段；后端只暴露脱敏可用状态，前端只读展示。
 - 兼容旧数据时允许在 store 初始化阶段清理遗留冗余字段，并立即按当前 schema 持久化。
 
 ## 母号模型
@@ -63,11 +64,11 @@
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id |
-| `email` | session JSON 或注册结果 | 子号邮箱 |
+| `email` | session JSON、注册结果或 Codex credential | 子号邮箱 |
 | `label` | 本地输入 | 本地备注名 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token，不下发前端 |
-| `codexCredentials[]` | Codex OAuth token exchange | 子号在某 Team workspace 下的 Codex 凭证 |
+| `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
 | `status` / `lastError` | 授权或同步流程 | 子号流程状态和错误摘要 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
@@ -106,6 +107,7 @@ workspace key 以 `credential.account_id` 为准。历史字段 `SubaccountCodex
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
 | 导入 session | 写入或更新 `email`、`chatgptAccountId`、`webAccessToken`、`status`，追加脱敏日志 | 合并返回的子号 view |
+| 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；按 `credential.account_id` upsert `codexCredentials[]` | 合并返回的子号 view |
 | 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`chatgptAccountId`、`webAccessToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | Codex 授权成功 | 按 `credential.account_id` upsert `codexCredentials[]`，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |

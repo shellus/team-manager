@@ -6,6 +6,7 @@ import type {
   ApiResult,
   SubaccountAuthLog,
   SubaccountView,
+  CodexAuthRuntimeStatus,
   CodexCredentialJson,
   CodexQuotaSnapshot
 } from '@team-manager/shared';
@@ -81,6 +82,8 @@ export const apiClient = {
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
   importSubaccountSession: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
+  importSubaccountCodexCredential: (payload: Record<string, unknown>) =>
+    call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
   updateSubaccountLocalProfile: (id: string, payload: { label: string; session?: Record<string, unknown> }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
@@ -90,6 +93,7 @@ export const apiClient = {
       `/subaccounts/${id}/codex-auth/start`,
       { chatgptAccountId }
     ),
+  getCodexAuthRuntimeStatus: () => call<CodexAuthRuntimeStatus>('GET', '/subaccounts/codex-auth/status'),
   autoSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/auto`, { chatgptAccountId }),
   completeSubaccountCodexAuth: (id: string, sessionId: string, callbackUrl: string) =>

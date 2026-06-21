@@ -77,7 +77,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self.write_json(HTTPStatus.OK, {"ok": True})
+            self.write_json(HTTPStatus.OK, worker_health_payload())
             return
         self.write_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
@@ -750,6 +750,29 @@ def read_phone_pool() -> list[dict[str, str]]:
         except FileNotFoundError:
             continue
     return rows
+
+
+def worker_health_payload() -> dict[str, Any]:
+    phone_pool_count = 0
+    phone_pool_ok = False
+    phone_pool_error = ""
+    try:
+        phone_pool_count = len(read_phone_pool())
+        phone_pool_ok = phone_pool_count > 0
+    except Exception:
+        phone_pool_error = "短信接码配置不可用"
+    return {
+        "ok": True,
+        "capabilities": {
+            "chatgptFetch": True,
+            "codexAutoAuth": bool(FLARESOLVERR_URL and GONGXI_MAIL_BASE_URL and GONGXI_MAIL_API_KEY),
+            "flaresolverr": bool(FLARESOLVERR_URL),
+            "gongxiMail": bool(GONGXI_MAIL_BASE_URL and GONGXI_MAIL_API_KEY),
+            "phoneOtp": phone_pool_ok,
+        },
+        "phonePoolCount": phone_pool_count,
+        "phonePoolError": phone_pool_error or None,
+    }
 
 
 def fetch_phone_messages(url: str) -> str:

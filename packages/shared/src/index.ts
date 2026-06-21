@@ -178,6 +178,17 @@ export interface CodexQuotaSnapshot {
   error: string | null;
 }
 
+export interface CodexAuthRuntimeStatus {
+  workerConfigured: boolean;
+  workerReachable: boolean;
+  codexAutoAuth: boolean;
+  flaresolverr: boolean;
+  gongxiMail: boolean;
+  phoneOtp: boolean;
+  phonePoolCount?: number;
+  error?: string;
+}
+
 export interface SubaccountAuthLog {
   id: string;
   subaccountId?: string;

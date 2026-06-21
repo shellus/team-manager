@@ -327,6 +327,15 @@ input[readonly] {
   padding: 2px 2px 12px;
 }
 
+.pane-actions,
+.empty-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .pane-head h2,
 .workspace-head h2,
 .empty-workspace h2,
@@ -695,6 +704,10 @@ input[readonly] {
   margin: 0;
 }
 
+.empty-actions {
+  justify-content: center;
+}
+
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -872,6 +885,12 @@ button.tiny-action {
   font-size: 13px;
 }
 
+.credential-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(120px, 0.6fr);
+  gap: 10px;
+}
+
 .callback-input {
   min-height: 86px;
   margin-top: 10px;
@@ -919,6 +938,108 @@ button.tiny-action {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.runtime-status-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.runtime-status-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runtime-status-head strong,
+.runtime-status-head span {
+  display: block;
+}
+
+.runtime-status-head strong {
+  font-size: 13px;
+}
+
+.runtime-status-head span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runtime-summary {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted) !important;
+  font-size: 12px;
+}
+
+.runtime-summary.ready {
+  color: var(--ok) !important;
+  border-color: rgba(20, 123, 91, 0.26);
+  background: var(--ok-soft);
+}
+
+.runtime-summary.missing {
+  color: var(--warn) !important;
+  border-color: rgba(154, 91, 0, 0.24);
+  background: var(--warn-soft);
+}
+
+.runtime-capability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.runtime-capability {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.runtime-capability span,
+.runtime-capability strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-capability span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.runtime-capability strong {
+  margin-top: 3px;
+  font-size: 13px;
+}
+
+.runtime-capability.ready strong {
+  color: var(--ok);
+}
+
+.runtime-capability.missing strong {
+  color: var(--warn);
+}
+
+.runtime-warning {
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .credential-card {
@@ -1343,18 +1464,21 @@ button.tiny-action {
   .pane-head,
   .workspace-head,
   .section-head,
-  .subsection-head {
+  .subsection-head,
+  .runtime-status-head {
     flex-direction: column;
     align-items: stretch;
   }
 
   .topbar-actions,
+  .pane-actions,
   .card-actions,
   .panel-actions {
     justify-content: stretch;
   }
 
   .topbar-actions button,
+  .pane-actions button,
   .card-actions button,
   .panel-actions button {
     flex: 1 1 auto;
@@ -1363,7 +1487,9 @@ button.tiny-action {
   .summary-strip,
   .form-row,
   .form-row.compact,
+  .credential-preview-grid,
   .credential-state-grid,
+  .runtime-capability-grid,
   .credential-team-row,
   .auth-url-panel,
   .quota-item,

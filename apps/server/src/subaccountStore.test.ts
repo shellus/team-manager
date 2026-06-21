@@ -39,6 +39,42 @@ describe('SubaccountStore', () => {
     });
   });
 
+  it('imports an existing Codex credential without requiring a ChatGPT web session', async () => {
+    await withStore(async (store) => {
+      const saved = await store.importCodexCredential({
+        id_token: 'id-token-a',
+        access_token: 'access-token-a',
+        refresh_token: 'refresh-token-a',
+        account_id: 'team-account-a',
+        last_refresh: '2026-06-18T00:00:00.000Z',
+        email: 'child@example.com',
+        type: 'codex',
+        expired: '2026-06-18T01:00:00.000Z',
+        plan_type: 'team'
+      });
+      const updated = await store.importCodexCredential({
+        id_token: 'id-token-b',
+        access_token: 'access-token-b',
+        refresh_token: 'refresh-token-b',
+        account_id: 'team-account-b',
+        last_refresh: '2026-06-18T00:00:00.000Z',
+        email: 'CHILD@example.com',
+        type: 'codex',
+        expired: '2026-06-18T01:00:00.000Z',
+        plan_type: 'team'
+      });
+
+      assert.equal(updated.id, saved.id);
+      assert.equal(updated.email, 'CHILD@example.com');
+      assert.equal(updated.hasWebSession, false);
+      assert.equal(updated.status, 'codex_ready');
+      assert.equal(updated.codexCredentials.length, 2);
+      assert.equal(updated.codexCredentials[0]!.accountId, 'team-account-b');
+      assert.equal(store.getCodexCredentialForAccount(saved.id, 'team-account-a')?.refresh_token, 'refresh-token-a');
+      assert.equal(store.getCodexCredentialForAccount(saved.id, 'team-account-b')?.refresh_token, 'refresh-token-b');
+    });
+  });
+
   it('normalizes legacy duplicate child fields out of the persisted model', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccounts-'));
     try {

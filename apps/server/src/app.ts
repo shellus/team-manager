@@ -216,6 +216,11 @@ export async function buildApp({
     return wrap(c, () => subaccountService.importSession(body));
   });
 
+  api.post('/subaccounts/codex-credential', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => subaccountService.importCodexCredential(body));
+  });
+
   api.patch('/subaccounts/:id/local-profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { label?: unknown; session?: unknown };
     return wrap(c, () => subaccountService.updateLocalProfile(c.req.param('id'), body));
@@ -229,6 +234,10 @@ export async function buildApp({
     const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
     return wrap(c, () => subaccountService.startCodexAuth(c.req.param('id'), body.chatgptAccountId));
   });
+
+  api.get('/subaccounts/codex-auth/status', (c) =>
+    wrap(c, () => subaccountService.getCodexAuthRuntimeStatus())
+  );
 
   api.post('/subaccounts/:id/codex-auth/auto', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };

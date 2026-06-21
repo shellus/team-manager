@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AccountView,
+  CodexAuthRuntimeStatus,
   CodexQuotaSnapshot,
   SubaccountAuthLog,
   SubaccountCodexCredentialView,
@@ -10,6 +11,7 @@ import type {
 } from '@team-manager/shared';
 import { apiClient } from './api.js';
 import { SessionImportDialog } from './SessionImportDialog.js';
+import { CredentialImportDialog } from './CredentialImportDialog.js';
 import { LocalProfileDialog } from './LocalProfileDialog.js';
 
 const STATUS_LABEL: Record<SubaccountStatus, string> = {
@@ -68,13 +70,21 @@ function quotaLabel(credential?: SubaccountCodexCredentialView) {
   return primary?.usedPercent === null || primary?.usedPercent === undefined ? '额度可用' : `${primary.usedPercent}%`;
 }
 
+function runtimeCapabilityClass(ready: boolean | undefined) {
+  if (ready === undefined) return 'unknown';
+  return ready ? 'ready' : 'missing';
+}
+
 export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   const [subaccounts, setSubaccounts] = useState<SubaccountView[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [credentialDialogOpen, setCredentialDialogOpen] = useState(false);
   const [editingSubaccount, setEditingSubaccount] = useState<SubaccountView | null>(null);
   const [callbackUrl, setCallbackUrl] = useState('');
   const [credentialJson, setCredentialJson] = useState('');
+  const [runtimeStatus, setRuntimeStatus] = useState<CodexAuthRuntimeStatus | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [authSession, setAuthSession] = useState<{
     sessionId: string;
     authUrl: string;
@@ -147,6 +157,25 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     setLogs(await apiClient.listSubaccountLogs(id));
   }, []);
 
+  const loadRuntimeStatus = useCallback(async () => {
+    setRuntimeLoading(true);
+    try {
+      setRuntimeStatus(await apiClient.getCodexAuthRuntimeStatus());
+    } catch (e) {
+      setRuntimeStatus({
+        workerConfigured: false,
+        workerReachable: false,
+        codexAutoAuth: false,
+        flaresolverr: false,
+        gongxiMail: false,
+        phoneOtp: false,
+        error: (e as Error).message
+      });
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -165,6 +194,10 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadRuntimeStatus();
+  }, [loadRuntimeStatus]);
 
   useEffect(() => {
     setQuota(null);
@@ -203,6 +236,15 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     loadLogs(added.id).catch((e) => setError((e as Error).message));
   };
 
+  const importCredential = async (payload: Record<string, unknown>) => {
+    setError('');
+    setNotice('');
+    const added = await apiClient.importSubaccountCodexCredential(payload);
+    mergeSubaccount(added);
+    setNotice('已导入 Codex 凭证。');
+    loadLogs(added.id).catch((e) => setError((e as Error).message));
+  };
+
   const updateLocalProfile = async (
     id: string,
     payload: { label: string; session?: Record<string, unknown> }
@@ -236,6 +278,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
       setAuthSession(null);
       setCallbackUrl('');
       setNotice('Codex 自动授权完成，凭证 JSON 已生成。');
+      loadRuntimeStatus().catch(() => undefined);
     });
 
   const completeCodexAuth = () =>
@@ -316,6 +359,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     const busyAuto = targetKey('codex-auto', accountId);
     const busyQuota = targetKey('quota-refresh', accountId);
     const busyExport = targetKey('credential-export', accountId);
+    const autoAuthUnavailable = runtimeStatus?.codexAutoAuth === false;
     return (
       <div className="credential-team-row" key={link.accountId}>
         <div>
@@ -334,7 +378,8 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
           <button
             className="primary"
             onClick={() => autoCodexAuth(accountId)}
-            disabled={!selected || !accountId || busy === busyAuto}
+            disabled={!selected || !accountId || busy === busyAuto || autoAuthUnavailable}
+            title={autoAuthUnavailable ? '自动授权运行依赖未就绪，请先检查配置状态' : undefined}
           >
             {busy === busyAuto ? '授权中' : '自动授权'}
           </button>
@@ -367,6 +412,12 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
         onSubmit={importSession}
       />
 
+      <CredentialImportDialog
+        open={credentialDialogOpen}
+        onClose={() => setCredentialDialogOpen(false)}
+        onSubmit={importCredential}
+      />
+
       <LocalProfileDialog
         open={Boolean(editingSubaccount)}
         title="编辑子号本地资料"
@@ -384,9 +435,12 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
             <h2>子号</h2>
             <span>{subaccounts.length} 个账号</span>
           </div>
-          <button className="primary" onClick={() => setSessionDialogOpen(true)}>
-            录入子号
-          </button>
+          <div className="pane-actions">
+            <button className="primary" onClick={() => setSessionDialogOpen(true)}>
+              录入子号
+            </button>
+            <button onClick={() => setCredentialDialogOpen(true)}>导入凭证</button>
+          </div>
         </div>
 
         <div className="account-list">
@@ -399,10 +453,13 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
           {!loading && subaccounts.length === 0 && (
             <div className="empty-panel">
               <h3>还没有子号</h3>
-              <p>先录入子号 session JSON，再生成 Codex 凭证并查询额度。</p>
-              <button className="primary" onClick={() => setSessionDialogOpen(true)}>
-                录入子号
-              </button>
+              <p>可录入子号 session JSON，也可导入已有 CPA/Codex credential JSON。</p>
+              <div className="empty-actions">
+                <button className="primary" onClick={() => setSessionDialogOpen(true)}>
+                  录入子号
+                </button>
+                <button onClick={() => setCredentialDialogOpen(true)}>导入凭证</button>
+              </div>
             </div>
           )}
           {subaccounts.map((subaccount) => {
@@ -501,7 +558,62 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
         <section className="block">
           <div className="section-head">
             <h3>凭证与 Codex Auth</h3>
-            <span>{selected ? STATUS_LABEL[selected.status] : '未选择子号'}</span>
+            <div className="section-actions">
+              <span>{selected ? STATUS_LABEL[selected.status] : '未选择子号'}</span>
+              <button
+                type="button"
+                className="ghost tiny-action"
+                onClick={loadRuntimeStatus}
+                disabled={runtimeLoading}
+              >
+                {runtimeLoading ? '检查中' : '检查配置'}
+              </button>
+            </div>
+          </div>
+          <div className="runtime-status-panel">
+            <div className="runtime-status-head">
+              <div>
+                <strong>自动授权运行能力</strong>
+                <span>连接参数来自运行环境，只读展示可用状态，不在页面保存配置。</span>
+              </div>
+              <span className={`runtime-summary ${runtimeCapabilityClass(runtimeStatus?.codexAutoAuth)}`}>
+                {runtimeStatus
+                  ? runtimeStatus.codexAutoAuth
+                    ? '自动授权可用'
+                    : '自动授权不可用'
+                  : '未检查'}
+              </span>
+            </div>
+            <div className="runtime-capability-grid">
+              <div className={`runtime-capability ${runtimeCapabilityClass(runtimeStatus?.workerReachable)}`}>
+                <span>worker</span>
+                <strong>{runtimeStatus?.workerReachable ? '可连接' : runtimeStatus ? '不可连接' : '未检查'}</strong>
+              </div>
+              <div className={`runtime-capability ${runtimeCapabilityClass(runtimeStatus?.gongxiMail)}`}>
+                <span>GongXi-Mail</span>
+                <strong>{runtimeStatus?.gongxiMail ? '已配置' : runtimeStatus ? '未就绪' : '未检查'}</strong>
+              </div>
+              <div className={`runtime-capability ${runtimeCapabilityClass(runtimeStatus?.phoneOtp)}`}>
+                <span>短信接码</span>
+                <strong>
+                  {runtimeStatus?.phoneOtp
+                    ? `${runtimeStatus.phonePoolCount ?? 0} 个槽`
+                    : runtimeStatus
+                      ? '不可用'
+                      : '未检查'}
+                </strong>
+              </div>
+              <div className={`runtime-capability ${runtimeCapabilityClass(runtimeStatus?.flaresolverr)}`}>
+                <span>授权页面</span>
+                <strong>{runtimeStatus?.flaresolverr ? '可通过' : runtimeStatus ? '未就绪' : '未检查'}</strong>
+              </div>
+            </div>
+            {runtimeStatus?.error && <div className="runtime-warning">{shortError(runtimeStatus.error)}</div>}
+            {runtimeStatus?.codexAutoAuth === false && (
+              <div className="runtime-warning">
+                自动授权依赖缺失时可使用登录 URL 手动授权；GongXi-Mail、短信接码和 worker 连接配置应在运行环境中处理。
+              </div>
+            )}
           </div>
           <div className="credential-state-grid">
             <div className={`credential-card ${selected?.hasWebSession ? 'ready' : ''}`}>

@@ -155,6 +155,38 @@ export class SubaccountStore {
     return this.toView(next);
   }
 
+  async importCodexCredential(credential: CodexCredentialJson): Promise<SubaccountView> {
+    this.ensureLoaded();
+    const email = credential.email.trim();
+    const accountId = credential.account_id.trim();
+    if (!email) throw new Error('Codex 凭证缺少 email');
+    if (!accountId) throw new Error('Codex 凭证缺少 account_id');
+
+    const now = Date.now();
+    const existing = this.findByEmail(email);
+    const credentials = upsertCodexCredential(existing?.codexCredentials ?? [], {
+      credential: { ...credential, email, account_id: accountId },
+      lastAuthAt: now
+    });
+    const next: Subaccount = {
+      id: existing?.id ?? randomUUID(),
+      email,
+      label: existing?.label ?? email,
+      chatgptAccountId: existing?.chatgptAccountId,
+      webAccessToken: existing?.webAccessToken,
+      codexCredentials: credentials,
+      teamLinks: existing?.teamLinks,
+      status: 'codex_ready',
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      lastError: undefined
+    };
+
+    this.subaccounts.set(next.id, next);
+    await this.persist();
+    return this.toView(next);
+  }
+
   async updateLocalProfile(
     id: string,
     input: { label: string; session?: ChatGptSessionInput }

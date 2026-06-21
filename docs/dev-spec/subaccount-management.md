@@ -1,6 +1,8 @@
 # Subaccount Management
 
-本文件记录子号管理当前实现边界。运行时主链路不使用 Playwright。Codex 自动授权会通过 curl_cffi worker 调用 auth.openai.com，并用 GongXi-Mail 读取 OpenAI 邮箱验证码；额度查询不对接外部 credential-status 服务，仅参考 CPA 的凭证格式与额度解析方式，直接用目标 Team workspace 对应的子号 Codex 凭证查询额度。
+本文件记录子号管理当前实现边界。运行时主链路不使用 Playwright。Codex 自动授权会通过 curl_cffi worker 调用 auth.openai.com，并使用运行环境配置的授权页面 clearance、GongXi-Mail 邮箱验证码和可选短信 OTP 能力；额度查询不对接外部 credential-status 服务，仅参考 CPA 的凭证格式与额度解析方式，直接用目标 Team workspace 对应的子号 Codex 凭证查询额度。
+
+GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥属于部署运行配置，不是 team-manager 的业务数据。源码和公开文档只描述能力边界；真实连接参数放在运行环境变量、部署目录或本机私有文档中。页面只通过脱敏状态检查展示这些能力是否可用，不提供密钥、域名、路径、手机号或接码渠道编辑入口。
 
 ## 已实现
 
@@ -11,6 +13,10 @@
 - 子号 session JSON 录入：
   - 只接受一种格式：`user.email`、`account.id`、`accessToken`。
   - 不支持扁平字段，不做回退兼容。
+- 已有 Codex credential 录入：
+  - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON。
+  - 按 `credential.email` 创建或更新子号，按 `credential.account_id` 保存对应 Team workspace 凭证。
+  - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
   - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注名 `label`。
   - 请求带新的 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken`。
@@ -23,6 +29,10 @@
   - 两条链路最终都生成 CPA/Codex 兼容 JSON，并按目标 Team workspace 保存。
   - 如果手动授权返回的 `chatgpt_account_id` 与目标 Team workspace 不一致，后端返回 409 并拒绝保存。
   - 若自动授权遇到 `add_phone` / `phone_otp_verification` / `auth_challenge`，子号状态写为 `verification_required`，日志记录脱敏阶段信息。
+- 自动授权运行能力检查：
+  - `GET /api/subaccounts/codex-auth/status` 返回 worker 是否配置、worker 是否可连接、GongXi-Mail 是否可用、短信 OTP 能力是否可用、授权页面 clearance 是否可用。
+  - 响应只包含布尔状态、可选数量和脱敏错误摘要，不返回真实 URL、key、手机号、文件路径或接码渠道配置。
+  - 前端在子号页面的“凭证与 Codex Auth”区域只读展示这些能力；配置缺失时禁用自动授权入口，仍保留登录 URL 手动授权。
 - 子号加入母号：
   - 选择本地已录入的母号和席位类型。
   - 后端用子号邮箱调用母号邀请接口。
@@ -48,9 +58,11 @@
 
 - `GET /api/subaccounts`
 - `POST /api/subaccounts/session`
+- `POST /api/subaccounts/codex-credential`
 - `PATCH /api/subaccounts/:id/local-profile`
 - `DELETE /api/subaccounts/:id`
 - `POST /api/subaccounts/:id/codex-auth/start`，可传 `chatgptAccountId`
+- `GET /api/subaccounts/codex-auth/status`
 - `POST /api/subaccounts/:id/codex-auth/auto`，可传 `chatgptAccountId`
 - `POST /api/subaccounts/:id/codex-auth/callback`
 - `GET /api/subaccounts/:id/codex-credential?chatgptAccountId=...`
@@ -62,7 +74,7 @@
 
 ## 未纳入当前实现
 
-当前不实现系统内自动注册、手机号短信验证码、二次验证识别，也不调用 mail-auto。后续如要做完整注册/登录执行器，必须继续用真实请求协议补齐脱敏原始接口样本，至少包括：
+当前不实现系统内自动注册、手机号首次绑定、短信接码渠道管理、二次验证识别，也不调用 mail-auto。自动授权可以使用运行环境已经提供的短信 OTP 能力，但 team-manager 不保存或编辑这些连接配置。后续如要做完整注册/登录执行器，必须继续用真实请求协议补齐脱敏原始接口样本，至少包括：
 
 - 注册起始请求与响应结构
 - 手机号输入请求与响应结构

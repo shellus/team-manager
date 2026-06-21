@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ApiResult, SubaccountView } from '@team-manager/shared';
+import type { ApiResult, CodexAuthRuntimeStatus, SubaccountView } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -190,6 +190,26 @@ async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor } =
 }
 
 describe('Subaccount API', () => {
+  it('reports missing Codex auto auth runtime config without using fallbacks', async () => {
+    const originalWorkerUrl = process.env.TEAMMGR_CURL_CFFI_URL;
+    delete process.env.TEAMMGR_CURL_CFFI_URL;
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const response = await app.request('/api/subaccounts/codex-auth/status', { headers: authHeaders });
+      const json = (await response.json()) as ApiResult<CodexAuthRuntimeStatus>;
+
+      assert.equal(response.status, 200);
+      assert.equal(json.data!.workerConfigured, false);
+      assert.equal(json.data!.workerReachable, false);
+      assert.equal(json.data!.codexAutoAuth, false);
+      assert.match(json.data!.error ?? '', /TEAMMGR_CURL_CFFI_URL/);
+    } finally {
+      if (originalWorkerUrl === undefined) delete process.env.TEAMMGR_CURL_CFFI_URL;
+      else process.env.TEAMMGR_CURL_CFFI_URL = originalWorkerUrl;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('imports child session JSON and returns only redacted views', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {
@@ -213,6 +233,44 @@ describe('Subaccount API', () => {
       const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
       assert.equal(listedJson.data!.length, 1);
       assert.equal(listedJson.data![0]!.status, 'session_ready');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('imports an existing Codex credential JSON as a credential-only child', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/codex-credential', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          id_token: unsignedJwt({
+            email: 'child@example.com',
+            'https://api.openai.com/auth': {
+              chatgpt_account_id: 'workspace-account-id',
+              chatgpt_plan_type: 'team'
+            }
+          }),
+          access_token: 'imported-access-token',
+          refresh_token: 'imported-refresh-token',
+          account_id: 'workspace-account-id',
+          last_refresh: '2026-06-18T00:00:00.000Z',
+          email: 'child@example.com',
+          type: 'codex',
+          expired: '2026-06-18T01:00:00.000Z',
+          plan_type: 'team'
+        })
+      });
+      const addedJson = (await added.json()) as ApiResult<SubaccountView>;
+
+      assert.equal(added.status, 200);
+      assert.equal(addedJson.data!.email, 'child@example.com');
+      assert.equal(addedJson.data!.hasWebSession, false);
+      assert.equal(addedJson.data!.status, 'codex_ready');
+      assert.equal(addedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
+      assert.equal(JSON.stringify(addedJson).includes('imported-refresh-token'), false);
+      assert.equal(JSON.stringify(addedJson).includes('imported-access-token'), false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
