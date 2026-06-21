@@ -191,15 +191,23 @@ export async function buildApp({
     );
   });
 
-  // ---- 设置（默认席位） ----
+  // ---- 设置（默认席位、Codex 邀请） ----
   api.get('/accounts/:id/settings', (c) => wrap(c, () => service.getCachedSettings(c.req.param('id'))));
 
   api.post('/accounts/:id/settings/refresh', (c) => wrap(c, () => service.refreshSettings(c.req.param('id'))));
 
   api.patch('/accounts/:id/settings', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { defaultSeat?: SeatType };
-    if (!body.defaultSeat) return c.json({ ok: false, error: '缺少 defaultSeat' }, 400);
-    return wrap(c, () => service.setDefaultSeat(c.req.param('id'), body.defaultSeat!));
+    const body = (await c.req.json().catch(() => ({}))) as {
+      defaultSeat?: SeatType;
+      workspaceReferralsEnabled?: boolean;
+    };
+    if (body.defaultSeat) return wrap(c, () => service.setDefaultSeat(c.req.param('id'), body.defaultSeat!));
+    if (typeof body.workspaceReferralsEnabled === 'boolean') {
+      return wrap(c, () =>
+        service.setWorkspaceReferralsEnabled(c.req.param('id'), body.workspaceReferralsEnabled!)
+      );
+    }
+    return c.json({ ok: false, error: '缺少 defaultSeat 或 workspaceReferralsEnabled' }, 400);
   });
 
   api.patch('/accounts/:id/name', async (c) => {

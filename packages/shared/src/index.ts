@@ -28,6 +28,9 @@ export interface Account {
   membersCachedAt?: number;
   defaultSeat?: SeatType;     // 新成员默认席位缓存
   defaultSeatCachedAt?: number;
+  workspaceReferralsEnabled?: boolean; // 允许成员发送 Codex 邀请
+  workspaceReferralsEnabledVisible?: boolean;
+  workspaceReferralsEnabledCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   lastRefreshAt?: number;
@@ -54,6 +57,9 @@ export interface AccountView {
   membersCachedAt?: number;
   defaultSeat?: SeatType;
   defaultSeatCachedAt?: number;
+  workspaceReferralsEnabled?: boolean;
+  workspaceReferralsEnabledVisible?: boolean;
+  workspaceReferralsEnabledCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   lastRefreshAt?: number;

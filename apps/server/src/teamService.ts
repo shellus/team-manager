@@ -50,6 +50,9 @@ export class TeamService {
       membersCachedAt: account.membersCachedAt,
       defaultSeat: account.defaultSeat,
       defaultSeatCachedAt: account.defaultSeatCachedAt,
+      workspaceReferralsEnabled: account.workspaceReferralsEnabled,
+      workspaceReferralsEnabledVisible: account.workspaceReferralsEnabledVisible,
+      workspaceReferralsEnabledCachedAt: account.workspaceReferralsEnabledCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       lastRefreshAt: account.lastRefreshAt,
@@ -285,22 +288,14 @@ export class TeamService {
   async getCachedSettings(id: string): Promise<Record<string, unknown>> {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
-    return account.defaultSeat ? { default_seat_type: account.defaultSeat } : {};
+    return this.settingsFromAccount(account);
   }
 
   async refreshSettings(id: string): Promise<AccountView> {
     const { api } = await this.clientFor(id);
     const settings = await api.getSettings();
-    const defaultSeat = settings.default_seat_type;
     const now = Date.now();
-    const patch: Partial<Account> = {
-      lastRefreshAt: now,
-      lastError: undefined
-    };
-    if (defaultSeat === 'default' || defaultSeat === 'usage_based') {
-      patch.defaultSeat = defaultSeat;
-      patch.defaultSeatCachedAt = now;
-    }
+    const patch = this.settingsPatchFromResponse(settings, now);
     const updated = await this.store.update(id, patch);
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);
@@ -308,21 +303,76 @@ export class TeamService {
 
   async getSettings(id: string): Promise<Record<string, unknown>> {
     const view = await this.refreshSettings(id);
-    return view.defaultSeat ? { default_seat_type: view.defaultSeat } : {};
+    return this.settingsFromAccount(view);
   }
 
   async setDefaultSeat(id: string, seat: SeatType): Promise<AccountView> {
     const { api } = await this.clientFor(id);
-    await api.setDefaultSeat(seat);
+    const settings = await api.setDefaultSeat(seat);
     const now = Date.now();
-    const updated = await this.store.update(id, {
-      defaultSeat: seat,
-      defaultSeatCachedAt: now,
-      lastRefreshAt: now,
-      lastError: undefined
-    });
+    const updated = await this.store.update(id, this.settingsPatchFromResponse(settings, now, { defaultSeat: seat }));
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);
+  }
+
+  async setWorkspaceReferralsEnabled(id: string, enabled: boolean): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.setWorkspaceReferralsEnabled(enabled);
+    const now = Date.now();
+    const updated = await this.store.update(
+      id,
+      this.settingsPatchFromResponse(settings, now, { workspaceReferralsEnabled: enabled })
+    );
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
+  private settingsFromAccount(
+    account: Pick<
+      Account,
+      'defaultSeat' | 'workspaceReferralsEnabled' | 'workspaceReferralsEnabledVisible'
+    >
+  ): Record<string, unknown> {
+    const settings: Record<string, unknown> = {};
+    if (account.defaultSeat) settings.default_seat_type = account.defaultSeat;
+    if (typeof account.workspaceReferralsEnabled === 'boolean') {
+      settings.workspace_referrals_enabled = account.workspaceReferralsEnabled;
+    }
+    if (typeof account.workspaceReferralsEnabledVisible === 'boolean') {
+      settings.workspace_referrals_enabled_visible = account.workspaceReferralsEnabledVisible;
+    }
+    return settings;
+  }
+
+  private settingsPatchFromResponse(
+    settings: Record<string, unknown>,
+    now: number,
+    fallback: { defaultSeat?: SeatType; workspaceReferralsEnabled?: boolean } = {}
+  ): Partial<Account> {
+    const patch: Partial<Account> = {
+      lastRefreshAt: now,
+      lastError: undefined
+    };
+
+    const defaultSeat = settings.default_seat_type ?? fallback.defaultSeat;
+    if (defaultSeat === 'default' || defaultSeat === 'usage_based') {
+      patch.defaultSeat = defaultSeat;
+      patch.defaultSeatCachedAt = now;
+    }
+
+    const workspaceReferralsEnabled =
+      settings.workspace_referrals_enabled ?? fallback.workspaceReferralsEnabled;
+    if (typeof workspaceReferralsEnabled === 'boolean') {
+      patch.workspaceReferralsEnabled = workspaceReferralsEnabled;
+      patch.workspaceReferralsEnabledCachedAt = now;
+    }
+
+    const workspaceReferralsEnabledVisible = settings.workspace_referrals_enabled_visible;
+    if (typeof workspaceReferralsEnabledVisible === 'boolean') {
+      patch.workspaceReferralsEnabledVisible = workspaceReferralsEnabledVisible;
+    }
+
+    return patch;
   }
 
   async renameTeam(id: string, name: string): Promise<AccountView> {

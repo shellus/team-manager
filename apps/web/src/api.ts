@@ -79,6 +79,8 @@ export const apiClient = {
   refreshSettings: (id: string) => call<AccountView>('POST', `/accounts/${id}/settings/refresh`),
   setDefaultSeat: (id: string, defaultSeat: SeatType) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { defaultSeat }),
+  setWorkspaceReferralsEnabled: (id: string, workspaceReferralsEnabled: boolean) =>
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { workspaceReferralsEnabled }),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
   importSubaccountSession: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),

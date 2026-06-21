@@ -419,7 +419,7 @@ describe('TeamService pending invite cache', () => {
 });
 
 describe('TeamService settings cache', () => {
-  it('returns cached default seat settings without calling ChatGPT', async () => {
+  it('returns cached workspace settings without calling ChatGPT', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -438,22 +438,37 @@ describe('TeamService settings cache', () => {
       accessToken: 'token',
       status: 'active',
       defaultSeat: 'usage_based',
-      defaultSeatCachedAt: 123
+      defaultSeatCachedAt: 123,
+      workspaceReferralsEnabled: false,
+      workspaceReferralsEnabledVisible: true,
+      workspaceReferralsEnabledCachedAt: 123
     });
 
     const service = new TeamService(store, transport);
     const settings = await service.getCachedSettings(account.id);
 
-    assert.deepEqual(settings, { default_seat_type: 'usage_based' });
+    assert.deepEqual(settings, {
+      default_seat_type: 'usage_based',
+      workspace_referrals_enabled: false,
+      workspace_referrals_enabled_visible: true
+    });
     assert.equal(requests.length, 0);
   });
 
-  it('refreshes settings and persists the default seat cache', async () => {
+  it('refreshes settings and persists the workspace settings cache', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
-        return { status: 200, body: JSON.stringify({ default_seat_type: 'default', extra: true }) };
+        return {
+          status: 200,
+          body: JSON.stringify({
+            default_seat_type: 'default',
+            workspace_referrals_enabled: false,
+            workspace_referrals_enabled_visible: true,
+            extra: true
+          })
+        };
       }
     };
 
@@ -476,8 +491,13 @@ describe('TeamService settings cache', () => {
     assert.equal(requests[0].method, 'GET');
     assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/settings');
     assert.equal(view.defaultSeat, 'default');
+    assert.equal(view.workspaceReferralsEnabled, false);
+    assert.equal(view.workspaceReferralsEnabledVisible, true);
     assert.equal(stored?.defaultSeat, 'default');
+    assert.equal(stored?.workspaceReferralsEnabled, false);
+    assert.equal(stored?.workspaceReferralsEnabledVisible, true);
     assert.equal(typeof stored?.defaultSeatCachedAt, 'number');
+    assert.equal(typeof stored?.workspaceReferralsEnabledCachedAt, 'number');
   });
 });
 
@@ -739,6 +759,45 @@ describe('TeamService default seat changes', () => {
     assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), { value: 'usage_based' });
     assert.equal(view.defaultSeat, 'usage_based');
     assert.equal(store.get(account.id)?.defaultSeat, 'usage_based');
+  });
+});
+
+describe('TeamService Codex invite setting changes', () => {
+  it('posts the workspace referrals toggle to the ChatGPT Web settings endpoint', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            workspace_referrals_enabled: false,
+            workspace_referrals_enabled_visible: true
+          })
+        };
+      }
+    };
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      label: 'owner@example.com',
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.setWorkspaceReferralsEnabled(account.id, false);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/settings/workspace_referrals_enabled');
+    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), { value: false });
+    assert.equal(view.workspaceReferralsEnabled, false);
+    assert.equal(view.workspaceReferralsEnabledVisible, true);
+    assert.equal(store.get(account.id)?.workspaceReferralsEnabled, false);
   });
 });
 

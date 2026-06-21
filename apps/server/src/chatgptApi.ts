@@ -157,16 +157,22 @@ export class ChatGptApi {
     return this.request('PATCH', path, { seat_type: seat });
   }
 
-  /** 读 workspace 设置（含 default_seat_type） */
+  /** 读 workspace 设置（含 default_seat_type、workspace_referrals_enabled） */
   async getSettings(): Promise<Record<string, unknown>> {
     const path = `/backend-api/accounts/${this.account.accountId}/settings`;
     return this.request('GET', path);
   }
 
   /** 改新成员默认席位类型 */
-  async setDefaultSeat(seat: SeatType): Promise<unknown> {
+  async setDefaultSeat(seat: SeatType): Promise<Record<string, unknown>> {
     const path = `/backend-api/accounts/${this.account.accountId}/settings/default_seat_type`;
     return this.request('POST', path, { value: seat });
+  }
+
+  /** 改“允许成员发送 Codex 邀请”开关 */
+  async setWorkspaceReferralsEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    const path = `/backend-api/accounts/${this.account.accountId}/settings/workspace_referrals_enabled`;
+    return this.request('POST', path, { value: enabled });
   }
 
   /** 改 workspace 名称 */

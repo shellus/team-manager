@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-06-21",
+  "source": "sanitized curl capture from ChatGPT Web settings request",
+  "page": "https://chatgpt.com/admin",
+  "operation": "set_workspace_referrals_enabled",
+  "request": {
+    "method": "POST",
+    "url": "https://chatgpt.com/backend-api/accounts/{account_id}/settings/workspace_referrals_enabled",
+    "target_path": "/backend-api/accounts/{account_id}/settings/workspace_referrals_enabled",
+    "target_route": "/backend-api/accounts/{account_id}/settings/workspace_referrals_enabled",
+    "headers": {
+      "authorization": "<redacted>",
+      "chatgpt-account-id": "{account_id}",
+      "content-type": "application/json",
+      "oai-device-id": "<redacted>",
+      "oai-session-id": "<redacted>",
+      "x-openai-target-path": "/backend-api/accounts/{account_id}/settings/workspace_referrals_enabled",
+      "x-openai-target-route": "/backend-api/accounts/{account_id}/settings/workspace_referrals_enabled"
+    },
+    "body": {
+      "value": false
+    }
+  },
+  "response": {
+    "status": 200,
+    "body_shape": {
+      "id": "{account_id}",
+      "default_seat_type": "usage_based",
+      "workspace_referrals_enabled": false,
+      "workspace_referrals_enabled_visible": true,
+      "seat_type_credit_limits": {},
+      "permissions": {}
+    }
+  },
+  "verification": {
+    "after": {
+      "workspace_referrals_enabled": false,
+      "workspace_referrals_enabled_visible": true
+    }
+  },
+  "notes": [
+    "The captured curl command used --data-raw with no explicit -X flag, so curl sends POST.",
+    "This setting is shown in ChatGPT Web as '允许成员发送 Codex 邀请'.",
+    "This setting is independent from default_seat_type; callers must keep seat and billing-risk checks in place."
+  ]
+}

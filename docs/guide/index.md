@@ -6,7 +6,7 @@ team-manager 的业务流程围绕四个对象展开：母号、Team workspace�
 
 1. 录入母号 session。
 2. 刷新母号状态，确认 Team 名称、成员、待处理邀请和默认席位。
-3. 将新成员默认席位设置为 Codex 席位，降低普通成员误邀造成 ChatGPT 固定席位超额的风险。
+3. 将新成员默认席位设置为 Codex 席位，并按需调整“允许成员发送 Codex 邀请”开关，降低普通成员误邀造成 ChatGPT 固定席位超额的风险。
 4. 邀请成员或子号邮箱进入目标 Team，按业务需要选择 ChatGPT 席位或 Codex 席位。
 5. 在子号页录入子号 session，或导入已有 CPA/Codex credential JSON。
 6. 同步子号 Team 关联，确认该子号在目标 Team 中是 `member` 或 `invited`。
@@ -17,7 +17,7 @@ team-manager 的业务流程围绕四个对象展开：母号、Team workspace�
 
 | 页面 | 主要用途 | 常见动作 |
 |---|---|---|
-| 母号 | Team workspace 管理 | 录入母号、刷新、邀请成员、修改默认席位、查看待处理邀请、改成员席位、移出成员 |
+| 母号 | Team workspace 管理 | 录入母号、刷新、邀请成员、修改默认席位、设置 Codex 邀请权限、查看待处理邀请、改成员席位、移出成员 |
 | 子号 | 子号池和 Codex 凭证管理 | 录入子号、导入已有凭证、编辑本地资料、同步 Team 关联、自动授权、生成登录 URL、刷新额度、导出凭证 |
 
 ## 业务边界
@@ -39,7 +39,7 @@ team-manager 的业务流程围绕四个对象展开：母号、Team workspace�
 ## 推荐日常顺序
 
 1. 先在母号页刷新目标 Team。
-2. 确认默认席位是 Codex 席位。
+2. 确认默认席位是 Codex 席位，并按需关闭成员发送 Codex 邀请。
 3. 邀请或调整成员前，先查看 ChatGPT 席位已用数量。
 4. 子号加入 Team 后，在子号页同步 Team 关联。
 5. 按目标 Team 生成或导入 Codex 凭证。

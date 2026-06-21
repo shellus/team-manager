@@ -4,7 +4,7 @@ import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/s
 import { apiClient, ApiError } from './api.js';
 import { roleLabel, seatLabel, SEAT_LABEL } from './labels.js';
 
-type ActivePanel = 'invite' | 'invites' | 'default-seat' | null;
+type ActivePanel = 'invite' | 'invites' | 'default-seat' | 'codex-invites' | null;
 
 type BillingRisk =
   | { kind: 'invite'; email: string; seat: SeatType }
@@ -41,6 +41,11 @@ function isBillingRiskError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409 && error.message === BILLING_RISK_CONFIRM_MESSAGE;
 }
 
+function workspaceReferralsLabel(value?: boolean) {
+  if (typeof value !== 'boolean') return '暂无';
+  return value ? '允许' : '关闭';
+}
+
 export function MemberPanel({
   account,
   syncing,
@@ -57,6 +62,9 @@ export function MemberPanel({
   const [membersCachedAt, setMembersCachedAt] = useState(account.membersCachedAt);
   const [pendingInvitesCachedAt, setPendingInvitesCachedAt] = useState(account.pendingInvitesCachedAt);
   const [defaultSeatCachedAt, setDefaultSeatCachedAt] = useState(account.defaultSeatCachedAt);
+  const [workspaceReferralsEnabledCachedAt, setWorkspaceReferralsEnabledCachedAt] = useState(
+    account.workspaceReferralsEnabledCachedAt
+  );
   const [membersRefreshing, setMembersRefreshing] = useState(false);
   const [invitesRefreshing, setInvitesRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -66,6 +74,15 @@ export function MemberPanel({
   const [inviteSeat, setInviteSeat] = useState<SeatType>(account.defaultSeat ?? 'usage_based');
   const [defaultSeat, setDefaultSeat] = useState<SeatType | ''>(account.defaultSeat ?? '');
   const [defaultSeatDraft, setDefaultSeatDraft] = useState<SeatType>(account.defaultSeat ?? 'usage_based');
+  const [workspaceReferralsEnabled, setWorkspaceReferralsEnabled] = useState<boolean | undefined>(
+    account.workspaceReferralsEnabled
+  );
+  const [workspaceReferralsEnabledVisible, setWorkspaceReferralsEnabledVisible] = useState<boolean | undefined>(
+    account.workspaceReferralsEnabledVisible
+  );
+  const [workspaceReferralsEnabledDraft, setWorkspaceReferralsEnabledDraft] = useState(
+    account.workspaceReferralsEnabled ?? false
+  );
   const [billingRisk, setBillingRisk] = useState<BillingRisk | null>(null);
   const [confirmKickId, setConfirmKickId] = useState('');
   const [confirmRevokeEmail, setConfirmRevokeEmail] = useState('');
@@ -80,6 +97,10 @@ export function MemberPanel({
       setDefaultSeatCachedAt(updated.defaultSeatCachedAt);
       setDefaultSeat(updated.defaultSeat ?? '');
       setDefaultSeatDraft(updated.defaultSeat ?? 'usage_based');
+      setWorkspaceReferralsEnabledCachedAt(updated.workspaceReferralsEnabledCachedAt);
+      setWorkspaceReferralsEnabled(updated.workspaceReferralsEnabled);
+      setWorkspaceReferralsEnabledVisible(updated.workspaceReferralsEnabledVisible);
+      setWorkspaceReferralsEnabledDraft(updated.workspaceReferralsEnabled ?? false);
       setInviteSeat(updated.defaultSeat ?? 'usage_based');
     },
     [onAccountChanged]
@@ -123,6 +144,10 @@ export function MemberPanel({
     setDefaultSeatCachedAt(account.defaultSeatCachedAt);
     setDefaultSeat(account.defaultSeat ?? '');
     setDefaultSeatDraft(account.defaultSeat ?? 'usage_based');
+    setWorkspaceReferralsEnabledCachedAt(account.workspaceReferralsEnabledCachedAt);
+    setWorkspaceReferralsEnabled(account.workspaceReferralsEnabled);
+    setWorkspaceReferralsEnabledVisible(account.workspaceReferralsEnabledVisible);
+    setWorkspaceReferralsEnabledDraft(account.workspaceReferralsEnabled ?? false);
     setInviteSeat(account.defaultSeat ?? 'usage_based');
   }, [
     account.id,
@@ -131,7 +156,10 @@ export function MemberPanel({
     account.pendingInvitesCache,
     account.pendingInvitesCachedAt,
     account.defaultSeat,
-    account.defaultSeatCachedAt
+    account.defaultSeatCachedAt,
+    account.workspaceReferralsEnabled,
+    account.workspaceReferralsEnabledVisible,
+    account.workspaceReferralsEnabledCachedAt
   ]);
 
   useEffect(() => {
@@ -182,6 +210,9 @@ export function MemberPanel({
     setBillingRisk(null);
     if (panel === 'invites') {
       setPendingInvites((current) => (current.length > 0 ? current : account.pendingInvitesCache ?? []));
+    }
+    if (panel === 'codex-invites') {
+      setWorkspaceReferralsEnabledDraft(workspaceReferralsEnabled ?? false);
     }
   };
 
@@ -265,6 +296,15 @@ export function MemberPanel({
                 type="button"
                 onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open');
+                  openPanel('codex-invites');
+                }}
+              >
+                Codex 邀请权限
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open');
                   openPanel('invites');
                 }}
               >
@@ -287,6 +327,10 @@ export function MemberPanel({
         <div className="seat-summary">
           <span>默认席位</span>
           <strong>{seatLabel(defaultSeat || null)}</strong>
+        </div>
+        <div className="seat-summary">
+          <span>Codex 邀请</span>
+          <strong>{workspaceReferralsLabel(workspaceReferralsEnabled)}</strong>
         </div>
         <div className="seat-summary">
           <span>待处理邀请</span>
@@ -374,6 +418,51 @@ export function MemberPanel({
               }
             >
               {busy === 'default-seat' ? '保存中' : '保存'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {activePanel === 'codex-invites' && (
+        <section className="action-panel">
+          <div className="section-head">
+            <h3>允许成员发送 Codex 邀请</h3>
+            <div className="section-actions">
+              <span>上次刷新 {formatRelativeTime(workspaceReferralsEnabledCachedAt)}</span>
+              {workspaceReferralsEnabledVisible === false && <span>远端未开放</span>}
+              <button
+                type="button"
+                className="ghost tiny-action"
+                disabled={busy === 'settings-refresh'}
+                onClick={() => void run('settings-refresh', refreshSettings)}
+              >
+                刷新
+              </button>
+            </div>
+          </div>
+          <div className="form-row compact">
+            <label className="setting-checkbox">
+              <input
+                type="checkbox"
+                checked={workspaceReferralsEnabledDraft}
+                disabled={workspaceReferralsEnabledVisible === false}
+                onChange={(e) => setWorkspaceReferralsEnabledDraft(e.target.checked)}
+              />
+              <span>允许</span>
+            </label>
+            <button
+              className="primary"
+              disabled={busy === 'codex-invites' || workspaceReferralsEnabledVisible === false}
+              onClick={() =>
+                void run('codex-invites', async () => {
+                  applyAccountView(
+                    await apiClient.setWorkspaceReferralsEnabled(account.id, workspaceReferralsEnabledDraft)
+                  );
+                  setActivePanel(null);
+                })
+              }
+            >
+              {busy === 'codex-invites' ? '保存中' : '保存'}
             </button>
           </div>
         </section>
