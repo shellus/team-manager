@@ -1,0 +1,49 @@
+{
+  "captured_at": "2026-06-21",
+  "source": "sanitized curl capture from ChatGPT Web admin permissions request",
+  "page": "https://chatgpt.com/admin/permissions",
+  "operation": "set_personal_access_tokens",
+  "request": {
+    "method": "POST",
+    "url": "https://chatgpt.com/backend-api/accounts/{account_id}/beta_features",
+    "target_path": "/backend-api/accounts/{account_id}/beta_features",
+    "target_route": "/backend-api/accounts/{account_id}/beta_features",
+    "headers": {
+      "authorization": "<redacted>",
+      "chatgpt-account-id": "{account_id}",
+      "content-type": "application/json",
+      "oai-device-id": "<redacted>",
+      "oai-session-id": "<redacted>",
+      "x-openai-target-path": "/backend-api/accounts/{account_id}/beta_features",
+      "x-openai-target-route": "/backend-api/accounts/{account_id}/beta_features"
+    },
+    "body": {
+      "feature": "personal_access_tokens",
+      "value": true
+    }
+  },
+  "response": {
+    "status": 200,
+    "body_shape": {
+      "personal_access_tokens": true
+    }
+  },
+  "settings_read": {
+    "path": "/backend-api/accounts/{account_id}/settings",
+    "body_shape": {
+      "permissions": {
+        "personal_access_tokens": false
+      }
+    }
+  },
+  "verification": {
+    "after": {
+      "personal_access_tokens": true
+    }
+  },
+  "notes": [
+    "The captured curl command used --data-raw with no explicit -X flag, so curl sends POST.",
+    "This setting is shown in ChatGPT Web as '允许用户创建个人访问令牌'.",
+    "The write response returns personal_access_tokens at the top level; the settings read response exposes it under permissions.personal_access_tokens."
+  ]
+}

@@ -53,6 +53,8 @@ export class TeamService {
       workspaceReferralsEnabled: account.workspaceReferralsEnabled,
       workspaceReferralsEnabledVisible: account.workspaceReferralsEnabledVisible,
       workspaceReferralsEnabledCachedAt: account.workspaceReferralsEnabledCachedAt,
+      personalAccessTokensEnabled: account.personalAccessTokensEnabled,
+      personalAccessTokensCachedAt: account.personalAccessTokensCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       lastRefreshAt: account.lastRefreshAt,
@@ -327,10 +329,25 @@ export class TeamService {
     return this.viewFromAccount(updated);
   }
 
+  async setPersonalAccessTokensEnabled(id: string, enabled: boolean): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.setPersonalAccessTokensEnabled(enabled);
+    const now = Date.now();
+    const updated = await this.store.update(
+      id,
+      this.settingsPatchFromResponse(settings, now, { personalAccessTokensEnabled: enabled })
+    );
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
   private settingsFromAccount(
     account: Pick<
       Account,
-      'defaultSeat' | 'workspaceReferralsEnabled' | 'workspaceReferralsEnabledVisible'
+      | 'defaultSeat'
+      | 'workspaceReferralsEnabled'
+      | 'workspaceReferralsEnabledVisible'
+      | 'personalAccessTokensEnabled'
     >
   ): Record<string, unknown> {
     const settings: Record<string, unknown> = {};
@@ -341,13 +358,20 @@ export class TeamService {
     if (typeof account.workspaceReferralsEnabledVisible === 'boolean') {
       settings.workspace_referrals_enabled_visible = account.workspaceReferralsEnabledVisible;
     }
+    if (typeof account.personalAccessTokensEnabled === 'boolean') {
+      settings.personal_access_tokens = account.personalAccessTokensEnabled;
+    }
     return settings;
   }
 
   private settingsPatchFromResponse(
     settings: Record<string, unknown>,
     now: number,
-    fallback: { defaultSeat?: SeatType; workspaceReferralsEnabled?: boolean } = {}
+    fallback: {
+      defaultSeat?: SeatType;
+      workspaceReferralsEnabled?: boolean;
+      personalAccessTokensEnabled?: boolean;
+    } = {}
   ): Partial<Account> {
     const patch: Partial<Account> = {
       lastRefreshAt: now,
@@ -372,7 +396,22 @@ export class TeamService {
       patch.workspaceReferralsEnabledVisible = workspaceReferralsEnabledVisible;
     }
 
+    const permissions = this.recordValue(settings.permissions);
+    const personalAccessTokensEnabled =
+      settings.personal_access_tokens ??
+      permissions?.personal_access_tokens ??
+      fallback.personalAccessTokensEnabled;
+    if (typeof personalAccessTokensEnabled === 'boolean') {
+      patch.personalAccessTokensEnabled = personalAccessTokensEnabled;
+      patch.personalAccessTokensCachedAt = now;
+    }
+
     return patch;
+  }
+
+  private recordValue(value: unknown): Record<string, unknown> | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    return value as Record<string, unknown>;
   }
 
   async renameTeam(id: string, name: string): Promise<AccountView> {

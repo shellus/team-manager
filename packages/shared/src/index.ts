@@ -31,6 +31,8 @@ export interface Account {
   workspaceReferralsEnabled?: boolean; // 允许成员发送 Codex 邀请
   workspaceReferralsEnabledVisible?: boolean;
   workspaceReferralsEnabledCachedAt?: number;
+  personalAccessTokensEnabled?: boolean; // 允许用户创建个人访问令牌
+  personalAccessTokensCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   lastRefreshAt?: number;
@@ -60,6 +62,8 @@ export interface AccountView {
   workspaceReferralsEnabled?: boolean;
   workspaceReferralsEnabledVisible?: boolean;
   workspaceReferralsEnabledCachedAt?: number;
+  personalAccessTokensEnabled?: boolean;
+  personalAccessTokensCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   lastRefreshAt?: number;

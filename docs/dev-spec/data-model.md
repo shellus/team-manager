@@ -31,6 +31,7 @@
 | `defaultSeat` / `defaultSeatCachedAt` | settings 刷新或默认席位写操作 | 新成员默认席位缓存 |
 | `workspaceReferralsEnabled` / `workspaceReferralsEnabledCachedAt` | settings 刷新或 Codex 邀请开关写操作 | “允许成员发送 Codex 邀请”缓存 |
 | `workspaceReferralsEnabledVisible` | settings 刷新或 Codex 邀请开关写操作 | 远端是否展示该设置 |
+| `personalAccessTokensEnabled` / `personalAccessTokensCachedAt` | settings 刷新或 beta feature 写操作 | “允许用户创建个人访问令牌”缓存 |
 
 ### Derived values
 
@@ -53,6 +54,7 @@
 | 改成员席位 | 远端修改成功后刷新 `membersCache`；目标席位未变化时也保存当前成员缓存 | 合并返回的母号 view |
 | 改默认席位 | 远端修改成功后更新 `defaultSeat` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 邀请开关 | 远端修改成功后更新 `workspaceReferralsEnabled`、`workspaceReferralsEnabledVisible` 和缓存时间 | 合并返回的母号 view |
+| 改个人访问令牌开关 | 远端修改成功后更新 `personalAccessTokensEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 

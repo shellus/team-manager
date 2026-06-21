@@ -24,6 +24,7 @@
 | 移除成员 | [remove-member.json](./remove-member.json) | 使用 `DELETE /backend-api/accounts/{account_id}/users/{user_id}`，body 为空 |
 | 改默认席位 | [default-seat-type.json](./default-seat-type.json) | 使用 `POST /backend-api/accounts/{account_id}/settings/default_seat_type`，body `{value}` |
 | 改 Codex 邀请权限 | [workspace-referrals-enabled.json](./workspace-referrals-enabled.json) | 使用 `POST /backend-api/accounts/{account_id}/settings/workspace_referrals_enabled`，body `{value}` |
+| 改个人访问令牌权限 | [personal-access-tokens.json](./personal-access-tokens.json) | 使用 `POST /backend-api/accounts/{account_id}/beta_features`，body `{"feature":"personal_access_tokens","value":boolean}` |
 
 > 席位样本的 `records[].body` 可能为空，因为 Playwright 原生 request 事件没有读取页面 `Request` 对象 body；以同文件 `browser_request_log[].body` 为准。
 

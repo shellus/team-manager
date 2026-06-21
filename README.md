@@ -43,7 +43,7 @@ corepack pnpm docs:build
 - **本地资料编辑**：编辑母号或子号本地备注名 `label`，可选择替换 session JSON；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
-- **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请开关。
+- **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
 - **子号池**：录入子号 session 或导入已有 Codex credential，保存子号状态、Team 关联、Codex 凭证状态和授权日志。
 - **Codex 授权与额度**：按子号和 Team workspace 生成 Codex 凭证，查询并缓存对应 workspace 的 Codex 额度。

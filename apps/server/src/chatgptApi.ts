@@ -157,7 +157,7 @@ export class ChatGptApi {
     return this.request('PATCH', path, { seat_type: seat });
   }
 
-  /** 读 workspace 设置（含 default_seat_type、workspace_referrals_enabled） */
+  /** 读 workspace 设置（含 default_seat_type、workspace_referrals_enabled、permissions） */
   async getSettings(): Promise<Record<string, unknown>> {
     const path = `/backend-api/accounts/${this.account.accountId}/settings`;
     return this.request('GET', path);
@@ -173,6 +173,12 @@ export class ChatGptApi {
   async setWorkspaceReferralsEnabled(enabled: boolean): Promise<Record<string, unknown>> {
     const path = `/backend-api/accounts/${this.account.accountId}/settings/workspace_referrals_enabled`;
     return this.request('POST', path, { value: enabled });
+  }
+
+  /** 改“允许用户创建个人访问令牌”开关 */
+  async setPersonalAccessTokensEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    const path = `/backend-api/accounts/${this.account.accountId}/beta_features`;
+    return this.request('POST', path, { feature: 'personal_access_tokens', value: enabled });
   }
 
   /** 改 workspace 名称 */

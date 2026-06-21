@@ -4,7 +4,7 @@ import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/s
 import { apiClient, ApiError } from './api.js';
 import { roleLabel, seatLabel, SEAT_LABEL } from './labels.js';
 
-type ActivePanel = 'invite' | 'invites' | 'default-seat' | 'codex-invites' | null;
+type ActivePanel = 'invite' | 'invites' | 'default-seat' | 'codex-invites' | 'personal-tokens' | null;
 
 type BillingRisk =
   | { kind: 'invite'; email: string; seat: SeatType }
@@ -41,7 +41,7 @@ function isBillingRiskError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409 && error.message === BILLING_RISK_CONFIRM_MESSAGE;
 }
 
-function workspaceReferralsLabel(value?: boolean) {
+function booleanSettingLabel(value?: boolean) {
   if (typeof value !== 'boolean') return '暂无';
   return value ? '允许' : '关闭';
 }
@@ -65,6 +65,9 @@ export function MemberPanel({
   const [workspaceReferralsEnabledCachedAt, setWorkspaceReferralsEnabledCachedAt] = useState(
     account.workspaceReferralsEnabledCachedAt
   );
+  const [personalAccessTokensCachedAt, setPersonalAccessTokensCachedAt] = useState(
+    account.personalAccessTokensCachedAt
+  );
   const [membersRefreshing, setMembersRefreshing] = useState(false);
   const [invitesRefreshing, setInvitesRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -82,6 +85,12 @@ export function MemberPanel({
   );
   const [workspaceReferralsEnabledDraft, setWorkspaceReferralsEnabledDraft] = useState(
     account.workspaceReferralsEnabled ?? false
+  );
+  const [personalAccessTokensEnabled, setPersonalAccessTokensEnabled] = useState<boolean | undefined>(
+    account.personalAccessTokensEnabled
+  );
+  const [personalAccessTokensDraft, setPersonalAccessTokensDraft] = useState(
+    account.personalAccessTokensEnabled ?? false
   );
   const [billingRisk, setBillingRisk] = useState<BillingRisk | null>(null);
   const [confirmKickId, setConfirmKickId] = useState('');
@@ -101,6 +110,9 @@ export function MemberPanel({
       setWorkspaceReferralsEnabled(updated.workspaceReferralsEnabled);
       setWorkspaceReferralsEnabledVisible(updated.workspaceReferralsEnabledVisible);
       setWorkspaceReferralsEnabledDraft(updated.workspaceReferralsEnabled ?? false);
+      setPersonalAccessTokensCachedAt(updated.personalAccessTokensCachedAt);
+      setPersonalAccessTokensEnabled(updated.personalAccessTokensEnabled);
+      setPersonalAccessTokensDraft(updated.personalAccessTokensEnabled ?? false);
       setInviteSeat(updated.defaultSeat ?? 'usage_based');
     },
     [onAccountChanged]
@@ -148,6 +160,9 @@ export function MemberPanel({
     setWorkspaceReferralsEnabled(account.workspaceReferralsEnabled);
     setWorkspaceReferralsEnabledVisible(account.workspaceReferralsEnabledVisible);
     setWorkspaceReferralsEnabledDraft(account.workspaceReferralsEnabled ?? false);
+    setPersonalAccessTokensCachedAt(account.personalAccessTokensCachedAt);
+    setPersonalAccessTokensEnabled(account.personalAccessTokensEnabled);
+    setPersonalAccessTokensDraft(account.personalAccessTokensEnabled ?? false);
     setInviteSeat(account.defaultSeat ?? 'usage_based');
   }, [
     account.id,
@@ -159,7 +174,9 @@ export function MemberPanel({
     account.defaultSeatCachedAt,
     account.workspaceReferralsEnabled,
     account.workspaceReferralsEnabledVisible,
-    account.workspaceReferralsEnabledCachedAt
+    account.workspaceReferralsEnabledCachedAt,
+    account.personalAccessTokensEnabled,
+    account.personalAccessTokensCachedAt
   ]);
 
   useEffect(() => {
@@ -213,6 +230,9 @@ export function MemberPanel({
     }
     if (panel === 'codex-invites') {
       setWorkspaceReferralsEnabledDraft(workspaceReferralsEnabled ?? false);
+    }
+    if (panel === 'personal-tokens') {
+      setPersonalAccessTokensDraft(personalAccessTokensEnabled ?? false);
     }
   };
 
@@ -305,6 +325,15 @@ export function MemberPanel({
                 type="button"
                 onClick={(event) => {
                   event.currentTarget.closest('details')?.removeAttribute('open');
+                  openPanel('personal-tokens');
+                }}
+              >
+                个人访问令牌权限
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.currentTarget.closest('details')?.removeAttribute('open');
                   openPanel('invites');
                 }}
               >
@@ -330,7 +359,11 @@ export function MemberPanel({
         </div>
         <div className="seat-summary">
           <span>Codex 邀请</span>
-          <strong>{workspaceReferralsLabel(workspaceReferralsEnabled)}</strong>
+          <strong>{booleanSettingLabel(workspaceReferralsEnabled)}</strong>
+        </div>
+        <div className="seat-summary">
+          <span>访问令牌</span>
+          <strong>{booleanSettingLabel(personalAccessTokensEnabled)}</strong>
         </div>
         <div className="seat-summary">
           <span>待处理邀请</span>
@@ -463,6 +496,49 @@ export function MemberPanel({
               }
             >
               {busy === 'codex-invites' ? '保存中' : '保存'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {activePanel === 'personal-tokens' && (
+        <section className="action-panel">
+          <div className="section-head">
+            <h3>允许用户创建个人访问令牌</h3>
+            <div className="section-actions">
+              <span>上次刷新 {formatRelativeTime(personalAccessTokensCachedAt)}</span>
+              <button
+                type="button"
+                className="ghost tiny-action"
+                disabled={busy === 'settings-refresh'}
+                onClick={() => void run('settings-refresh', refreshSettings)}
+              >
+                刷新
+              </button>
+            </div>
+          </div>
+          <div className="form-row compact">
+            <label className="setting-checkbox">
+              <input
+                type="checkbox"
+                checked={personalAccessTokensDraft}
+                onChange={(e) => setPersonalAccessTokensDraft(e.target.checked)}
+              />
+              <span>允许</span>
+            </label>
+            <button
+              className="primary"
+              disabled={busy === 'personal-tokens'}
+              onClick={() =>
+                void run('personal-tokens', async () => {
+                  applyAccountView(
+                    await apiClient.setPersonalAccessTokensEnabled(account.id, personalAccessTokensDraft)
+                  );
+                  setActivePanel(null);
+                })
+              }
+            >
+              {busy === 'personal-tokens' ? '保存中' : '保存'}
             </button>
           </div>
         </section>

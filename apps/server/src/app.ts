@@ -200,6 +200,7 @@ export async function buildApp({
     const body = (await c.req.json().catch(() => ({}))) as {
       defaultSeat?: SeatType;
       workspaceReferralsEnabled?: boolean;
+      personalAccessTokensEnabled?: boolean;
     };
     if (body.defaultSeat) return wrap(c, () => service.setDefaultSeat(c.req.param('id'), body.defaultSeat!));
     if (typeof body.workspaceReferralsEnabled === 'boolean') {
@@ -207,7 +208,12 @@ export async function buildApp({
         service.setWorkspaceReferralsEnabled(c.req.param('id'), body.workspaceReferralsEnabled!)
       );
     }
-    return c.json({ ok: false, error: '缺少 defaultSeat 或 workspaceReferralsEnabled' }, 400);
+    if (typeof body.personalAccessTokensEnabled === 'boolean') {
+      return wrap(c, () =>
+        service.setPersonalAccessTokensEnabled(c.req.param('id'), body.personalAccessTokensEnabled!)
+      );
+    }
+    return c.json({ ok: false, error: '缺少 defaultSeat、workspaceReferralsEnabled 或 personalAccessTokensEnabled' }, 400);
   });
 
   api.patch('/accounts/:id/name', async (c) => {

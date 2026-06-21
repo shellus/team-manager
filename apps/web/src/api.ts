@@ -81,6 +81,8 @@ export const apiClient = {
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { defaultSeat }),
   setWorkspaceReferralsEnabled: (id: string, workspaceReferralsEnabled: boolean) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { workspaceReferralsEnabled }),
+  setPersonalAccessTokensEnabled: (id: string, personalAccessTokensEnabled: boolean) =>
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { personalAccessTokensEnabled }),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
   importSubaccountSession: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
