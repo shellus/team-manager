@@ -2365,6 +2365,42 @@ phones:
             "bound_phone_otp_done",
         ])
 
+    def test_existing_bound_phone_records_verified_account_in_phone_pool(self):
+        worker = load_worker()
+        events = []
+        pool = [
+            {"phone": "+15550188", "url": "https://example.invalid/sms", "slot": "pool:8"},
+        ]
+        step = {
+            "continue_url": "https://auth.openai.com/phone-verification",
+            "page": {
+                "type": "phone_otp_verification",
+                "payload": {"phone_number": "+1 555 0188"},
+            },
+        }
+
+        with (
+            patch.object(worker, "read_phone_pool", return_value=pool),
+            patch.object(worker, "fetch_phone_messages", return_value='"no丨暂时没有收到消息"'),
+            patch.object(worker, "poll_phone_code", return_value="123456"),
+            patch.object(
+                worker,
+                "post_auth_json",
+                return_value=(200, {"page": {"type": "sign_in_with_chatgpt_codex_consent"}}),
+            ),
+            patch.object(worker, "record_phone_pool_binding") as record_phone_pool_binding,
+        ):
+            result = worker.complete_existing_phone_verification(
+                object(),
+                step,
+                "device-id",
+                events,
+                "child@example.com",
+            )
+
+        self.assertEqual(result["page"]["type"], "sign_in_with_chatgpt_codex_consent")
+        record_phone_pool_binding.assert_called_once_with(pool[0], "child@example.com")
+
     def test_existing_bound_phone_validate_reports_account_locked(self):
         worker = load_worker()
         events = []

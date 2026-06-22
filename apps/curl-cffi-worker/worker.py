@@ -1121,6 +1121,7 @@ def complete_existing_phone_verification(
             str(phone_error.get("message") or "Phone OTP verification failed"),
         )
     events.append({"phase": "bound_phone_otp_done", "phoneSlot": entry["slot"]})
+    record_phone_pool_binding(entry, email)
     return verified_step
 
 
