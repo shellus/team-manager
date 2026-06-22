@@ -8,7 +8,7 @@ import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
 import { CODEX_AUTH_REDIRECT_URI } from './codexAuth.js';
-import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
+import { CodexAutoAuthError, type CodexAutoAuthExecutor } from './codexAutoAuth.js';
 import { SubaccountStore } from './subaccountStore.js';
 import type { Transport } from './transport.js';
 
@@ -90,6 +90,7 @@ class FakeCodexAutoAuth implements CodexAutoAuthExecutor {
     state: string;
     codeVerifier: string;
     targetChatgptAccountId?: string;
+    password?: string;
   }> = [];
 
   async complete(options: Parameters<CodexAutoAuthExecutor['complete']>[0]) {
@@ -99,7 +100,8 @@ class FakeCodexAutoAuth implements CodexAutoAuthExecutor {
       authUrl: options.session.authUrl,
       state: options.session.state,
       codeVerifier: options.session.codeVerifier,
-      targetChatgptAccountId: options.targetChatgptAccountId
+      targetChatgptAccountId: options.targetChatgptAccountId,
+      password: options.password
     });
     return {
       callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=auto-code&state=${options.session.state}`,
@@ -125,7 +127,115 @@ class FakeCodexAutoAuth implements CodexAutoAuthExecutor {
   }
 }
 
-async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor } = {}) {
+class FakeAccountLockedAutoAuth implements CodexAutoAuthExecutor {
+  async complete() {
+    throw new CodexAutoAuthError(
+      'Account is locked or unavailable',
+      'account_locked',
+      'account_locked',
+      [{ phase: 'account_locked', status: 200 }]
+    );
+  }
+}
+
+class FakeSubaccountRegistration {
+  requests: Array<{
+    authUrl: string;
+    state: string;
+    codeVerifier: string;
+    mailGroup?: string;
+    targetChatgptAccountId?: string;
+  }> = [];
+
+  async register(options: {
+    session: { authUrl: string; state: string; codeVerifier: string };
+    mailGroup?: string;
+    targetChatgptAccountId?: string;
+  }) {
+    const accountId = options.targetChatgptAccountId ?? 'registered-child-chatgpt-account-id';
+    this.requests.push({
+      authUrl: options.session.authUrl,
+      state: options.session.state,
+      codeVerifier: options.session.codeVerifier,
+      mailGroup: options.mailGroup,
+      targetChatgptAccountId: options.targetChatgptAccountId
+    });
+    return {
+      email: 'registered-child@example.com',
+      password: 'generated-child-password',
+      callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=registered-code&state=${options.session.state}`,
+      events: [
+        { phase: 'gongxi_get_email', status: 200 },
+        { phase: 'user_register', status: 200 },
+        { phase: 'oauth_token_exchange', status: 200 }
+      ],
+      credential: {
+        access_token: 'registered-codex-access-token',
+        refresh_token: 'registered-codex-refresh-token',
+        id_token: unsignedJwt({
+          email: 'registered-child@example.com',
+          'https://api.openai.com/auth': {
+            chatgpt_account_id: accountId,
+            chatgpt_plan_type: 'team'
+          }
+        }),
+        account_id: accountId,
+        email: 'registered-child@example.com',
+        type: 'codex' as const,
+        last_refresh: '2026-06-18T00:00:00.000Z',
+        expired: '2026-06-18T01:00:00.000Z',
+        plan_type: 'team'
+      }
+    };
+  }
+}
+
+class FakeVerificationRequiredRegistration {
+  async register() {
+    const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
+    throw new SubaccountRegistrationError(
+      'user_register_failed_400: account_creation_failed',
+      'verification_required',
+      'registration_sentinel',
+      'pending-child@example.com',
+      'generated-child-password',
+      [{ phase: 'user_register', status: 400 }]
+    );
+  }
+}
+
+class FakeAccountLockedRegistration {
+  async register() {
+    const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
+    throw new SubaccountRegistrationError(
+      'user_register_failed_403: account disabled',
+      'account_locked',
+      'account_locked',
+      'locked-child@example.com',
+      'generated-child-password',
+      [{ phase: 'user_register', status: 403 }]
+    );
+  }
+}
+
+class FakeRegistrationEmailUnavailable {
+  async register() {
+    const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
+    throw new SubaccountRegistrationError(
+      'No usable GongXi-Mail email after 10 attempt(s)',
+      'error',
+      'registration_email_unavailable',
+      undefined,
+      undefined,
+      [
+        { phase: 'registration_email_rejected', status: 200 },
+        { phase: 'registration_email_rejected', status: 200 }
+      ]
+    );
+  }
+}
+
+async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor; registration?: unknown } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccount-api-'));
   const config: AppConfig = {
     port: 0,
@@ -174,8 +284,9 @@ async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor } =
     subaccountCodexFetch: fakeFetch as typeof fetch,
     subaccountQuotaTransport: quotaTransport,
     subaccountCodexAutoAuth: options.codexAutoAuth,
+    subaccountRegistration: options.registration,
     teamTransport
-  });
+  } as Parameters<typeof buildApp>[0]);
 
   const login = await app.request('/api/auth/login', {
     method: 'POST',
@@ -202,8 +313,48 @@ describe('Subaccount API', () => {
       assert.equal(json.data!.workerConfigured, false);
       assert.equal(json.data!.workerReachable, false);
       assert.equal(json.data!.codexAutoAuth, false);
+      assert.equal(json.data!.subaccountRegistration, false);
       assert.match(json.data!.error ?? '', /TEAMMGR_CURL_CFFI_URL/);
     } finally {
+      if (originalWorkerUrl === undefined) delete process.env.TEAMMGR_CURL_CFFI_URL;
+      else process.env.TEAMMGR_CURL_CFFI_URL = originalWorkerUrl;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports available and exhausted phone pool counts from the worker health check', async () => {
+    const originalWorkerUrl = process.env.TEAMMGR_CURL_CFFI_URL;
+    const originalFetch = globalThis.fetch;
+    process.env.TEAMMGR_CURL_CFFI_URL = 'https://worker.example.invalid';
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          capabilities: {
+            codexAutoAuth: true,
+            subaccountRegistration: true,
+            flaresolverr: true,
+            gongxiMail: true,
+            phoneOtp: true
+          },
+          phonePoolCount: 3,
+          phonePoolExhaustedCount: 2
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )) as typeof fetch;
+
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const response = await app.request('/api/subaccounts/codex-auth/status', { headers: authHeaders });
+      const json = (await response.json()) as ApiResult<CodexAuthRuntimeStatus & { phonePoolExhaustedCount?: number }>;
+
+      assert.equal(response.status, 200);
+      assert.equal(json.data!.phoneOtp, true);
+      assert.equal(json.data!.subaccountRegistration, true);
+      assert.equal(json.data!.phonePoolCount, 3);
+      assert.equal(json.data!.phonePoolExhaustedCount, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
       if (originalWorkerUrl === undefined) delete process.env.TEAMMGR_CURL_CFFI_URL;
       else process.env.TEAMMGR_CURL_CFFI_URL = originalWorkerUrl;
       await rm(dir, { recursive: true, force: true });
@@ -552,6 +703,42 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('marks a child account as locked when Codex auto auth reports account_locked', async () => {
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
+      codexAutoAuth: new FakeAccountLockedAutoAuth()
+    });
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'locked-child@example.com' },
+          account: { id: 'locked-child-chatgpt-account-id' },
+          accessToken: 'locked-child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/auto`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const completedJson = (await completed.json()) as ApiResult<SubaccountView>;
+
+      assert.equal(completed.status, 502);
+      assert.equal(completedJson.error, 'Account is locked or unavailable');
+      assert.equal(subaccountStore.get(subaccount.id)?.status, 'account_locked');
+
+      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
+      const logsJson = (await logs.json()) as ApiResult<Array<{ phase: string; status: string }>>;
+      assert.ok(
+        logsJson.data!.some((log) => log.phase === 'codex_auto_auth_complete' && log.status === 'account_locked')
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a pasted Codex callback when the selected workspace does not match the target', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {
@@ -645,21 +832,135 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('does not expose automatic registration or mail-code integration endpoints', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
+  it('registers a new child account through the worker without exposing the generated password', async () => {
+    const registration = new FakeSubaccountRegistration();
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ registration });
+    try {
+      const started = await app.request('/api/subaccounts/registration/start', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ mailGroup: 'clean-outlook', chatgptAccountId: 'workspace-account-id' })
+      });
+      assert.equal(started.status, 200);
+      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+      assert.equal(startedJson.data!.email, 'registered-child@example.com');
+      assert.equal(startedJson.data!.status, 'codex_ready');
+      assert.equal(startedJson.data!.hasWebSession, false);
+      assert.equal(startedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
+      assert.equal(JSON.stringify(startedJson).includes('generated-child-password'), false);
+      assert.equal(registration.requests[0]!.mailGroup, 'clean-outlook');
+      assert.equal(registration.requests[0]!.targetChatgptAccountId, 'workspace-account-id');
+
+      const stored = subaccountStore.get(startedJson.data!.id) as unknown as { registrationPassword?: string };
+      assert.equal(stored.registrationPassword, 'generated-child-password');
+
+      const allLogs = await app.request(`/api/subaccounts/${startedJson.data!.id}/logs`, { headers: authHeaders });
+      const allLogsJson = (await allLogs.json()) as ApiResult<Array<{ phase: string; message: string }>>;
+      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_complete'));
+      assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a newly allocated registration account visible when sentinel verification is required', async () => {
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
+      registration: new FakeVerificationRequiredRegistration()
+    });
     try {
       const started = await app.request('/api/subaccounts/registration/start', {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({})
       });
-      assert.equal(started.status, 404);
+      assert.equal(started.status, 200);
+      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
 
-      const code = await app.request('/api/subaccounts/does-not-matter/mail-code', {
+      assert.equal(startedJson.data!.email, 'pending-child@example.com');
+      assert.equal(startedJson.data!.status, 'verification_required');
+      assert.match(startedJson.data!.lastError ?? '', /account_creation_failed/);
+      assert.equal(JSON.stringify(startedJson).includes('generated-child-password'), false);
+
+      const stored = subaccountStore.get(startedJson.data!.id) as unknown as { registrationPassword?: string };
+      assert.equal(stored.registrationPassword, 'generated-child-password');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a locked registration account visible with account_locked status', async () => {
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
+      registration: new FakeAccountLockedRegistration()
+    });
+    try {
+      const started = await app.request('/api/subaccounts/registration/start', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({})
+      });
+      assert.equal(started.status, 200);
+      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+
+      assert.equal(startedJson.data!.email, 'locked-child@example.com');
+      assert.equal(startedJson.data!.status, 'account_locked');
+      assert.match(startedJson.data!.lastError ?? '', /account disabled/);
+      assert.equal(JSON.stringify(startedJson).includes('generated-child-password'), false);
+
+      const stored = subaccountStore.get(startedJson.data!.id) as unknown as { registrationPassword?: string };
+      assert.equal(stored.registrationPassword, 'generated-child-password');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns 502 without creating a child when registration has no usable email', async () => {
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
+      registration: new FakeRegistrationEmailUnavailable()
+    });
+    try {
+      const started = await app.request('/api/subaccounts/registration/start', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({})
+      });
+      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+
+      assert.equal(started.status, 502);
+      assert.equal(startedJson.ok, false);
+      assert.match(startedJson.error ?? '', /No usable GongXi-Mail email/);
+      assert.equal(subaccountStore.list().length, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses the private registration password when retrying Codex auto auth for a registered account', async () => {
+    const codexAutoAuth = new FakeCodexAutoAuth();
+    const { app, dir, authHeaders } = await buildTestApp({
+      codexAutoAuth,
+      registration: new FakeVerificationRequiredRegistration()
+    });
+    try {
+      const started = await app.request('/api/subaccounts/registration/start', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({})
+      });
+      assert.equal(started.status, 200);
+      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+
+      const completed = await app.request(`/api/subaccounts/${startedJson.data!.id}/codex-auth/auto`, {
         method: 'POST',
         headers: authHeaders
       });
-      assert.equal(code.status, 404);
+      assert.equal(completed.status, 200);
+
+      assert.equal(codexAutoAuth.requests[0]!.email, 'pending-child@example.com');
+      assert.equal(codexAutoAuth.requests[0]!.password, 'generated-child-password');
+
+      const logs = await app.request(`/api/subaccounts/${startedJson.data!.id}/logs`, { headers: authHeaders });
+      const logsText = await logs.text();
+      assert.equal(logsText.includes('generated-child-password'), false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

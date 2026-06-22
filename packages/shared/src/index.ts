@@ -105,6 +105,7 @@ export type SubaccountStatus =
   | 'codex_auth_pending'
   | 'codex_ready'
   | 'verification_required'
+  | 'account_locked'
   | 'error';
 
 /** 子号池记录（含敏感字段，仅后端 data/ 持久化） */
@@ -114,6 +115,9 @@ export interface Subaccount {
   label: string;               // 默认同 email
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
+  registrationPassword?: string; // 自动注册生成的 OpenAI 密码，仅后端持久化，不下发前端
+  registeredAt?: number;
+  registrationSource?: string;
   codexCredentials?: SubaccountCodexCredential[];
   teamLinks?: SubaccountTeamLink[];
   status: SubaccountStatus;
@@ -192,10 +196,12 @@ export interface CodexAuthRuntimeStatus {
   workerConfigured: boolean;
   workerReachable: boolean;
   codexAutoAuth: boolean;
+  subaccountRegistration: boolean;
   flaresolverr: boolean;
   gongxiMail: boolean;
   phoneOtp: boolean;
   phonePoolCount?: number;
+  phonePoolExhaustedCount?: number;
   error?: string;
 }
 

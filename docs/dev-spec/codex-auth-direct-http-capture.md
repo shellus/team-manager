@@ -180,6 +180,8 @@ team-manager 当前只保存子号 session JSON 的三项：
 
 ## 后续待抓
 
+- 注册分支已按 `screen_hint:"signup"`、`create_account_password`、`/api/accounts/user/register`、邮箱 OTP 和后续授权链路接入 worker；`user/register` 的 sentinel/proof token 仍需持续对照浏览器真实 SDK 验证。
 - `add-phone` 提交手机号请求与响应结构已确认：`POST /api/accounts/add-phone/send`，body `{"phone_number":"+1...","channel":"sms"}`。
 - `phone-otp` 提交短信验证码请求结构已确认：`POST /api/accounts/phone-otp/validate`，body `{"code":"<6-digit-code>"}`。
-- 仍需把首次绑手机、已绑定手机号二次验证、验证码错误、人机校验与账号锁定分支整理成可执行状态机。
+- curl_cffi worker 已把邮箱 OTP 错误换码重试、首次绑手机、已绑定手机号二次验证、`phone_otp_select_channel` 选 SMS、YAML 手机号池取号、短信验证码错误换候选码重试、FlareSolverr 人机校验继续尝试和号码用尽标记整理为可执行状态机。
+- 仍需继续补齐验证码错误、人机校验、账号锁定等分支的脱敏原始响应样本，并用真实响应校准可恢复/不可恢复状态。

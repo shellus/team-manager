@@ -147,6 +147,8 @@ corepack pnpm docs:build
 
 ## 当前边界
 
-- 自动 Codex 授权支持已录入子号或可由运行环境能力完成验证的账号；页面会只读展示 worker、GongXi-Mail、短信 OTP 和授权页面 clearance 是否可用。
-- 全新 OpenAI 子号注册、注册阶段 sentinel、手机号首次绑定、短信接码渠道管理和复杂二次验证仍是后续候选能力。
+- 自动 Codex 授权支持已录入子号或可由运行环境能力完成验证的账号；页面会只读展示 worker、GongXi-Mail、自动注册、短信 OTP、可用/用尽号码数量和授权页面 clearance 是否可用。
+- 全新 OpenAI 子号注册可通过 curl_cffi worker 申请 GongXi-Mail 邮箱、生成随机密码、执行 signup/register、邮箱 OTP、手机号验证和 Codex 授权。若分配到已存在或被占用邮箱，worker 会重新取邮箱重试；邮箱 OTP 错误时会重新取候选码重试。生成密码只保存在后端运行时数据，不下发前端；已落库账号后续重试自动授权时会复用该私有密码。
+- 短信 OTP 能力由 curl_cffi worker 使用运行环境 YAML 手机号池完成。worker 可自动处理首次手机号绑定、已绑定手机号短信二次验证、验证码错误后的候选码重试、号码达到绑定上限后的用尽标记和后续跳过；真实手机号、短信 inbox URL 和 YAML 文件不进入 git。
+- 遇到 auth.openai.com 人机校验时，worker 会先尝试使用运行环境 FlareSolverr 继续流程；账号锁定会标记为独立的 `account_locked` 子号状态。注册阶段 sentinel 稳定通过、无法自动继续的人机校验、账号锁定恢复和短信接码渠道 UI 管理仍是后续候选能力，这些分支会进入明确状态并保留脱敏日志。
 - 系统不对接外部 credential-status 服务，Codex 额度直接由目标 workspace 对应凭证查询。

@@ -21,6 +21,7 @@ const STATUS_LABEL: Record<SubaccountStatus, string> = {
   codex_auth_pending: '授权中',
   codex_ready: 'Codex 可用',
   verification_required: '待验证',
+  account_locked: '账号锁定',
   error: '异常'
 };
 
@@ -173,6 +174,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
         workerConfigured: false,
         workerReachable: false,
         codexAutoAuth: false,
+        subaccountRegistration: false,
         flaresolverr: false,
         gongxiMail: false,
         phoneOtp: false,
@@ -260,6 +262,18 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     setNotice('已导入 Codex 凭证。');
     loadLogs(added.id).catch((e) => setError((e as Error).message));
   };
+
+  const registerSubaccount = () =>
+    run('subaccount-register', async () => {
+      const registered = await apiClient.registerSubaccount();
+      mergeSubaccount(registered);
+      setNotice(
+        registered.codexCredentials.length
+          ? '已自动注册子号并生成 Codex 凭证。'
+          : '已自动注册子号。'
+      );
+      loadRuntimeStatus().catch(() => undefined);
+    });
 
   const updateLocalProfile = async (
     id: string,
@@ -491,6 +505,14 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
             <span>{subaccounts.length} 个账号</span>
           </div>
           <div className="pane-actions">
+            <button
+              className="primary"
+              onClick={registerSubaccount}
+              disabled={busy === 'subaccount-register' || runtimeStatus?.subaccountRegistration === false}
+              title={runtimeStatus?.subaccountRegistration === false ? '自动注册运行依赖未就绪，请先检查配置状态' : undefined}
+            >
+              {busy === 'subaccount-register' ? '注册中' : '自动注册'}
+            </button>
             <button className="primary" onClick={() => setSessionDialogOpen(true)}>
               录入子号
             </button>
@@ -510,6 +532,13 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
               <h3>还没有子号</h3>
               <p>可录入子号 session JSON，也可导入已有 CPA/Codex credential JSON。</p>
               <div className="empty-actions">
+                <button
+                  className="primary"
+                  onClick={registerSubaccount}
+                  disabled={busy === 'subaccount-register' || runtimeStatus?.subaccountRegistration === false}
+                >
+                  {busy === 'subaccount-register' ? '注册中' : '自动注册'}
+                </button>
                 <button className="primary" onClick={() => setSessionDialogOpen(true)}>
                   录入子号
                 </button>
@@ -617,11 +646,15 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
                 <span>GongXi-Mail</span>
                 <strong>{runtimeStatus?.gongxiMail ? '已配置' : runtimeStatus ? '未就绪' : '未检查'}</strong>
               </div>
+              <div className={`runtime-capability ${runtimeCapabilityClass(runtimeStatus?.subaccountRegistration)}`}>
+                <span>自动注册</span>
+                <strong>{runtimeStatus?.subaccountRegistration ? '可用' : runtimeStatus ? '不可用' : '未检查'}</strong>
+              </div>
               <div className={`runtime-capability ${runtimeCapabilityClass(runtimeStatus?.phoneOtp)}`}>
                 <span>短信接码</span>
                 <strong>
                   {runtimeStatus?.phoneOtp
-                    ? `${runtimeStatus.phonePoolCount ?? 0} 个槽`
+                    ? `${runtimeStatus.phonePoolCount ?? 0} 可用 / ${runtimeStatus.phonePoolExhaustedCount ?? 0} 用尽`
                     : runtimeStatus
                       ? '不可用'
                       : '未检查'}

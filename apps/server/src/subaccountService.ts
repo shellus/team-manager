@@ -4,6 +4,7 @@ import type {
   CodexQuotaSnapshot,
   Subaccount,
   SubaccountAuthLog,
+  SubaccountStatus,
   SubaccountView
 } from '@team-manager/shared';
 import { parseChatGptSessionInput } from '@team-manager/shared';
@@ -13,6 +14,11 @@ import {
   createCodexAutoAuthExecutor,
   type CodexAutoAuthExecutor
 } from './codexAutoAuth.js';
+import {
+  SubaccountRegistrationError,
+  createSubaccountRegistrationExecutor,
+  type SubaccountRegistrationExecutor
+} from './subaccountRegistration.js';
 import { fetchCodexQuota } from './codexQuota.js';
 import { ServiceError } from './teamService.js';
 import { createTransport, type Transport } from './transport.js';
@@ -35,7 +41,8 @@ export class SubaccountService {
     private readonly store: SubaccountStore,
     private readonly codexFetch: typeof fetch = fetch,
     private readonly quotaTransport: Transport = createTransport(),
-    private readonly codexAutoAuth: CodexAutoAuthExecutor | undefined = createCodexAutoAuthExecutor()
+    private readonly codexAutoAuth: CodexAutoAuthExecutor | undefined = createCodexAutoAuthExecutor(),
+    private readonly registration: SubaccountRegistrationExecutor | undefined = createSubaccountRegistrationExecutor()
   ) {}
 
   list(): SubaccountView[] {
@@ -49,6 +56,7 @@ export class SubaccountService {
         workerConfigured: false,
         workerReachable: false,
         codexAutoAuth: false,
+        subaccountRegistration: false,
         flaresolverr: false,
         gongxiMail: false,
         phoneOtp: false,
@@ -65,6 +73,7 @@ export class SubaccountService {
       const data = (await response.json().catch(() => ({}))) as {
         capabilities?: Record<string, unknown>;
         phonePoolCount?: unknown;
+        phonePoolExhaustedCount?: unknown;
         phonePoolError?: unknown;
       };
       const capabilities = data.capabilities ?? {};
@@ -73,10 +82,13 @@ export class SubaccountService {
         workerConfigured: true,
         workerReachable,
         codexAutoAuth: workerReachable && capabilities.codexAutoAuth === true,
+        subaccountRegistration: workerReachable && capabilities.subaccountRegistration === true,
         flaresolverr: capabilities.flaresolverr === true,
         gongxiMail: capabilities.gongxiMail === true,
         phoneOtp: capabilities.phoneOtp === true,
         phonePoolCount: typeof data.phonePoolCount === 'number' ? data.phonePoolCount : undefined,
+        phonePoolExhaustedCount:
+          typeof data.phonePoolExhaustedCount === 'number' ? data.phonePoolExhaustedCount : undefined,
         error:
           workerReachable
             ? typeof data.phonePoolError === 'string' && data.phonePoolError
@@ -89,6 +101,7 @@ export class SubaccountService {
         workerConfigured: true,
         workerReachable: false,
         codexAutoAuth: false,
+        subaccountRegistration: false,
         flaresolverr: false,
         gongxiMail: false,
         phoneOtp: false,
@@ -239,7 +252,8 @@ export class SubaccountService {
       const result = await this.codexAutoAuth.complete({
         email: subaccount.email,
         session,
-        targetChatgptAccountId: target
+        targetChatgptAccountId: target,
+        password: subaccount.registrationPassword?.trim() || undefined
       });
       assertCredentialMatchesTarget(result.credential, target);
       const updated = await this.store.saveCodexCredential(id, result.credential);
@@ -260,7 +274,7 @@ export class SubaccountService {
       });
       return updated;
     } catch (e) {
-      const status = e instanceof CodexAutoAuthError && e.status === 'verification_required' ? 'verification_required' : 'error';
+      const status = e instanceof CodexAutoAuthError ? subaccountStatusFromWorkerStatus(e.status) : 'error';
       await this.store.update(id, { status, lastError: (e as Error).message });
       await this.store.appendLog(id, {
         phase: 'codex_auto_auth_complete',
@@ -276,6 +290,78 @@ export class SubaccountService {
               }
             : undefined
       });
+      if (e instanceof CodexAutoAuthError) throw new ServiceError(502, e.message);
+      throw e;
+    }
+  }
+
+  async registerNewSubaccount(input: { targetChatgptAccountId?: string; mailGroup?: string }): Promise<SubaccountView> {
+    if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
+    const target = cleanTargetAccountId(input.targetChatgptAccountId);
+    const mailGroup = cleanOptionalString(input.mailGroup);
+    const session = createCodexAuthSession();
+
+    try {
+      const result = await this.registration.register({
+        session,
+        targetChatgptAccountId: target,
+        mailGroup
+      });
+      if (result.credential) assertCredentialMatchesTarget(result.credential, target);
+
+      const registered = await this.store.saveRegisteredSubaccount({
+        email: result.email,
+        password: result.password,
+        source: mailGroup ? `gongxi:${mailGroup}` : 'gongxi',
+        status: result.credential ? 'codex_ready' : 'session_ready'
+      });
+      const updated = result.credential
+        ? await this.store.saveCodexCredential(registered.id, result.credential)
+        : registered;
+      if (!updated) throw new ServiceError(404, `子号不存在: ${registered.id}`);
+
+      await this.store.appendLog(registered.id, {
+        phase: 'subaccount_registration_complete',
+        status: updated.status,
+        message: result.credential ? '子号自动注册并完成 Codex 授权' : '子号自动注册完成',
+        data: {
+          email: result.email,
+          passwordStored: true,
+          callbackUrlPresent: Boolean(result.callbackUrl),
+          targetChatgptAccountId: target,
+          mailGroup,
+          eventCount: result.events.length,
+          phases: result.events.map((event) => event.phase).filter(Boolean)
+        }
+      });
+      return updated;
+    } catch (e) {
+      if (e instanceof SubaccountRegistrationError && e.email && e.password) {
+        const status = subaccountStatusFromWorkerStatus(e.status);
+        const registered = await this.store.saveRegisteredSubaccount({
+          email: e.email,
+          password: e.password,
+          source: mailGroup ? `gongxi:${mailGroup}` : 'gongxi',
+          status,
+          lastError: e.message
+        });
+        await this.store.appendLog(registered.id, {
+          phase: 'subaccount_registration_complete',
+          status,
+          message: e.message,
+          data: {
+            workerStatus: e.status,
+            challenge: e.challenge,
+            passwordStored: true,
+            targetChatgptAccountId: target,
+            mailGroup,
+            eventCount: e.events.length,
+            phases: e.events.map((event) => event.phase).filter(Boolean)
+          }
+        });
+        return registered;
+      }
+      if (e instanceof SubaccountRegistrationError) throw new ServiceError(502, e.message);
       throw e;
     }
   }
@@ -324,9 +410,20 @@ export class SubaccountService {
   }
 }
 
+function subaccountStatusFromWorkerStatus(status: string): SubaccountStatus {
+  if (status === 'account_locked') return 'account_locked';
+  if (status === 'verification_required') return 'verification_required';
+  return 'error';
+}
+
 function cleanTargetAccountId(value?: string): string | undefined {
   const target = value?.trim();
   return target || undefined;
+}
+
+function cleanOptionalString(value?: string): string | undefined {
+  const cleaned = value?.trim();
+  return cleaned || undefined;
 }
 
 function parseCodexCredentialInput(raw: unknown): CodexCredentialJson {

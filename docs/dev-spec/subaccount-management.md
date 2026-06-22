@@ -2,12 +2,13 @@
 
 本文件记录子号管理当前实现边界。运行时主链路不使用 Playwright。Codex 自动授权会通过 curl_cffi worker 调用 auth.openai.com，并使用运行环境配置的授权页面 clearance、GongXi-Mail 邮箱验证码和可选短信 OTP 能力；额度查询不对接外部 credential-status 服务，仅参考 CPA 的凭证格式与额度解析方式，直接用目标 Team workspace 对应的子号 Codex 凭证查询额度。
 
-GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥属于部署运行配置，不是 team-manager 的业务数据。源码和公开文档只描述能力边界；真实连接参数放在运行环境变量、部署目录或本机私有文档中。页面只通过脱敏状态检查展示这些能力是否可用，不提供密钥、域名、路径、手机号或接码渠道编辑入口。
+GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥属于部署运行配置，不是 team-manager 的业务数据。源码和公开文档只描述能力边界；真实连接参数、手机号、短信 inbox URL 和手机号池 YAML 文件放在运行环境、部署挂载数据或本机私有文档中。页面只通过脱敏状态检查展示这些能力是否可用，不提供密钥、域名、路径、手机号或接码渠道编辑入口。
 
 ## 已实现
 
 - 子号池：`data/subaccounts.json`
   - 记录邮箱、备注名、ChatGPT account id、web session 状态、按 Team workspace 保存的 Codex 凭证状态，以及该子号加入过的母号关系。
+  - 自动注册生成的 OpenAI 密码记录在后端持久化对象的私有字段中，普通 view 不下发。
   - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证；该值来自 Codex `id_token` claim 中的 `chatgpt_account_id`。
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
 - 子号 session JSON 录入：
@@ -24,14 +25,28 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
   - 固定 redirect URI：`http://localhost:1455/auth/callback`。
-  - 自动授权：后端创建带 `login_hint` 的 OAuth 会话，curl_cffi worker 获取 auth.openai.com clearance，触发 `passwordless/send-otp`，从 GongXi-Mail 的 inbox/junk 读取 OpenAI code 邮件，完成 `email-otp/validate`、目标 `workspace/select`、callback 和 token exchange。
+  - 自动授权：后端创建带 `login_hint` 的 OAuth 会话，curl_cffi worker 获取 auth.openai.com clearance，触发 `passwordless/send-otp`，从 GongXi-Mail 的 inbox/junk 读取 OpenAI code 邮件，完成 `email-otp/validate`、必要的手机号验证、目标 `workspace/select`、callback 和 token exchange。
   - 手动兜底：前端按目标 Team 展示登录 URL，用户授权后把 callback URL 粘贴回系统。
   - 两条链路最终都生成 CPA/Codex 兼容 JSON，并按目标 Team workspace 保存。
   - 如果手动授权返回的 `chatgpt_account_id` 与目标 Team workspace 不一致，后端返回 409 并拒绝保存。
-  - 若自动授权遇到 `add_phone` / `phone_otp_verification` / `auth_challenge`，子号状态写为 `verification_required`，日志记录脱敏阶段信息。
+  - 邮箱 OTP 提交被判为错误、无效或过期时，worker 会在 `TEAMMGR_EMAIL_CODE_MAX_ATTEMPTS` 预算内重新从 GongXi-Mail 取可用候选码；事件日志只记录阶段和尝试次数，不记录验证码明文。
+  - 若自动授权遇到 `add_phone`，worker 会从运行环境 YAML 手机号池选择未用尽号码，发送短信并校验 OTP；成功后把子号邮箱写入该号码的 `gptAccounts[]`。
+  - 若自动授权遇到已绑定手机号的 `phone_otp_select_channel` / `phone_otp_verification`，worker 会按 OpenAI 返回的手机号提示在 YAML 池中匹配号码并读取短信 OTP。
+  - 短信验证码提交被判为错误、无效或过期时，worker 会在 `TEAMMGR_PHONE_CODE_MAX_ATTEMPTS` 预算内换用同一 inbox 中其他候选码或新码；事件日志只记录阶段和尝试次数，不记录验证码明文。
+  - 遇到 `auth_challenge` 人机校验时，worker 会先用运行环境 FlareSolverr 尝试打开 challenge；如果 solver 返回可继续的 auth JSON 状态，则继续后续手机号验证或授权状态机。
+  - 若手机号池为空、绑定手机号无法匹配、尾号匹配到多个号码、短信超时、验证码重试预算耗尽或人机校验无法自动继续，子号状态写为 `verification_required`，日志记录脱敏阶段信息。
+  - 若 OpenAI 返回账号锁定、停用或不可用，worker 返回 `account_locked`，后端把子号状态写为 `account_locked`，停止把它混入验证码待验证流程。
+- 自动注册：
+  - `POST /api/subaccounts/registration/start` 创建不带 `login_hint` 的 Codex OAuth 会话，并调用 worker `/subaccounts/register`。
+  - worker 通过 GongXi-Mail `/api/get-email` 申请邮箱，生成随机强密码，执行 `screen_hint:"signup"`、`/api/accounts/user/register`、邮箱 OTP、必要手机号验证、workspace select 和 token exchange。
+  - 若 OpenAI 在 signup continue 或 register 阶段表明邮箱已存在、已注册或被占用，worker 会记录 `registration_email_rejected`，重新从 GongXi-Mail 取邮箱；`TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 控制最大取邮箱次数，默认 3 次。
+  - 若所有候选邮箱都被判定为已注册或被占用，worker 返回 `registration_email_unavailable`，不携带最后一个无效邮箱和密码；后端返回 502，不创建子号记录。
+  - 注册成功后，后端创建或更新子号记录，保存生成密码；如 token exchange 返回 Codex token，则按目标 Team workspace 保存 credential。
+  - 注册阶段 sentinel 或 OpenAI 人机校验失败时，worker 返回 `verification_required` 和脱敏事件；如已经拿到邮箱和密码，后端仍会落库，便于后续恢复。
+  - 对已落库的自动注册账号再次执行 Codex 自动授权时，后端会把私有 `registrationPassword` 传给 worker 走密码登录；普通 view 和授权日志仍不下发密码。
 - 自动授权运行能力检查：
   - `GET /api/subaccounts/codex-auth/status` 返回 worker 是否配置、worker 是否可连接、GongXi-Mail 是否可用、短信 OTP 能力是否可用、授权页面 clearance 是否可用。
-  - 响应只包含布尔状态、可选数量和脱敏错误摘要，不返回真实 URL、key、手机号、文件路径或接码渠道配置。
+  - 响应只包含布尔状态、可用号码数量、已用尽号码数量和脱敏错误摘要，不返回真实 URL、key、手机号、文件路径或接码渠道配置。
   - 前端在子号页面的“凭证与 Codex Auth”区域只读展示这些能力；配置缺失时禁用自动授权入口，仍保留登录 URL 手动授权。
 - 子号加入母号：
   - 选择本地已录入的母号和席位类型。
@@ -54,11 +69,52 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 追加写入 `data/subaccount-auth-logs.jsonl`。
   - 日志只保存阶段、状态、短消息和脱敏结构化元数据。
 
+## 短信接码 YAML 池
+
+curl_cffi worker 通过 `TEAMMGR_PHONE_POOL_YAML` 读取并维护手机号池。实际文件属于运行环境数据，不进入 git 管理文件。旧的 txt 路径和按章节区分“未用/已用”的方式不再作为主链路。
+
+历史 TXT 号池迁移为 YAML 时，使用仓库内迁移脚本生成运行环境私有文件：
+
+```bash
+python3 apps/curl-cffi-worker/phone_pool_migration.py \
+  --output <phone-pool-yaml-path> \
+  <legacy-phone-pool-1.txt> <legacy-phone-pool-2.txt>
+```
+
+迁移后运行环境应设置 `TEAMMGR_PHONE_POOL_YAML=<phone-pool-yaml-path>`，并把该 YAML 以可写方式挂载给 worker；不要继续设置 `TEAMMGR_PHONE_POOL_FILES` 或只读挂载旧 TXT 文件。迁移脚本只从旧 TXT 提取手机号和 inbox URL，初始写入 `exhausted:false` 与空 `gptAccounts[]`，后续绑定记录由 worker 自维护。
+
+YAML 结构：
+
+```yaml
+version: 1
+phones:
+  - phone: "<phone-e164>"
+    url: "<sms-inbox-url>"
+    exhausted: false
+    gptAccounts:
+      - email: "child@example.com"
+        boundAt: "2026-06-22T00:00:00+00:00"
+```
+
+字段规则：
+
+- `phone` 是提交给 OpenAI 的 E.164 号码。
+- `url` 是 worker 拉取短信内容的运行环境 inbox URL。
+- `gptAccounts[]` 记录已经使用该号码绑定或验证过的 GPT 账号；当前 worker 至少写入 `email` 和 `boundAt`。
+- `exhausted:true` 表示该号码已被 OpenAI 判定达到可绑定 GPT 账号数量上限，不能再用于新的 `add_phone` 绑定。
+- 新账号首次绑定手机号时，worker 跳过 `exhausted:true` 的号码；已绑定手机号二次验证仍可在全池中按尾号匹配，因为用尽只限制新增绑定，不限制已绑定账号收码。
+- `POST /api/accounts/add-phone/send` 返回“maximum number of accounts”等上限错误时，worker 会把该号码写回为 `exhausted:true`，并记录 `exhaustedAt` 和 `exhaustedReason`。
+- `phone-otp/validate` 成功后，worker 会把当前子号邮箱写入该号码的 `gptAccounts[]`。
+- `TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 可控制注册阶段从 GongXi-Mail 重新取邮箱的最大次数，默认 3 次。若所有候选邮箱都被 OpenAI 判定为已注册或被占用，worker 返回 `registration_email_unavailable`，不携带最后一个无效邮箱和密码。
+- `TEAMMGR_EMAIL_CODE_MAX_ATTEMPTS` 可控制单次邮箱验证码候选重试次数，默认 3 次。
+- `TEAMMGR_PHONE_CODE_MAX_ATTEMPTS` 可控制单次手机号验证的验证码候选重试次数，默认 3 次。
+
 ## API
 
 - `GET /api/subaccounts`
 - `POST /api/subaccounts/session`
 - `POST /api/subaccounts/codex-credential`
+- `POST /api/subaccounts/registration/start`，可传 `mailGroup` 和 `chatgptAccountId`
 - `PATCH /api/subaccounts/:id/local-profile`
 - `DELETE /api/subaccounts/:id`
 - `POST /api/subaccounts/:id/codex-auth/start`，可传 `chatgptAccountId`
@@ -74,12 +130,12 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
 
 ## 未纳入当前实现
 
-当前不实现系统内自动注册、手机号首次绑定、短信接码渠道管理、二次验证识别，也不调用 mail-auto。自动授权可以使用运行环境已经提供的短信 OTP 能力，但 team-manager 不保存或编辑这些连接配置。后续如要做完整注册/登录执行器，必须继续用真实请求协议补齐脱敏原始接口样本，至少包括：
+当前不实现注册阶段 sentinel 的真实浏览器 SDK 级通过、人机校验稳定自动通过、账号锁定恢复、短信接码渠道 UI 管理，也不调用 mail-auto。自动注册和自动授权可以使用运行环境已经提供的 GongXi-Mail 与 YAML 短信 OTP 能力；账号锁定会被标记为 `account_locked` 业务状态，但不会尝试解锁账号。team-manager 不保存或编辑这些连接配置。后续如要继续增强注册/登录执行器，必须继续用真实请求协议补齐脱敏原始接口样本，至少包括：
 
 - 注册起始请求与响应结构
 - 手机号输入请求与响应结构
 - 短信验证码提交请求与响应结构
 - 二次验证只需验证码时的请求与响应结构
-- 验证失败、验证码错误、人机校验、账号锁定等状态结构
+- 验证失败、人机校验、账号锁定等状态结构；验证码错误已有通用识别与重试逻辑，账号锁定已有独立状态，但仍需要真实脱敏响应样本校准文案和可恢复性判断
 
 所有样本必须脱敏后放入 `docs/dev-spec/`，不得包含邮箱密码、token、手机号、验证码、cookie、真实代理地址或部署地址。

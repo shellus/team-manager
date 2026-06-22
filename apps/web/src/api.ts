@@ -88,6 +88,8 @@ export const apiClient = {
     call<SubaccountView>('POST', '/subaccounts/session', payload),
   importSubaccountCodexCredential: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
+  registerSubaccount: (payload: { mailGroup?: string; chatgptAccountId?: string } = {}) =>
+    call<SubaccountView>('POST', '/subaccounts/registration/start', payload),
   updateSubaccountLocalProfile: (id: string, payload: { label: string; session?: Record<string, unknown> }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
