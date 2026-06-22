@@ -19,6 +19,8 @@ describe('normalizeAccountInput', () => {
     assert.ok(!('error' in account));
     assert.equal(account.label, 'owner@example.com');
     assert.equal(account.email, 'owner@example.com');
+    assert.equal(account.note, undefined);
+    assert.equal(account.groupName, '默认分组');
     assert.equal(account.accountId, 'workspace-account-id');
     assert.equal(account.accessToken, 'access-token');
   });
@@ -43,5 +45,6 @@ describe('normalizeAccountInput', () => {
     assert.ok(!('error' in account));
     assert.equal(account.label, 'owner@example.com');
     assert.equal(account.email, 'owner@example.com');
+    assert.equal(account.groupName, '默认分组');
   });
 });

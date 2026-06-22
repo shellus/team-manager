@@ -276,6 +276,47 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('imports Codex credentials with a custom file name and CPA pool group', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/codex-credential', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          fileName: 'cpa-a-child.json',
+          groupName: 'CPA-A',
+          credential: {
+            id_token: unsignedJwt({
+              email: 'child@example.com',
+              'https://api.openai.com/auth': {
+                chatgpt_account_id: 'workspace-account-id',
+                chatgpt_plan_type: 'team'
+              }
+            }),
+            access_token: 'imported-access-token',
+            refresh_token: 'imported-refresh-token',
+            account_id: 'workspace-account-id',
+            last_refresh: '2026-06-18T00:00:00.000Z',
+            email: 'child@example.com',
+            type: 'codex',
+            expired: '2026-06-18T01:00:00.000Z',
+            plan_type: 'team'
+          }
+        })
+      });
+      const body = await added.text();
+      const addedJson = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(added.status, 200, body);
+      assert.equal(addedJson.data!.codexCredentials[0]!.fileName, 'cpa-a-child.json');
+      assert.equal(addedJson.data!.codexCredentials[0]!.groupName, 'CPA-A');
+      assert.equal(body.includes('imported-refresh-token'), false);
+      assert.equal(body.includes('imported-access-token'), false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('returns 400 for unsupported child session JSON shapes', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {

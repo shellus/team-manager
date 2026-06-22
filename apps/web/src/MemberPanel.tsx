@@ -91,7 +91,7 @@ export function MemberPanel({
   onRenameTeam: (id: string, name: string) => Promise<AccountView>;
   onUpdateLocalProfile: (
     id: string,
-    payload: { label: string; session?: Record<string, unknown> }
+    payload: { note?: string; groupName?: string; session?: Record<string, unknown> }
   ) => Promise<AccountView>;
 }) {
   const inviteTitleId = useId();
@@ -115,7 +115,8 @@ export function MemberPanel({
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSeat, setInviteSeat] = useState<SeatType>(account.defaultSeat ?? 'usage_based');
   const [teamNameDraft, setTeamNameDraft] = useState(account.workspaceName ?? '');
-  const [localLabelDraft, setLocalLabelDraft] = useState(account.label);
+  const [localNoteDraft, setLocalNoteDraft] = useState(account.note ?? '');
+  const [localGroupNameDraft, setLocalGroupNameDraft] = useState(account.groupName || '默认分组');
   const [localSessionDraft, setLocalSessionDraft] = useState('');
   const [localSessionEmail, setLocalSessionEmail] = useState('');
   const [defaultSeat, setDefaultSeat] = useState<SeatType | ''>(account.defaultSeat ?? '');
@@ -158,7 +159,8 @@ export function MemberPanel({
       setPersonalAccessTokensDraft(updated.personalAccessTokensEnabled ?? false);
       setInviteSeat(updated.defaultSeat ?? 'usage_based');
       setTeamNameDraft(updated.workspaceName ?? '');
-      setLocalLabelDraft(updated.label);
+      setLocalNoteDraft(updated.note ?? '');
+      setLocalGroupNameDraft(updated.groupName || '默认分组');
     },
     [onAccountChanged]
   );
@@ -206,12 +208,14 @@ export function MemberPanel({
     setPersonalAccessTokensDraft(account.personalAccessTokensEnabled ?? false);
     setInviteSeat(account.defaultSeat ?? 'usage_based');
     setTeamNameDraft(account.workspaceName ?? '');
-    setLocalLabelDraft(account.label);
+    setLocalNoteDraft(account.note ?? '');
+    setLocalGroupNameDraft(account.groupName || '默认分组');
     setLocalSessionDraft('');
     setLocalSessionEmail('');
   }, [
     account.id,
-    account.label,
+    account.note,
+    account.groupName,
     account.workspaceName,
     account.membersCache,
     account.membersCachedAt,
@@ -322,8 +326,7 @@ export function MemberPanel({
   };
 
   const saveLocalProfile = () => {
-    const label = localLabelDraft.trim();
-    if (!label) return;
+    const groupName = localGroupNameDraft.trim() || '默认分组';
     void run('local-profile', async () => {
       let session: Record<string, unknown> | undefined;
       if (localSessionDraft.trim()) {
@@ -333,7 +336,13 @@ export function MemberPanel({
           throw new Error('JSON 解析失败，请检查格式');
         }
       }
-      applyAccountView(await onUpdateLocalProfile(account.id, session ? { label, session } : { label }));
+      applyAccountView(
+        await onUpdateLocalProfile(account.id, {
+          note: localNoteDraft.trim(),
+          groupName,
+          ...(session ? { session } : {})
+        })
+      );
       setLocalSessionDraft('');
       setLocalSessionEmail('');
     });
@@ -377,7 +386,7 @@ export function MemberPanel({
       <div className="workspace-head">
         <div>
           <h2>{account.label}</h2>
-          <p>{account.workspaceName ?? account.accountId}</p>
+          <p>{account.note ? `${account.note} · ${account.workspaceName ?? account.accountId}` : (account.workspaceName ?? account.accountId)}</p>
         </div>
         <div className="workspace-actions">
           <span className="small-status">上次同步 {formatRelativeTime(account.lastRefreshAt)}</span>
@@ -548,15 +557,23 @@ export function MemberPanel({
                   <div className="setting-row local-profile-setting">
                     <div className="setting-copy">
                       <strong>本地资料</strong>
-                      <span>只更新本系统保存的备注名和 session</span>
+                      <span>只更新本系统保存的备注、分组和 session</span>
                     </div>
                     <div className="local-profile-fields">
                       <label className="field">
-                        <span>本地备注名</span>
+                        <span>母号备注</span>
                         <input
-                          value={localLabelDraft}
-                          onChange={(event) => setLocalLabelDraft(event.target.value)}
-                          placeholder="用于本系统列表展示"
+                          value={localNoteDraft}
+                          onChange={(event) => setLocalNoteDraft(event.target.value)}
+                          placeholder="例如自用、租给某客户、到期时间"
+                        />
+                      </label>
+                      <label className="field">
+                        <span>母号分组</span>
+                        <input
+                          value={localGroupNameDraft}
+                          onChange={(event) => setLocalGroupNameDraft(event.target.value)}
+                          placeholder="例如自用、已租车位"
                         />
                       </label>
                       <label className="field">
@@ -579,7 +596,7 @@ export function MemberPanel({
                       <button
                         type="button"
                         className="primary"
-                        disabled={busy === 'local-profile' || !localLabelDraft.trim()}
+                        disabled={busy === 'local-profile' || !localGroupNameDraft.trim()}
                         onClick={saveLocalProfile}
                       >
                         {busy === 'local-profile' ? '保存中' : '保存本地资料'}

@@ -118,16 +118,21 @@ export class SubaccountService {
   }
 
   async importCodexCredential(raw: unknown): Promise<SubaccountView> {
-    const credential = parseCodexCredentialInput(raw);
-    const view = await this.store.importCodexCredential(credential);
+    const input = parseCodexCredentialImportInput(raw);
+    const view = await this.store.importCodexCredential(input.credential, {
+      fileName: input.fileName,
+      groupName: input.groupName
+    });
     await this.store.appendLog(view.id, {
       phase: 'codex_credential_import',
       status: view.status,
       message: '已导入已有 Codex credential JSON',
       data: {
         email: view.email,
-        accountId: credential.account_id,
-        planType: credential.plan_type
+        accountId: input.credential.account_id,
+        fileName: input.fileName,
+        groupName: input.groupName,
+        planType: input.credential.plan_type
       }
     });
     return view;
@@ -327,6 +332,25 @@ export class SubaccountService {
 function cleanTargetAccountId(value?: string): string | undefined {
   const target = value?.trim();
   return target || undefined;
+}
+
+function parseCodexCredentialImportInput(raw: unknown): {
+  credential: CodexCredentialJson;
+  fileName?: string;
+  groupName?: string;
+} {
+  if (!raw || typeof raw !== 'object') {
+    throw new ServiceError(400, '录入内容必须是 Codex credential JSON');
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.credential && typeof record.credential === 'object') {
+    return {
+      credential: parseCodexCredentialInput(record.credential),
+      fileName: readOptionalString(record, 'fileName'),
+      groupName: readOptionalString(record, 'groupName')
+    };
+  }
+  return { credential: parseCodexCredentialInput(raw) };
 }
 
 function parseCodexCredentialInput(raw: unknown): CodexCredentialJson {

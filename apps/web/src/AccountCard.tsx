@@ -41,8 +41,9 @@ export function AccountCard({
       status={status}
       statusLabel={syncing ? '同步中' : statusLabel}
       title={account.label}
-      subtitle={account.workspaceName ?? account.email}
+      subtitle={account.note || account.workspaceName || account.accountId}
       meta={[
+        { content: account.note ? (account.workspaceName ?? account.accountId) : (account.groupName || '默认分组') },
         { content: planLabel(account.planType) },
         { content: roleLabel(account.role) },
         { content: `成员 ${memberCount ?? '暂无'}` },

@@ -31,6 +31,7 @@
 - 常用验证命令：
 
 ```bash
+corepack pnpm --filter @team-manager/shared build
 corepack pnpm --filter @team-manager/server test
 corepack pnpm typecheck
 corepack pnpm build

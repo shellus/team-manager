@@ -41,8 +41,10 @@ async function buildParentApiTestApp(transport: Transport = recordingTransport()
     const subaccountStore = new SubaccountStore(tempDir);
     await subaccountStore.init();
     const account = await store.add({
-      label: '原备注',
-    accountId: 'workspace-old',
+      label: 'owner-old@example.com',
+      note: '原备注',
+      groupName: '自用',
+      accountId: 'workspace-old',
       email: 'owner-old@example.com',
       accessToken: 'old-token',
       status: 'invalid',
@@ -66,22 +68,26 @@ function recordingTransport(): Transport & { requests: HttpRequest[] } {
 }
 
 describe('Parent account local-profile API', () => {
-  it('updates only the local label without calling ChatGPT', async () => {
+  it('updates only the local note and group without calling ChatGPT', async () => {
     const transport = recordingTransport();
     const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);
 
     const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
       method: 'PATCH',
       headers: authHeaders,
-      body: JSON.stringify({ label: '  新备注  ' })
+      body: JSON.stringify({ note: '  新备注  ', groupName: '  已租车位  ' })
     });
     const json = (await response.json()) as ApiResult<AccountView>;
     const stored = store.get(account.id);
 
     assert.equal(response.status, 200);
-    assert.equal(json.data!.label, '新备注');
+    assert.equal(json.data!.label, 'owner-old@example.com');
+    assert.equal(json.data!.note, '新备注');
+    assert.equal(json.data!.groupName, '已租车位');
     assert.equal(json.data!.email, 'owner-old@example.com');
-    assert.equal(stored?.label, '新备注');
+    assert.equal(stored?.label, 'owner-old@example.com');
+    assert.equal(stored?.note, '新备注');
+    assert.equal(stored?.groupName, '已租车位');
     assert.equal(stored?.accountId, 'workspace-old');
     assert.equal(stored?.accessToken, 'old-token');
     assert.equal(stored?.workspaceName, 'Remote Team');
@@ -96,7 +102,8 @@ describe('Parent account local-profile API', () => {
       method: 'PATCH',
       headers: authHeaders,
       body: JSON.stringify({
-        label: '新母号',
+        note: '新母号备注',
+        groupName: '自用',
         session: {
           user: { email: 'owner-new@example.com' },
           account: { id: 'workspace-new' },
@@ -109,9 +116,14 @@ describe('Parent account local-profile API', () => {
     const stored = store.get(account.id);
 
     assert.equal(response.status, 200);
-    assert.equal(json.data!.label, '新母号');
+    assert.equal(json.data!.label, 'owner-new@example.com');
+    assert.equal(json.data!.note, '新母号备注');
+    assert.equal(json.data!.groupName, '自用');
     assert.equal(json.data!.email, 'owner-new@example.com');
     assert.equal(json.data!.accountId, 'workspace-new');
+    assert.equal(stored?.label, 'owner-new@example.com');
+    assert.equal(stored?.note, '新母号备注');
+    assert.equal(stored?.groupName, '自用');
     assert.equal(stored?.email, 'owner-new@example.com');
     assert.equal(stored?.accountId, 'workspace-new');
     assert.equal(stored?.accessToken, 'new-parent-access-token');
@@ -126,7 +138,7 @@ describe('Parent account local-profile API', () => {
       method: 'PATCH',
       headers: authHeaders,
       body: JSON.stringify({
-        label: '新母号',
+        note: '新母号备注',
         session: { email: 'owner-new@example.com', accessToken: 'new-parent-access-token' }
       })
     });
@@ -147,7 +159,7 @@ describe('AccountStore legacy account sanitation', () => {
         [
           {
             id: 'account-legacy',
-            label: 'owner@example.com',
+            label: '旧母号备注',
             accountId: 'workspace-id',
             email: 'owner@example.com',
             accessToken: 'token',
@@ -189,9 +201,15 @@ describe('AccountStore legacy account sanitation', () => {
     assert.equal(hasOwn(stored, 'memberCount'), false);
     assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
     assert.equal(hasOwn(stored, 'pendingInviteCount'), false);
+    assert.equal(stored?.label, 'owner@example.com');
+    assert.equal(stored?.note, '旧母号备注');
+    assert.equal(stored?.groupName, '默认分组');
     assert.equal(hasOwn(persisted[0], 'memberCount'), false);
     assert.equal(hasOwn(persisted[0], 'chatgptSeatCount'), false);
     assert.equal(hasOwn(persisted[0], 'pendingInviteCount'), false);
+    assert.equal(persisted[0]!.label, 'owner@example.com');
+    assert.equal(persisted[0]!.note, '旧母号备注');
+    assert.equal(persisted[0]!.groupName, '默认分组');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
   });

@@ -20,7 +20,9 @@
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id，所有 UI/API 操作使用该 id 定位母号 |
-| `label` | 本地输入 | 本地备注名，不等同远端 Team 名称 |
+| `label` | session JSON | 母号账号显示名，固定使用 owner 邮箱 |
+| `note` | 本地输入 | 母号备注，不等同远端 Team 名称 |
+| `groupName` | 本地输入 | 母号本地分组，缺省归入 `默认分组` |
 | `accountId` | session JSON | ChatGPT workspace account id，用于 `chatgpt-account-id` 上下文 |
 | `email` | session JSON | 母号 owner 邮箱 |
 | `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用，不下发前端 |
@@ -40,9 +42,9 @@
 - 成员数：从 `membersCache.length` 派生。
 - ChatGPT 席位数：从 `membersCache[].seat === "default"` 派生。
 - pending invite 数：从 `pendingInvitesCache.length` 派生。
-- 列表 item 上的席位标签和状态标签：从当前 `AccountView` 派生。
+- 列表 item 上的席位标签、状态标签和分组计数：从当前 `AccountView` 派生。
 
-历史字段 `memberCount`、`chatgptSeatCount`、`pendingInviteCount` 属于冗余字段，store 初始化和持久化时应移除。
+历史字段 `memberCount`、`chatgptSeatCount`、`pendingInviteCount` 属于冗余字段，store 初始化和持久化时应移除。历史上偏离邮箱的 `label` 会在初始化时迁移为 `note`，`label` 归一为 `email`。
 
 ## 母号写操作规则
 
@@ -56,7 +58,7 @@
 | 改 Codex 邀请开关 | 远端修改成功后更新 `workspaceReferralsEnabled`、`workspaceReferralsEnabledVisible` 和缓存时间 | 合并返回的母号 view |
 | 改个人访问令牌开关 | 远端修改成功后更新 `personalAccessTokensEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
-| 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
+| 编辑本地资料 | 更新 `note`、`groupName`；提供 session 时更新 `label`、`email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 
 邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。
 
@@ -73,20 +75,25 @@
 | `label` | 本地输入 | 本地备注名 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token，不下发前端 |
-| `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证 |
+| `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证元数据 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
 | `status` / `lastError` | 授权或同步流程 | 子号流程状态和错误摘要 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
 
 ### Codex credential
 
-`SubaccountCodexCredential` 只保存：
+`SubaccountCodexCredential` 只在 `data/subaccounts.json` 保存元数据和额度缓存：
 
-- `credential`：CPA/Codex 兼容凭证 JSON，含 `credential.account_id`。
+- `accountId`：凭证绑定的 Team workspace account id，来自 credential JSON 的 `account_id`。
+- `fileName`：独立凭证文件名，文件位于 `data/subaccount-credentials/<subaccountId>/`。
+- `groupName`：CPA 号池分组名，缺省为 `默认号池`。
+- `planType`：导入或授权时凭证里的 `plan_type` 摘要。
 - `lastQuota` / `lastQuotaAt`：该 workspace 凭证的额度缓存。
 - `lastAuthAt`：该 workspace 凭证最近授权时间。
 
-workspace key 以 `credential.account_id` 为准。历史字段 `SubaccountCodexCredential.accountId` 是冗余字段，初始化和持久化时应移除。前端 view 中的 `SubaccountCodexCredentialView.accountId` 从 `credential.account_id` 派生。
+CPA/Codex 兼容凭证明文 JSON 不写入 `subaccounts.json`，只写入独立凭证文件。普通列表和详情接口只返回 `SubaccountCodexCredentialView` 元数据；只有显式导出接口读取并返回目标凭证 JSON。
+
+workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在 store 初始化时迁移到独立文件，并从 `subaccounts.json` 中移除。
 
 ### Team links
 
@@ -104,7 +111,8 @@ workspace key 以 `credential.account_id` 为准。历史字段 `SubaccountCodex
 ### Derived view fields
 
 - `SubaccountView.hasWebSession` 是允许下发的脱敏能力位，因为前端不能接收 `webAccessToken`。
-- `SubaccountView.codexCredentials[].accountId` 从后端凭证 JSON 中派生，用于展示和按 workspace 发起操作。
+- `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
+- `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
 - 顶层 `hasCodexCredential`、`lastQuota`、`lastQuotaAt`、`lastAuthAt` 是历史冗余字段，不应继续出现在 view 或持久化数据中。
 
 ## 子号写操作规则
@@ -112,9 +120,9 @@ workspace key 以 `credential.account_id` 为准。历史字段 `SubaccountCodex
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
 | 导入 session | 写入或更新 `email`、`chatgptAccountId`、`webAccessToken`、`status`，追加脱敏日志 | 合并返回的子号 view |
-| 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；按 `credential.account_id` upsert `codexCredentials[]` | 合并返回的子号 view |
+| 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`chatgptAccountId`、`webAccessToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
-| Codex 授权成功 | 按 `credential.account_id` upsert `codexCredentials[]`，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
+| Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
 | 邀请加入母号 | 远端邀请成功后写入 `teamLinks[].status = "invited"`，账单风险沿用母号邀请规则 | 合并返回的子号 view |
 | 同步 Team 关联 | 逐个母号查询 members 和 pending invites，写入 `member` / `invited` / `removed` / `unknown` | 合并返回的子号 view |
@@ -128,7 +136,8 @@ PATCH /api/accounts/:id/local-profile
 Content-Type: application/json
 
 {
-  "label": "本地备注名",
+  "note": "本地备注",
+  "groupName": "自用",
   "session": {
     "user": { "email": "owner@example.com" },
     "account": { "id": "<workspace-account-id>" },
@@ -153,4 +162,31 @@ Content-Type: application/json
 }
 ```
 
-`session` 可省略。`label` 必须是非空字符串。响应返回脱敏 view，不返回旧 session 或新 session 明文。
+母号 `session` 可省略。`groupName` 为空时归入 `默认分组`，`note` 可为空。为兼容旧调用方，母号接口仍接受 `label`，但会按备注写入 `note`，不会改变母号邮箱显示名。子号 `session` 可省略，`label` 必须是非空字符串。响应返回脱敏 view，不返回旧 session 或新 session 明文。
+
+## Codex 凭证导入 API
+
+`POST /api/subaccounts/codex-credential` 支持两种格式。旧格式为直接提交 CPA/Codex credential JSON；新格式可同时指定独立文件名和 CPA 号池：
+
+```http
+POST /api/subaccounts/codex-credential
+Content-Type: application/json
+
+{
+  "fileName": "cpa-a-child.json",
+  "groupName": "CPA-A",
+  "credential": {
+    "email": "child@example.com",
+    "account_id": "<team-workspace-account-id>",
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "id_token": "<redacted>",
+    "last_refresh": "2026-06-18T00:00:00.000Z",
+    "expired": "2026-06-18T01:00:00.000Z",
+    "type": "codex",
+    "plan_type": "team"
+  }
+}
+```
+
+`fileName` 只作为 `data/subaccount-credentials/<subaccountId>/` 下的文件名使用，后端会去除路径成分。响应只返回 `accountId`、`fileName`、`groupName`、额度缓存等脱敏元数据。

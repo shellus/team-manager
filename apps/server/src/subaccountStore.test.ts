@@ -75,6 +75,49 @@ describe('SubaccountStore', () => {
     });
   });
 
+  it('stores imported Codex credentials in independent files with filename and CPA pool metadata', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccounts-'));
+    try {
+      const store = new SubaccountStore(dir);
+      await store.init();
+
+      const saved = await store.importCodexCredential(
+        {
+          id_token: 'id-token-a',
+          access_token: 'access-token-a',
+          refresh_token: 'refresh-token-a',
+          account_id: 'team-account-a',
+          last_refresh: '2026-06-18T00:00:00.000Z',
+          email: 'child@example.com',
+          type: 'codex',
+          expired: '2026-06-18T01:00:00.000Z',
+          plan_type: 'team'
+        },
+        { fileName: 'pool-a-child.json', groupName: 'CPA-A' }
+      );
+
+      const persisted = JSON.parse(await readFile(join(dir, 'subaccounts.json'), 'utf8')) as Array<{
+        codexCredentials: Array<Record<string, unknown>>;
+      }>;
+      const credentialFile = JSON.parse(
+        await readFile(join(dir, 'subaccount-credentials', saved.id, 'pool-a-child.json'), 'utf8')
+      ) as { refresh_token?: string };
+
+      assert.equal(saved.codexCredentials[0]!.accountId, 'team-account-a');
+      assert.equal(saved.codexCredentials[0]!.fileName, 'pool-a-child.json');
+      assert.equal(saved.codexCredentials[0]!.groupName, 'CPA-A');
+      assert.equal(persisted[0]!.codexCredentials[0]!.accountId, 'team-account-a');
+      assert.equal(persisted[0]!.codexCredentials[0]!.fileName, 'pool-a-child.json');
+      assert.equal(persisted[0]!.codexCredentials[0]!.groupName, 'CPA-A');
+      assert.equal('credential' in persisted[0]!.codexCredentials[0]!, false);
+      assert.equal(JSON.stringify(persisted).includes('refresh-token-a'), false);
+      assert.equal(credentialFile.refresh_token, 'refresh-token-a');
+      assert.equal(store.getCodexCredentialForAccount(saved.id, 'team-account-a')?.refresh_token, 'refresh-token-a');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('normalizes legacy duplicate child fields out of the persisted model', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccounts-'));
     try {
@@ -137,21 +180,31 @@ describe('SubaccountStore', () => {
       const store = new SubaccountStore(dir);
       await store.init();
       const view = store.list()[0]!;
+      const migratedFileName = view.codexCredentials[0]!.fileName;
       const persisted = JSON.parse(await readFile(join(dir, 'subaccounts.json'), 'utf8')) as Array<{
         codexCredentials: Array<Record<string, unknown>>;
         teamLinks: Array<Record<string, unknown>>;
       }>;
+      const migratedCredential = JSON.parse(
+        await readFile(join(dir, 'subaccount-credentials', 'child-id', migratedFileName), 'utf8')
+      ) as { refresh_token?: string };
 
       assert.equal(view.codexCredentials[0]!.accountId, 'real-workspace-id');
+      assert.equal(typeof migratedFileName, 'string');
+      assert.equal(view.codexCredentials[0]!.groupName, '默认号池');
       assert.equal(hasOwn(view, 'hasCodexCredential'), false);
       assert.equal(hasOwn(view, 'lastQuota'), false);
       assert.equal(hasOwn(view, 'lastQuotaAt'), false);
       assert.equal(hasOwn(view, 'lastAuthAt'), false);
       assert.equal(hasOwn(view.teamLinks[0], 'accountLabel'), false);
       assert.equal(hasOwn(view.teamLinks[0], 'chatgptAccountId'), false);
-      assert.equal(hasOwn(persisted[0]!.codexCredentials[0], 'accountId'), false);
+      assert.equal(persisted[0]!.codexCredentials[0]!.accountId, 'real-workspace-id');
+      assert.equal(persisted[0]!.codexCredentials[0]!.fileName, migratedFileName);
+      assert.equal(persisted[0]!.codexCredentials[0]!.groupName, '默认号池');
+      assert.equal(hasOwn(persisted[0]!.codexCredentials[0], 'credential'), false);
       assert.equal(hasOwn(persisted[0]!.teamLinks[0], 'accountLabel'), false);
       assert.equal(hasOwn(persisted[0]!.teamLinks[0], 'chatgptAccountId'), false);
+      assert.equal(migratedCredential.refresh_token, 'refresh-token');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -234,6 +287,58 @@ describe('SubaccountStore', () => {
       assert.equal(hasOwn(view, 'lastQuota'), false);
       assert.equal(hasOwn(view, 'lastQuotaAt'), false);
       assert.equal(view.codexCredentials[0]!.lastQuota?.windows[0]!.usedPercent, 42);
+    });
+  });
+
+  it('keeps the last successful quota reset time when a later seat state has no quota windows', async () => {
+    await withStore(async (store) => {
+      const saved = await store.importSession({
+        user: { email: 'child@example.com' },
+        account: { id: 'chatgpt-account-id' },
+        accessToken: 'web-access-token'
+      });
+
+      await store.saveCodexCredential(saved.id, {
+        id_token: 'id-token',
+        access_token: 'access-token',
+        refresh_token: 'refresh-token',
+        account_id: 'team-account-id',
+        last_refresh: '2026-06-18T00:00:00.000Z',
+        email: 'child@example.com',
+        type: 'codex',
+        expired: '2026-06-18T01:00:00.000Z',
+        plan_type: 'team'
+      });
+
+      await store.saveQuotaSnapshot(saved.id, 'team-account-id', {
+        status: 'success',
+        planType: 'team',
+        windows: [
+          {
+            id: 'code-five-hour',
+            label: '5 小时',
+            usedPercent: 87,
+            resetAt: '2026-06-18T05:00:00.000Z'
+          }
+        ],
+        error: null
+      });
+      const unavailable = await store.saveQuotaSnapshot(saved.id, 'team-account-id', {
+        status: 'unavailable',
+        planType: 'team',
+        windows: [],
+        error: 'No quota windows'
+      });
+
+      assert.equal(unavailable!.codexCredentials[0]!.lastQuota?.status, 'success');
+      assert.equal(unavailable!.codexCredentials[0]!.lastQuota?.windows[0]!.usedPercent, 87);
+      assert.equal(
+        unavailable!.codexCredentials[0]!.lastQuota?.windows[0]!.resetAt,
+        '2026-06-18T05:00:00.000Z'
+      );
+
+      const reloaded = store.list()[0]!;
+      assert.equal(reloaded.codexCredentials[0]!.lastQuota?.windows[0]!.resetAt, '2026-06-18T05:00:00.000Z');
     });
   });
 

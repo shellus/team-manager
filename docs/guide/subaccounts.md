@@ -26,7 +26,7 @@
 
 已有 CPA/Codex auth JSON 可以通过“导入凭证”录入。导入内容需要包含 `email`、`account_id`、`access_token`、`refresh_token`、`id_token`、`last_refresh`、`expired` 和 `type:"codex"`。
 
-导入后系统按 `credential.email` 创建或更新子号，按 `credential.account_id` 保存对应 Team workspace 的 Codex 凭证。该子号可以没有 Web session，页面会显示“无 Web Session”和对应凭证数量。
+导入时可填写自定义文件名和 CPA 号池。系统按 `credential.email` 创建或更新子号，按 `credential.account_id` 保存对应 Team workspace 的 Codex 凭证元数据，并把 credential JSON 写入独立凭证文件。该子号可以没有 Web session，页面会显示“无 Web Session”和对应凭证数量。
 
 ## 子号 Team 关联
 
@@ -49,7 +49,7 @@ Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 
 
 子号在某个 Team 下使用 Codex 额度，需要生成绑定该 Team workspace 的 Codex 凭证。一个子号加入多个 Team 时，需要分别保留多份凭证。
 
-子号页的“凭证与 Codex Auth”按 Team 关联展示操作行：
+子号页的“凭证与 Codex Auth”按 Team workspace 展示操作行。操作行会显示 Team、凭证文件名、CPA 号池、授权时间和额度缓存；如果凭证已导入但 Team 关联还没同步，也会先按凭证里的 workspace `account_id` 显示。
 
 - 自动授权：使用运行环境已配置的 worker、授权页面 clearance、GongXi-Mail 和可选短信 OTP 能力完成授权。
 - 登录 URL：生成手动授权 URL。授权完成后，把 callback URL 粘贴回系统。

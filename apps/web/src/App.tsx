@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, useCallback } from 'react';
+import { useEffect, useId, useMemo, useState, useCallback } from 'react';
 import type { AccountView } from '@team-manager/shared';
 import { apiClient, getToken, setToken, clearToken } from './api.js';
 import { Login } from './Login.js';
@@ -14,6 +14,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState('');
+  const [selectedGroupName, setSelectedGroupName] = useState('');
   const [mode, setMode] = useState<'members' | 'empty'>('empty');
   const [section, setSection] = useState<'parents' | 'subaccounts'>('parents');
   const [syncingIds, setSyncingIds] = useState<Set<string>>(() => new Set());
@@ -21,7 +22,22 @@ export function App() {
   const [removingId, setRemovingId] = useState('');
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
 
-  const selected = accounts.find((account) => account.id === selectedId) ?? null;
+  const accountGroups = useMemo(() => {
+    const groups: Array<{ name: string; count: number }> = [];
+    for (const account of accounts) {
+      const name = account.groupName || '默认分组';
+      const existing = groups.find((group) => group.name === name);
+      if (existing) existing.count += 1;
+      else groups.push({ name, count: 1 });
+    }
+    return groups;
+  }, [accounts]);
+  const activeGroupName = selectedGroupName || accountGroups[0]?.name || '';
+  const visibleAccounts = useMemo(
+    () => accounts.filter((account) => (account.groupName || '默认分组') === activeGroupName),
+    [accounts, activeGroupName]
+  );
+  const selected = visibleAccounts.find((account) => account.id === selectedId) ?? visibleAccounts[0] ?? null;
   const removingAccount = accounts.find((account) => account.id === confirmRemoveId) ?? null;
   const removingAccountBusy = removingAccount ? removingId === removingAccount.id : false;
 
@@ -59,6 +75,10 @@ export function App() {
     try {
       const next = await apiClient.listAccounts();
       setAccounts(next);
+      const firstGroup = next[0]?.groupName || (next[0] ? '默认分组' : '');
+      setSelectedGroupName((current) =>
+        current && next.some((account) => (account.groupName || '默认分组') === current) ? current : firstGroup
+      );
       setSelectedId((current) => current || next[0]?.id || '');
       setMode(next.length > 0 ? 'members' : 'empty');
     } catch (e) {
@@ -68,6 +88,14 @@ export function App() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!activeGroupName) return;
+    if (!selectedId || !visibleAccounts.some((account) => account.id === selectedId)) {
+      setSelectedId(visibleAccounts[0]?.id || '');
+      setMode(visibleAccounts.length > 0 ? 'members' : 'empty');
+    }
+  }, [activeGroupName, selectedId, visibleAccounts]);
 
   useEffect(() => {
     if (authed) refresh();
@@ -129,7 +157,7 @@ export function App() {
 
   const updateAccountLocalProfile = async (
     id: string,
-    payload: { label: string; session?: Record<string, unknown> }
+    payload: { note?: string; groupName?: string; session?: Record<string, unknown> }
   ) => {
     setError('');
     try {
@@ -188,6 +216,7 @@ export function App() {
         onSubmit={async (payload) => {
           const account = await apiClient.addAccount(payload);
           setAccounts((current) => [account, ...current]);
+          setSelectedGroupName(account.groupName || '默认分组');
           setSelectedId(account.id);
           setMode('members');
           setSection('parents');
@@ -245,7 +274,7 @@ export function App() {
             <div className="pane-head">
               <div>
                 <h2>母号</h2>
-                <span>{accounts.length} 个 workspace</span>
+                <span>{activeGroupName ? `${activeGroupName} · ${visibleAccounts.length} / ${accounts.length}` : `${accounts.length} 个 workspace`}</span>
               </div>
               <div className="section-actions">
                 {loading && <span className="small-status">读取缓存中</span>}
@@ -256,6 +285,28 @@ export function App() {
             </div>
 
             <div className="account-list">
+              {accountGroups.length > 0 && (
+                <div className="account-group-tabs" role="tablist" aria-label="母号分组">
+                  {accountGroups.map((group) => (
+                    <button
+                      key={group.name}
+                      type="button"
+                      role="tab"
+                      aria-selected={group.name === activeGroupName}
+                      className={group.name === activeGroupName ? 'selected' : ''}
+                      onClick={() => {
+                        setSelectedGroupName(group.name);
+                        const first = accounts.find((account) => (account.groupName || '默认分组') === group.name);
+                        setSelectedId(first?.id || '');
+                        setMode(first ? 'members' : 'empty');
+                      }}
+                    >
+                      <span>{group.name}</span>
+                      <em>{group.count}</em>
+                    </button>
+                  ))}
+                </div>
+              )}
               {loading && accounts.length === 0 && (
                 <>
                   <div className="account-skeleton" />
@@ -272,7 +323,13 @@ export function App() {
                   </button>
                 </div>
               )}
-              {accounts.map((account) => (
+              {accounts.length > 0 && visibleAccounts.length === 0 && !loading && (
+                <div className="empty-panel">
+                  <h3>这个分组还没有母号</h3>
+                  <p>切换到其他分组，或录入母号后在 Team 设置里调整分组。</p>
+                </div>
+              )}
+              {visibleAccounts.map((account) => (
                 <AccountCard
                   key={account.id}
                   account={account}

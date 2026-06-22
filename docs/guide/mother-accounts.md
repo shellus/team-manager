@@ -20,6 +20,8 @@
 
 录入后先创建本地记录。ChatGPT 远端状态需要在母号详情页点击“刷新”获取。
 
+新母号默认进入 `默认分组`。母号列表会默认选中第一个分组，只显示该分组中的母号；可在列表顶部切换其他分组。
+
 ## 刷新 Team 状态
 
 母号详情页的“刷新”会更新 workspace 状态和本地缓存。成员列表、待处理邀请和默认席位各有独立刷新入口，页面会先显示已有缓存，再由操作员手动刷新。
@@ -72,8 +74,10 @@ pending invite 与正式 member 需要区分。子号处于 pending invite 时�
 
 移出成员不是常规腾 ChatGPT 席位手段。为避免破坏该账号在目标 Team 下已有凭证，腾位应优先把成员从 ChatGPT 席位切到 Codex 席位。
 
-## Team 改名与本地备注
+## Team 改名、本地备注与分组
 
-Team 改名修改远端 workspace 名称。本地备注名 `label` 只影响本系统列表展示，不修改 ChatGPT 远端 Team 名称。
+Team 改名修改远端 workspace 名称。本地母号账号显示名 `label` 固定为 owner 邮箱，不作为备注使用，也不修改 ChatGPT 远端 Team 名称。
 
-编辑母号本地资料可只修改备注名，也可同时替换 session。替换 session 时，旧 session 明文不会回填到前端。
+编辑母号本地资料可修改备注 `note`、母号分组 `groupName`，也可同时替换 session。替换 session 时，系统会用新 session 的 `user.email` 更新 `label` 和 `email`，旧 session 明文不会回填到前端。
+
+分组用于区分自用、已出租车位等运营集合。分组只是本地展示和筛选字段，不影响远端 Team workspace。

@@ -134,7 +134,12 @@ export async function buildApp({
   api.delete('/accounts/:id', (c) => wrap(c, () => service.removeAccount(c.req.param('id'))));
 
   api.patch('/accounts/:id/local-profile', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { label?: unknown; session?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      label?: unknown;
+      note?: unknown;
+      groupName?: unknown;
+      session?: unknown;
+    };
     return wrap(c, () => service.updateLocalProfile(c.req.param('id'), body));
   });
 

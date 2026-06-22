@@ -38,6 +38,14 @@ const TEAM_LINK_STATUS_ORDER = {
   removed: 3
 } as const;
 
+type CredentialTeamRow = {
+  key: string;
+  workspaceId: string;
+  link?: SubaccountTeamLink;
+  credential?: SubaccountCodexCredentialView;
+  account?: AccountView;
+};
+
 function formatTime(value?: number | string) {
   if (!value) return '暂无';
   const date = new Date(value);
@@ -115,9 +123,20 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
   );
+  const parentAccountByWorkspaceId = useMemo(
+    () => new Map(accounts.map((account) => [account.accountId, account])),
+    [accounts]
+  );
+  const accountTeamLabel = useCallback((account: AccountView | undefined, fallback: string) => {
+    if (!account) return fallback;
+    return account.note || account.workspaceName || account.label;
+  }, []);
   const linkLabel = useCallback(
-    (link: SubaccountTeamLink) => parentAccountById.get(link.accountId)?.label ?? link.accountId,
-    [parentAccountById]
+    (link: SubaccountTeamLink) => {
+      const account = parentAccountById.get(link.accountId);
+      return accountTeamLabel(account, link.accountId);
+    },
+    [accountTeamLabel, parentAccountById]
   );
   const teamLinks = useMemo(
     () =>
@@ -138,6 +157,31 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     () => new Map((selected?.codexCredentials ?? []).map((credential) => [credential.accountId, credential])),
     [selected?.codexCredentials]
   );
+  const credentialTeamRows = useMemo<CredentialTeamRow[]>(() => {
+    const rows: CredentialTeamRow[] = teamLinks.map((link) => {
+      const account = parentAccountById.get(link.accountId);
+      const workspaceId = account?.accountId ?? '';
+      return {
+        key: `link-${link.accountId}`,
+        workspaceId,
+        link,
+        account,
+        credential: workspaceId ? credentialByAccountId.get(workspaceId) : undefined
+      };
+    });
+    const linkedWorkspaceIds = new Set(rows.map((row) => row.workspaceId).filter(Boolean));
+    for (const credential of selected?.codexCredentials ?? []) {
+      if (linkedWorkspaceIds.has(credential.accountId)) continue;
+      const account = parentAccountByWorkspaceId.get(credential.accountId);
+      rows.push({
+        key: `credential-${credential.accountId}`,
+        workspaceId: credential.accountId,
+        account,
+        credential
+      });
+    }
+    return rows;
+  }, [credentialByAccountId, parentAccountById, parentAccountByWorkspaceId, selected?.codexCredentials, teamLinks]);
   const credentialCount = selected?.codexCredentials.length ?? 0;
   const quotaCacheCount = selected?.codexCredentials.filter((credential) => credential.lastQuotaAt).length ?? 0;
   const latestAuthCredential = useMemo(
@@ -255,7 +299,11 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   const importCredential = async (payload: Record<string, unknown>) => {
     setError('');
     setNotice('');
-    const added = await apiClient.importSubaccountCodexCredential(payload);
+    const added = await apiClient.importSubaccountCodexCredential(payload as {
+      credential: Record<string, unknown>;
+      fileName?: string;
+      groupName?: string;
+    });
     mergeSubaccount(added);
     setNotice('已导入 Codex 凭证。');
     loadLogs(added.id).catch((e) => setError((e as Error).message));
@@ -364,31 +412,47 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     }
   };
 
-  const linkChatgptAccountId = (link: SubaccountTeamLink) =>
-    parentAccountById.get(link.accountId)?.accountId ?? '';
-
-  const renderCredentialRow = (link: SubaccountTeamLink) => {
-    const accountId = linkChatgptAccountId(link);
-    const credential = accountId ? credentialByAccountId.get(accountId) : undefined;
-    const label = linkLabel(link);
+  const renderCredentialRow = (row: CredentialTeamRow) => {
+    const accountId = row.workspaceId;
+    const credential = row.credential;
+    const label = row.link ? linkLabel(row.link) : accountTeamLabel(row.account, accountId);
+    const teamMeta = row.account
+      ? `${row.account.label} · ${row.account.accountId}`
+      : '未匹配已录入母号';
     const busyStart = targetKey('codex-start', accountId);
     const busyAuto = targetKey('codex-auto', accountId);
     const busyQuota = targetKey('quota-refresh', accountId);
     const busyExport = targetKey('credential-export', accountId);
     const autoAuthUnavailable = runtimeStatus?.codexAutoAuth === false;
     return (
-      <div className="credential-team-row" key={link.accountId}>
+      <div className="credential-team-row" key={row.key}>
         <div>
           <strong title={label}>{label}</strong>
-          <span>{link.seat === 'default' ? 'ChatGPT 席位' : 'Codex 席位'} · {TEAM_LINK_STATUS_LABEL[link.status]}</span>
+          <span>
+            {row.link
+              ? `${row.link.seat === 'default' ? 'ChatGPT 席位' : 'Codex 席位'} · ${TEAM_LINK_STATUS_LABEL[row.link.status]}`
+              : '仅有凭证记录'} · {teamMeta}
+          </span>
         </div>
         <div className={`credential-row-status ${credential ? 'ready' : ''}`}>
-          <strong>{credential ? '凭证已生成' : '未生成凭证'}</strong>
-          <span>{credential?.lastAuthAt ? `授权 ${formatRelativeTime(credential.lastAuthAt)}` : accountId ? '需要选择此 Team 授权' : '缺少 workspace id'}</span>
+          <strong>{credential?.fileName ?? (credential ? '凭证已生成' : '未生成凭证')}</strong>
+          <span>
+            {credential
+              ? `CPA 号池 ${credential.groupName || '默认号池'}`
+              : accountId
+                ? '需要选择此 Team 授权'
+                : '缺少 workspace id'}
+          </span>
         </div>
         <div className="credential-row-quota">
           <strong>{quotaLabel(credential)}</strong>
-          <span>{credential?.lastQuotaAt ? `刷新 ${formatRelativeTime(credential.lastQuotaAt)}` : '暂无额度缓存'}</span>
+          <span>
+            {credential?.lastQuotaAt
+              ? `刷新 ${formatRelativeTime(credential.lastQuotaAt)}`
+              : credential?.lastAuthAt
+                ? `授权 ${formatRelativeTime(credential.lastAuthAt)}`
+                : '暂无额度缓存'}
+          </span>
         </div>
         <div className="credential-row-actions">
           <button
@@ -656,12 +720,14 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
               <em>{latestQuotaCredential?.lastQuotaAt ? `最近刷新 ${formatRelativeTime(latestQuotaCredential.lastQuotaAt)}` : '每个 Team 单独刷新'}</em>
             </div>
           </div>
-          {teamLinks.length === 0 && (
+          {credentialTeamRows.length === 0 && (
             <div className="relation-empty">
               先刷新 Team 关联，再按每个 Team workspace 生成对应的 Codex 凭证。
             </div>
           )}
-          {teamLinks.length > 0 && <div className="credential-team-list">{teamLinks.map(renderCredentialRow)}</div>}
+          {credentialTeamRows.length > 0 && (
+            <div className="credential-team-list">{credentialTeamRows.map(renderCredentialRow)}</div>
+          )}
           {authSession?.authUrl && (
             <div className="auth-url-panel">
               <div>

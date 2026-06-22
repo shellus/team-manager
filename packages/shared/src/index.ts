@@ -12,7 +12,9 @@ export type MemberRole = 'account-owner' | 'account-admin' | 'standard-user' | s
 /** 录入的母号（含凭证，仅存后端 data/，绝不下发前端明文） */
 export interface Account {
   id: string;                 // team-manager 内部 id（uuid）
-  label: string;              // 备注名
+  label: string;              // 母号账号显示名，固定使用 owner 邮箱
+  note?: string;              // 本地备注，不等同远端 Team 名称
+  groupName?: string;         // 本地母号分组，缺省由后端归入默认分组
   accountId: string;          // workspace account_id（chatgpt-account-id 头）
   email: string;              // owner 邮箱
   accessToken: string;        // JWT，发请求用
@@ -49,6 +51,8 @@ export interface AccountFingerprint {
 export interface AccountView {
   id: string;
   label: string;
+  note?: string;
+  groupName: string;
   accountId: string;
   email: string;
   planType?: string;
@@ -146,7 +150,10 @@ export interface SubaccountTeamLink {
 
 /** 子号在某个 ChatGPT workspace 下生成的 Codex 凭证，敏感字段仅后端持久化。 */
 export interface SubaccountCodexCredential {
-  credential: CodexCredentialJson;
+  accountId: string;             // credential.account_id，凭证绑定的 Team workspace
+  fileName: string;              // data/subaccount-credentials/<subaccountId>/ 下的独立文件名
+  groupName: string;             // CPA 号池分组名
+  planType?: string;
   lastQuota?: CodexQuotaSnapshot;
   lastQuotaAt?: number;
   lastAuthAt?: number;
@@ -154,6 +161,8 @@ export interface SubaccountCodexCredential {
 
 export interface SubaccountCodexCredentialView {
   accountId: string;
+  fileName: string;
+  groupName: string;
   hasCredential: boolean;
   planType?: string;
   lastQuota?: CodexQuotaSnapshot;

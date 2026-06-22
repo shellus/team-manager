@@ -22,6 +22,7 @@ git status --short --branch
 常用验证命令：
 
 ```bash
+corepack pnpm --filter @team-manager/shared build
 corepack pnpm --filter @team-manager/server test
 corepack pnpm typecheck
 corepack pnpm build
@@ -40,7 +41,7 @@ corepack pnpm docs:build
 ## 功能范围
 
 - **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
-- **本地资料编辑**：编辑母号或子号本地备注名 `label`，可选择替换 session JSON；不会修改远端 Team 名称。
+- **本地资料编辑**：母号 `label` 固定显示 owner 邮箱，备注写入 `note`，并可按 `groupName` 分组；子号仍使用 `label` 作为本地备注名。两者均可选择替换 session JSON；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
@@ -85,7 +86,7 @@ corepack pnpm docs:build
 数据模型原则：
 
 - 母号成员数、ChatGPT 席位数、pending invite 数不作为独立字段持久化，应从 `membersCache` 和 `pendingInvitesCache` 派生。
-- 子号的 Codex 凭证按 workspace 维度保存；同一子号在不同 Team 下需要不同凭证。
+- 子号的 Codex 凭证按 workspace 维度保存；同一子号在不同 Team 下需要不同凭证。凭证 JSON 独立保存到运行时凭证文件，普通 view 只返回文件名、CPA 号池和额度缓存等脱敏元数据。
 - Team 关联里的母号名称、workspace id 等展示信息从当前母号列表派生，不复制到 `teamLinks`。
 - 写操作成功后必须更新本地 canonical cache 或返回最新 view，避免 UI 列表、详情和运行时 JSON 断链。
 
@@ -107,9 +108,9 @@ corepack pnpm docs:build
 }
 ```
 
-备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
+母号 `label` 默认并固定使用邮箱；母号备注写入 `note`，母号分组写入 `groupName`。子号备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
 
-已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证；后续可通过 Team 关联同步和额度刷新确认状态。
+已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入时可指定自定义文件名和 CPA 号池；导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证元数据，真实 credential JSON 写入独立凭证文件。后续可通过 Team 关联同步和额度刷新确认状态。
 
 ## 开发命令
 
@@ -117,6 +118,7 @@ corepack pnpm docs:build
 corepack pnpm install
 corepack pnpm dev
 corepack pnpm docs:dev
+corepack pnpm --filter @team-manager/shared build
 corepack pnpm --filter @team-manager/server test
 corepack pnpm typecheck
 corepack pnpm build

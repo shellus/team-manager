@@ -10,12 +10,14 @@ type StoredAccount = Account & {
   pendingInviteCount?: unknown;
 };
 
+const DEFAULT_ACCOUNT_GROUP = '默认分组';
+
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function stripLegacyDerivedFields(input: StoredAccount): { account: Account; changed: boolean } {
-  const changed =
+  let changed =
     hasOwn(input, 'memberCount') || hasOwn(input, 'chatgptSeatCount') || hasOwn(input, 'pendingInviteCount');
   const {
     memberCount: _memberCount,
@@ -23,7 +25,24 @@ function stripLegacyDerivedFields(input: StoredAccount): { account: Account; cha
     pendingInviteCount: _pendingInviteCount,
     ...account
   } = input;
-  return { account, changed };
+
+  const email = account.email?.trim() ?? '';
+  const label = account.label?.trim() ?? '';
+  const note = account.note?.trim();
+  const groupName = account.groupName?.trim() || DEFAULT_ACCOUNT_GROUP;
+  const migratedNote = note || (label && email && label !== email ? label : undefined);
+  const normalized: Account = {
+    ...account,
+    label: email || label,
+    note: migratedNote,
+    groupName
+  };
+  changed =
+    changed ||
+    normalized.label !== account.label ||
+    normalized.note !== account.note ||
+    normalized.groupName !== account.groupName;
+  return { account: normalized, changed };
 }
 
 /** 母号持久化：单个 JSON 文件 data/accounts.json，含凭证，仅后端读写。 */

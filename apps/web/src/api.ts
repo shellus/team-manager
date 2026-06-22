@@ -60,7 +60,10 @@ export const apiClient = {
   listAccounts: () => call<AccountView[]>('GET', '/accounts'),
   refreshAccount: (id: string) => call<AccountView>('POST', `/accounts/${id}/refresh`),
   renameTeam: (id: string, name: string) => call<AccountView>('PATCH', `/accounts/${id}/name`, { name }),
-  updateAccountLocalProfile: (id: string, payload: { label: string; session?: Record<string, unknown> }) =>
+  updateAccountLocalProfile: (
+    id: string,
+    payload: { note?: string; groupName?: string; session?: Record<string, unknown> }
+  ) =>
     call<AccountView>('PATCH', `/accounts/${id}/local-profile`, payload),
   addAccount: (payload: Record<string, unknown>) => call<AccountView>('POST', '/accounts', payload),
   removeAccount: (id: string) => call<boolean>('DELETE', `/accounts/${id}`),
@@ -86,7 +89,11 @@ export const apiClient = {
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
   importSubaccountSession: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
-  importSubaccountCodexCredential: (payload: Record<string, unknown>) =>
+  importSubaccountCodexCredential: (payload: {
+    credential: Record<string, unknown>;
+    fileName?: string;
+    groupName?: string;
+  }) =>
     call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
   updateSubaccountLocalProfile: (id: string, payload: { label: string; session?: Record<string, unknown> }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),

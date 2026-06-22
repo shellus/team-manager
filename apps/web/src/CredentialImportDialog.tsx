@@ -20,6 +20,8 @@ export function CredentialImportDialog({
   const [email, setEmail] = useState('');
   const [workspaceId, setWorkspaceId] = useState('');
   const [planType, setPlanType] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [groupName, setGroupName] = useState('默认号池');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -29,6 +31,8 @@ export function CredentialImportDialog({
     setEmail('');
     setWorkspaceId('');
     setPlanType('');
+    setFileName('');
+    setGroupName('默认号池');
     setError('');
     setBusy(false);
   }, [open]);
@@ -68,7 +72,11 @@ export function CredentialImportDialog({
       } catch {
         throw new Error('JSON 解析失败，请检查格式');
       }
-      await onSubmit(payload);
+      await onSubmit({
+        credential: payload,
+        ...(fileName.trim() ? { fileName: fileName.trim() } : {}),
+        groupName: groupName.trim() || '默认号池'
+      });
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -106,6 +114,22 @@ export function CredentialImportDialog({
         </label>
 
         <div className="credential-preview-grid">
+          <label className="field compact-field">
+            <span>自定义文件名</span>
+            <input
+              value={fileName}
+              onChange={(event) => setFileName(event.target.value)}
+              placeholder="例如 cpa-a-child.json"
+            />
+          </label>
+          <label className="field compact-field">
+            <span>CPA 号池</span>
+            <input
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+              placeholder="例如 CPA-A"
+            />
+          </label>
           <label className="field compact-field">
             <span>识别邮箱</span>
             <input value={email} readOnly placeholder="粘贴 JSON 后自动识别 email" />

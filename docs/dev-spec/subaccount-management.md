@@ -6,16 +6,18 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
 
 ## 已实现
 
-- 子号池：`data/subaccounts.json`
+- 子号池：`data/subaccounts.json` 和 `data/subaccount-credentials/<subaccountId>/`
   - 记录邮箱、备注名、ChatGPT account id、web session 状态、按 Team workspace 保存的 Codex 凭证状态，以及该子号加入过的母号关系。
-  - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证；该值来自 Codex `id_token` claim 中的 `chatgpt_account_id`。
+  - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证元数据；真实 CPA/Codex auth JSON 写入独立凭证文件。
+  - 凭证元数据包含 `accountId`、`fileName`、`groupName`、`planType`、授权时间和额度缓存。`groupName` 用于展示该凭证所在 CPA 号池。
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
 - 子号 session JSON 录入：
   - 只接受一种格式：`user.email`、`account.id`、`accessToken`。
   - 不支持扁平字段，不做回退兼容。
 - 已有 Codex credential 录入：
-  - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON。
+  - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON，或 `{ credential, fileName, groupName }` 包装格式。
   - 按 `credential.email` 创建或更新子号，按 `credential.account_id` 保存对应 Team workspace 凭证。
+  - `fileName` 为独立凭证文件名，`groupName` 为 CPA 号池名；缺省文件名由邮箱和 workspace 派生，缺省号池为 `默认号池`。
   - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
   - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注名 `label`。
@@ -26,7 +28,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 固定 redirect URI：`http://localhost:1455/auth/callback`。
   - 自动授权：后端创建带 `login_hint` 的 OAuth 会话，curl_cffi worker 获取 auth.openai.com clearance，触发 `passwordless/send-otp`，从 GongXi-Mail 的 inbox/junk 读取 OpenAI code 邮件，完成 `email-otp/validate`、目标 `workspace/select`、callback 和 token exchange。
   - 手动兜底：前端按目标 Team 展示登录 URL，用户授权后把 callback URL 粘贴回系统。
-  - 两条链路最终都生成 CPA/Codex 兼容 JSON，并按目标 Team workspace 保存。
+  - 两条链路最终都生成 CPA/Codex 兼容 JSON，并按目标 Team workspace 写入独立凭证文件。
   - 如果手动授权返回的 `chatgpt_account_id` 与目标 Team workspace 不一致，后端返回 409 并拒绝保存。
   - 若自动授权遇到 `add_phone` / `phone_otp_verification` / `auth_challenge`，子号状态写为 `verification_required`，日志记录脱敏阶段信息。
 - 自动授权运行能力检查：

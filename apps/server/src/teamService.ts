@@ -40,6 +40,8 @@ export class TeamService {
     return {
       id: account.id,
       label: account.label,
+      note: account.note,
+      groupName: account.groupName || '默认分组',
       accountId: account.accountId,
       email: account.email,
       planType: account.planType,
@@ -103,21 +105,27 @@ export class TeamService {
     return this.viewFromAccount(account);
   }
 
-  async updateLocalProfile(id: string, input: { label?: unknown; session?: unknown }): Promise<AccountView> {
+  async updateLocalProfile(
+    id: string,
+    input: { label?: unknown; note?: unknown; groupName?: unknown; session?: unknown }
+  ): Promise<AccountView> {
     const existing = this.store.get(id);
     if (!existing) throw new ServiceError(404, `母号不存在: ${id}`);
 
-    const label = typeof input.label === 'string' ? input.label.trim() : '';
-    if (!label) throw new ServiceError(400, '缺少本地备注名');
-
-    const patch: Partial<Account> = {
-      label,
-      lastError: undefined
-    };
+    const patch: Partial<Account> = { lastError: undefined };
+    if (typeof input.note === 'string') {
+      patch.note = input.note.trim() || undefined;
+    } else if (typeof input.label === 'string') {
+      patch.note = input.label.trim() || undefined;
+    }
+    if (typeof input.groupName === 'string') {
+      patch.groupName = input.groupName.trim() || '默认分组';
+    }
 
     if (input.session !== undefined) {
       const session = parseChatGptSessionInput(input.session);
       if ('error' in session) throw new ServiceError(400, session.error);
+      patch.label = session.user.email;
       patch.email = session.user.email;
       patch.accountId = session.account.id;
       patch.accessToken = session.accessToken;

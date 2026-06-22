@@ -10,6 +10,7 @@ export function normalizeAccountInput(raw: unknown): Omit<Account, 'id'> | { err
 
   return {
     label: session.user.email,
+    groupName: '默认分组',
     accountId: session.account.id,
     email: session.user.email,
     accessToken: session.accessToken
