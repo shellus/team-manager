@@ -15,7 +15,7 @@ import { normalizeAccountInput } from './normalizeAccount.js';
 import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
 import type { SubaccountRegistrationExecutor } from './subaccountRegistration.js';
 import type { Transport } from './transport.js';
-import type { InviteRequest, SeatType } from '@team-manager/shared';
+import type { InviteRequest, SeatType, Subaccount } from '@team-manager/shared';
 
 export interface BuildAppDeps {
   config: AppConfig;
@@ -55,6 +55,145 @@ export async function buildApp({
     subaccountCodexAutoAuth,
     subaccountRegistration
   );
+
+  const syncTeamLinksByMotherScan = async (id: string, subaccount: Subaccount) => {
+    const accounts = await service.listAccounts();
+    const existingLinks = new Map((subaccount.teamLinks ?? []).map((link) => [link.accountId, link]));
+    const errors: Array<{ accountId: string; message: string }> = [];
+    let updated = subaccountStore.list().find((item) => item.id === id);
+    let found = 0;
+    let removed = 0;
+    let unknown = 0;
+
+    for (const account of accounts) {
+      const existing = existingLinks.get(account.id);
+      try {
+        const relation = await service.findEmailRelation(account.id, subaccount.email);
+        if (relation.status === 'member' || relation.status === 'invited') {
+          updated = await subaccountStore.saveTeamLink(id, {
+            accountId: account.id,
+            seat: relation.seat ?? existing?.seat ?? 'usage_based',
+            status: relation.status
+          });
+          found += 1;
+        } else if (existing) {
+          updated = await subaccountStore.saveTeamLink(id, {
+            accountId: account.id,
+            seat: existing.seat,
+            status: 'removed'
+          });
+          removed += 1;
+        }
+      } catch (e) {
+        errors.push({ accountId: account.id, message: (e as Error).message });
+        if (existing) {
+          updated = await subaccountStore.saveTeamLink(id, {
+            accountId: account.id,
+            seat: existing.seat,
+            status: 'unknown'
+          });
+          unknown += 1;
+        }
+      }
+    }
+
+    await subaccountStore.appendLog(id, {
+      phase: 'team_link_sync',
+      status: errors.length ? 'partial' : 'success',
+      message: `已通过母号反查同步 ${accounts.length} 个母号关联`,
+      data: {
+        source: 'mother_scan',
+        accountCount: accounts.length,
+        found,
+        removed,
+        unknown,
+        errorCount: errors.length,
+        errors
+      }
+    });
+
+    return updated ?? subaccountStore.list().find((item) => item.id === id);
+  };
+
+  const syncTeamLinksByChildWorkspaces = async (id: string, subaccount: Subaccount) => {
+    if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
+      return syncTeamLinksByMotherScan(id, subaccount);
+    }
+
+    let childAccounts;
+    try {
+      childAccounts = await service.checkSessionAccounts({
+        accountId: subaccount.chatgptAccountId,
+        accessToken: subaccount.webAccessToken
+      });
+    } catch (e) {
+      await subaccountStore.appendLog(id, {
+        phase: 'team_link_sync',
+        status: 'error',
+        message: `子号 Team 列表刷新失败: ${(e as Error).message}`,
+        data: { source: 'child_accounts_check' }
+      });
+      throw new ServiceError(502, `子号 Team 列表刷新失败: ${(e as Error).message}`);
+    }
+
+    const parentByWorkspaceId = new Map((await service.listAccounts()).map((account) => [account.accountId, account]));
+    const existingLinks = new Map((subaccount.teamLinks ?? []).map((link) => [link.accountId, link]));
+    const matchedParentIds = new Set<string>();
+    let updated = subaccountStore.list().find((item) => item.id === id);
+    let found = 0;
+    let removed = 0;
+
+    for (const childAccount of childAccounts) {
+      if (!isTeamWorkspaceAccount(childAccount)) continue;
+      const parent = parentByWorkspaceId.get(childAccount.accountId);
+      if (!parent) continue;
+      const existing = existingLinks.get(parent.id);
+      updated = await subaccountStore.saveTeamLink(id, {
+        accountId: parent.id,
+        seat: existing?.seat ?? 'usage_based',
+        status: 'member'
+      });
+      matchedParentIds.add(parent.id);
+      found += 1;
+    }
+
+    for (const existing of existingLinks.values()) {
+      if (matchedParentIds.has(existing.accountId)) continue;
+      updated = await subaccountStore.saveTeamLink(id, {
+        accountId: existing.accountId,
+        seat: existing.seat,
+        status: 'removed'
+      });
+      removed += 1;
+    }
+
+    await subaccountStore.appendLog(id, {
+      phase: 'team_link_sync',
+      status: 'success',
+      message: `已通过子号可见 workspace 同步 ${found} 个 Team 关联`,
+      data: {
+        source: 'child_accounts_check',
+        visibleAccountCount: childAccounts.length,
+        found,
+        removed
+      }
+    });
+
+    return updated ?? subaccountStore.list().find((item) => item.id === id);
+  };
+
+  function isTeamWorkspaceAccount(account: {
+    accountId: string;
+    structure?: string;
+    planType?: string;
+    canAccessWithSession?: boolean;
+  }): boolean {
+    if (!account.accountId) return false;
+    if (account.structure === 'personal') return false;
+    if (account.planType === 'free') return false;
+    if (account.canAccessWithSession === false) return false;
+    return true;
+  }
 
   // 解析管理员口令 hash（明文则现场 hash）
   let adminHash = config.adminPasswordHash;
@@ -329,62 +468,7 @@ export async function buildApp({
       const id = c.req.param('id');
       const subaccount = subaccountStore.get(id);
       if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
-
-      const accounts = await service.listAccounts();
-      const existingLinks = new Map((subaccount.teamLinks ?? []).map((link) => [link.accountId, link]));
-      const errors: Array<{ accountId: string; message: string }> = [];
-      let updated = subaccountStore.list().find((item) => item.id === id);
-      let found = 0;
-      let removed = 0;
-      let unknown = 0;
-
-      for (const account of accounts) {
-        const existing = existingLinks.get(account.id);
-        try {
-          const relation = await service.findEmailRelation(account.id, subaccount.email);
-          if (relation.status === 'member' || relation.status === 'invited') {
-            updated = await subaccountStore.saveTeamLink(id, {
-              accountId: account.id,
-              seat: relation.seat ?? existing?.seat ?? 'usage_based',
-              status: relation.status
-            });
-            found += 1;
-          } else if (existing) {
-            updated = await subaccountStore.saveTeamLink(id, {
-              accountId: account.id,
-              seat: existing.seat,
-              status: 'removed'
-            });
-            removed += 1;
-          }
-        } catch (e) {
-          errors.push({ accountId: account.id, message: (e as Error).message });
-          if (existing) {
-            updated = await subaccountStore.saveTeamLink(id, {
-              accountId: account.id,
-              seat: existing.seat,
-              status: 'unknown'
-            });
-            unknown += 1;
-          }
-        }
-      }
-
-      await subaccountStore.appendLog(id, {
-        phase: 'team_link_sync',
-        status: errors.length ? 'partial' : 'success',
-        message: `已同步 ${accounts.length} 个母号关联`,
-        data: {
-          accountCount: accounts.length,
-          found,
-          removed,
-          unknown,
-          errorCount: errors.length,
-          errors
-        }
-      });
-
-      return updated ?? subaccountStore.list().find((item) => item.id === id);
+      return syncTeamLinksByChildWorkspaces(id, subaccount);
     })
   );
 

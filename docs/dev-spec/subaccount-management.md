@@ -57,10 +57,12 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - ChatGPT 席位账单风险仍复用 `TeamService.invite` 的统一确认机制。
 - Team 关联同步：
   - `teamLinks` 是本地缓存，不是唯一事实来源。
-  - 点击同步时，后端按子号邮箱逐个查询已录入母号的 members 和 pending invites。
-  - 查到成员写入 `member`，查到 pending invite 写入 `invited`。
-  - 曾经有本地记录但本次查不到时写入 `removed`；单个母号查询失败时保留该条并写入 `unknown`。
-  - 不在进入页面时自动同步，避免多个母号慢请求阻塞子号详情页。
+  - 有 ChatGPT Web session 的子号，点击同步时用子号自己的 access token 调用 `GET /backend-api/accounts/check/v4-2023-04-27`，从响应 `accounts[].account.account_id` 得到该子号可见的 workspace 列表，再和已录入母号的 workspace `accountId` 做交集。
+  - 子号可见且本地已录入对应母号时写入 `member`；曾经有本地记录但本次子号列表不可见时写入 `removed`。
+  - `accounts/check` 不返回成员席位类型；同步时保留已有 `teamLinks[].seat`，新发现的关联默认写入 `usage_based`。
+  - 没有 Web session 的 credential-only 子号无法自列 workspace，才兜底按子号邮箱逐个查询已录入母号的 members 和 pending invites；查到成员写入 `member`，查到 pending invite 写入 `invited`。
+  - 兜底查询中单个母号失败时保留该条并写入 `unknown`。
+  - 不在进入页面时自动同步，避免远端慢请求阻塞子号详情页。
 - 凭证额度查询：
   - 直接使用目标 Team workspace 对应的子号 Codex 凭证里的 `access_token`。
   - 同时使用凭证里的 `account_id` 作为 `Chatgpt-Account-Id` 请求头，保持和 CPA Codex executor 的账户上下文一致。

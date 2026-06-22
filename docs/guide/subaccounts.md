@@ -36,12 +36,12 @@
 
 ## 子号 Team 关联
 
-子号页的“Team 关联”通过子号邮箱逐个查询已录入母号的成员和 pending invite：
+子号页的“Team 关联”优先使用子号自己的 ChatGPT Web session 调用 `accounts/check`，读取该子号当前可见的 workspace 列表，再和已录入母号的 workspace `account_id` 做匹配：
 
-- 查到正式成员时，状态为 `已在 Team`。
-- 查到待处理邀请时，状态为 `邀请中`。
+- 子号可见且本地已录入对应母号时，状态为 `已在 Team`。
 - 曾经有记录但本次查不到时，状态为 `未找到`。
-- 单个母号查询失败时，状态为 `未确认`。
+- 只有没有 Web session 的 credential-only 子号，才会兜底通过子号邮箱逐个查询已录入母号的成员和 pending invite；查到 pending invite 时状态为 `邀请中`。
+- 兜底查询中单个母号失败时，状态为 `未确认`。
 
 Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 后，需要刷新 Team 关联。
 

@@ -1,8 +1,21 @@
-import type { Account, AccountView, Member, PendingInvite, SeatType, InviteRequest } from '@team-manager/shared';
+import type {
+  Account,
+  AccountFingerprint,
+  AccountView,
+  Member,
+  PendingInvite,
+  SeatType,
+  InviteRequest
+} from '@team-manager/shared';
 import { parseChatGptSessionInput } from '@team-manager/shared';
 import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
-import { ChatGptApi, refreshAccessToken, tokenNeedsRefresh } from './chatgptApi.js';
+import {
+  ChatGptApi,
+  refreshAccessToken,
+  tokenNeedsRefresh,
+  type ChatGptAccountCheckEntry
+} from './chatgptApi.js';
 import { createTransport, type Transport } from './transport.js';
 
 /** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
@@ -67,6 +80,14 @@ export class TeamService {
   /** 母号列表只读本地缓存，不触发 ChatGPT 慢请求。 */
   async listAccounts(): Promise<AccountView[]> {
     return this.store.list().map((account) => this.viewFromAccount(account));
+  }
+
+  async checkSessionAccounts(session: {
+    accountId: string;
+    accessToken: string;
+    fp?: AccountFingerprint;
+  }): Promise<ChatGptAccountCheckEntry[]> {
+    return new ChatGptApi(session, this.transport).checkAccounts();
   }
 
   /** 慢速状态同步：显式调用，避免阻塞主页面列表。 */

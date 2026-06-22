@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Account, Member, PendingInvite, SeatType, MemberRole } from '@team-manager/shared';
+import type { Account, AccountFingerprint, Member, PendingInvite, SeatType, MemberRole } from '@team-manager/shared';
 import type { Transport } from './transport.js';
 
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -13,6 +13,21 @@ export interface RefreshResult {
   refreshToken?: string;
 }
 
+export interface ChatGptAccountContext {
+  accountId: string;
+  accessToken: string;
+  fp?: AccountFingerprint;
+}
+
+export interface ChatGptAccountCheckEntry {
+  accountId: string;
+  role?: MemberRole;
+  workspaceName?: string;
+  planType?: string;
+  structure?: string;
+  canAccessWithSession?: boolean;
+}
+
 /**
  * ChatGPT 网页 backend-api 薄封装。
  * 阶段一实测：所有请求必须带 Authorization: Bearer；workspace 操作还需 chatgpt-account-id。
@@ -20,7 +35,7 @@ export interface RefreshResult {
  */
 export class ChatGptApi {
   constructor(
-    private readonly account: Account,
+    private readonly account: ChatGptAccountContext,
     private readonly transport: Transport
   ) {}
 
@@ -57,20 +72,44 @@ export class ChatGptApi {
     return (res.body ? JSON.parse(res.body) : {}) as T;
   }
 
-  /** 母号状态：从 accounts/check 取本 workspace 那条 */
-  async checkAccount(): Promise<{ planType?: string; role?: MemberRole; workspaceName?: string }> {
+  /** 当前 ChatGPT session 可见的账号 / workspace 列表。 */
+  async checkAccounts(): Promise<ChatGptAccountCheckEntry[]> {
     const path = '/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480';
-    const data = await this.request<{ accounts?: Record<string, { account?: Record<string, unknown> }> }>(
+    const data = await this.request<{
+      accounts?: Record<string, { account?: Record<string, unknown>; can_access_with_session?: unknown }>;
+    }>(
       'GET',
       path
     );
+    const seen = new Set<string>();
+    const entries: ChatGptAccountCheckEntry[] = [];
     const accounts = data.accounts ?? {};
-    const entry = accounts[this.account.accountId]?.account;
+    for (const [key, value] of Object.entries(accounts)) {
+      const entry = value?.account ?? {};
+      const accountId = readString(entry.account_id) ?? key;
+      if (!accountId || seen.has(accountId)) continue;
+      seen.add(accountId);
+      entries.push({
+        accountId,
+        role: readString(entry.account_user_role) as MemberRole | undefined,
+        workspaceName: readString(entry.name),
+        planType: readString(entry.plan_type),
+        structure: readString(entry.structure),
+        canAccessWithSession:
+          typeof value?.can_access_with_session === 'boolean' ? value.can_access_with_session : undefined
+      });
+    }
+    return entries;
+  }
+
+  /** 母号状态：从 accounts/check 取本 workspace 那条 */
+  async checkAccount(): Promise<{ planType?: string; role?: MemberRole; workspaceName?: string }> {
+    const entry = (await this.checkAccounts()).find((item) => item.accountId === this.account.accountId);
     if (!entry) return {};
     return {
-      planType: entry.plan_type as string | undefined,
-      role: entry.account_user_role as MemberRole | undefined,
-      workspaceName: entry.name as string | undefined
+      planType: entry.planType,
+      role: entry.role,
+      workspaceName: entry.workspaceName
     };
   }
 
@@ -186,6 +225,10 @@ export class ChatGptApi {
     const path = `/backend-api/accounts/${this.account.accountId}`;
     return this.request('PATCH', path, { name });
   }
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 interface RawMember {

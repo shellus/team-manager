@@ -63,9 +63,20 @@ class RecordingTeamTransport implements Transport {
   requests: Array<{ method: string; path: string; headers: Record<string, string>; body?: string }> = [];
   membersByWorkspaceId = new Map<string, RawTeamMember[]>();
   invitesByWorkspaceId = new Map<string, RawTeamInvite[]>();
+  accountsCheckByAccessToken = new Map<string, Record<string, unknown>>();
 
   async fetch(req: { method: string; path: string; headers: Record<string, string>; body?: string }) {
     this.requests.push(req);
+    if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+      const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
+      return {
+        status: 200,
+        body: JSON.stringify({
+          accounts: this.accountsCheckByAccessToken.get(token) ?? {},
+          account_ordering: Object.keys(this.accountsCheckByAccessToken.get(token) ?? {})
+        })
+      };
+    }
     if (req.method === 'GET' && req.path.includes('/users?')) {
       const workspaceId = req.path.match(/\/backend-api\/accounts\/([^/]+)\/users/)?.[1] ?? '';
       const items = this.membersByWorkspaceId.get(workspaceId) ?? [];
@@ -1047,7 +1058,7 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('syncs child Team links from actual mother members and pending invites', async () => {
+  it('falls back to mother members and pending invites for credential-only child accounts', async () => {
     const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
     try {
       const invitedMother = await store.add({
@@ -1078,13 +1089,24 @@ describe('Subaccount API', () => {
         }
       ]);
 
-      const added = await app.request('/api/subaccounts/session', {
+      const added = await app.request('/api/subaccounts/codex-credential', {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: 'child-web-access-token'
+          access_token: 'codex-access-token',
+          refresh_token: 'codex-refresh-token',
+          id_token: unsignedJwt({
+            email: 'child@example.com',
+            'https://api.openai.com/auth': {
+              chatgpt_account_id: 'workspace-account-id',
+              chatgpt_plan_type: 'team'
+            }
+          }),
+          account_id: 'workspace-account-id',
+          email: 'child@example.com',
+          type: 'codex',
+          expired: '2026-06-18T01:00:00.000Z',
+          last_refresh: '2026-06-18T00:00:00.000Z'
         })
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
@@ -1106,6 +1128,82 @@ describe('Subaccount API', () => {
       assert.equal('chatgptAccountId' in links.get(invitedMother.id)!, false);
       assert.equal(links.get(invitedMother.id)!.status, 'invited');
       assert.equal(links.get(invitedMother.id)!.seat, 'default');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('syncs child Team links from the child visible workspace list without scanning every mother', async () => {
+    const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
+    try {
+      const linkedMother = await store.add({
+        label: '母号 B',
+        accountId: 'workspace-account-b',
+        email: 'owner-b@example.com',
+        accessToken: 'mother-b-access-token'
+      });
+      await store.add({
+        label: '母号 C',
+        accountId: 'workspace-account-c',
+        email: 'owner-c@example.com',
+        accessToken: 'mother-c-access-token'
+      });
+      teamTransport.accountsCheckByAccessToken.set('child-web-access-token', {
+        'workspace-account-id': {
+          account: {
+            account_id: 'workspace-account-id',
+            account_user_role: 'standard-user',
+            name: 'Team A',
+            plan_type: 'team'
+          }
+        },
+        'workspace-account-b': {
+          account: {
+            account_id: 'workspace-account-b',
+            account_user_role: 'standard-user',
+            name: 'Team B',
+            plan_type: 'team'
+          }
+        },
+        'child-chatgpt-account-id': {
+          account: {
+            account_id: 'child-chatgpt-account-id',
+            account_user_role: 'account-owner',
+            name: 'Personal',
+            plan_type: 'free'
+          }
+        }
+      });
+
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const syncedJson = (await synced.json()) as ApiResult<SubaccountView>;
+      const links = new Map(syncedJson.data!.teamLinks.map((link) => [link.accountId, link]));
+
+      assert.equal(synced.status, 200);
+      assert.equal(links.size, 2);
+      assert.equal(links.get(mother.id)!.status, 'member');
+      assert.equal(links.get(linkedMother.id)!.status, 'member');
+      assert.equal(links.has('workspace-account-c'), false);
+      assert.deepEqual(
+        teamTransport.requests.map((request) => request.path),
+        ['/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480']
+      );
+      assert.equal(teamTransport.requests[0]!.headers.Authorization, 'Bearer child-web-access-token');
+      assert.equal(teamTransport.requests[0]!.headers['chatgpt-account-id'], 'child-chatgpt-account-id');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
