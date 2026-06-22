@@ -221,6 +221,42 @@ export class SubaccountStore {
     return this.toView(next);
   }
 
+  async saveRegisteredSubaccount(input: {
+    email: string;
+    password: string;
+    source?: string;
+    status?: Subaccount['status'];
+    lastError?: string;
+  }): Promise<SubaccountView> {
+    this.ensureLoaded();
+    const email = input.email.trim();
+    if (!email) throw new Error('注册结果缺少 email');
+    if (!input.password.trim()) throw new Error('注册结果缺少 password');
+
+    const now = Date.now();
+    const existing = this.findByEmail(email);
+    const next: Subaccount = {
+      id: existing?.id ?? randomUUID(),
+      email,
+      label: existing?.label ?? email,
+      chatgptAccountId: existing?.chatgptAccountId,
+      webAccessToken: existing?.webAccessToken,
+      registrationPassword: input.password,
+      registeredAt: existing?.registeredAt ?? now,
+      registrationSource: input.source,
+      codexCredentials: existing?.codexCredentials,
+      teamLinks: existing?.teamLinks,
+      status: input.status ?? (existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      lastError: input.lastError
+    };
+
+    this.subaccounts.set(next.id, next);
+    await this.persist();
+    return this.toView(next);
+  }
+
   async updateLocalProfile(
     id: string,
     input: { label: string; session?: ChatGptSessionInput }
@@ -500,6 +536,9 @@ async function normalizeStoredSubaccount(
     label: record.label,
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
+    registrationPassword: record.registrationPassword,
+    registeredAt: record.registeredAt,
+    registrationSource: record.registrationSource,
     codexCredentials: dedupeCodexCredentials(credentials),
     teamLinks,
     status: record.status,
@@ -517,6 +556,9 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     label: input.label,
     chatgptAccountId: input.chatgptAccountId,
     webAccessToken: input.webAccessToken,
+    registrationPassword: input.registrationPassword,
+    registeredAt: input.registeredAt,
+    registrationSource: input.registrationSource,
     codexCredentials: dedupeCodexCredentials(input.codexCredentials ?? []),
     teamLinks: (input.teamLinks ?? []).map((link) => ({
       accountId: link.accountId,

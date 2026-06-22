@@ -13,6 +13,7 @@ import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
 import { normalizeAccountInput } from './normalizeAccount.js';
 import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
+import type { SubaccountRegistrationExecutor } from './subaccountRegistration.js';
 import type { Transport } from './transport.js';
 import type { InviteRequest, SeatType } from '@team-manager/shared';
 
@@ -23,6 +24,7 @@ export interface BuildAppDeps {
   subaccountCodexFetch?: typeof fetch;
   subaccountQuotaTransport?: Transport;
   subaccountCodexAutoAuth?: CodexAutoAuthExecutor;
+  subaccountRegistration?: SubaccountRegistrationExecutor;
   teamTransport?: Transport;
 }
 
@@ -41,6 +43,7 @@ export async function buildApp({
   subaccountCodexFetch,
   subaccountQuotaTransport,
   subaccountCodexAutoAuth,
+  subaccountRegistration,
   teamTransport
 }: BuildAppDeps): Promise<Hono> {
   const app = new Hono();
@@ -49,7 +52,8 @@ export async function buildApp({
     subaccountStore,
     subaccountCodexFetch,
     subaccountQuotaTransport,
-    subaccountCodexAutoAuth
+    subaccountCodexAutoAuth,
+    subaccountRegistration
   );
 
   // 解析管理员口令 hash（明文则现场 hash）
@@ -238,6 +242,19 @@ export async function buildApp({
   api.post('/subaccounts/codex-credential', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => subaccountService.importCodexCredential(body));
+  });
+
+  api.post('/subaccounts/registration/start', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      chatgptAccountId?: string;
+      mailGroup?: string;
+    };
+    return wrap(c, () =>
+      subaccountService.registerNewSubaccount({
+        targetChatgptAccountId: body.chatgptAccountId,
+        mailGroup: body.mailGroup
+      })
+    );
   });
 
   api.patch('/subaccounts/:id/local-profile', async (c) => {

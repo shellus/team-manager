@@ -76,8 +76,9 @@
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token，不下发前端 |
 | `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证元数据 |
+| `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据，仅后端持久化，不下发前端 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
-| `status` / `lastError` | 授权或同步流程 | 子号流程状态和错误摘要 |
+| `status` / `lastError` | 授权或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
 
 ### Codex credential
@@ -121,6 +122,7 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 |---|---|---|
 | 导入 session | 写入或更新 `email`、`chatgptAccountId`、`webAccessToken`、`status`，追加脱敏日志 | 合并返回的子号 view |
 | 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
+| 自动注册子号 | 通过 worker 申请邮箱并注册 OpenAI 账号；写入 `email`、`registrationPassword`、`registeredAt`、`registrationSource`；如授权成功则写入独立凭证文件并 upsert `codexCredentials[]` 元数据 | 合并返回的子号 view，密码不下发 |
 | 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`chatgptAccountId`、`webAccessToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |

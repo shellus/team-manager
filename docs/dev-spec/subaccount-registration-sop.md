@@ -20,7 +20,7 @@
 
 4. **密码策略：每号随机生成强密码并记录。** 注册既然强制设密码，密码须落库（连同 email / account_id 记入台账，如 ai-accounts 项目），以便后续手动登录。
 
-5. **邮箱与接码号不是消耗品。** 邮箱可重复用、账号能用即可；一个账号绑一个手机号、该号在此账号上可无限次接码。不存在"浪费邮箱/接码"的约束。
+5. **邮箱与接码号不是一次性消耗品。** 邮箱可重复用、账号能用即可；一个账号绑一个手机号、该号在此账号上可无限次接码。同一手机号可被多个 GPT 账号绑定，直到 OpenAI 返回“可验证账号数量达到上限”。达到上限后，该号码应在运行环境 YAML 池中标记 `exhausted:true`，后续新账号取号必须跳过。
 
 6. **邮箱来源与质量。** GongXi-Mail `/api/get-email?group=<分组>` 分配。池内邮箱带状态分组，注册前选**干净分组**（如"确认好的outlook"）。注意"已封号""需要人机的outlook""二验废号"等分组不可用于注册。
 
@@ -39,15 +39,16 @@
 
 ## 三、当前实现状态与卡点
 
-- **worker 现状**：`run_codex_auto_auth`（`apps/curl-cffi-worker/worker.py`）的状态机由 OpenAI 返回的 `page_type` 驱动，**注册/登录通吃**——email OTP 取码、add_phone 绑机、二次验证、consent、token exchange 均已实现。
-- **缺口**：worker 没有 `create_account_password` → `user/register` 这一步（旧代码 `screen_hint` 写死 `login`，且无 register 调用）。
-- **核心卡点（未解决）**：在 worker/脚本中复刻 `user/register` 时返回 `account_creation_failed`（HTTP 400）。根因是 **sentinel pow token**——注册接口的人机校验比登录严，worker 现有 `build_sentinel_token` 对该步算出的 token 不被 OpenAI 接受；浏览器能成功是因为跑了真实 sentinel SDK。**改 worker 加注册分支时必须解决注册步 sentinel。**
+- **worker 现状**：`run_codex_auto_auth`（`apps/curl-cffi-worker/worker.py`）的状态机由 OpenAI 返回的 `page_type` 驱动，登录与授权链路已实现 email OTP 取码、add_phone 绑机、已绑定手机号二次验证、consent、token exchange。手机号来源是运行环境 `TEAMMGR_PHONE_POOL_YAML`，worker 会记录 `gptAccounts[]`，并在 OpenAI 返回号码绑定账号数量上限时写回 `exhausted:true`。
+- **注册入口现状**：`POST /api/subaccounts/registration/start` 会调用 worker `/subaccounts/register`，worker 申请 GongXi-Mail 邮箱、生成随机密码、执行 `screen_hint:"signup"`、`create_account_password` → `user/register`、邮箱 OTP、手机号验证、workspace select 和 token exchange。若 OpenAI 表明邮箱已存在、已注册或被占用，worker 会重新从 GongXi-Mail 取邮箱，默认最多 3 次。后端保存生成密码，但普通 view 和日志不下发密码。若注册账号已落库但授权未完成，后续对该子号重试 Codex 自动授权时会复用这个私有密码走密码登录。
+- **核心卡点（仍需实测收口）**：注册接口的人机校验比登录严。worker 已在 `user/register` 使用 sentinel token；真实环境中 sentinel `/backend-api/sentinel/req` 对 `user_register` 返回 `proofofwork.required=true` 且 `turnstile.required=true`，当前 worker 能生成 proof 但 `openai-sentinel-token.t` 仍为空，因此 OpenAI 仍可能返回 `account_creation_failed`。worker 会返回 `verification_required` / `challenge:"registration_sentinel"`，并带回已申请邮箱和生成密码供后端落库。若 OpenAI 明确返回账号锁定、停用或不可用，则写入 `account_locked` 状态，不继续作为待验证账号重试。
 - **已修复（2026-06-19）：登录态新增 `phone_otp_select_channel` 分支。** 已绑手机的老号重授权（`screen_hint=login` + 密码）走完 email OTP 后，OpenAI 可能落到 `phone_otp_select_channel` 页（`multi_channel_allowed=true`，要求先选验证渠道再发码），worker 旧状态机未处理、直接 `unexpected_page` 失败。修复：检测到该页时 `POST /api/accounts/phone-otp/send` body `{"channel":"sms"}` 触发 SMS 发码，进入 `phone_otp_verification` 后复用既有 `complete_existing_phone_verification`（号池匹配绑定手机 → 取码 → `phone-otp/validate`）。代码位于 `run_codex_auto_auth` 状态机内 add_phone/phone_otp_verification 分支之后。
   - **重授权（rt 失效复活）操作要点**：① refresh_token 一次性轮换，**任何外部 refresh 都会让磁盘上的 rt 作废**——验证有效性后必须把返回的新 rt 写回，否则下次 cpa 用旧 rt 必报 `refresh_token_invalidated`。② 正确做法是重授权落盘后**不做外部 refresh**，由 cpa 实例独占 15min 周期 refresh；cpa 监听 `auth-dir` 文件变更会自动热加载（日志 `auth file changed ... processing incrementally`），随后 `auth unavailable` 消失即恢复。③ 老号重授权需台账密码 + 绑定手机在接码池，consent 选目标 Team workspace（传 `targetChatgptAccountId`）。④ 同一号短时间反复试 email OTP 会触发 `max_check_attempts` 限流，需冷却数分钟。
 
 ## 四、待办
 
-- [ ] worker 增加 signup 注册分支：`screen_hint=signup` → `create_account_password` → `user/register`（含正确 sentinel）→ 复用现有 OTP/绑机/consent 链路。
-- [ ] 解决 `user/register` 的 sentinel pow token（对照浏览器真实 sentinel 生成）。
-- [ ] 服务端增加"从空邮箱注册子号"入口（现有 `codex-auth/auto` 前置 `requireSubaccount`，只能对已入池子号操作）。
-- [ ] 注册成功后密码落库台账。
+- [x] worker 增加 signup 注册分支：`screen_hint=signup` → `create_account_password` → `user/register` → 复用现有 OTP/绑机/consent 链路。
+- [ ] 继续解决并实测 `user/register` 的 sentinel/Turnstile token（对照浏览器真实 sentinel SDK 生成 `t`）。
+- [x] 服务端增加"从空邮箱注册子号"入口。
+- [x] 注册成功或注册待验证时密码落库台账，不下发前端。
+- [x] 手机号池改为运行环境 YAML：记录号码、短信 inbox URL、GPT 账号数组和 `exhausted` 状态；全新绑定取号跳过已用尽号码。
