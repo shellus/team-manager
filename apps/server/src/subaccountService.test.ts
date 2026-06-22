@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -135,6 +136,16 @@ class FakeCodexAutoAuth implements CodexAutoAuthExecutor {
         plan_type: 'team'
       }
     };
+  }
+}
+
+class FakeStreamingCodexAutoAuth extends FakeCodexAutoAuth {
+  async complete(options: Parameters<CodexAutoAuthExecutor['complete']>[0]) {
+    const result = await super.complete(options);
+    for (const event of result.events) {
+      await options.onEvent?.(event);
+    }
+    return result;
   }
 }
 
@@ -479,6 +490,75 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('deletes the selected Team workspace Codex credential without removing the child account', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/codex-credential', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          fileName: 'cpa-a-child.json',
+          groupName: 'CPA-A',
+          credential: {
+            id_token: unsignedJwt({
+              email: 'child@example.com',
+              'https://api.openai.com/auth': {
+                chatgpt_account_id: 'workspace-account-id',
+                chatgpt_plan_type: 'team'
+              }
+            }),
+            access_token: 'imported-access-token',
+            refresh_token: 'imported-refresh-token',
+            account_id: 'workspace-account-id',
+            last_refresh: '2026-06-18T00:00:00.000Z',
+            email: 'child@example.com',
+            type: 'codex',
+            expired: '2026-06-18T01:00:00.000Z',
+            plan_type: 'team'
+          }
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      const credential = subaccount.codexCredentials[0]!;
+      const credentialPath = join(dir, 'subaccount-credentials', subaccount.id, credential.fileName);
+      assert.equal(existsSync(credentialPath), true);
+
+      const removed = await app.request(
+        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
+        {
+          method: 'DELETE',
+          headers: authHeaders
+        }
+      );
+      const removedBody = await removed.text();
+
+      assert.equal(removed.status, 200, removedBody);
+      const removedJson = JSON.parse(removedBody) as ApiResult<SubaccountView>;
+      assert.equal(removedJson.data!.id, subaccount.id);
+      assert.equal(removedJson.data!.email, 'child@example.com');
+      assert.equal(removedJson.data!.status, 'empty');
+      assert.equal(removedJson.data!.codexCredentials.length, 0);
+      assert.equal(existsSync(credentialPath), false);
+
+      const missing = await app.request(
+        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
+        { headers: authHeaders }
+      );
+      assert.equal(missing.status, 404);
+
+      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
+      const logsJson = (await logs.json()) as ApiResult<
+        Array<{ phase: string; status: string; data?: { accountId?: string; fileName?: string } }>
+      >;
+      const deleteLog = logsJson.data!.find((log) => log.phase === 'codex_credential_delete');
+      assert.equal(deleteLog?.status, 'empty');
+      assert.equal(deleteLog?.data?.accountId, 'workspace-account-id');
+      assert.equal(deleteLog?.data?.fileName, 'cpa-a-child.json');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('returns 400 for unsupported child session JSON shapes', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {
@@ -711,8 +791,45 @@ describe('Subaccount API', () => {
       assert.equal(credentialJson.data!.refresh_token, 'auto-codex-refresh-token');
 
       const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
-      const logsJson = (await logs.json()) as ApiResult<Array<{ phase: string }>>;
+      const logsJson = (await logs.json()) as ApiResult<
+        Array<{ phase: string; status: string; data?: { httpStatus?: number } }>
+      >;
       assert.ok(logsJson.data!.some((log) => log.phase === 'codex_auto_auth_complete'));
+      assert.ok(
+        logsJson.data!.some(
+          (log) => log.phase === 'passwordless_send_otp' && log.status === 'ok' && log.data?.httpStatus === 200
+        )
+      );
+      assert.ok(logsJson.data!.some((log) => log.phase === 'oauth_token_exchange' && log.status === 'ok'));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not duplicate Codex auto auth event logs when the worker streams progress before the final result', async () => {
+    const { app, dir, authHeaders } = await buildTestApp({ codexAutoAuth: new FakeStreamingCodexAutoAuth() });
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/auto`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      assert.equal(completed.status, 200);
+
+      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
+      const logsJson = (await logs.json()) as ApiResult<Array<{ phase: string }>>;
+      assert.equal(logsJson.data!.filter((log) => log.phase === 'passwordless_send_otp').length, 1);
+      assert.equal(logsJson.data!.filter((log) => log.phase === 'oauth_token_exchange').length, 1);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

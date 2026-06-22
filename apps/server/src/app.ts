@@ -435,6 +435,10 @@ export async function buildApp({
     )
   );
 
+  api.delete('/subaccounts/:id/codex-credential', (c) =>
+    wrap(c, () => subaccountService.removeCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
+  );
+
   api.post('/subaccounts/:id/quota/refresh', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
     return wrap(c, () => subaccountService.refreshQuota(c.req.param('id'), body.chatgptAccountId));

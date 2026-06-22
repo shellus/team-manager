@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, appendFile, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -321,6 +321,34 @@ export class SubaccountStore {
     return this.toView(merged);
   }
 
+  async removeCodexCredential(id: string, accountId: string): Promise<SubaccountView | undefined> {
+    this.ensureLoaded();
+    const existing = this.subaccounts.get(id);
+    if (!existing) return undefined;
+    const target = accountId.trim();
+    const credential = this.findCodexCredential(existing, target);
+    if (!credential) return undefined;
+
+    await unlink(this.credentialPath(id, credential.fileName)).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== 'ENOENT') throw e;
+    });
+
+    const credentials = (existing.codexCredentials ?? []).filter(
+      (item) => codexCredentialAccountId(item) !== target
+    );
+    const now = Date.now();
+    const merged: Subaccount = {
+      ...existing,
+      codexCredentials: credentials,
+      status: statusAfterCredentialRemoval(existing, credentials),
+      updatedAt: now,
+      lastError: undefined
+    };
+    this.subaccounts.set(id, merged);
+    await this.persist();
+    return this.toView(merged);
+  }
+
   async saveTeamLink(id: string, link: Omit<SubaccountTeamLink, 'updatedAt'>): Promise<SubaccountView | undefined> {
     this.ensureLoaded();
     const existing = this.subaccounts.get(id);
@@ -603,6 +631,13 @@ function dedupeCodexCredentials(items: SubaccountCodexCredential[]): SubaccountC
     }
   }
   return [...byAccountId.values()];
+}
+
+function statusAfterCredentialRemoval(account: Subaccount, credentials: SubaccountCodexCredential[]): Subaccount['status'] {
+  if (credentials.length) return 'codex_ready';
+  if (account.status === 'account_locked' || account.status === 'verification_required') return account.status;
+  if (account.webAccessToken || account.registrationPassword) return 'session_ready';
+  return 'empty';
 }
 
 async function writeCredentialFile(

@@ -12,6 +12,7 @@ import { createCodexAuthSession, exchangeCodexCallback, type CodexAuthSession } 
 import {
   CodexAutoAuthError,
   createCodexAutoAuthExecutor,
+  type CodexAutoAuthEvent,
   type CodexAutoAuthExecutor
 } from './codexAutoAuth.js';
 import {
@@ -151,6 +152,29 @@ export class SubaccountService {
     return view;
   }
 
+  async removeCodexCredential(id: string, targetChatgptAccountId?: string): Promise<SubaccountView> {
+    const subaccount = this.requireSubaccount(id);
+    const target = cleanTargetAccountId(targetChatgptAccountId);
+    if (!target) throw new ServiceError(400, '缺少 chatgptAccountId');
+    const credential = (subaccount.codexCredentials ?? []).find((item) => item.accountId.trim() === target);
+    if (!credential) throw new ServiceError(404, '子号还没有该 Team 的 Codex 凭证 JSON');
+
+    const updated = await this.store.removeCodexCredential(id, target);
+    if (!updated) throw new ServiceError(404, '子号还没有该 Team 的 Codex 凭证 JSON');
+    await this.store.appendLog(id, {
+      phase: 'codex_credential_delete',
+      status: updated.status,
+      message: '已删除该 Team workspace 的 Codex 凭证',
+      data: {
+        accountId: target,
+        fileName: credential.fileName,
+        groupName: credential.groupName,
+        remainingCredentialCount: updated.codexCredentials.length
+      }
+    });
+    return updated;
+  }
+
   async updateLocalProfile(id: string, input: { label?: unknown; session?: unknown }): Promise<SubaccountView> {
     this.requireSubaccount(id);
     const label = typeof input.label === 'string' ? input.label.trim() : '';
@@ -253,16 +277,22 @@ export class SubaccountService {
       data: { email: subaccount.email, sessionId: session.id, expiresAt: session.expiresAt, targetChatgptAccountId: target }
     });
 
+    const streamedEvents: CodexAutoAuthEvent[] = [];
     try {
       const result = await this.codexAutoAuth.complete({
         email: subaccount.email,
         session,
         targetChatgptAccountId: target,
-        password: subaccount.registrationPassword?.trim() || undefined
+        password: subaccount.registrationPassword?.trim() || undefined,
+        onEvent: async (event) => {
+          streamedEvents.push(event);
+          await this.appendCodexAutoAuthEventLog(id, event, target, streamedEvents.length);
+        }
       });
       assertCredentialMatchesTarget(result.credential, target);
       const updated = await this.store.saveCodexCredential(id, result.credential);
       if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      await this.appendCodexAutoAuthEventLogs(id, result.events.slice(streamedEvents.length), target, streamedEvents.length);
       await this.store.appendLog(id, {
         phase: 'codex_auto_auth_complete',
         status: 'codex_ready',
@@ -281,6 +311,9 @@ export class SubaccountService {
     } catch (e) {
       const status = e instanceof CodexAutoAuthError ? subaccountStatusFromWorkerStatus(e.status) : 'error';
       await this.store.update(id, { status, lastError: (e as Error).message });
+      if (e instanceof CodexAutoAuthError) {
+        await this.appendCodexAutoAuthEventLogs(id, e.events.slice(streamedEvents.length), target, streamedEvents.length);
+      }
       await this.store.appendLog(id, {
         phase: 'codex_auto_auth_complete',
         status,
@@ -408,6 +441,40 @@ export class SubaccountService {
     return this.store.listLogs(id);
   }
 
+  private async appendCodexAutoAuthEventLogs(
+    id: string,
+    events: CodexAutoAuthEvent[],
+    targetChatgptAccountId?: string,
+    offset = 0
+  ): Promise<void> {
+    for (const [index, event] of events.entries()) {
+      await this.appendCodexAutoAuthEventLog(id, event, targetChatgptAccountId, offset + index + 1);
+    }
+  }
+
+  private async appendCodexAutoAuthEventLog(
+    id: string,
+    event: CodexAutoAuthEvent,
+    targetChatgptAccountId: string | undefined,
+    order: number
+  ): Promise<void> {
+    const phase = event.phase?.trim() || 'codex_auto_auth_event';
+    const httpStatus = typeof event.status === 'number' ? event.status : undefined;
+    await this.store.appendLog(id, {
+      phase,
+      status: eventStatusLabel(httpStatus),
+      message: event.message?.trim() || `自动授权阶段：${phase}`,
+      data: {
+        order,
+        targetChatgptAccountId,
+        httpStatus,
+        pageType: event.pageType,
+        continueUrlPresent: Boolean(event.continueUrl),
+        locationPresent: Boolean(event.location)
+      }
+    });
+  }
+
   private requireSubaccount(id: string): Subaccount {
     const subaccount = this.store.get(id);
     if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
@@ -419,6 +486,11 @@ function subaccountStatusFromWorkerStatus(status: string): SubaccountStatus {
   if (status === 'account_locked') return 'account_locked';
   if (status === 'verification_required') return 'verification_required';
   return 'error';
+}
+
+function eventStatusLabel(httpStatus?: number): string {
+  if (httpStatus === undefined) return 'ok';
+  return httpStatus >= 400 ? 'error' : 'ok';
 }
 
 function cleanTargetAccountId(value?: string): string | undefined {

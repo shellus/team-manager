@@ -47,6 +47,170 @@ type CredentialTeamRow = {
   account?: AccountView;
 };
 
+type AuthProgressStepStatus = 'pending' | 'active' | 'done' | 'skipped' | 'error';
+
+type AuthProgressStep = {
+  id: string;
+  label: string;
+  detail: string;
+  phases: string[];
+  optional?: boolean;
+};
+
+type AuthProgress = {
+  logs: SubaccountAuthLog[];
+  target?: string;
+  running: boolean;
+  completed: boolean;
+  failed: boolean;
+};
+
+const AUTH_PROGRESS_STEPS: AuthProgressStep[] = [
+  {
+    id: 'start',
+    label: '启动',
+    detail: '创建授权会话',
+    phases: ['codex_auto_auth_start']
+  },
+  {
+    id: 'email',
+    label: '邮箱',
+    detail: '发送并验证 OTP',
+    phases: [
+      'email_otp_already_requested',
+      'email_otp_send_loop',
+      'passwordless_send_otp',
+      'passwordless_validate_otp',
+      'email_otp_validate',
+      'email_otp_done',
+      'email_otp_poll_failed',
+      'email_otp_rejected'
+    ],
+    optional: true
+  },
+  {
+    id: 'phone',
+    label: '手机',
+    detail: '绑定或二次验证',
+    phases: [
+      'phone_otp_select_channel_loop',
+      'phone_slot_selected',
+      'phone_otp_done',
+      'phone_send_rejected',
+      'phone_send_exhausted',
+      'phone_pool_empty',
+      'phone_otp_poll_failed',
+      'phone_otp_rejected',
+      'bound_phone_slot_selected',
+      'bound_phone_otp_done',
+      'bound_phone_pool_empty',
+      'bound_phone_ambiguous',
+      'bound_phone_hint_missing',
+      'bound_phone_not_in_pool'
+    ],
+    optional: true
+  },
+  {
+    id: 'challenge',
+    label: '页面校验',
+    detail: '处理 auth challenge',
+    phases: [
+      'auth_challenge_required',
+      'human_verification_solver_start',
+      'human_verification_solver_failed',
+      'human_verification_solver_no_json_state',
+      'human_verification_solver_continue_failed',
+      'human_verification_solver_empty_state',
+      'flaresolverr_authorize',
+      'account_locked'
+    ],
+    optional: true
+  },
+  {
+    id: 'workspace',
+    label: 'Team',
+    detail: '选择目标 workspace',
+    phases: [
+      'organization_select',
+      'workspace_select',
+      'account_select',
+      'follow_continue_1',
+      'follow_continue_2',
+      'follow_continue_3',
+      'follow_continue_4',
+      'follow_continue_5',
+      'follow_continue_6',
+      'follow_continue_7',
+      'follow_continue_8'
+    ],
+    optional: true
+  },
+  {
+    id: 'token',
+    label: '凭证',
+    detail: '换取并保存 token',
+    phases: ['oauth_token_exchange', 'codex_auto_auth_complete']
+  }
+];
+
+const AUTH_PHASE_LABEL: Record<string, string> = {
+  codex_auto_auth_start: '启动自动授权',
+  codex_auto_auth_complete: '自动授权完成',
+  email_otp_already_requested: '邮箱 OTP 已请求',
+  email_otp_send_loop: '等待邮箱 OTP',
+  passwordless_send_otp: '发送邮箱 OTP',
+  passwordless_validate_otp: '验证邮箱 OTP',
+  email_otp_validate: '验证邮箱 OTP',
+  email_otp_done: '邮箱验证完成',
+  email_otp_poll_failed: '邮箱 OTP 读取失败',
+  email_otp_rejected: '邮箱 OTP 被拒绝',
+  phone_otp_select_channel_loop: '选择短信通道',
+  phone_slot_selected: '已选择手机号',
+  phone_otp_done: '短信验证完成',
+  phone_send_rejected: '短信发送被拒绝',
+  phone_send_exhausted: '短信号码已用尽',
+  phone_pool_empty: '手机号池为空',
+  phone_otp_poll_failed: '短信 OTP 读取失败',
+  phone_otp_rejected: '短信 OTP 被拒绝',
+  bound_phone_slot_selected: '已匹配绑定手机号',
+  bound_phone_otp_done: '绑定手机号验证完成',
+  bound_phone_pool_empty: '绑定手机号池为空',
+  bound_phone_ambiguous: '绑定手机号不明确',
+  bound_phone_hint_missing: '缺少绑定手机号提示',
+  bound_phone_not_in_pool: '绑定手机号不在号池',
+  auth_challenge_required: '需要页面校验',
+  human_verification_solver_start: '开始页面校验',
+  human_verification_solver_failed: '页面校验失败',
+  human_verification_solver_no_json_state: '页面校验状态缺失',
+  human_verification_solver_continue_failed: '页面校验继续失败',
+  human_verification_solver_empty_state: '页面校验状态为空',
+  flaresolverr_authorize: '授权页 clearance',
+  account_locked: '账号锁定',
+  organization_select: '选择组织',
+  workspace_select: '选择 Team workspace',
+  account_select: '选择账号',
+  follow_continue_1: '跟随授权跳转 1',
+  follow_continue_2: '跟随授权跳转 2',
+  follow_continue_3: '跟随授权跳转 3',
+  follow_continue_4: '跟随授权跳转 4',
+  follow_continue_5: '跟随授权跳转 5',
+  follow_continue_6: '跟随授权跳转 6',
+  follow_continue_7: '跟随授权跳转 7',
+  follow_continue_8: '跟随授权跳转 8',
+  oauth_token_exchange: '换取 Codex token',
+  codex_credential_delete: '删除 Codex 凭证',
+  codex_credential_import: '导入 Codex 凭证',
+  codex_auth_start: '创建手动授权 URL',
+  codex_auth_callback: '提交手动授权回调',
+  quota_refresh: '刷新额度',
+  session_import: '录入子号 Session',
+  local_profile_update: '更新本地资料',
+  subaccount_registration_complete: '自动注册完成',
+  team_link_sync: '同步 Team 关联'
+};
+
+const AUTO_AUTH_PHASES = new Set(AUTH_PROGRESS_STEPS.flatMap((step) => step.phases));
+
 function formatTime(value?: number | string) {
   if (!value) return '暂无';
   const date = new Date(value);
@@ -85,6 +249,87 @@ function runtimeCapabilityClass(ready: boolean | undefined) {
   return ready ? 'ready' : 'missing';
 }
 
+function logData(log: SubaccountAuthLog): Record<string, unknown> {
+  return log.data && typeof log.data === 'object' ? (log.data as Record<string, unknown>) : {};
+}
+
+function logTargetAccountId(log: SubaccountAuthLog): string | undefined {
+  const data = logData(log);
+  const target = data.targetChatgptAccountId ?? data.accountId;
+  return typeof target === 'string' && target.trim() ? target.trim() : undefined;
+}
+
+function isFailureLog(log: SubaccountAuthLog) {
+  return log.status === 'error' || log.status === 'account_locked' || log.status === 'verification_required';
+}
+
+function isAutoAuthLog(log: SubaccountAuthLog) {
+  return log.phase === 'codex_auto_auth_start' || log.phase === 'codex_auto_auth_complete' || AUTO_AUTH_PHASES.has(log.phase);
+}
+
+function buildAuthProgress(logs: SubaccountAuthLog[], runningTarget: string): AuthProgress {
+  const target = runningTarget && runningTarget !== 'default' ? runningTarget : undefined;
+  const autoLogs = logs.filter((log) => isAutoAuthLog(log));
+  const scopedLogs = target
+    ? autoLogs.filter((log) => logTargetAccountId(log) === target)
+    : autoLogs;
+  const latestStart = scopedLogs.find((log) => log.phase === 'codex_auto_auth_start');
+  const startAt = latestStart?.createdAt ?? scopedLogs[scopedLogs.length - 1]?.createdAt;
+  const cycleLogs = startAt
+    ? scopedLogs
+        .filter((log) => log.createdAt >= startAt)
+        .sort((a, b) => a.createdAt - b.createdAt)
+    : [];
+  const completed = cycleLogs.some((log) => log.phase === 'codex_auto_auth_complete' && log.status === 'codex_ready');
+  const failed = cycleLogs.some(isFailureLog);
+  return {
+    logs: cycleLogs,
+    target: target ?? cycleLogs.map(logTargetAccountId).find(Boolean),
+    running: Boolean(runningTarget),
+    completed,
+    failed
+  };
+}
+
+function authStepStatus(step: AuthProgressStep, index: number, progress: AuthProgress): AuthProgressStepStatus {
+  const stepLogs = progress.logs.filter((log) => step.phases.includes(log.phase));
+  if (stepLogs.some(isFailureLog)) return 'error';
+  if (stepLogs.length > 0) return 'done';
+  const laterHasLogs = AUTH_PROGRESS_STEPS.slice(index + 1).some((later) =>
+    progress.logs.some((log) => later.phases.includes(log.phase))
+  );
+  if ((progress.completed || laterHasLogs) && step.optional) return 'skipped';
+  const firstPendingIndex = AUTH_PROGRESS_STEPS.findIndex((candidate, candidateIndex) => {
+    const candidateLogs = progress.logs.filter((log) => candidate.phases.includes(log.phase));
+    if (candidateLogs.length > 0) return false;
+    const candidateLaterHasLogs = AUTH_PROGRESS_STEPS.slice(candidateIndex + 1).some((later) =>
+      progress.logs.some((log) => later.phases.includes(log.phase))
+    );
+    return !((progress.completed || candidateLaterHasLogs) && candidate.optional);
+  });
+  if (progress.running && firstPendingIndex >= 0 && index === firstPendingIndex) return 'active';
+  return 'pending';
+}
+
+function phaseLabel(phase: string) {
+  return AUTH_PHASE_LABEL[phase] ?? phase.replace(/_/g, ' ');
+}
+
+function logMeta(log: SubaccountAuthLog) {
+  const data = logData(log);
+  const httpStatus = typeof data.httpStatus === 'number' ? `HTTP ${data.httpStatus}` : '';
+  const pageType = typeof data.pageType === 'string' && data.pageType ? data.pageType : '';
+  return [log.status, httpStatus, pageType].filter(Boolean).join(' · ');
+}
+
+function authStepStatusText(status: AuthProgressStepStatus) {
+  if (status === 'done') return '完成';
+  if (status === 'active') return '进行中';
+  if (status === 'skipped') return '未触发';
+  if (status === 'error') return '异常';
+  return '等待';
+}
+
 export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   const removeDialogTitleId = useId();
   const [subaccounts, setSubaccounts] = useState<SubaccountView[]>([]);
@@ -108,6 +353,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState('');
   const [confirmRemoveId, setConfirmRemoveId] = useState('');
+  const [confirmCredentialDeleteKey, setConfirmCredentialDeleteKey] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -193,6 +439,18 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     () => [...(selected?.codexCredentials ?? [])].sort((a, b) => (b.lastQuotaAt ?? 0) - (a.lastQuotaAt ?? 0))[0],
     [selected?.codexCredentials]
   );
+  const autoAuthBusyTarget = busy.startsWith('codex-auto-') ? busy.slice('codex-auto-'.length) : '';
+  const authProgress = useMemo(
+    () => buildAuthProgress(logs, autoAuthBusyTarget),
+    [autoAuthBusyTarget, logs]
+  );
+  const authProgressTargetLabel = useMemo(() => {
+    const target = authProgress.target;
+    if (!target) return selected ? selected.label : '当前子号';
+    const row = credentialTeamRows.find((item) => item.workspaceId === target || item.credential?.accountId === target);
+    if (!row) return target;
+    return row.link ? linkLabel(row.link) : accountTeamLabel(row.account, target);
+  }, [accountTeamLabel, authProgress.target, credentialTeamRows, linkLabel, selected]);
 
   const mergeSubaccount = useCallback((updated: SubaccountView) => {
     setSubaccounts((current) => {
@@ -268,12 +526,34 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     setCallbackUrl('');
     setNotice('');
     setConfirmRemoveId('');
+    setConfirmCredentialDeleteKey('');
     if (selected?.id) {
       loadLogs(selected.id).catch((e) => setError((e as Error).message));
     } else {
       setLogs([]);
     }
   }, [selected?.id, loadLogs]);
+
+  useEffect(() => {
+    if (!selected?.id || !autoAuthBusyTarget) return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const nextLogs = await apiClient.listSubaccountLogs(selected.id);
+        if (!cancelled) setLogs(nextLogs);
+      } catch {
+        // 主自动授权请求负责暴露错误，轮询失败不覆盖页面状态。
+      } finally {
+        if (!cancelled) timer = window.setTimeout(poll, 2000);
+      }
+    };
+    timer = window.setTimeout(poll, 700);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [autoAuthBusyTarget, selected?.id]);
 
   const run = async (key: string, fn: () => Promise<void>) => {
     setBusy(key);
@@ -388,6 +668,17 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
       setCredentialJson(JSON.stringify(credential, null, 2));
     });
 
+  const removeCredential = (targetChatgptAccountId: string) =>
+    selected &&
+    run(targetKey('credential-delete', targetChatgptAccountId), async () => {
+      const updated = await apiClient.removeSubaccountCodexCredential(selected.id, targetChatgptAccountId);
+      mergeSubaccount(updated);
+      setCredentialJson('');
+      setQuota(null);
+      setConfirmCredentialDeleteKey('');
+      setNotice('已删除该 Team workspace 的 Codex 凭证。');
+    });
+
   const syncTeamLinks = () =>
     selected &&
     run('team-link-sync', async () => {
@@ -427,7 +718,7 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   };
 
   const renderCredentialRow = (row: CredentialTeamRow) => {
-    const accountId = row.workspaceId;
+    const accountId = row.workspaceId || row.credential?.accountId || '';
     const credential = row.credential;
     const label = row.link ? linkLabel(row.link) : accountTeamLabel(row.account, accountId);
     const teamMeta = row.account
@@ -437,6 +728,9 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     const busyAuto = targetKey('codex-auto', accountId);
     const busyQuota = targetKey('quota-refresh', accountId);
     const busyExport = targetKey('credential-export', accountId);
+    const busyDelete = targetKey('credential-delete', accountId);
+    const credentialDeleteKey = credential && selected ? `${selected.id}:${credential.accountId}` : '';
+    const confirmingCredentialDelete = Boolean(credentialDeleteKey && confirmCredentialDeleteKey === credentialDeleteKey);
     const autoAuthUnavailable = runtimeStatus?.codexAutoAuth === false;
     return (
       <div className="credential-team-row" key={row.key}>
@@ -489,6 +783,37 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
           <button onClick={() => exportCredential(accountId)} disabled={!credential || busy === busyExport}>
             {busy === busyExport ? '读取中' : '凭证 JSON'}
           </button>
+          {credential && (
+            confirmingCredentialDelete ? (
+              <span className="inline-confirm">
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => removeCredential(credential.accountId)}
+                  disabled={busy === busyDelete}
+                >
+                  {busy === busyDelete ? '删除中' : '确认删除凭证'}
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setConfirmCredentialDeleteKey('')}
+                  disabled={busy === busyDelete}
+                >
+                  取消
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="danger"
+                onClick={() => setConfirmCredentialDeleteKey(credentialDeleteKey)}
+                disabled={busy === busyDelete}
+              >
+                删除凭证
+              </button>
+            )
+          )}
         </div>
       </div>
     );
@@ -867,13 +1192,66 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
             <h3>验证与授权日志</h3>
             <span>{logs.length} 条</span>
           </div>
+          <div className={`auth-progress-panel ${authProgress.running ? 'running' : ''}`}>
+            <div className="auth-progress-head">
+              <div>
+                <strong>自动授权流程</strong>
+                <span>{authProgressTargetLabel}</span>
+              </div>
+              <span
+                className={`auth-progress-summary ${
+                  authProgress.failed ? 'error' : authProgress.completed ? 'done' : authProgress.running ? 'active' : ''
+                }`}
+              >
+                {authProgress.failed
+                  ? '需要处理'
+                  : authProgress.completed
+                    ? '已完成'
+                    : authProgress.running
+                      ? '运行中'
+                      : '暂无运行'}
+              </span>
+            </div>
+            <div className="auth-step-list">
+              {AUTH_PROGRESS_STEPS.map((step, index) => {
+                const status = authStepStatus(step, index, authProgress);
+                return (
+                  <div className={`auth-step ${status}`} key={step.id}>
+                    <span className="auth-step-marker" aria-hidden="true" />
+                    <div>
+                      <strong>{step.label}</strong>
+                      <span>{step.detail}</span>
+                    </div>
+                    <em>{authStepStatusText(status)}</em>
+                  </div>
+                );
+              })}
+            </div>
+            {authProgress.logs.length > 0 ? (
+              <div className="auth-event-list">
+                {authProgress.logs.slice(-8).map((log) => (
+                  <div className={`auth-event ${isFailureLog(log) ? 'error' : ''}`} key={log.id}>
+                    <strong title={log.phase}>{phaseLabel(log.phase)}</strong>
+                    <span>{log.message}</span>
+                    <em>{logMeta(log)}</em>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="auth-progress-empty">
+                {authProgress.running ? '请求已发出，等待 worker 返回阶段事件。' : '暂无自动授权记录。'}
+              </div>
+            )}
+          </div>
           <div className="log-list">
             {logs.length === 0 && <div className="table-empty">暂无日志</div>}
             {logs.map((log) => (
               <div className="log-item" key={log.id}>
                 <div>
-                  <strong>{log.phase}</strong>
-                  <span>{log.status}</span>
+                  <strong title={log.phase}>{phaseLabel(log.phase)}</strong>
+                  <span className={`log-status ${isFailureLog(log) ? 'error' : log.status === 'ok' || log.status === 'codex_ready' ? 'ok' : ''}`}>
+                    {log.status}
+                  </span>
                 </div>
                 <p>{log.message}</p>
                 <em>{formatTime(log.createdAt)}</em>

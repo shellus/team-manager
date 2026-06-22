@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, quote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
@@ -106,6 +106,34 @@ class WorkerHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if self.path == "/codex-auth/auto-events":
+            try:
+                payload = self.read_json()
+            except ValueError as exc:
+                self.write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "status": "bad_request", "message": str(exc)})
+                return
+
+            try:
+                self.write_ndjson_start(HTTPStatus.OK)
+
+                def emit_event(event: dict[str, Any]) -> None:
+                    self.write_ndjson({"type": "event", "event": event})
+
+                result = run_codex_auto_auth(payload, emit_event)
+                self.write_ndjson({"type": "result", "result": result})
+            except ValueError as exc:
+                self.write_ndjson({"type": "error", "status": "bad_request", "message": str(exc)})
+            except Exception as exc:
+                self.write_ndjson(
+                    {
+                        "type": "error",
+                        "status": "worker_error",
+                        "error": exc.__class__.__name__,
+                        "message": str(exc),
+                    }
+                )
+            return
+
         if self.path == "/subaccounts/register":
             try:
                 payload = self.read_json()
@@ -141,6 +169,16 @@ class WorkerHandler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def write_ndjson_start(self, status: int) -> None:
+        self.send_response(int(status))
+        self.send_header("content-type", "application/x-ndjson; charset=utf-8")
+        self.end_headers()
+
+    def write_ndjson(self, data: dict[str, Any]) -> None:
+        raw = (json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        self.wfile.write(raw)
+        self.wfile.flush()
 
 
 def parse_fetch_payload(payload: Any) -> dict[str, Any]:
@@ -182,6 +220,21 @@ def fetch_chatgpt(request: dict[str, Any]) -> tuple[int, str]:
             timeout=REQUEST_TIMEOUT,
         )
         return int(response.status_code), response.text
+
+
+class EventRecorder(list[dict[str, Any]]):
+    def __init__(self, event_sink: Callable[[dict[str, Any]], None] | None = None) -> None:
+        super().__init__()
+        self.event_sink = event_sink
+
+    def append(self, event: dict[str, Any]) -> None:
+        super().append(event)
+        if not self.event_sink:
+            return
+        try:
+            self.event_sink(event)
+        except Exception as exc:
+            print(f"[curl-cffi-worker] progress event write failed: {exc}", flush=True)
 
 
 class SentinelTokenGenerator:
@@ -286,7 +339,7 @@ def build_sentinel_token(session: requests.Session, device_id: str, flow: str) -
     return json.dumps({"p": p_value, "t": "", "c": token, "id": device_id, "flow": flow}, separators=(",", ":"))
 
 
-def run_codex_auto_auth(payload: Any) -> dict[str, Any]:
+def run_codex_auto_auth(payload: Any, event_sink: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("request body must be a JSON object")
     email = str(payload.get("email") or "").strip()
@@ -308,7 +361,7 @@ def run_codex_auto_auth(payload: Any) -> dict[str, Any]:
     if not GONGXI_MAIL_BASE_URL or not GONGXI_MAIL_API_KEY:
         raise ValueError("TEAMMGR_GONGXI_MAIL_BASE_URL and TEAMMGR_GONGXI_MAIL_API_KEY are required")
 
-    events: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = EventRecorder(event_sink)
     session_kwargs: dict[str, Any] = {"impersonate": AUTH_IMPERSONATE, "verify": False}
     if AUTH_PROXY_URL:
         session_kwargs["proxy"] = AUTH_PROXY_URL

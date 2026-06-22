@@ -115,6 +115,11 @@ export const apiClient = {
     const suffix = chatgptAccountId ? `?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}` : '';
     return call<CodexCredentialJson>('GET', `/subaccounts/${id}/codex-credential${suffix}`);
   },
+  removeSubaccountCodexCredential: (id: string, chatgptAccountId: string) =>
+    call<SubaccountView>(
+      'DELETE',
+      `/subaccounts/${id}/codex-credential?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
+    ),
   refreshSubaccountQuota: (id: string, chatgptAccountId?: string) =>
     call<CodexQuotaSnapshot>('POST', `/subaccounts/${id}/quota/refresh`, { chatgptAccountId }),
   listSubaccountLogs: (id: string) => call<SubaccountAuthLog[]>('GET', `/subaccounts/${id}/logs`),
