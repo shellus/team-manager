@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import type {
   AccountView,
   CodexAuthRuntimeStatus,
@@ -13,6 +13,7 @@ import { apiClient } from './api.js';
 import { SessionImportDialog } from './SessionImportDialog.js';
 import { CredentialImportDialog } from './CredentialImportDialog.js';
 import { LocalProfileDialog } from './LocalProfileDialog.js';
+import { WorkspaceListCard } from './WorkspaceListCard.js';
 
 const STATUS_LABEL: Record<SubaccountStatus, string> = {
   empty: '未录入',
@@ -76,6 +77,7 @@ function runtimeCapabilityClass(ready: boolean | undefined) {
 }
 
 export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
+  const removeDialogTitleId = useId();
   const [subaccounts, setSubaccounts] = useState<SubaccountView[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
@@ -104,6 +106,11 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
     () => subaccounts.find((subaccount) => subaccount.id === selectedId) ?? subaccounts[0] ?? null,
     [selectedId, subaccounts]
   );
+  const removingSubaccount = useMemo(
+    () => subaccounts.find((subaccount) => subaccount.id === confirmRemoveId) ?? null,
+    [confirmRemoveId, subaccounts]
+  );
+  const removingSubaccountBusy = removingSubaccount ? busy === `remove-${removingSubaccount.id}` : false;
   const parentAccountById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
@@ -198,6 +205,15 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
   useEffect(() => {
     loadRuntimeStatus();
   }, [loadRuntimeStatus]);
+
+  useEffect(() => {
+    if (!removingSubaccount) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !removingSubaccountBusy) setConfirmRemoveId('');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [removingSubaccount, removingSubaccountBusy]);
 
   useEffect(() => {
     setQuota(null);
@@ -429,6 +445,45 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
         onSubmit={(payload) => updateLocalProfile(editingSubaccount!.id, payload)}
       />
 
+      {removingSubaccount && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !removingSubaccountBusy) setConfirmRemoveId('');
+          }}
+        >
+          <section
+            className="modal-panel confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={removeDialogTitleId}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id={removeDialogTitleId}>删除子号</h2>
+                <p>{removingSubaccount.label}</p>
+              </div>
+            </div>
+            <div className="confirm-copy">
+              仅从本系统移除这个子号本地记录，不会移除 ChatGPT Team 成员，也不会撤销远端凭证。
+            </div>
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => setConfirmRemoveId('')} disabled={removingSubaccountBusy}>
+                取消
+              </button>
+              <button
+                className="danger"
+                onClick={() => void removeSubaccount(removingSubaccount.id)}
+                disabled={removingSubaccountBusy}
+              >
+                {removingSubaccountBusy ? '删除中' : '确认删除'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       <section className="accounts-pane subaccount-list-pane" aria-label="子号列表">
         <div className="pane-head">
           <div>
@@ -465,80 +520,49 @@ export function SubaccountPanel({ accounts }: { accounts: AccountView[] }) {
           {subaccounts.map((subaccount) => {
             const repeatedEmail = subaccount.label.trim().toLowerCase() === subaccount.email.trim().toLowerCase();
             return (
-              <article
+              <WorkspaceListCard
                 key={subaccount.id}
-                className={`account-card subaccount-card ${selected?.id === subaccount.id ? 'selected' : ''}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => setSelectedId(subaccount.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setSelectedId(subaccount.id);
-                  }
-                }}
-              >
-                <div className="card-head">
-                  <div className="card-title-wrap">
-                    <div className="card-title">{subaccount.label}</div>
-                    {!repeatedEmail && <div className="card-sub">{subaccount.email}</div>}
-                  </div>
-                  <div className="card-head-actions">
-                    <span className={`pill status-${subaccount.status === 'error' ? 'invalid' : 'active'}`}>
-                      {STATUS_LABEL[subaccount.status]}
-                    </span>
-                    <details className="card-menu" onClick={(event) => event.stopPropagation()}>
-                      <summary aria-label="更多操作">⋮</summary>
-                      <div className="menu-content">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                            setEditingSubaccount(subaccount);
-                          }}
-                        >
-                          编辑本地资料
-                        </button>
-                        <button
-                          type="button"
-                          className="danger menu-danger"
-                          onClick={(event) => {
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                            setConfirmRemoveId(subaccount.id);
-                          }}
-                        >
-                          删除子号
-                        </button>
-                      </div>
-                    </details>
-                  </div>
-                </div>
-                <div className="card-meta-line">
-                  <span>{subaccount.hasWebSession ? 'Web Session 已录入' : '无 Web Session'}</span>
-                  <span>Codex 凭证 {subaccount.codexCredentials.length} 份</span>
-                  <span>更新 {formatTime(subaccount.updatedAt)}</span>
-                </div>
-                {subaccount.lastError && (
-                  <div className="card-error" title={subaccount.lastError}>
-                    {shortError(subaccount.lastError)}
-                  </div>
-                )}
-                {confirmRemoveId === subaccount.id && (
-                  <div className="inline-confirm" onClick={(event) => event.stopPropagation()}>
-                    <span>仅从本系统移除，不影响 ChatGPT。</span>
-                    <button className="ghost" onClick={() => setConfirmRemoveId('')}>
-                      取消
-                    </button>
-                    <button
-                      className="danger"
-                      onClick={() => removeSubaccount(subaccount.id)}
-                      disabled={busy === `remove-${subaccount.id}`}
-                    >
-                      {busy === `remove-${subaccount.id}` ? '删除中' : '确认删除'}
-                    </button>
-                  </div>
-                )}
-              </article>
+                selected={selected?.id === subaccount.id}
+                status={subaccount.status === 'error' ? 'invalid' : 'active'}
+                statusLabel={STATUS_LABEL[subaccount.status]}
+                title={subaccount.label}
+                subtitle={repeatedEmail ? undefined : subaccount.email}
+                meta={[
+                  { content: subaccount.hasWebSession ? 'Web Session 已录入' : '无 Web Session' },
+                  { content: `Codex 凭证 ${subaccount.codexCredentials.length} 份` },
+                  { content: `更新 ${formatTime(subaccount.updatedAt)}` }
+                ]}
+                error={
+                  subaccount.lastError && <span title={subaccount.lastError}>{shortError(subaccount.lastError)}</span>
+                }
+                menu={
+                  <details className="card-menu" onClick={(event) => event.stopPropagation()}>
+                    <summary aria-label="更多操作">⋮</summary>
+                    <div className="menu-content">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.currentTarget.closest('details')?.removeAttribute('open');
+                          setEditingSubaccount(subaccount);
+                        }}
+                      >
+                        编辑本地资料
+                      </button>
+                      <button
+                        type="button"
+                        className="danger menu-danger"
+                        onClick={(event) => {
+                          event.currentTarget.closest('details')?.removeAttribute('open');
+                          setConfirmRemoveId(subaccount.id);
+                        }}
+                      >
+                        删除子号
+                      </button>
+                    </div>
+                  </details>
+                }
+                onSelect={() => setSelectedId(subaccount.id)}
+              />
             );
           })}
         </div>

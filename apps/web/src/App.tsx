@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useId, useState, useCallback } from 'react';
 import type { AccountView } from '@team-manager/shared';
 import { apiClient, getToken, setToken, clearToken } from './api.js';
 import { Login } from './Login.js';
@@ -6,9 +6,9 @@ import { AccountCard } from './AccountCard.js';
 import { MemberPanel } from './MemberPanel.js';
 import { SubaccountPanel } from './SubaccountPanel.js';
 import { SessionImportDialog } from './SessionImportDialog.js';
-import { LocalProfileDialog } from './LocalProfileDialog.js';
 
 export function App() {
+  const removeDialogTitleId = useId();
   const [authed, setAuthed] = useState(!!getToken());
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,9 +20,10 @@ export function App() {
   const [confirmRemoveId, setConfirmRemoveId] = useState('');
   const [removingId, setRemovingId] = useState('');
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<AccountView | null>(null);
 
   const selected = accounts.find((account) => account.id === selectedId) ?? null;
+  const removingAccount = accounts.find((account) => account.id === confirmRemoveId) ?? null;
+  const removingAccountBusy = removingAccount ? removingId === removingAccount.id : false;
 
   const mergeAccount = useCallback((updated: AccountView) => {
     setAccounts((current) => current.map((account) => (account.id === updated.id ? updated : account)));
@@ -72,6 +73,15 @@ export function App() {
     if (authed) refresh();
   }, [authed, refresh]);
 
+  useEffect(() => {
+    if (!removingAccount) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !removingAccountBusy) setConfirmRemoveId('');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [removingAccount, removingAccountBusy]);
+
   if (!authed) {
     return (
       <Login
@@ -108,7 +118,9 @@ export function App() {
   const renameTeam = async (id: string, name: string) => {
     setError('');
     try {
-      mergeAccount(await apiClient.renameTeam(id, name));
+      const updated = await apiClient.renameTeam(id, name);
+      mergeAccount(updated);
+      return updated;
     } catch (e) {
       setError((e as Error).message);
       throw e;
@@ -121,7 +133,9 @@ export function App() {
   ) => {
     setError('');
     try {
-      mergeAccount(await apiClient.updateAccountLocalProfile(id, payload));
+      const updated = await apiClient.updateAccountLocalProfile(id, payload);
+      mergeAccount(updated);
+      return updated;
     } catch (e) {
       setError((e as Error).message);
       throw e;
@@ -180,16 +194,44 @@ export function App() {
         }}
       />
 
-      <LocalProfileDialog
-        open={Boolean(editingAccount)}
-        title="编辑母号本地资料"
-        description="只更新本系统保存的备注名和 session，不修改 ChatGPT Team 名称。"
-        initialLabel={editingAccount?.label ?? ''}
-        submitLabel="保存母号资料"
-        busyLabel="正在保存母号本地资料"
-        onClose={() => setEditingAccount(null)}
-        onSubmit={(payload) => updateAccountLocalProfile(editingAccount!.id, payload)}
-      />
+      {removingAccount && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !removingAccountBusy) setConfirmRemoveId('');
+          }}
+        >
+          <section
+            className="modal-panel confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={removeDialogTitleId}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id={removeDialogTitleId}>删除母号</h2>
+                <p>{removingAccount.label}</p>
+              </div>
+            </div>
+            <div className="confirm-copy">
+              仅从本系统移除这个母号本地记录，不会修改 ChatGPT Team workspace 或远端成员。
+            </div>
+            <div className="modal-actions">
+              <button className="ghost" onClick={() => setConfirmRemoveId('')} disabled={removingAccountBusy}>
+                取消
+              </button>
+              <button
+                className="danger"
+                onClick={() => void removeAccount(removingAccount.id)}
+                disabled={removingAccountBusy}
+              >
+                {removingAccountBusy ? '删除中' : '确认删除'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {section === 'subaccounts' && (
         <main className="subaccount-page">
@@ -236,17 +278,11 @@ export function App() {
                   account={account}
                   selected={account.id === selectedId}
                   syncing={syncingIds.has(account.id)}
-                  confirmingRemove={confirmRemoveId === account.id}
-                  removing={removingId === account.id}
                   onSelect={() => {
                     setSelectedId(account.id);
                     setMode('members');
                   }}
-                  onEditLocalProfile={() => setEditingAccount(account)}
-                  onRename={(name) => renameTeam(account.id, name)}
                   onAskRemove={() => setConfirmRemoveId(account.id)}
-                  onCancelRemove={() => setConfirmRemoveId('')}
-                  onConfirmRemove={() => void removeAccount(account.id)}
                 />
               ))}
             </div>
@@ -261,6 +297,8 @@ export function App() {
                   void syncAccount(selected.id);
                 }}
                 onAccountChanged={mergeAccount}
+                onRenameTeam={renameTeam}
+                onUpdateLocalProfile={updateAccountLocalProfile}
               />
             )}
             {(!selected || mode === 'empty') && (
