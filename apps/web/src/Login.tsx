@@ -1,17 +1,20 @@
 import { useState } from 'react';
+import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 
-export function Login({ onLogin }: { onLogin: (u: string, p: string) => Promise<void> }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
+interface LoginValues {
+  username: string;
+  password: string;
+}
+
+export function Login({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (values: LoginValues) => {
     setBusy(true);
     setError('');
     try {
-      await onLogin(username, password);
+      await onLogin(values.username, values.password);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -20,22 +23,28 @@ export function Login({ onLogin }: { onLogin: (u: string, p: string) => Promise<
   };
 
   return (
-    <div className="login-wrap">
-      <form className="login-card" onSubmit={submit}>
-        <h1>Team 母号管理</h1>
-        <label>
-          用户名
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-        </label>
-        <label>
-          密码
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        </label>
-        {error && <div className="banner error">{error}</div>}
-        <button className="primary" type="submit" disabled={busy}>
-          {busy ? '登录中…' : '登录'}
-        </button>
-      </form>
+    <div className="login-page">
+      <Card className="login-panel">
+        <Typography.Title level={1}>Team 管理</Typography.Title>
+        <Typography.Paragraph type="secondary">登录后管理母号、子号和 Codex 凭证。</Typography.Paragraph>
+        <Form<LoginValues>
+          layout="vertical"
+          initialValues={{ username: 'admin', password: '' }}
+          onFinish={submit}
+          disabled={busy}
+        >
+          <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
+            <Input autoFocus autoComplete="username" />
+          </Form.Item>
+          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+          {error && <Alert className="login-error" type="error" showIcon message={error} />}
+          <Button type="primary" htmlType="submit" loading={busy} block>
+            登录
+          </Button>
+        </Form>
+      </Card>
     </div>
   );
 }

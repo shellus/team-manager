@@ -6,18 +6,23 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5174",
     "build": "tsc --noEmit && vite build",
+    "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ant-design/icons": "^5.6.1",
+    "@team-manager/shared": "workspace:*",
+    "antd": "^5.29.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@team-manager/shared": "workspace:*"
+    "react-router-dom": "^7.18.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "typescript": "latest",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.9"
   }
 }
