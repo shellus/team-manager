@@ -1,8 +1,10 @@
 import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
 import { AccountStore } from './accountStore.js';
+import { AppSettingsStore } from './appSettingsStore.js';
 import { SubaccountStore } from './subaccountStore.js';
 import { buildApp } from './app.js';
+import { startNotificationScheduler } from './notificationService.js';
 
 async function main() {
   const config = loadConfig();
@@ -10,7 +12,10 @@ async function main() {
   await store.init();
   const subaccountStore = new SubaccountStore(config.dataDir);
   await subaccountStore.init();
-  const app = await buildApp({ config, store, subaccountStore });
+  const settingsStore = new AppSettingsStore(config.dataDir);
+  await settingsStore.init();
+  const app = await buildApp({ config, store, subaccountStore, settingsStore });
+  startNotificationScheduler(settingsStore, store);
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`[team-manager] listening on :${info.port} (data=${config.dataDir})`);

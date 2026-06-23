@@ -37,6 +37,7 @@ export interface Account {
   personalAccessTokensCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
+  memberProfiles?: Record<string, AccountMemberProfile>; // 母号下的邮箱维度本地资料，key 为小写邮箱
   lastRefreshAt?: number;
   lastError?: string;
 }
@@ -70,6 +71,7 @@ export interface AccountView {
   personalAccessTokensCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
+  memberProfiles?: Record<string, AccountMemberProfile>;
   lastRefreshAt?: number;
   lastError?: string;
 }
@@ -95,13 +97,61 @@ export interface PendingInvite {
   isScimManaged: boolean;     // invites[].is_scim_managed
 }
 
+/** 母号下某个成员/邀请邮箱的本地资料，跟随邮箱从 pending invite 过渡到 member。 */
+export interface AccountMemberProfile {
+  email: string;
+  note?: string;
+  expiresOn: string;           // yyyy-mm-dd
+  expireRemove: boolean;
+  expireReminder: boolean;
+  updatedAt: number;
+}
+
+export interface AccountMemberProfileInput {
+  note?: string;
+  expiresOn?: string;
+  expireRemove?: boolean;
+  expireReminder?: boolean;
+}
+
 /** 邀请录入 */
 export interface InviteRequest {
   email: string;
   seat: SeatType;
   role?: MemberRole;          // 默认 standard-user
   confirmBillingRisk?: boolean;
+  memberProfile?: AccountMemberProfileInput;
 }
+
+export interface NotificationSettings {
+  advanceReminderDays: number;
+  triggerTime: string;         // HH:mm，本地时区
+  channels: NotificationChannels;
+  lastRunDate?: string;
+  lastRunAt?: number;
+}
+
+export interface NotificationChannels {
+  webhook: {
+    enabled: boolean;
+    url: string;
+  };
+  feishu: {
+    enabled: boolean;
+    webhookUrl: string;
+  };
+  telegram: {
+    enabled: boolean;
+    botToken: string;
+    chatId: string;
+  };
+  wecom: {
+    enabled: boolean;
+    webhookUrl: string;
+  };
+}
+
+export type NotificationChannelKey = keyof NotificationChannels;
 
 export type SubaccountStatus =
   | 'empty'

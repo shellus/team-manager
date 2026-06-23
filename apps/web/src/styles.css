@@ -709,11 +709,45 @@ input[readonly] {
   width: min(820px, 100%);
 }
 
+.notification-settings-dialog {
+  width: min(840px, 100%);
+}
+
+.member-profile-dialog {
+  width: min(620px, 100%);
+}
+
 .dialog-form-grid {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(150px, 220px);
   gap: 12px;
   align-items: end;
+}
+
+.member-profile-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 190px);
+  gap: 12px;
+  align-items: end;
+}
+
+.profile-note-field {
+  grid-column: 1 / -1;
+}
+
+.profile-switch-row {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .settings-dialog-body {
@@ -919,6 +953,17 @@ button.tiny-action {
   gap: 8px;
 }
 
+.channel-control {
+  display: grid;
+  grid-template-columns: minmax(112px, auto) minmax(220px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.channel-control-pair {
+  grid-template-columns: minmax(112px, auto) minmax(180px, 1fr) minmax(130px, 180px);
+}
+
 .setting-control-wide {
   grid-template-columns: minmax(240px, 1fr) auto;
   justify-content: stretch;
@@ -1020,7 +1065,7 @@ button.tiny-action {
 
 .member-table {
   width: 100%;
-  min-width: 720px;
+  min-width: 860px;
   border-collapse: collapse;
   font-size: 14px;
   background: #fff;
@@ -1050,7 +1095,35 @@ button.tiny-action {
 }
 
 .pending-table {
-  min-width: 680px;
+  min-width: 820px;
+}
+
+.profile-cell {
+  min-width: 180px;
+  display: grid;
+  gap: 5px;
+  align-items: start;
+}
+
+.profile-cell span,
+.profile-cell small {
+  overflow-wrap: anywhere;
+}
+
+.profile-cell span {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.profile-cell small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.profile-cell button {
+  justify-self: start;
 }
 
 .table-empty {
@@ -1917,10 +1990,13 @@ button.tiny-action {
 
   .summary-strip,
   .dialog-form-grid,
+  .member-profile-grid,
   .form-row,
   .form-row.compact,
   .setting-control,
   .setting-control-wide,
+  .channel-control,
+  .channel-control-pair,
   .credential-preview-grid,
   .credential-state-grid,
   .runtime-capability-grid,

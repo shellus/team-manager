@@ -8,6 +8,7 @@ import type { AppConfig } from './config.js';
 import { signJwt, verifyJwt } from './auth/jwt.js';
 import { hashPassword, verifyPasswordHash } from './auth/password.js';
 import { AccountStore } from './accountStore.js';
+import { AppSettingsStore } from './appSettingsStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
@@ -26,6 +27,7 @@ export interface BuildAppDeps {
   subaccountCodexAutoAuth?: CodexAutoAuthExecutor;
   subaccountRegistration?: SubaccountRegistrationExecutor;
   teamTransport?: Transport;
+  settingsStore?: AppSettingsStore;
 }
 
 // 恒定时间字符串比较，避免 token 校验的时序侧信道
@@ -44,10 +46,13 @@ export async function buildApp({
   subaccountQuotaTransport,
   subaccountCodexAutoAuth,
   subaccountRegistration,
-  teamTransport
+  teamTransport,
+  settingsStore
 }: BuildAppDeps): Promise<Hono> {
   const app = new Hono();
   const service = new TeamService(store, teamTransport);
+  const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
+  await appSettingsStore.init();
   const subaccountService = new SubaccountService(
     subaccountStore,
     subaccountCodexFetch,
@@ -262,6 +267,16 @@ export async function buildApp({
     }
   };
 
+  // ---- 全局设置 ----
+  api.get('/settings/notifications', (c) =>
+    wrap(c, () => Promise.resolve(appSettingsStore.getNotificationSettings()))
+  );
+
+  api.patch('/settings/notifications', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => appSettingsStore.updateNotificationSettings(body));
+  });
+
   // ---- 母号 ----
   api.get('/accounts', (c) => wrap(c, () => service.listAccounts()));
 
@@ -301,7 +316,27 @@ export async function buildApp({
         email: body.email!,
         seat: body.seat!,
         role: body.role,
-        confirmBillingRisk: body.confirmBillingRisk
+        confirmBillingRisk: body.confirmBillingRisk,
+        memberProfile: body.memberProfile
+      })
+    );
+  });
+
+  api.patch('/accounts/:id/member-profiles', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      email?: string;
+      note?: string;
+      expiresOn?: string;
+      expireRemove?: boolean;
+      expireReminder?: boolean;
+    };
+    if (!body.email?.trim()) return c.json({ ok: false, error: '缺少 email' }, 400);
+    return wrap(c, () =>
+      service.updateMemberProfile(c.req.param('id'), body.email!, {
+        note: body.note,
+        expiresOn: body.expiresOn,
+        expireRemove: body.expireRemove,
+        expireReminder: body.expireReminder
       })
     );
   });

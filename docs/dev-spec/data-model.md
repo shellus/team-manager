@@ -34,6 +34,22 @@
 | `workspaceReferralsEnabled` / `workspaceReferralsEnabledCachedAt` | settings 刷新或 Codex 邀请开关写操作 | “允许成员发送 Codex 邀请”缓存 |
 | `workspaceReferralsEnabledVisible` | settings 刷新或 Codex 邀请开关写操作 | 远端是否展示该设置 |
 | `personalAccessTokensEnabled` / `personalAccessTokensCachedAt` | settings 刷新或 beta feature 写操作 | “允许用户创建个人访问令牌”缓存 |
+| `memberProfiles` | 本地输入 | 母号下邮箱维度资料，key 为小写邮箱 |
+
+### Member profiles
+
+`memberProfiles` 保存母号下某个邮箱的本地运营资料：
+
+| 字段 | 说明 |
+|---|---|
+| `email` | 小写邮箱，和 map key 一致 |
+| `note` | 邮箱备注文本，可为空 |
+| `expiresOn` | 到期日期，格式为 `yyyy-mm-dd` |
+| `expireRemove` | 到期移除标记，默认 `false` |
+| `expireReminder` | 是否进入到期提醒，邀请默认 `true` |
+| `updatedAt` | 本地更新时间 |
+
+该资料的维度是“母号内部 id × 邮箱”，不是 invite id 或 user id。pending invite 被接受后，该邮箱会从 `pendingInvitesCache` 移动到 `membersCache`，但 `memberProfiles[邮箱]` 保持不变。前端展示时按当前行邮箱关联资料。
 
 ### Derived values
 
@@ -51,6 +67,7 @@
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
 | 邀请成员 | 远端邀请成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
+| 编辑邮箱资料 | 更新 `memberProfiles[lowercase(email)]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
 | 撤销邀请 | 远端撤销成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
 | 移除成员 | 远端移除成功后刷新 `membersCache`，返回 `AccountView` | 合并返回的母号 view |
 | 改成员席位 | 远端修改成功后刷新 `membersCache`；目标席位未变化时也保存当前成员缓存 | 合并返回的母号 view |
@@ -60,7 +77,25 @@
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `note`、`groupName`；提供 session 时更新 `label`、`email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 
-邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。
+邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。邀请成功后，service 会为目标邮箱 upsert `memberProfiles`。如果调用方未提供邮箱资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
+
+`expireRemove` 是本地运营标记，不会在提醒任务中自动移除远端成员。远端移除仍必须由页面、API 或 service 显式调用。
+
+## 全局通知设置
+
+全局通知设置持久化在 `data/app-settings.json`，不属于任何母号。当前模型只保存到期提醒所需配置：
+
+| 字段 | 说明 |
+|---|---|
+| `advanceReminderDays` | 提前提醒天数，默认 `3` |
+| `triggerTime` | 每日本地触发时间，默认 `08:00` |
+| `channels.webhook` | 通用 webhook，发送 JSON payload |
+| `channels.feishu` | 飞书机器人 webhook |
+| `channels.telegram` | Telegram bot token 和 chat id |
+| `channels.wecom` | 企业微信机器人 webhook |
+| `lastRunDate` / `lastRunAt` | 提醒任务最近一次运行标记 |
+
+通知任务按 `triggerTime` 每天最多运行一次，扫描所有母号 `memberProfiles` 中 `expireReminder=true` 且到期日在提醒窗口内的邮箱。通知内容会包含邮箱、母号 workspace、当前行状态（`invited`、`member` 或仅本地记录）、到期日期、剩余天数、到期移除标记和备注。
 
 ## 子号模型
 

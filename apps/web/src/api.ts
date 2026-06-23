@@ -1,6 +1,8 @@
 import type {
+  AccountMemberProfileInput,
   AccountView,
   Member,
+  NotificationSettings,
   PendingInvite,
   SeatType,
   ApiResult,
@@ -69,12 +71,22 @@ export const apiClient = {
   removeAccount: (id: string) => call<boolean>('DELETE', `/accounts/${id}`),
   listMembers: (id: string) => call<Member[]>('GET', `/accounts/${id}/members`),
   refreshMembers: (id: string) => call<AccountView>('POST', `/accounts/${id}/members/refresh`),
-  invite: (id: string, email: string, seat: SeatType, confirmBillingRisk = false) =>
-    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, confirmBillingRisk }),
+  invite: (
+    id: string,
+    email: string,
+    seat: SeatType,
+    memberProfile: AccountMemberProfileInput,
+    confirmBillingRisk = false
+  ) =>
+    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, memberProfile, confirmBillingRisk }),
   listPendingInvites: (id: string) => call<PendingInvite[]>('GET', `/accounts/${id}/invites`),
   refreshPendingInvites: (id: string) => call<AccountView>('POST', `/accounts/${id}/invites/refresh`),
   revokePendingInvite: (id: string, email: string) =>
     call<AccountView>('DELETE', `/accounts/${id}/invites`, { email }),
+  updateMemberProfile: (
+    id: string,
+    payload: { email: string } & AccountMemberProfileInput
+  ) => call<AccountView>('PATCH', `/accounts/${id}/member-profiles`, payload),
   removeMember: (id: string, userId: string) => call<AccountView>('DELETE', `/accounts/${id}/members/${userId}`),
   setMemberSeat: (id: string, userId: string, seat: SeatType, confirmBillingRisk = false) =>
     call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),
@@ -86,6 +98,9 @@ export const apiClient = {
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { workspaceReferralsEnabled }),
   setPersonalAccessTokensEnabled: (id: string, personalAccessTokensEnabled: boolean) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { personalAccessTokensEnabled }),
+  getNotificationSettings: () => call<NotificationSettings>('GET', '/settings/notifications'),
+  updateNotificationSettings: (payload: NotificationSettings) =>
+    call<NotificationSettings>('PATCH', '/settings/notifications', payload),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
   importSubaccountSession: (payload: Record<string, unknown>) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),

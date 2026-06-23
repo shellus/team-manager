@@ -6,6 +6,27 @@ import { AccountCard } from './AccountCard.js';
 import { MemberPanel } from './MemberPanel.js';
 import { SubaccountPanel } from './SubaccountPanel.js';
 import { SessionImportDialog } from './SessionImportDialog.js';
+import { NotificationSettingsDialog } from './NotificationSettingsDialog.js';
+
+type AppSection = 'parents' | 'subaccounts';
+
+function readInitialSection(): AppSection {
+  const section = new URLSearchParams(window.location.search).get('section');
+  return section === 'subaccounts' ? 'subaccounts' : 'parents';
+}
+
+function readInitialNotificationDialogOpen(): boolean {
+  return new URLSearchParams(window.location.search).get('dialog') === 'notifications';
+}
+
+function updateUrlState(updates: Record<string, string | null>) {
+  const url = new URL(window.location.href);
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null) url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+  }
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
 
 export function App() {
   const removeDialogTitleId = useId();
@@ -16,11 +37,22 @@ export function App() {
   const [selectedId, setSelectedId] = useState('');
   const [selectedGroupName, setSelectedGroupName] = useState('');
   const [mode, setMode] = useState<'members' | 'empty'>('empty');
-  const [section, setSection] = useState<'parents' | 'subaccounts'>('parents');
+  const [section, setSectionState] = useState<AppSection>(readInitialSection);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(() => new Set());
   const [confirmRemoveId, setConfirmRemoveId] = useState('');
   const [removingId, setRemovingId] = useState('');
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [notificationDialogOpen, setNotificationDialogOpenState] = useState(readInitialNotificationDialogOpen);
+
+  const setSection = useCallback((next: AppSection) => {
+    setSectionState(next);
+    updateUrlState({ section: next });
+  }, []);
+
+  const setNotificationDialogOpen = useCallback((open: boolean) => {
+    setNotificationDialogOpenState(open);
+    updateUrlState({ dialog: open ? 'notifications' : null });
+  }, []);
 
   const accountGroups = useMemo(() => {
     const groups: Array<{ name: string; count: number }> = [];
@@ -194,6 +226,12 @@ export function App() {
           </div>
           <button
             className="ghost"
+            onClick={() => setNotificationDialogOpen(true)}
+          >
+            通知设置
+          </button>
+          <button
+            className="ghost"
             onClick={() => {
               clearToken();
               setAuthed(false);
@@ -221,6 +259,11 @@ export function App() {
           setMode('members');
           setSection('parents');
         }}
+      />
+
+      <NotificationSettingsDialog
+        open={notificationDialogOpen}
+        onClose={() => setNotificationDialogOpen(false)}
       />
 
       {removingAccount && (

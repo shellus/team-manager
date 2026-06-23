@@ -11,9 +11,47 @@ type StoredAccount = Account & {
 };
 
 const DEFAULT_ACCOUNT_GROUP = '默认分组';
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function normalizeEmail(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function normalizeMemberProfiles(input: Account['memberProfiles']): Account['memberProfiles'] | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+
+  const profiles: NonNullable<Account['memberProfiles']> = {};
+  for (const [key, rawProfile] of Object.entries(input)) {
+    if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile)) continue;
+    const profile = rawProfile as unknown as Record<string, unknown>;
+    const email = normalizeEmail(profile.email) || normalizeEmail(key);
+    if (!email) continue;
+
+    const expiresOn = typeof profile.expiresOn === 'string' && DATE_ONLY_PATTERN.test(profile.expiresOn)
+      ? profile.expiresOn
+      : undefined;
+    if (!expiresOn) continue;
+
+    const note = typeof profile.note === 'string' ? profile.note.trim() : '';
+    const updatedAt = typeof profile.updatedAt === 'number' && Number.isFinite(profile.updatedAt)
+      ? profile.updatedAt
+      : Date.now();
+
+    profiles[email] = {
+      email,
+      ...(note ? { note } : {}),
+      expiresOn,
+      expireRemove: typeof profile.expireRemove === 'boolean' ? profile.expireRemove : false,
+      expireReminder: typeof profile.expireReminder === 'boolean' ? profile.expireReminder : true,
+      updatedAt
+    };
+  }
+
+  return Object.keys(profiles).length > 0 ? profiles : undefined;
 }
 
 function stripLegacyDerivedFields(input: StoredAccount): { account: Account; changed: boolean } {
@@ -35,13 +73,15 @@ function stripLegacyDerivedFields(input: StoredAccount): { account: Account; cha
     ...account,
     label: email || label,
     note: migratedNote,
-    groupName
+    groupName,
+    memberProfiles: normalizeMemberProfiles(account.memberProfiles)
   };
   changed =
     changed ||
     normalized.label !== account.label ||
     normalized.note !== account.note ||
-    normalized.groupName !== account.groupName;
+    normalized.groupName !== account.groupName ||
+    normalized.memberProfiles !== account.memberProfiles;
   return { account: normalized, changed };
 }
 

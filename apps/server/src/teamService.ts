@@ -1,6 +1,8 @@
 import type {
   Account,
   AccountFingerprint,
+  AccountMemberProfile,
+  AccountMemberProfileInput,
   AccountView,
   Member,
   PendingInvite,
@@ -17,6 +19,8 @@ import {
   type ChatGptAccountCheckEntry
 } from './chatgptApi.js';
 import { createTransport, type Transport } from './transport.js';
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
 export class TeamService {
@@ -72,6 +76,7 @@ export class TeamService {
       personalAccessTokensCachedAt: account.personalAccessTokensCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
+      memberProfiles: account.memberProfiles,
       lastRefreshAt: account.lastRefreshAt,
       lastError: account.lastError
     };
@@ -207,14 +212,73 @@ export class TeamService {
   /** 邀请：若是 ChatGPT 席位且可能增加账单，要求调用方显式确认。 */
   async invite(id: string, req: InviteRequest): Promise<AccountView> {
     const { api } = await this.clientFor(id);
+    const email = req.email.trim();
+    if (!email) throw new ServiceError(400, '缺少邀请邮箱');
     if (req.seat === 'default') {
       const count = await this.countRemoteChatgptSeats(api);
       if (count >= MAX_CHATGPT_SEATS && !req.confirmBillingRisk) {
         throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
       }
     }
-    await api.invite(req.email, req.seat, req.role);
-    return this.viewFromAccount(await this.refreshPendingInviteCache(id, api));
+    await api.invite(email, req.seat, req.role);
+    await this.refreshPendingInviteCache(id, api);
+    return this.updateMemberProfile(id, email, req.memberProfile ?? {});
+  }
+
+  async updateMemberProfile(
+    id: string,
+    email: string,
+    input: AccountMemberProfileInput
+  ): Promise<AccountView> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+
+    const normalizedEmail = this.normalizeProfileEmail(email);
+    const existingProfiles = account.memberProfiles ?? {};
+    const nextProfile = this.buildMemberProfile(normalizedEmail, existingProfiles[normalizedEmail], input);
+    const updated = await this.store.update(id, {
+      memberProfiles: {
+        ...existingProfiles,
+        [normalizedEmail]: nextProfile
+      },
+      lastError: undefined
+    });
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
+  private normalizeProfileEmail(email: string): string {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) throw new ServiceError(400, '缺少邮箱');
+    return normalized;
+  }
+
+  private buildMemberProfile(
+    email: string,
+    existing: AccountMemberProfile | undefined,
+    input: AccountMemberProfileInput
+  ): AccountMemberProfile {
+    const note = typeof input.note === 'string' ? input.note.trim() : existing?.note;
+    const expiresOn = this.normalizeProfileDate(input.expiresOn, existing?.expiresOn);
+    return {
+      email,
+      ...(note ? { note } : {}),
+      expiresOn,
+      expireRemove: typeof input.expireRemove === 'boolean' ? input.expireRemove : (existing?.expireRemove ?? false),
+      expireReminder:
+        typeof input.expireReminder === 'boolean' ? input.expireReminder : (existing?.expireReminder ?? true),
+      updatedAt: Date.now()
+    };
+  }
+
+  private normalizeProfileDate(value: string | undefined, fallback: string | undefined): string {
+    if (value !== undefined) {
+      const trimmed = value.trim();
+      if (!DATE_ONLY_PATTERN.test(trimmed)) throw new ServiceError(400, '到期时间格式应为 yyyy-mm-dd');
+      return trimmed;
+    }
+    if (fallback && DATE_ONLY_PATTERN.test(fallback)) return fallback;
+    return localDateAfterDays(30);
   }
 
   async listCachedPendingInvites(id: string): Promise<PendingInvite[]> {
@@ -457,6 +521,15 @@ export class TeamService {
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);
   }
+}
+
+function localDateAfterDays(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export class ServiceError extends Error {

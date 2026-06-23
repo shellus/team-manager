@@ -1,11 +1,19 @@
 import { useEffect, useId, useState, useCallback } from 'react';
-import type { AccountView, Member, PendingInvite, SeatType } from '@team-manager/shared';
+import type {
+  AccountMemberProfile,
+  AccountMemberProfileInput,
+  AccountView,
+  Member,
+  PendingInvite,
+  SeatType
+} from '@team-manager/shared';
 import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS, getChatGptSessionUserEmail } from '@team-manager/shared';
 import { apiClient, ApiError } from './api.js';
 import { roleLabel, seatLabel, SEAT_LABEL } from './labels.js';
+import { SettingSwitch } from './SettingSwitch.js';
 
 type BillingRisk =
-  | { kind: 'invite'; email: string; seat: SeatType }
+  | { kind: 'invite'; email: string; seat: SeatType; memberProfile: AccountMemberProfileInput }
   | { kind: 'member-seat'; userId: string; email: string; seat: SeatType };
 
 type RunOptions<T> = {
@@ -13,13 +21,11 @@ type RunOptions<T> = {
   after?: (result: T) => Promise<void> | void;
 };
 
-type ActiveDialog = 'invite' | 'settings' | null;
+type ActiveDialog = 'invite' | 'settings' | 'member-profile' | null;
 
-type SettingSwitchProps = {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
+type EditingMemberProfile = {
+  email: string;
+  source: 'pending' | 'member';
 };
 
 function formatDateTime(value: string) {
@@ -58,22 +64,33 @@ function latestTime(...values: Array<number | undefined>) {
   return latest || undefined;
 }
 
-function SettingSwitch({ checked, disabled = false, label, onChange }: SettingSwitchProps) {
-  return (
-    <label className="setting-switch">
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        aria-label={label}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span className="switch-track" aria-hidden="true">
-        <span className="switch-thumb" />
-      </span>
-      <span className="switch-label">{checked ? '允许' : '关闭'}</span>
-    </label>
-  );
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function defaultExpiresOn() {
+  const date = new Date();
+  date.setDate(date.getDate() + 30);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function profileForEmail(
+  profiles: AccountView['memberProfiles'] | undefined,
+  email: string
+): AccountMemberProfile | undefined {
+  return profiles?.[normalizeEmail(email)];
+}
+
+function profileSummary(profile: AccountMemberProfile | undefined) {
+  if (!profile) return '未设置';
+  const flags = [
+    profile.expireReminder ? '提醒' : '不提醒',
+    profile.expireRemove ? '到期移除' : '保留成员'
+  ];
+  return `${profile.expiresOn} · ${flags.join(' · ')}`;
 }
 
 export function MemberPanel({
@@ -96,6 +113,7 @@ export function MemberPanel({
 }) {
   const inviteTitleId = useId();
   const settingsTitleId = useId();
+  const profileTitleId = useId();
   const [members, setMembers] = useState<Member[]>(() => account.membersCache ?? []);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(() => account.pendingInvitesCache ?? []);
   const [membersCachedAt, setMembersCachedAt] = useState(account.membersCachedAt);
@@ -114,6 +132,10 @@ export function MemberPanel({
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteSeat, setInviteSeat] = useState<SeatType>(account.defaultSeat ?? 'usage_based');
+  const [inviteProfileNote, setInviteProfileNote] = useState('');
+  const [inviteProfileExpiresOn, setInviteProfileExpiresOn] = useState(defaultExpiresOn);
+  const [inviteProfileExpireRemove, setInviteProfileExpireRemove] = useState(false);
+  const [inviteProfileExpireReminder, setInviteProfileExpireReminder] = useState(true);
   const [teamNameDraft, setTeamNameDraft] = useState(account.workspaceName ?? '');
   const [localNoteDraft, setLocalNoteDraft] = useState(account.note ?? '');
   const [localGroupNameDraft, setLocalGroupNameDraft] = useState(account.groupName || '默认分组');
@@ -139,6 +161,11 @@ export function MemberPanel({
   const [billingRisk, setBillingRisk] = useState<BillingRisk | null>(null);
   const [confirmKickId, setConfirmKickId] = useState('');
   const [confirmRevokeEmail, setConfirmRevokeEmail] = useState('');
+  const [editingProfile, setEditingProfile] = useState<EditingMemberProfile | null>(null);
+  const [profileNoteDraft, setProfileNoteDraft] = useState('');
+  const [profileExpiresOnDraft, setProfileExpiresOnDraft] = useState(defaultExpiresOn);
+  const [profileExpireRemoveDraft, setProfileExpireRemoveDraft] = useState(false);
+  const [profileExpireReminderDraft, setProfileExpireReminderDraft] = useState(true);
 
   const applyAccountView = useCallback(
     (updated: AccountView) => {
@@ -212,6 +239,7 @@ export function MemberPanel({
     setLocalGroupNameDraft(account.groupName || '默认分组');
     setLocalSessionDraft('');
     setLocalSessionEmail('');
+    resetInviteProfileDraft();
   }, [
     account.id,
     account.note,
@@ -236,13 +264,17 @@ export function MemberPanel({
     setBillingRisk(null);
     setConfirmKickId('');
     setConfirmRevokeEmail('');
+    setEditingProfile(null);
     setActiveDialog(null);
   }, [account.id]);
 
   useEffect(() => {
     if (!activeDialog) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy) setActiveDialog(null);
+      if (event.key === 'Escape' && !busy) {
+        setEditingProfile(null);
+        setActiveDialog(null);
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -285,23 +317,67 @@ export function MemberPanel({
     }
   };
 
+  const resetInviteProfileDraft = () => {
+    setInviteProfileNote('');
+    setInviteProfileExpiresOn(defaultExpiresOn());
+    setInviteProfileExpireRemove(false);
+    setInviteProfileExpireReminder(true);
+  };
+
+  const currentInviteProfile = (): AccountMemberProfileInput => ({
+    note: inviteProfileNote.trim(),
+    expiresOn: inviteProfileExpiresOn,
+    expireRemove: inviteProfileExpireRemove,
+    expireReminder: inviteProfileExpireReminder
+  });
+
   const submitInvite = (confirmBillingRisk = false, preset?: Extract<BillingRisk, { kind: 'invite' }>) => {
     const email = (preset?.email ?? inviteEmail).trim();
     const seat = preset?.seat ?? inviteSeat;
-    if (!email) return;
+    const memberProfile = preset?.memberProfile ?? currentInviteProfile();
+    if (!email || !memberProfile.expiresOn) return;
     void run(
       'invite',
       async () => {
-        const updated = await apiClient.invite(account.id, email, seat, confirmBillingRisk);
+        const updated = await apiClient.invite(account.id, email, seat, memberProfile, confirmBillingRisk);
         applyAccountView(updated);
         setInviteEmail('');
+        resetInviteProfileDraft();
         return updated;
       },
       {
-        risk: { kind: 'invite', email, seat },
+        risk: { kind: 'invite', email, seat, memberProfile },
         after: () => setActiveDialog(null)
       }
     );
+  };
+
+  const beginEditProfile = (email: string, source: EditingMemberProfile['source']) => {
+    const profile = profileForEmail(account.memberProfiles, email);
+    setEditingProfile({ email, source });
+    setProfileNoteDraft(profile?.note ?? '');
+    setProfileExpiresOnDraft(profile?.expiresOn ?? defaultExpiresOn());
+    setProfileExpireRemoveDraft(profile?.expireRemove ?? false);
+    setProfileExpireReminderDraft(profile?.expireReminder ?? true);
+    setActiveDialog('member-profile');
+  };
+
+  const saveMemberProfile = () => {
+    if (!editingProfile || !profileExpiresOnDraft) return;
+    const email = editingProfile.email;
+    void run(`profile-${normalizeEmail(email)}`, async () => {
+      applyAccountView(
+        await apiClient.updateMemberProfile(account.id, {
+          email,
+          note: profileNoteDraft.trim(),
+          expiresOn: profileExpiresOnDraft,
+          expireRemove: profileExpireRemoveDraft,
+          expireReminder: profileExpireReminderDraft
+        })
+      );
+      setEditingProfile(null);
+      setActiveDialog(null);
+    });
   };
 
   const updateLocalSessionDraft = (value: string) => {
@@ -476,6 +552,44 @@ export function MemberPanel({
                 </select>
               </label>
             </div>
+            <div className="member-profile-grid">
+              <label className="field profile-note-field">
+                <span>备注文本</span>
+                <input
+                  value={inviteProfileNote}
+                  onChange={(event) => setInviteProfileNote(event.target.value)}
+                  placeholder="例如客户名、用途或订单备注"
+                />
+              </label>
+              <label className="field">
+                <span>到期时间</span>
+                <input
+                  type="date"
+                  value={inviteProfileExpiresOn}
+                  onChange={(event) => setInviteProfileExpiresOn(event.target.value)}
+                />
+              </label>
+              <div className="profile-switch-row">
+                <span>到期提醒</span>
+                <SettingSwitch
+                  label="到期提醒"
+                  checked={inviteProfileExpireReminder}
+                  offLabel="关闭"
+                  onChange={setInviteProfileExpireReminder}
+                  onLabel="开启"
+                />
+              </div>
+              <div className="profile-switch-row">
+                <span>到期移除</span>
+                <SettingSwitch
+                  label="到期移除"
+                  checked={inviteProfileExpireRemove}
+                  offLabel="关闭"
+                  onChange={setInviteProfileExpireRemove}
+                  onLabel="开启"
+                />
+              </div>
+            </div>
             {billingRisk?.kind === 'invite' && billingRiskNotice}
             <div className="modal-actions">
               <button type="button" className="ghost" onClick={() => setActiveDialog(null)} disabled={!!busy}>
@@ -484,7 +598,7 @@ export function MemberPanel({
               <button
                 type="button"
                 className="primary"
-                disabled={!inviteEmail.trim() || busy === 'invite'}
+                disabled={!inviteEmail.trim() || !inviteProfileExpiresOn || busy === 'invite'}
                 onClick={() => submitInvite()}
               >
                 {busy === 'invite' ? '发送中' : '发送邀请'}
@@ -709,6 +823,95 @@ export function MemberPanel({
         </div>
       )}
 
+      {activeDialog === 'member-profile' && editingProfile && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busy) {
+              setEditingProfile(null);
+              setActiveDialog(null);
+            }
+          }}
+        >
+          <section
+            className="modal-panel member-profile-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={profileTitleId}
+          >
+            <div className="modal-head">
+              <div>
+                <h2 id={profileTitleId}>编辑邮箱资料</h2>
+                <p>
+                  {editingProfile.email} · {editingProfile.source === 'pending' ? '待处理邀请' : '成员列表'}
+                </p>
+              </div>
+            </div>
+            <div className="member-profile-grid">
+              <label className="field profile-note-field">
+                <span>备注文本</span>
+                <input
+                  value={profileNoteDraft}
+                  onChange={(event) => setProfileNoteDraft(event.target.value)}
+                  placeholder="例如客户名、用途或订单备注"
+                  autoFocus
+                />
+              </label>
+              <label className="field">
+                <span>到期时间</span>
+                <input
+                  type="date"
+                  value={profileExpiresOnDraft}
+                  onChange={(event) => setProfileExpiresOnDraft(event.target.value)}
+                />
+              </label>
+              <div className="profile-switch-row">
+                <span>到期提醒</span>
+                <SettingSwitch
+                  label="到期提醒"
+                  checked={profileExpireReminderDraft}
+                  offLabel="关闭"
+                  onChange={setProfileExpireReminderDraft}
+                  onLabel="开启"
+                />
+              </div>
+              <div className="profile-switch-row">
+                <span>到期移除</span>
+                <SettingSwitch
+                  label="到期移除"
+                  checked={profileExpireRemoveDraft}
+                  offLabel="关闭"
+                  onChange={setProfileExpireRemoveDraft}
+                  onLabel="开启"
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setEditingProfile(null);
+                  setActiveDialog(null);
+                }}
+                disabled={!!busy}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={!profileExpiresOnDraft || busy === `profile-${normalizeEmail(editingProfile.email)}`}
+                onClick={saveMemberProfile}
+              >
+                {busy === `profile-${normalizeEmail(editingProfile.email)}` ? '保存中' : '保存资料'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       <section className="block member-block">
         <div className="section-head">
           <h3 className="title-with-loader">
@@ -741,6 +944,7 @@ export function MemberPanel({
             <thead>
               <tr>
                 <th>邮箱</th>
+                <th>本地资料</th>
                 <th>角色</th>
                 <th>席位</th>
                 <th>邀请时间</th>
@@ -751,25 +955,35 @@ export function MemberPanel({
               {invitesRefreshing && pendingInvites.length === 0 && (
                 <>
                   <tr className="skeleton-row">
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                   </tr>
                   <tr className="skeleton-row">
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                   </tr>
                 </>
               )}
               {!invitesRefreshing && pendingInvites.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="table-empty">
+                  <td colSpan={6} className="table-empty">
                     {hasInviteSnapshot ? '暂无待处理邀请' : '尚未刷新待处理邀请'}
                   </td>
                 </tr>
               )}
               {pendingInvites.map((invite) => {
                 const confirming = confirmRevokeEmail === invite.email;
+                const profile = profileForEmail(account.memberProfiles, invite.email);
                 return (
                   <tr key={invite.inviteId || invite.email}>
                     <td data-label="邮箱">{invite.email}</td>
+                    <td data-label="本地资料">
+                      <div className="profile-cell">
+                        <span>{profileSummary(profile)}</span>
+                        {profile?.note && <small>{profile.note}</small>}
+                        <button className="ghost tiny-action" onClick={() => beginEditProfile(invite.email, 'pending')}>
+                          编辑资料
+                        </button>
+                      </div>
+                    </td>
                     <td data-label="角色">{roleLabel(invite.role)}</td>
                     <td data-label="席位">{seatLabel(invite.seat)}</td>
                     <td data-label="邀请时间">{formatDateTime(invite.createdTime)}</td>
@@ -839,6 +1053,7 @@ export function MemberPanel({
             <thead>
               <tr>
                 <th>邮箱</th>
+                <th>本地资料</th>
                 <th>姓名</th>
                 <th>角色</th>
                 <th>席位</th>
@@ -849,19 +1064,19 @@ export function MemberPanel({
               {membersRefreshing && members.length === 0 && (
                 <>
                   <tr className="skeleton-row">
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                   </tr>
                   <tr className="skeleton-row">
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                   </tr>
                   <tr className="skeleton-row">
-                    <td colSpan={5} />
+                    <td colSpan={6} />
                   </tr>
                 </>
               )}
               {!membersRefreshing && members.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="table-empty">
+                  <td colSpan={6} className="table-empty">
                     {hasMemberSnapshot ? '暂无成员' : '尚未刷新成员列表'}
                   </td>
                 </tr>
@@ -869,9 +1084,19 @@ export function MemberPanel({
               {members.map((member) => {
                 const isOwner = member.role === 'account-owner';
                 const confirming = confirmKickId === member.userId;
+                const profile = profileForEmail(account.memberProfiles, member.email);
                 return (
                   <tr key={member.userId}>
                     <td data-label="邮箱">{member.email}</td>
+                    <td data-label="本地资料">
+                      <div className="profile-cell">
+                        <span>{profileSummary(profile)}</span>
+                        {profile?.note && <small>{profile.note}</small>}
+                        <button className="ghost tiny-action" onClick={() => beginEditProfile(member.email, 'member')}>
+                          编辑资料
+                        </button>
+                      </div>
+                    </td>
                     <td data-label="姓名">{member.name ?? '暂无'}</td>
                     <td data-label="角色">{roleLabel(member.role)}</td>
                     <td data-label="席位">

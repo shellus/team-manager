@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { AccountView, ApiResult } from '@team-manager/shared';
+import type { AccountView, ApiResult, NotificationSettings } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -16,6 +16,15 @@ const originalFetch = globalThis.fetch;
 
 function hasOwn(value: object | undefined, key: string): boolean {
   return Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function localDateAfterDays(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 afterEach(async () => {
@@ -147,6 +156,84 @@ describe('Parent account local-profile API', () => {
     assert.equal(response.status, 400);
     assert.equal(json.ok, false);
     assert.equal(json.error, '缺少 user.email');
+  });
+});
+
+describe('Global notification settings API', () => {
+  it('returns default notification settings with an 08:00 trigger time', async () => {
+    const { app, authHeaders } = await buildParentApiTestApp();
+
+    const response = await app.request('/api/settings/notifications', {
+      method: 'GET',
+      headers: authHeaders
+    });
+    const json = (await response.json()) as ApiResult<NotificationSettings>;
+
+    assert.equal(response.status, 200);
+    assert.equal(json.data!.advanceReminderDays, 3);
+    assert.equal(json.data!.triggerTime, '08:00');
+    assert.equal(json.data!.channels.webhook.enabled, false);
+    assert.equal(json.data!.channels.feishu.enabled, false);
+    assert.equal(json.data!.channels.telegram.enabled, false);
+    assert.equal(json.data!.channels.wecom.enabled, false);
+  });
+
+  it('saves notification channels and the global advance reminder days', async () => {
+    const { app, authHeaders } = await buildParentApiTestApp();
+
+    const response = await app.request('/api/settings/notifications', {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        advanceReminderDays: 5,
+        triggerTime: '09:30',
+        channels: {
+          webhook: { enabled: true, url: 'https://notify.example.test/webhook' },
+          feishu: { enabled: true, webhookUrl: 'https://feishu.example.test/hook' },
+          telegram: { enabled: true, botToken: 'bot-token', chatId: 'chat-id' },
+          wecom: { enabled: true, webhookUrl: 'https://wecom.example.test/hook' }
+        }
+      })
+    });
+    const json = (await response.json()) as ApiResult<NotificationSettings>;
+
+    assert.equal(response.status, 200);
+    assert.equal(json.data!.advanceReminderDays, 5);
+    assert.equal(json.data!.triggerTime, '09:30');
+    assert.equal(json.data!.channels.webhook.enabled, true);
+    assert.equal(json.data!.channels.webhook.url, 'https://notify.example.test/webhook');
+    assert.equal(json.data!.channels.feishu.webhookUrl, 'https://feishu.example.test/hook');
+    assert.equal(json.data!.channels.telegram.botToken, 'bot-token');
+    assert.equal(json.data!.channels.telegram.chatId, 'chat-id');
+    assert.equal(json.data!.channels.wecom.webhookUrl, 'https://wecom.example.test/hook');
+  });
+
+  it('allows clearing saved notification channel values', async () => {
+    const { app, authHeaders } = await buildParentApiTestApp();
+
+    await app.request('/api/settings/notifications', {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        channels: {
+          webhook: { enabled: true, url: 'https://notify.example.test/webhook' }
+        }
+      })
+    });
+    const response = await app.request('/api/settings/notifications', {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        channels: {
+          webhook: { enabled: false, url: '' }
+        }
+      })
+    });
+    const json = (await response.json()) as ApiResult<NotificationSettings>;
+
+    assert.equal(response.status, 200);
+    assert.equal(json.data!.channels.webhook.enabled, false);
+    assert.equal(json.data!.channels.webhook.url, '');
   });
 });
 
@@ -967,6 +1054,164 @@ describe('TeamService invites', () => {
     assert.equal(view.pendingInvitesCache?.[0]?.email, 'new@example.com');
     assert.equal(store.get(account.id)?.pendingInvitesCache?.[0]?.email, 'new@example.com');
     assert.equal(hasOwn(store.get(account.id), 'pendingInviteCount'), false);
+  });
+
+  it('stores invite metadata on the parent email profile keyed by normalized email', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'invite-new',
+                  email_address: 'new@example.com',
+                  role: 'standard-user',
+                  status: 1,
+                  seat_type: 'usage_based',
+                  created_time: '2026-06-18T00:00:00Z',
+                  is_scim_managed: false
+                }
+              ]
+            })
+          };
+        }
+        return { status: 200, body: '{"success":true}' };
+      }
+    };
+    const { account, store, service } = await createServiceWithTransport(transport);
+
+    const view = await service.invite(account.id, {
+      email: 'New@Example.COM',
+      seat: 'usage_based',
+      memberProfile: {
+        note: '租给 Shellus',
+        expiresOn: '2026-07-23',
+        expireRemove: true,
+        expireReminder: false
+      }
+    });
+
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].method, 'POST');
+    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), {
+      email_addresses: ['New@Example.COM'],
+      role: 'standard-user',
+      seat_type: 'usage_based',
+      resend_emails: true
+    });
+    assert.equal(view.memberProfiles?.['new@example.com']?.note, '租给 Shellus');
+    assert.equal(view.memberProfiles?.['new@example.com']?.expiresOn, '2026-07-23');
+    assert.equal(view.memberProfiles?.['new@example.com']?.expireRemove, true);
+    assert.equal(view.memberProfiles?.['new@example.com']?.expireReminder, false);
+    assert.deepEqual(store.get(account.id)?.memberProfiles, view.memberProfiles);
+  });
+
+  it('creates a 30-day expiring member profile when an invite omits metadata', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'invite-new',
+                  email_address: 'new@example.com',
+                  role: 'standard-user',
+                  status: 1,
+                  seat_type: 'usage_based',
+                  created_time: '2026-06-18T00:00:00Z',
+                  is_scim_managed: false
+                }
+              ]
+            })
+          };
+        }
+        return { status: 200, body: '{"success":true}' };
+      }
+    };
+    const { account, service } = await createServiceWithTransport(transport);
+    const expectedExpiresOn = localDateAfterDays(30);
+
+    const view = await service.invite(account.id, { email: 'new@example.com', seat: 'usage_based' });
+
+    assert.equal(view.memberProfiles?.['new@example.com']?.expiresOn, expectedExpiresOn);
+    assert.equal(view.memberProfiles?.['new@example.com']?.expireRemove, false);
+    assert.equal(view.memberProfiles?.['new@example.com']?.expireReminder, true);
+  });
+});
+
+describe('TeamService member email profiles', () => {
+  it('edits the metadata for a parent email without calling ChatGPT', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        throw new Error('remote fetch should not be called while editing local member metadata');
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      label: 'owner@example.com',
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      pendingInvitesCache: [
+        {
+          inviteId: 'invite-a',
+          email: 'child@example.com',
+          role: 'standard-user',
+          status: 1,
+          seat: 'usage_based',
+          createdTime: '2026-06-18T00:00:00Z',
+          isScimManaged: false
+        }
+      ],
+      membersCache: [
+        {
+          userId: 'user-a',
+          email: 'child@example.com',
+          role: 'standard-user',
+          seat: 'usage_based'
+        }
+      ],
+      memberProfiles: {
+        'child@example.com': {
+          email: 'child@example.com',
+          note: '旧备注',
+          expiresOn: '2026-07-01',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      }
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.updateMemberProfile(account.id, ' Child@Example.com ', {
+      note: '新备注',
+      expiresOn: '2026-08-01',
+      expireRemove: true,
+      expireReminder: false
+    });
+
+    assert.equal(requests.length, 0);
+    assert.equal(view.memberProfiles?.['child@example.com']?.note, '新备注');
+    assert.equal(view.memberProfiles?.['child@example.com']?.expiresOn, '2026-08-01');
+    assert.equal(view.memberProfiles?.['child@example.com']?.expireRemove, true);
+    assert.equal(view.memberProfiles?.['child@example.com']?.expireReminder, false);
+    assert.equal(store.get(account.id)?.memberProfiles?.['child@example.com']?.note, '新备注');
+    assert.equal(typeof store.get(account.id)?.memberProfiles?.['child@example.com']?.updatedAt, 'number');
   });
 });
 
