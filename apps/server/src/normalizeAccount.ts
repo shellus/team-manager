@@ -9,8 +9,8 @@ export function normalizeAccountInput(raw: unknown): Omit<Account, 'id'> | { err
   if ('error' in session) return session;
 
   return {
-    label: session.user.email,
     groupName: '默认分组',
+    limitType: 'unknown',
     accountId: session.account.id,
     email: session.user.email,
     accessToken: session.accessToken

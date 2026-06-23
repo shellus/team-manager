@@ -43,6 +43,8 @@ export function TeamManagerThemeProvider({ children }: { children: ReactNode }) 
     root.style.setProperty('--color-bg-shell', tokens.colorBgShell);
     root.style.setProperty('--color-surface', tokens.colorSurface);
     root.style.setProperty('--color-surface-elevated', tokens.colorSurfaceElevated);
+    root.style.setProperty('--color-control-track', tokens.colorControlTrack);
+    root.style.setProperty('--color-control-track-hover', tokens.colorControlTrackHover);
     root.style.setProperty('--color-border-subtle', tokens.colorBorderSubtle);
     root.style.setProperty('--color-text', tokens.colorText);
     root.style.setProperty('--color-text-secondary', tokens.colorTextSecondary);

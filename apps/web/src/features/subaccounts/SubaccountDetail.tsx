@@ -5,9 +5,10 @@ import type {
   SubaccountAuthLog,
   SubaccountView
 } from '@team-manager/shared';
-import { Button, Card, Descriptions, Empty, Space, Table, Tabs, Typography } from 'antd';
+import { Button, Card, Empty, Space, Table, Tabs, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { SubaccountTab } from '../../app/routeState.js';
+import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { formatDateTime } from '../../components/format.js';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
 import { SubaccountAuthPanel } from './SubaccountAuthPanel.js';
@@ -51,7 +52,7 @@ export function SubaccountDetail({
   onOpenDelete: () => void;
   onOpenInvite: () => void;
   onRefreshRuntime: () => void;
-  onStartAuth: (workspaceId: string, label: string) => void;
+  onStartAuth: (workspaceId: string, displayName: string) => void;
   onAutoAuth: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
   onExportCredential: (workspaceId: string) => void;
@@ -65,6 +66,10 @@ export function SubaccountDetail({
     );
   }
 
+  const teamLinkCount = subaccount.teamLinks.length;
+  const credentialCount = subaccount.codexCredentials.length;
+  const logCount = logs.length;
+
   return (
     <Card className="detail-pane">
       <div className="detail-header">
@@ -73,7 +78,13 @@ export function SubaccountDetail({
             <Typography.Title level={2}>{subaccount.label}</Typography.Title>
             <SubaccountStatusTag status={subaccount.status} />
           </Space>
-          <Typography.Paragraph type="secondary">{subaccount.email}</Typography.Paragraph>
+          <Space className="detail-meta-row" size={8} wrap>
+            <Typography.Text type="secondary">{subaccount.email}</Typography.Text>
+            <Typography.Text type="secondary">
+              {subaccount.hasWebSession ? 'Web Session 已录入' : 'Web Session 未录入'}
+            </Typography.Text>
+            <Typography.Text type="secondary">更新 {formatDateTime(subaccount.updatedAt)}</Typography.Text>
+          </Space>
         </div>
         <Space wrap>
           <Button icon={<EditOutlined />} onClick={onOpenEdit}>
@@ -88,19 +99,13 @@ export function SubaccountDetail({
         </Space>
       </div>
 
-      <Descriptions className="summary-descriptions" size="small" column={{ xs: 1, md: 3 }} bordered>
-        <Descriptions.Item label="Web Session">{subaccount.hasWebSession ? '已录入' : '未录入'}</Descriptions.Item>
-        <Descriptions.Item label="Codex 凭证">{subaccount.codexCredentials.length} 份</Descriptions.Item>
-        <Descriptions.Item label="更新">{formatDateTime(subaccount.updatedAt)}</Descriptions.Item>
-      </Descriptions>
-
       <Tabs
         activeKey={activeTab}
         onChange={(key) => onTabChange(key as SubaccountTab)}
         items={[
           {
             key: 'teams',
-            label: 'Team 关联',
+            label: <CountedTabLabel label="Team 关联" count={teamLinkCount} />,
             children: (
               <SubaccountTeamLinks
                 subaccount={subaccount}
@@ -112,7 +117,7 @@ export function SubaccountDetail({
           },
           {
             key: 'credential',
-            label: '凭证',
+            label: <CountedTabLabel label="凭证" count={credentialCount} />,
             children: (
               <SubaccountCredentialPanel
                 subaccount={subaccount}
@@ -169,7 +174,7 @@ export function SubaccountDetail({
           },
           {
             key: 'logs',
-            label: '日志',
+            label: <CountedTabLabel label="日志" count={logCount} />,
             children: (
               <SubaccountAuthPanel
                 runtimeStatus={runtimeStatus}

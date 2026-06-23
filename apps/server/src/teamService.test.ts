@@ -46,20 +46,19 @@ async function buildParentApiTestApp(transport: Transport = recordingTransport()
     webDistDir: join(tempDir, 'dist')
   };
   const store = new AccountStore(tempDir);
-    await store.init();
-    const subaccountStore = new SubaccountStore(tempDir);
-    await subaccountStore.init();
-    const account = await store.add({
-      label: 'owner-old@example.com',
-      note: '原备注',
-      groupName: '自用',
-      accountId: 'workspace-old',
-      email: 'owner-old@example.com',
-      accessToken: 'old-token',
-      status: 'invalid',
-      workspaceName: 'Remote Team',
-      lastError: '旧 token 失效'
-    });
+  await store.init();
+  const subaccountStore = new SubaccountStore(tempDir);
+  await subaccountStore.init();
+  const account = await store.add({
+    note: '原备注',
+    groupName: '自用',
+    accountId: 'workspace-old',
+    email: 'owner-old@example.com',
+    accessToken: 'old-token',
+    status: 'invalid',
+    workspaceName: 'Remote Team',
+    lastError: '旧 token 失效'
+  });
   const app = await buildApp({ config, store, subaccountStore, teamTransport: transport });
   const authHeaders = { Authorization: 'Bearer test-api-token', 'Content-Type': 'application/json' };
   return { app, store, account, authHeaders };
@@ -84,19 +83,19 @@ describe('Parent account local-profile API', () => {
     const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
       method: 'PATCH',
       headers: authHeaders,
-      body: JSON.stringify({ note: '  新备注  ', groupName: '  已租车位  ' })
+      body: JSON.stringify({ note: '  新备注  ', groupName: '  已租车位  ', limitType: 'monthly' })
     });
     const json = (await response.json()) as ApiResult<AccountView>;
     const stored = store.get(account.id);
 
     assert.equal(response.status, 200);
-    assert.equal(json.data!.label, 'owner-old@example.com');
     assert.equal(json.data!.note, '新备注');
     assert.equal(json.data!.groupName, '已租车位');
+    assert.equal(json.data!.limitType, 'monthly');
     assert.equal(json.data!.email, 'owner-old@example.com');
-    assert.equal(stored?.label, 'owner-old@example.com');
     assert.equal(stored?.note, '新备注');
     assert.equal(stored?.groupName, '已租车位');
+    assert.equal(stored?.limitType, 'monthly');
     assert.equal(stored?.accountId, 'workspace-old');
     assert.equal(stored?.accessToken, 'old-token');
     assert.equal(stored?.workspaceName, 'Remote Team');
@@ -113,6 +112,7 @@ describe('Parent account local-profile API', () => {
       body: JSON.stringify({
         note: '新母号备注',
         groupName: '自用',
+        limitType: 'weekly',
         session: {
           user: { email: 'owner-new@example.com' },
           account: { id: 'workspace-new' },
@@ -125,14 +125,14 @@ describe('Parent account local-profile API', () => {
     const stored = store.get(account.id);
 
     assert.equal(response.status, 200);
-    assert.equal(json.data!.label, 'owner-new@example.com');
     assert.equal(json.data!.note, '新母号备注');
     assert.equal(json.data!.groupName, '自用');
+    assert.equal(json.data!.limitType, 'weekly');
     assert.equal(json.data!.email, 'owner-new@example.com');
     assert.equal(json.data!.accountId, 'workspace-new');
-    assert.equal(stored?.label, 'owner-new@example.com');
     assert.equal(stored?.note, '新母号备注');
     assert.equal(stored?.groupName, '自用');
+    assert.equal(stored?.limitType, 'weekly');
     assert.equal(stored?.email, 'owner-new@example.com');
     assert.equal(stored?.accountId, 'workspace-new');
     assert.equal(stored?.accessToken, 'new-parent-access-token');
@@ -237,8 +237,8 @@ describe('Global notification settings API', () => {
   });
 });
 
-describe('AccountStore legacy account sanitation', () => {
-  it('drops legacy derived count fields while preserving canonical caches', async () => {
+describe('AccountStore account sanitation', () => {
+  it('drops fields outside the current Account schema while preserving canonical caches', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
     await writeFile(
       join(tempDir, 'accounts.json'),
@@ -246,7 +246,8 @@ describe('AccountStore legacy account sanitation', () => {
         [
           {
             id: 'account-legacy',
-            label: '旧母号备注',
+            note: '母号备注',
+            limitType: 'weekly',
             accountId: 'workspace-id',
             email: 'owner@example.com',
             accessToken: 'token',
@@ -288,15 +289,15 @@ describe('AccountStore legacy account sanitation', () => {
     assert.equal(hasOwn(stored, 'memberCount'), false);
     assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
     assert.equal(hasOwn(stored, 'pendingInviteCount'), false);
-    assert.equal(stored?.label, 'owner@example.com');
-    assert.equal(stored?.note, '旧母号备注');
+    assert.equal(stored?.note, '母号备注');
     assert.equal(stored?.groupName, '默认分组');
+    assert.equal(stored?.limitType, 'weekly');
     assert.equal(hasOwn(persisted[0], 'memberCount'), false);
     assert.equal(hasOwn(persisted[0], 'chatgptSeatCount'), false);
     assert.equal(hasOwn(persisted[0], 'pendingInviteCount'), false);
-    assert.equal(persisted[0]!.label, 'owner@example.com');
-    assert.equal(persisted[0]!.note, '旧母号备注');
+    assert.equal(persisted[0]!.note, '母号备注');
     assert.equal(persisted[0]!.groupName, '默认分组');
+    assert.equal(persisted[0]!.limitType, 'weekly');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
   });
@@ -314,7 +315,6 @@ describe('TeamService account listing', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -373,7 +373,6 @@ describe('TeamService member cache', () => {
       seat: 'usage_based' as const
     };
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -410,7 +409,6 @@ describe('TeamService member cache', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -457,7 +455,6 @@ describe('TeamService pending invite cache', () => {
       isScimManaged: false
     };
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -501,7 +498,6 @@ describe('TeamService pending invite cache', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -537,7 +533,6 @@ describe('TeamService settings cache', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -587,7 +582,6 @@ describe('TeamService settings cache', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -621,7 +615,6 @@ describe('TeamService team rename', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -654,7 +647,6 @@ describe('TeamService member seat changes', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -820,7 +812,6 @@ describe('TeamService member removal', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -857,7 +848,6 @@ describe('TeamService default seat changes', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -895,7 +885,6 @@ describe('TeamService Codex invite setting changes', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -933,7 +922,6 @@ describe('TeamService personal access token setting changes', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -961,7 +949,6 @@ describe('TeamService invites', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -1161,7 +1148,6 @@ describe('TeamService member email profiles', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
@@ -1221,7 +1207,6 @@ describe('TeamService pending invites', () => {
     const store = new AccountStore(tempDir);
     await store.init();
     const account = await store.add({
-      label: 'owner@example.com',
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',

@@ -293,9 +293,9 @@ export async function buildApp({
 
   api.patch('/accounts/:id/local-profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
-      label?: unknown;
       note?: unknown;
       groupName?: unknown;
+      limitType?: unknown;
       session?: unknown;
     };
     return wrap(c, () => service.updateLocalProfile(c.req.param('id'), body));

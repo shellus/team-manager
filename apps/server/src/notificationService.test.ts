@@ -19,7 +19,6 @@ describe('expiration reminder collection', () => {
     const accounts: Account[] = [
       {
         id: 'account-a',
-        label: 'owner@example.com',
         accountId: 'workspace-id',
         email: 'owner@example.com',
         accessToken: 'token',

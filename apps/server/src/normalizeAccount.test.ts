@@ -17,15 +17,15 @@ describe('normalizeAccountInput', () => {
     const account = normalizeAccountInput(validSession);
 
     assert.ok(!('error' in account));
-    assert.equal(account.label, 'owner@example.com');
     assert.equal(account.email, 'owner@example.com');
     assert.equal(account.note, undefined);
     assert.equal(account.groupName, '默认分组');
+    assert.equal(account.limitType, 'unknown');
     assert.equal(account.accountId, 'workspace-account-id');
     assert.equal(account.accessToken, 'access-token');
   });
 
-  it('does not accept the old flat compatibility shape', () => {
+  it('rejects flat fields outside the ChatGPT session JSON shape', () => {
     const account = normalizeAccountInput({
       accountId: 'workspace-account-id',
       email: 'owner@example.com',
@@ -35,16 +35,15 @@ describe('normalizeAccountInput', () => {
     assert.deepEqual(account, { error: '缺少 user.email' });
   });
 
-  it('uses only user.email for label and email', () => {
+  it('ignores flat email fields outside the session shape', () => {
     const account = normalizeAccountInput({
       ...validSession,
-      label: 'custom label',
       email: 'flat@example.com'
     });
 
     assert.ok(!('error' in account));
-    assert.equal(account.label, 'owner@example.com');
     assert.equal(account.email, 'owner@example.com');
     assert.equal(account.groupName, '默认分组');
+    assert.equal(account.limitType, 'unknown');
   });
 });

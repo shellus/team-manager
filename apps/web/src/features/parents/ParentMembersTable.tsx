@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AccountMemberProfileInput, AccountView, Member, SeatType } from '@team-manager/shared';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Popconfirm, Select, Space, Table, Typography } from 'antd';
@@ -13,6 +13,10 @@ import {
   memberProfileSummary,
   normalizeMemberProfileEmail
 } from './MemberProfileModal.js';
+
+function memberRoleRank(member: Member): number {
+  return member.role === 'account-owner' ? 0 : 1;
+}
 
 export interface MemberSeatRisk {
   kind: 'member-seat';
@@ -33,7 +37,12 @@ export function ParentMembersTable({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
-  const members = account.membersCache ?? [];
+  const members = useMemo(
+    () => (account.membersCache ?? []).map((member, index) => ({ member, index }))
+      .sort((a, b) => memberRoleRank(a.member) - memberRoleRank(b.member) || a.index - b.index)
+      .map((item) => item.member),
+    [account.membersCache]
+  );
 
   const refreshMembers = async () => {
     setBusy('refresh');

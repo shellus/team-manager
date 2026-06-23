@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AccountMemberProfileInput, AccountView, PendingInvite } from '@team-manager/shared';
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Popconfirm, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { apiClient } from '../../api.js';
@@ -16,11 +16,9 @@ import {
 
 export function ParentInvitesTable({
   account,
-  onOpenInvite,
   onAccountChanged
 }: {
   account: AccountView;
-  onOpenInvite: () => void;
   onAccountChanged: (account: AccountView) => void;
 }) {
   const [busy, setBusy] = useState('');
@@ -134,9 +132,6 @@ export function ParentInvitesTable({
         <Space>
           <Button icon={<ReloadOutlined />} loading={busy === 'refresh'} onClick={() => void refreshInvites()}>
             刷新邀请
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={onOpenInvite}>
-            邀请成员
           </Button>
         </Space>
       </div>

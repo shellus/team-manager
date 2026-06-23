@@ -6,7 +6,7 @@ import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Switch, 
 import { apiClient } from '../../api.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { SeatTag } from '../../components/StatusTag.js';
-import { planLabel, roleLabel, SEAT_LABEL } from '../../labels.js';
+import { limitTypeLabel, planLabel, roleLabel, SEAT_LABEL } from '../../labels.js';
 
 interface TeamNameValues {
   teamName: string;
@@ -24,7 +24,6 @@ export function ParentSettingsPanel({
   const [form] = Form.useForm<TeamNameValues>();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const defaultSeat = account.defaultSeat ?? 'usage_based';
 
   useEffect(() => {
     form.setFieldsValue({ teamName: account.workspaceName ?? '' });
@@ -69,9 +68,10 @@ export function ParentSettingsPanel({
         }
       >
         <Descriptions column={{ xs: 1, md: 2 }} bordered size="small">
-          <Descriptions.Item label="owner">{account.label}</Descriptions.Item>
+          <Descriptions.Item label="owner">{account.email}</Descriptions.Item>
           <Descriptions.Item label="备注">{account.note || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="分组">{account.groupName || '默认分组'}</Descriptions.Item>
+          <Descriptions.Item label="限额类型">{limitTypeLabel(account.limitType)}</Descriptions.Item>
           <Descriptions.Item label="workspace">{account.workspaceName || account.accountId}</Descriptions.Item>
           <Descriptions.Item label="套餐">{planLabel(account.planType)}</Descriptions.Item>
           <Descriptions.Item label="角色">{roleLabel(account.role)}</Descriptions.Item>
@@ -106,7 +106,9 @@ export function ParentSettingsPanel({
               </Typography.Paragraph>
             </div>
             <Select<SeatType>
-              value={defaultSeat}
+              value={account.defaultSeat}
+              placeholder="未设置"
+              loading={busy === 'default-seat'}
               options={[
                 { value: 'usage_based', label: SEAT_LABEL.usage_based },
                 { value: 'default', label: SEAT_LABEL.default }

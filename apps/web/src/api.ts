@@ -1,5 +1,6 @@
 import type {
   AccountMemberProfileInput,
+  AccountLimitType,
   AccountView,
   Member,
   NotificationSettings,
@@ -64,7 +65,7 @@ export const apiClient = {
   renameTeam: (id: string, name: string) => call<AccountView>('PATCH', `/accounts/${id}/name`, { name }),
   updateAccountLocalProfile: (
     id: string,
-    payload: { note?: string; groupName?: string; session?: Record<string, unknown> }
+    payload: { note?: string; groupName?: string; limitType?: AccountLimitType; session?: Record<string, unknown> }
   ) =>
     call<AccountView>('PATCH', `/accounts/${id}/local-profile`, payload),
   addAccount: (payload: Record<string, unknown>) => call<AccountView>('POST', '/accounts', payload),

@@ -154,8 +154,6 @@ describe('SubaccountStore', () => {
               teamLinks: [
                 {
                   accountId: 'parent-id',
-                  accountLabel: '旧母号备注',
-                  chatgptAccountId: 'stale-workspace-id',
                   seat: 'usage_based',
                   status: 'member',
                   updatedAt: 20
@@ -196,21 +194,17 @@ describe('SubaccountStore', () => {
       assert.equal(hasOwn(view, 'lastQuota'), false);
       assert.equal(hasOwn(view, 'lastQuotaAt'), false);
       assert.equal(hasOwn(view, 'lastAuthAt'), false);
-      assert.equal(hasOwn(view.teamLinks[0], 'accountLabel'), false);
-      assert.equal(hasOwn(view.teamLinks[0], 'chatgptAccountId'), false);
       assert.equal(persisted[0]!.codexCredentials[0]!.accountId, 'real-workspace-id');
       assert.equal(persisted[0]!.codexCredentials[0]!.fileName, migratedFileName);
       assert.equal(persisted[0]!.codexCredentials[0]!.groupName, '默认号池');
       assert.equal(hasOwn(persisted[0]!.codexCredentials[0], 'credential'), false);
-      assert.equal(hasOwn(persisted[0]!.teamLinks[0], 'accountLabel'), false);
-      assert.equal(hasOwn(persisted[0]!.teamLinks[0], 'chatgptAccountId'), false);
       assert.equal(migratedCredential.refresh_token, 'refresh-token');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('rejects old flat compatibility fields', async () => {
+  it('rejects flat session fields outside the ChatGPT session JSON shape', async () => {
     await withStore(async (store) => {
       await assert.rejects(
         () => store.importSession({ email: 'child@example.com', accessToken: 'web-access-token' }),

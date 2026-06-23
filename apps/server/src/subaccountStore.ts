@@ -26,15 +26,10 @@ type LegacySubaccountCodexCredential = SubaccountCodexCredential & {
   credential?: CodexCredentialJson;
 };
 
-type LegacySubaccountTeamLink = SubaccountTeamLink & {
-  accountLabel?: unknown;
-  chatgptAccountId?: unknown;
-};
-
 type LegacySubaccount = Subaccount & {
   codexCredential?: CodexCredentialJson;
   codexCredentials?: LegacySubaccountCodexCredential[];
-  teamLinks?: LegacySubaccountTeamLink[];
+  teamLinks?: SubaccountTeamLink[];
   lastQuota?: CodexQuotaSnapshot;
   lastQuotaAt?: number;
   lastAuthAt?: number;
@@ -550,7 +545,6 @@ async function normalizeStoredSubaccount(
     });
   }
   const teamLinks = (record.teamLinks ?? []).map((link) => {
-    changed = changed || hasOwn(link, 'accountLabel') || hasOwn(link, 'chatgptAccountId');
     return {
       accountId: link.accountId,
       seat: link.seat,

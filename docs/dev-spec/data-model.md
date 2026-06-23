@@ -9,7 +9,7 @@
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
 - curl_cffi worker、GongXi-Mail、短信接码和授权页面 clearance 属于运行环境能力，不是账号业务模型字段；后端只暴露脱敏可用状态，前端只读展示。
-- 兼容旧数据时允许在 store 初始化阶段清理遗留冗余字段，并立即按当前 schema 持久化。
+- store 只按当前 schema 持久化对象；历史冗余字段应通过离线数据清洗删除，不在业务代码中做兼容映射。
 
 ## 母号模型
 
@@ -20,9 +20,9 @@
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id，所有 UI/API 操作使用该 id 定位母号 |
-| `label` | session JSON | 母号账号显示名，固定使用 owner 邮箱 |
 | `note` | 本地输入 | 母号备注，不等同远端 Team 名称 |
 | `groupName` | 本地输入 | 母号本地分组，缺省归入 `默认分组` |
+| `limitType` | 本地输入 | 本地记录的额度窗口类型：`unknown`、`weekly`、`monthly` |
 | `accountId` | session JSON | ChatGPT workspace account id，用于 `chatgpt-account-id` 上下文 |
 | `email` | session JSON | 母号 owner 邮箱 |
 | `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用，不下发前端 |
@@ -60,7 +60,7 @@
 - pending invite 数：从 `pendingInvitesCache.length` 派生。
 - 列表 item 上的席位标签、状态标签和分组计数：从当前 `AccountView` 派生。
 
-历史字段 `memberCount`、`chatgptSeatCount`、`pendingInviteCount` 属于冗余字段，store 初始化和持久化时应移除。历史上偏离邮箱的 `label` 会在初始化时迁移为 `note`，`label` 归一为 `email`。
+`memberCount`、`chatgptSeatCount`、`pendingInviteCount` 不属于 `Account` schema，应通过数据清洗删除。母号不保存 `label`，显示邮箱统一来自 `email`，备注统一来自 `note`。
 
 ## 母号写操作规则
 
@@ -75,7 +75,7 @@
 | 改 Codex 邀请开关 | 远端修改成功后更新 `workspaceReferralsEnabled`、`workspaceReferralsEnabledVisible` 和缓存时间 | 合并返回的母号 view |
 | 改个人访问令牌开关 | 远端修改成功后更新 `personalAccessTokensEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
-| 编辑本地资料 | 更新 `note`、`groupName`；提供 session 时更新 `label`、`email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
+| 编辑本地资料 | 更新 `note`、`groupName`、`limitType`；提供 session 时更新 `email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 
 邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。邀请成功后，service 会为目标邮箱 upsert `memberProfiles`。如果调用方未提供邮箱资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
 
@@ -142,14 +142,14 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 | `status` | `invited`、`member`、`removed` 或 `unknown` |
 | `updatedAt` | 本地更新时间 |
 
-不要在 `teamLinks` 中复制母号备注名、远端 workspace id 或 Team 名称。前端展示时应从当前母号列表按 `accountId` 派生。历史字段 `accountLabel`、`chatgptAccountId` 属于冗余字段，初始化和持久化时应移除。
+不要在 `teamLinks` 中复制母号备注名、远端 workspace id 或 Team 名称。前端展示时应从当前母号列表按 `accountId` 派生。
 
 ### Derived view fields
 
 - `SubaccountView.hasWebSession` 是允许下发的脱敏能力位，因为前端不能接收 `webAccessToken`。
 - `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
 - `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
-- 顶层 `hasCodexCredential`、`lastQuota`、`lastQuotaAt`、`lastAuthAt` 是历史冗余字段，不应继续出现在 view 或持久化数据中。
+- 顶层 `hasCodexCredential`、`lastQuota`、`lastQuotaAt`、`lastAuthAt` 是冗余字段，不应出现在 view 或持久化数据中。
 
 ## 子号写操作规则
 
@@ -175,6 +175,7 @@ Content-Type: application/json
 {
   "note": "本地备注",
   "groupName": "自用",
+  "limitType": "monthly",
   "session": {
     "user": { "email": "owner@example.com" },
     "account": { "id": "<workspace-account-id>" },
@@ -199,7 +200,7 @@ Content-Type: application/json
 }
 ```
 
-母号 `session` 可省略。`groupName` 为空时归入 `默认分组`，`note` 可为空。为兼容旧调用方，母号接口仍接受 `label`，但会按备注写入 `note`，不会改变母号邮箱显示名。子号 `session` 可省略，`label` 必须是非空字符串。响应返回脱敏 view，不返回旧 session 或新 session 明文。
+母号 `session` 可省略。`groupName` 为空时归入 `默认分组`，`note` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`。母号接口不接受 `label` 字段；母号邮箱显示名统一来自 `email`。子号 `session` 可省略，`label` 必须是非空字符串。响应返回脱敏 view，不返回旧 session 或新 session 明文。
 
 ## Codex 凭证导入 API
 

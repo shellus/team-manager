@@ -1,18 +1,20 @@
 import type { AccountView } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
-import { DeleteOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Segmented, Space, Typography } from 'antd';
-import { AccountStatusTag, SeatTag } from '../../components/StatusTag.js';
+import { DeleteOutlined, MoreOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Card, Dropdown, Input, List, Segmented, Space, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
-import { planLabel, roleLabel } from '../../labels.js';
+import { limitTypeLabel } from '../../labels.js';
 
 export function ParentList({
   groups,
   activeGroup,
   accounts,
+  totalCount,
+  searchQuery,
   selectedId,
   syncingIds,
   onGroupChange,
+  onSearchChange,
   onSelect,
   onRefreshAccount,
   onOpenDelete
@@ -20,9 +22,12 @@ export function ParentList({
   groups: Array<{ name: string; count: number }>;
   activeGroup: string;
   accounts: AccountView[];
+  totalCount: number;
+  searchQuery: string;
   selectedId: string;
   syncingIds: Set<string>;
   onGroupChange: (group: string) => void;
+  onSearchChange: (query: string) => void;
   onSelect: (account: AccountView) => void;
   onRefreshAccount: (account: AccountView) => void;
   onOpenDelete: (account: AccountView) => void;
@@ -32,9 +37,19 @@ export function ParentList({
       <div className="pane-title">
         <div>
           <Typography.Title level={2}>母号</Typography.Title>
-          <Typography.Text type="secondary">{accounts.length} 个 workspace</Typography.Text>
+          <Typography.Text type="secondary">
+            {searchQuery ? `${accounts.length} / ${totalCount} 个 workspace` : `${accounts.length} 个 workspace`}
+          </Typography.Text>
         </div>
       </div>
+      <Input
+        allowClear
+        className="pane-search"
+        prefix={<SearchOutlined />}
+        placeholder="搜索母号邮箱、备注、子号邮箱、子号备注"
+        value={searchQuery}
+        onChange={(event) => onSearchChange(event.target.value)}
+      />
       {groups.length > 0 && (
         <Segmented
           className="group-selector"
@@ -50,12 +65,13 @@ export function ParentList({
       <List
         className="record-list"
         dataSource={accounts}
-        locale={{ emptyText: '当前分组没有母号' }}
+        locale={{ emptyText: searchQuery ? '没有匹配的母号' : '当前分组没有母号' }}
         renderItem={(account) => {
           const memberCount = account.membersCache?.length;
           const seatCount = account.membersCache?.filter((member) => member.seat === 'default').length;
           const selected = account.id === selectedId;
           const syncing = syncingIds.has(account.id);
+          const note = account.note || account.workspaceName || account.accountId;
           return (
             <List.Item>
               <Card
@@ -65,16 +81,11 @@ export function ParentList({
                 onClick={() => onSelect(account)}
               >
                 <div className="record-card-head">
-                  <div className="record-title">
-                    <Typography.Text strong ellipsis={{ tooltip: account.label }}>
-                      {account.label}
-                    </Typography.Text>
-                    <Typography.Text type="secondary" ellipsis={{ tooltip: account.note || account.workspaceName || account.accountId }}>
-                      {account.note || account.workspaceName || account.accountId}
-                    </Typography.Text>
-                  </div>
+                  <Typography.Text strong ellipsis={{ tooltip: note }}>
+                    {note}
+                  </Typography.Text>
                   <Space size={4}>
-                    <AccountStatusTag status={account.status} />
+                    <Typography.Text type="secondary">同步 {formatRelativeTime(account.lastRefreshAt)}</Typography.Text>
                     <Dropdown
                       trigger={['click']}
                       menu={{
@@ -106,19 +117,22 @@ export function ParentList({
                     </Dropdown>
                   </Space>
                 </div>
+                <div className="record-meta record-meta-line">
+                  <span>限额 {limitTypeLabel(account.limitType)}</span>
+                  <Typography.Text
+                    className="record-meta-email"
+                    type="secondary"
+                    ellipsis={{ tooltip: account.email }}
+                  >
+                    {account.email}
+                  </Typography.Text>
+                </div>
                 <div className="record-meta">
-                  <span>{planLabel(account.planType)}</span>
-                  <span>{roleLabel(account.role)}</span>
                   <span>成员 {memberCount ?? '暂无'}</span>
                   <span className={seatCount !== undefined && seatCount >= MAX_CHATGPT_SEATS ? 'text-warning' : undefined}>
                     ChatGPT {seatCount ?? '暂无'} / {MAX_CHATGPT_SEATS}
                   </span>
                 </div>
-                <div className="record-meta muted">
-                  <span>分组 {account.groupName || '默认分组'}</span>
-                  <span>同步 {formatRelativeTime(account.lastRefreshAt)}</span>
-                </div>
-                {account.defaultSeat && <SeatTag seat={account.defaultSeat} />}
                 {account.lastError && (
                   <Typography.Text className="record-error" type="danger" title={account.lastError}>
                     {shortText(account.lastError, 96)}

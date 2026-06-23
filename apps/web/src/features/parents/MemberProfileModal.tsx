@@ -31,9 +31,9 @@ export function memberProfileForEmail(
 
 export function memberProfileSummary(profile: AccountMemberProfile | undefined): string {
   if (!profile) return '未设置';
-  return `${profile.expiresOn} · ${profile.expireReminder ? '提醒' : '不提醒'} · ${
-    profile.expireRemove ? '到期移除' : '保留成员'
-  }`;
+  return [profile.expiresOn, profile.expireReminder ? '提醒' : '不提醒', profile.expireRemove ? '到期移除' : '']
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function initialValues(account: AccountView, email: string): MemberProfileValues {

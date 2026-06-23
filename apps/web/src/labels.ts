@@ -1,8 +1,14 @@
-import type { MemberRole, SeatType } from '@team-manager/shared';
+import type { AccountLimitType, MemberRole, SeatType } from '@team-manager/shared';
 
 export const SEAT_LABEL: Record<SeatType, string> = {
   default: 'ChatGPT 席位',
   usage_based: 'Codex 席位'
+};
+
+export const LIMIT_TYPE_LABEL: Record<AccountLimitType, string> = {
+  unknown: '未知',
+  weekly: '周限',
+  monthly: '月限'
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -21,6 +27,10 @@ const PLAN_LABELS: Record<string, string> = {
 
 export function seatLabel(seat?: SeatType | null): string {
   return seat ? SEAT_LABEL[seat] : '未设置';
+}
+
+export function limitTypeLabel(limitType?: AccountLimitType | null): string {
+  return LIMIT_TYPE_LABEL[limitType ?? 'unknown'];
 }
 
 export function roleLabel(role?: MemberRole | null): string {

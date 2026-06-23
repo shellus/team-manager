@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountFingerprint,
+  AccountLimitType,
   AccountMemberProfile,
   AccountMemberProfileInput,
   AccountView,
@@ -21,6 +22,7 @@ import {
 import { createTransport, type Transport } from './transport.js';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 
 /** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
 export class TeamService {
@@ -56,9 +58,9 @@ export class TeamService {
   private viewFromAccount(account: Account): AccountView {
     return {
       id: account.id,
-      label: account.label,
       note: account.note,
       groupName: account.groupName || '默认分组',
+      limitType: account.limitType ?? 'unknown',
       accountId: account.accountId,
       email: account.email,
       planType: account.planType,
@@ -133,25 +135,26 @@ export class TeamService {
 
   async updateLocalProfile(
     id: string,
-    input: { label?: unknown; note?: unknown; groupName?: unknown; session?: unknown }
+    input: { note?: unknown; groupName?: unknown; limitType?: unknown; session?: unknown }
   ): Promise<AccountView> {
     const existing = this.store.get(id);
     if (!existing) throw new ServiceError(404, `母号不存在: ${id}`);
 
     const patch: Partial<Account> = { lastError: undefined };
-    if (typeof input.note === 'string') {
-      patch.note = input.note.trim() || undefined;
-    } else if (typeof input.label === 'string') {
-      patch.note = input.label.trim() || undefined;
-    }
+    if (typeof input.note === 'string') patch.note = input.note.trim() || undefined;
     if (typeof input.groupName === 'string') {
       patch.groupName = input.groupName.trim() || '默认分组';
+    }
+    if (input.limitType !== undefined) {
+      if (typeof input.limitType !== 'string' || !ACCOUNT_LIMIT_TYPES.has(input.limitType as AccountLimitType)) {
+        throw new ServiceError(400, '限额类型无效');
+      }
+      patch.limitType = input.limitType as AccountLimitType;
     }
 
     if (input.session !== undefined) {
       const session = parseChatGptSessionInput(input.session);
       if ('error' in session) throw new ServiceError(400, session.error);
-      patch.label = session.user.email;
       patch.email = session.user.email;
       patch.accountId = session.account.id;
       patch.accessToken = session.accessToken;

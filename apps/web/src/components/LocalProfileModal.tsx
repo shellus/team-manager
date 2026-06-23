@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getChatGptSessionUserEmail } from '@team-manager/shared';
-import { Alert, Descriptions, Form, Input, Modal } from 'antd';
+import { getChatGptSessionUserEmail, type AccountLimitType } from '@team-manager/shared';
+import { Alert, Descriptions, Form, Input, Modal, Select } from 'antd';
 import { parseJsonObject } from './format.js';
+import { LIMIT_TYPE_LABEL } from '../labels.js';
 
 type LocalProfileMode = 'parent' | 'subaccount';
 
@@ -9,6 +10,7 @@ interface LocalProfileFormValues {
   label?: string;
   note?: string;
   groupName?: string;
+  limitType?: AccountLimitType;
   rawSession?: string;
 }
 
@@ -30,10 +32,17 @@ export function LocalProfileModal({
     label?: string;
     note?: string;
     groupName?: string;
+    limitType?: AccountLimitType;
   };
   confirmLoading?: boolean;
   onCancel: () => void;
-  onSubmit: (payload: { label?: string; note?: string; groupName?: string; session?: Record<string, unknown> }) => Promise<void>;
+  onSubmit: (payload: {
+    label?: string;
+    note?: string;
+    groupName?: string;
+    limitType?: AccountLimitType;
+    session?: Record<string, unknown>;
+  }) => Promise<void>;
 }) {
   const [form] = Form.useForm<LocalProfileFormValues>();
   const [rawSession, setRawSession] = useState('');
@@ -45,11 +54,12 @@ export function LocalProfileModal({
       label: initialValues.label,
       note: initialValues.note,
       groupName: initialValues.groupName || '默认分组',
+      limitType: initialValues.limitType ?? 'unknown',
       rawSession: ''
     });
     setRawSession('');
     setError('');
-  }, [form, initialValues.groupName, initialValues.label, initialValues.note, open]);
+  }, [form, initialValues.groupName, initialValues.label, initialValues.limitType, initialValues.note, open]);
 
   const detectedEmail = useMemo(() => {
     if (!rawSession.trim()) return '';
@@ -67,7 +77,11 @@ export function LocalProfileModal({
       if (values.rawSession?.trim()) session = parseJsonObject(values.rawSession);
       await onSubmit({
         ...(mode === 'subaccount' ? { label: values.label?.trim() } : {}),
-        ...(mode === 'parent' ? { note: values.note?.trim(), groupName: values.groupName?.trim() || '默认分组' } : {}),
+        ...(mode === 'parent' ? {
+          note: values.note?.trim(),
+          groupName: values.groupName?.trim() || '默认分组',
+          limitType: values.limitType ?? 'unknown'
+        } : {}),
         ...(session ? { session } : {})
       });
     } catch (submitError) {
@@ -100,12 +114,21 @@ export function LocalProfileModal({
             <Input placeholder="用于本系统列表展示" />
           </Form.Item>
         ) : (
-          <div className="form-grid two">
+          <div className="form-grid three">
             <Form.Item name="note" label="母号备注">
               <Input placeholder="例如用途、客户、到期时间" />
             </Form.Item>
             <Form.Item name="groupName" label="母号分组" rules={[{ required: true, message: '请输入分组' }]}>
               <Input placeholder="例如默认分组" />
+            </Form.Item>
+            <Form.Item name="limitType" label="限额类型" rules={[{ required: true, message: '请选择限额类型' }]}>
+              <Select<AccountLimitType>
+                options={[
+                  { value: 'unknown', label: LIMIT_TYPE_LABEL.unknown },
+                  { value: 'weekly', label: LIMIT_TYPE_LABEL.weekly },
+                  { value: 'monthly', label: LIMIT_TYPE_LABEL.monthly }
+                ]}
+              />
             </Form.Item>
           </div>
         )}

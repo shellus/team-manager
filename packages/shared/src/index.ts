@@ -6,15 +6,18 @@ export type { ChatGptSessionInput, ChatGptSessionParseResult } from './sessionIn
 /** 席位类型：default=ChatGPT 席位，usage_based=Codex 席位 */
 export type SeatType = 'default' | 'usage_based';
 
+/** 母号本地额度窗口类型。 */
+export type AccountLimitType = 'unknown' | 'weekly' | 'monthly';
+
 /** 成员角色（backend-api account_user_role / users[].role） */
 export type MemberRole = 'account-owner' | 'account-admin' | 'standard-user' | string;
 
 /** 录入的母号（含凭证，仅存后端 data/，绝不下发前端明文） */
 export interface Account {
   id: string;                 // team-manager 内部 id（uuid）
-  label: string;              // 母号账号显示名，固定使用 owner 邮箱
   note?: string;              // 本地备注，不等同远端 Team 名称
   groupName?: string;         // 本地母号分组，缺省由后端归入默认分组
+  limitType?: AccountLimitType; // 本地记录的额度窗口类型
   accountId: string;          // workspace account_id（chatgpt-account-id 头）
   email: string;              // owner 邮箱
   accessToken: string;        // JWT，发请求用
@@ -51,9 +54,9 @@ export interface AccountFingerprint {
 /** 下发前端的母号视图（脱敏，不含 token） */
 export interface AccountView {
   id: string;
-  label: string;
   note?: string;
   groupName: string;
+  limitType: AccountLimitType;
   accountId: string;
   email: string;
   planType?: string;

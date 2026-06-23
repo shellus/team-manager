@@ -6,7 +6,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface ExpirationReminderItem {
   accountId: string;
-  accountLabel: string;
+  accountDisplayName: string;
   workspaceName: string;
   email: string;
   note?: string;
@@ -43,7 +43,7 @@ export function collectExpirationReminderItems(
 
       items.push({
         accountId: account.id,
-        accountLabel: account.label,
+        accountDisplayName: account.note || account.email,
         workspaceName: account.workspaceName ?? account.accountId,
         email: profile.email,
         ...(profile.note ? { note: profile.note } : {}),

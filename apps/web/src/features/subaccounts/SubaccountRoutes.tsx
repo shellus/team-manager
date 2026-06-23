@@ -36,7 +36,7 @@ interface ManualAuthSession {
   authUrl: string;
   expiresAt: number;
   targetChatgptAccountId?: string;
-  targetLabel?: string;
+  targetDisplayName?: string;
 }
 
 interface SubaccountBillingRisk {
@@ -54,8 +54,13 @@ function targetKey(prefix: string, accountId?: string): string {
   return `${prefix}-${accountId || 'default'}`;
 }
 
-function accountLabel(account: AccountView): string {
-  return account.note || account.workspaceName || account.label;
+function accountDisplayName(account: AccountView): string {
+  return account.note || account.workspaceName || account.email;
+}
+
+function accountOptionLabel(account: AccountView): string {
+  const primary = accountDisplayName(account);
+  return primary === account.email ? primary : `${primary} · ${account.email}`;
 }
 
 export function SubaccountRoutes({
@@ -91,7 +96,7 @@ export function SubaccountRoutes({
     () =>
       accounts.map((account) => ({
         value: account.id,
-        label: `${accountLabel(account)} · ${account.label}`
+        label: accountOptionLabel(account)
       })),
     [accounts]
   );
@@ -355,13 +360,16 @@ export function SubaccountRoutes({
     }
   };
 
-  const startAuth = async (workspaceId: string, label: string) => {
+  const startAuth = async (workspaceId: string, displayName: string) => {
     if (!selected || !workspaceId) return;
     const key = targetKey('codex-start', workspaceId);
     setBusy(key);
     setLocalError('');
     try {
-      setAuthSession({ ...(await apiClient.startSubaccountCodexAuth(selected.id, workspaceId)), targetLabel: label });
+      setAuthSession({
+        ...(await apiClient.startSubaccountCodexAuth(selected.id, workspaceId)),
+        targetDisplayName: displayName
+      });
       openModal('manual-codex-callback', workspaceId);
     } catch (error) {
       reportLocalError(error);
@@ -492,7 +500,7 @@ export function SubaccountRoutes({
           onOpenDelete={() => selected && openModal('delete-subaccount', selected.id)}
           onOpenInvite={() => openModal('invite-to-team', selected?.id ?? '')}
           onRefreshRuntime={() => void loadRuntimeStatus()}
-          onStartAuth={(workspaceId, label) => void startAuth(workspaceId, label)}
+          onStartAuth={(workspaceId, displayName) => void startAuth(workspaceId, displayName)}
           onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
           onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
           onExportCredential={(workspaceId) => void exportCredential(workspaceId)}
@@ -589,7 +597,7 @@ export function SubaccountRoutes({
 
       <Modal
         open={searchState.modal === 'manual-codex-callback' && Boolean(authSession)}
-        title={`手动授权回调${authSession?.targetLabel ? ` · ${authSession.targetLabel}` : ''}`}
+        title={`手动授权回调${authSession?.targetDisplayName ? ` · ${authSession.targetDisplayName}` : ''}`}
         okText="提交回调并生成凭证"
         cancelText="取消"
         confirmLoading={busy === 'codex-callback'}

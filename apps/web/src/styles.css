@@ -32,33 +32,57 @@ body {
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: minmax(220px, 320px) 1fr auto;
-  gap: 20px;
+  grid-template-columns: max-content minmax(260px, 1fr) max-content;
+  gap: 18px;
   align-items: center;
-  height: 72px;
+  height: 64px;
   padding: 0 24px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-shell);
+  line-height: normal;
+}
+
+.brand-block {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .brand-block h1.ant-typography {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.2;
 }
 
 .brand-block .ant-typography {
   margin: 0;
+  line-height: 1.25;
 }
 
 .app-nav {
-  min-width: 280px;
+  align-self: stretch;
+  min-width: 240px;
+  height: 100%;
   border-bottom: 0;
   background: transparent;
+  line-height: normal;
+}
+
+.app-nav.ant-menu-horizontal > .ant-menu-item {
+  display: inline-flex;
+  height: 100%;
+  align-items: center;
+  line-height: normal;
 }
 
 .header-actions {
+  height: 100%;
+  align-items: center;
   justify-content: flex-end;
+  white-space: nowrap;
 }
 
 .app-content {
@@ -106,14 +130,26 @@ body {
 
 .side-pane {
   position: sticky;
-  top: 92px;
-  max-height: calc(100vh - 112px);
-  overflow: auto;
+  top: 84px;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  max-height: calc(100vh - 104px);
+  overflow: hidden;
   padding-right: 2px;
 }
 
 .content-pane,
 .panel-stack {
+  width: 100%;
+}
+
+.content-pane {
+  min-width: 0;
+}
+
+.content-pane > .ant-space-item {
+  min-width: 0;
   width: 100%;
 }
 
@@ -143,13 +179,90 @@ body {
   margin-bottom: 16px;
 }
 
-.summary-descriptions {
-  margin-bottom: 16px;
+.detail-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
+.detail-header > .ant-space {
+  flex: 0 0 auto;
+}
+
+.detail-header > div:first-child > .ant-space {
+  max-width: 100%;
+}
+
+.detail-header > div:first-child > .ant-space > .ant-space-item:first-child {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.detail-meta-row.ant-space {
+  display: flex;
+  max-width: 100%;
+}
+
+.detail-meta-row > .ant-space-item:first-child {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.detail-header h2.ant-typography,
+.detail-header .ant-typography-secondary {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-count-badge .ant-badge-count {
+  color: var(--color-text-secondary);
+  background: var(--color-control-track);
+  box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+  font-weight: 500;
+}
+
+.pane-search,
 .group-selector,
 .side-actions {
   margin-bottom: 12px;
+}
+
+.group-selector.ant-segmented {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-control-track);
+}
+
+.group-selector .ant-segmented-item-selected {
+  box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+}
+
+.side-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.side-actions .ant-btn {
+  width: 100%;
+  min-width: 0;
+  padding-inline: 8px;
+}
+
+.side-actions .ant-btn > span:not(.anticon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-list {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.record-list .ant-spin-nested-loading,
+.record-list .ant-spin-container {
+  min-height: 0;
 }
 
 .record-list .ant-list-item {
@@ -165,6 +278,10 @@ body {
 
 .record-card.selected {
   border-color: var(--color-primary);
+}
+
+.record-card-head > .ant-typography {
+  min-width: 0;
 }
 
 .record-title,
@@ -195,6 +312,14 @@ body {
   opacity: 0.85;
 }
 
+.record-meta-line {
+  flex-wrap: nowrap;
+}
+
+.record-meta-email {
+  min-width: 0;
+}
+
 .record-error {
   display: block;
   margin-top: 8px;
@@ -212,6 +337,10 @@ body {
 
 .form-grid.two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid.three {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(140px, 0.7fr);
 }
 
 .modal-description {
@@ -286,15 +415,29 @@ body {
   }
 
   .workbench {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .detail-header > .ant-space {
+    justify-content: flex-start;
   }
 
   .side-pane {
     position: static;
-    max-height: none;
+    max-height: min(70vh, 720px);
+  }
+
+  .side-actions {
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
   }
 
   .form-grid.two,
+  .form-grid.three,
   .quota-row {
     grid-template-columns: 1fr;
   }

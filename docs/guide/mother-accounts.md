@@ -99,8 +99,8 @@ pending invite 与正式 member 需要区分。子号处于 pending invite 时�
 
 ## Team 改名、本地备注与分组
 
-Team 改名修改远端 workspace 名称。本地母号账号显示名 `label` 固定为 owner 邮箱，不作为备注使用，也不修改 ChatGPT 远端 Team 名称。
+Team 改名修改远端 workspace 名称。母号邮箱显示名统一来自 `email`，备注使用 `note`，两者都不修改 ChatGPT 远端 Team 名称。
 
-编辑母号本地资料可修改备注 `note`、母号分组 `groupName`，也可同时替换 session。替换 session 时，系统会用新 session 的 `user.email` 更新 `label` 和 `email`，旧 session 明文不会回填到前端。
+编辑母号本地资料可修改备注 `note`、母号分组 `groupName`、限额类型 `limitType`，也可同时替换 session。替换 session 时，系统会用新 session 的 `user.email` 更新 `email`，旧 session 明文不会回填到前端。
 
 分组用于区分自用、已出租车位等运营集合。分组只是本地展示和筛选字段，不影响远端 Team workspace。

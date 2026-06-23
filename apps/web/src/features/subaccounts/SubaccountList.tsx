@@ -42,24 +42,23 @@ export function SubaccountList({
           <Typography.Text type="secondary">{subaccounts.length} 个账号</Typography.Text>
         </div>
       </div>
-      <Space direction="vertical" size={8} className="side-actions">
+      <div className="side-actions">
         <Button
           type="primary"
           icon={<RobotOutlined />}
-          block
           loading={busy === 'register-subaccount'}
           disabled={runtimeStatus?.subaccountRegistration === false}
           onClick={onOpenRegister}
         >
           自动注册
         </Button>
-        <Button type="primary" icon={<PlusOutlined />} block onClick={onOpenImportSession}>
+        <Button icon={<PlusOutlined />} onClick={onOpenImportSession}>
           录入子号
         </Button>
-        <Button icon={<FileProtectOutlined />} block onClick={onOpenImportCredential}>
+        <Button icon={<FileProtectOutlined />} onClick={onOpenImportCredential}>
           导入凭证
         </Button>
-      </Space>
+      </div>
       <List
         className="record-list"
         dataSource={subaccounts}

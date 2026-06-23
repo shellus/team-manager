@@ -41,7 +41,7 @@ corepack pnpm docs:build
 ## 功能范围
 
 - **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
-- **本地资料编辑**：母号 `label` 固定显示 owner 邮箱，备注写入 `note`，并可按 `groupName` 分组；子号仍使用 `label` 作为本地备注名。两者均可选择替换 session JSON；不会修改远端 Team 名称。
+- **本地资料编辑**：母号邮箱只使用 `email`，备注写入 `note`，按 `groupName` 分组，并用 `limitType` 记录本地限额类型；子号仍使用 `label` 作为本地备注名。两者均可选择替换 session JSON；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
@@ -108,7 +108,7 @@ corepack pnpm docs:build
 }
 ```
 
-母号 `label` 默认并固定使用邮箱；母号备注写入 `note`，母号分组写入 `groupName`。子号备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
+母号邮箱只写入 `email`；母号备注写入 `note`，母号分组写入 `groupName`，限额类型写入 `limitType`。子号备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
 
 已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入时可指定自定义文件名和 CPA 号池；导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证元数据，真实 credential JSON 写入独立凭证文件。后续可通过 Team 关联同步和额度刷新确认状态。
 

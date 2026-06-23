@@ -7,6 +7,8 @@ export interface SemanticTokens {
   colorBgShell: string;
   colorSurface: string;
   colorSurfaceElevated: string;
+  colorControlTrack: string;
+  colorControlTrackHover: string;
   colorBorderSubtle: string;
   colorText: string;
   colorTextSecondary: string;
@@ -22,6 +24,8 @@ export const lightSemanticTokens: SemanticTokens = {
   colorBgShell: '#ffffff',
   colorSurface: '#ffffff',
   colorSurfaceElevated: '#ffffff',
+  colorControlTrack: '#e9eef6',
+  colorControlTrackHover: '#dfe7f2',
   colorBorderSubtle: '#d8dee8',
   colorText: '#172033',
   colorTextSecondary: '#5c687a',
@@ -37,6 +41,8 @@ export const darkSemanticTokens: SemanticTokens = {
   colorBgShell: '#151b23',
   colorSurface: '#18212b',
   colorSurfaceElevated: '#202a36',
+  colorControlTrack: '#111923',
+  colorControlTrackHover: '#253241',
   colorBorderSubtle: '#334155',
   colorText: '#edf2f7',
   colorTextSecondary: '#a8b3c2',
@@ -73,6 +79,12 @@ export function buildAntdTheme(mode: ThemeMode): ThemeConfig {
         '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif'
     },
     components: {
+      Segmented: {
+        trackBg: tokens.colorControlTrack,
+        itemHoverBg: tokens.colorControlTrackHover,
+        itemSelectedBg: tokens.colorSurfaceElevated,
+        itemSelectedColor: tokens.colorText
+      },
       Button: {
         borderRadius: 6,
         controlHeight: 34

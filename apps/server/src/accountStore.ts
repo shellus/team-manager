@@ -2,23 +2,26 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Account } from '@team-manager/shared';
+import type { Account, AccountLimitType } from '@team-manager/shared';
 
-type StoredAccount = Account & {
-  memberCount?: unknown;
-  chatgptSeatCount?: unknown;
-  pendingInviteCount?: unknown;
-};
+type StoredAccount = Account & Record<string, unknown>;
 
 const DEFAULT_ACCOUNT_GROUP = '默认分组';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-function hasOwn(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
+const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 
 function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeLimitType(value: unknown): AccountLimitType {
+  return typeof value === 'string' && ACCOUNT_LIMIT_TYPES.has(value as AccountLimitType)
+    ? (value as AccountLimitType)
+    : 'unknown';
 }
 
 function normalizeMemberProfiles(input: Account['memberProfiles']): Account['memberProfiles'] | undefined {
@@ -54,35 +57,40 @@ function normalizeMemberProfiles(input: Account['memberProfiles']): Account['mem
   return Object.keys(profiles).length > 0 ? profiles : undefined;
 }
 
-function stripLegacyDerivedFields(input: StoredAccount): { account: Account; changed: boolean } {
-  let changed =
-    hasOwn(input, 'memberCount') || hasOwn(input, 'chatgptSeatCount') || hasOwn(input, 'pendingInviteCount');
-  const {
-    memberCount: _memberCount,
-    chatgptSeatCount: _chatgptSeatCount,
-    pendingInviteCount: _pendingInviteCount,
-    ...account
-  } = input;
-
-  const email = account.email?.trim() ?? '';
-  const label = account.label?.trim() ?? '';
-  const note = account.note?.trim();
-  const groupName = account.groupName?.trim() || DEFAULT_ACCOUNT_GROUP;
-  const migratedNote = note || (label && email && label !== email ? label : undefined);
+function sanitizeAccount(input: StoredAccount): { account: Account; changed: boolean } {
+  const email = readTrimmedString(input.email);
+  const note = readTrimmedString(input.note);
   const normalized: Account = {
-    ...account,
-    label: email || label,
-    note: migratedNote,
-    groupName,
-    memberProfiles: normalizeMemberProfiles(account.memberProfiles)
+    id: input.id,
+    ...(note ? { note } : {}),
+    groupName: readTrimmedString(input.groupName) || DEFAULT_ACCOUNT_GROUP,
+    limitType: normalizeLimitType(input.limitType),
+    accountId: readTrimmedString(input.accountId),
+    email,
+    accessToken: readTrimmedString(input.accessToken),
+    ...(readTrimmedString(input.refreshToken) ? { refreshToken: readTrimmedString(input.refreshToken) } : {}),
+    fp: input.fp,
+    ...(readTrimmedString(input.proxy) ? { proxy: readTrimmedString(input.proxy) } : {}),
+    ...(readTrimmedString(input.planType) ? { planType: readTrimmedString(input.planType) } : {}),
+    role: input.role,
+    ...(readTrimmedString(input.workspaceName) ? { workspaceName: readTrimmedString(input.workspaceName) } : {}),
+    status: input.status,
+    membersCache: input.membersCache,
+    membersCachedAt: input.membersCachedAt,
+    defaultSeat: input.defaultSeat,
+    defaultSeatCachedAt: input.defaultSeatCachedAt,
+    workspaceReferralsEnabled: input.workspaceReferralsEnabled,
+    workspaceReferralsEnabledVisible: input.workspaceReferralsEnabledVisible,
+    workspaceReferralsEnabledCachedAt: input.workspaceReferralsEnabledCachedAt,
+    personalAccessTokensEnabled: input.personalAccessTokensEnabled,
+    personalAccessTokensCachedAt: input.personalAccessTokensCachedAt,
+    pendingInvitesCache: input.pendingInvitesCache,
+    pendingInvitesCachedAt: input.pendingInvitesCachedAt,
+    memberProfiles: normalizeMemberProfiles(input.memberProfiles),
+    lastRefreshAt: input.lastRefreshAt,
+    ...(readTrimmedString(input.lastError) ? { lastError: readTrimmedString(input.lastError) } : {})
   };
-  changed =
-    changed ||
-    normalized.label !== account.label ||
-    normalized.note !== account.note ||
-    normalized.groupName !== account.groupName ||
-    normalized.memberProfiles !== account.memberProfiles;
-  return { account: normalized, changed };
+  return { account: normalized, changed: JSON.stringify(normalized) !== JSON.stringify(input) };
 }
 
 /** 母号持久化：单个 JSON 文件 data/accounts.json，含凭证，仅后端读写。 */
@@ -106,7 +114,7 @@ export class AccountStore {
         let changed = false;
         for (const a of arr) {
           if (a && typeof a.id === 'string') {
-            const sanitized = stripLegacyDerivedFields(a);
+            const sanitized = sanitizeAccount(a);
             changed = changed || sanitized.changed;
             this.accounts.set(sanitized.account.id, sanitized.account);
           }
@@ -135,7 +143,7 @@ export class AccountStore {
 
   async add(input: Omit<Account, 'id'>): Promise<Account> {
     this.ensureLoaded();
-    const { account } = stripLegacyDerivedFields({ ...input, id: randomUUID() });
+    const { account } = sanitizeAccount({ ...input, id: randomUUID() });
     this.accounts.set(account.id, account);
     await this.persist();
     return account;
@@ -145,7 +153,7 @@ export class AccountStore {
     this.ensureLoaded();
     const existing = this.accounts.get(id);
     if (!existing) return undefined;
-    const { account: merged } = stripLegacyDerivedFields({ ...existing, ...patch, id });
+    const { account: merged } = sanitizeAccount({ ...existing, ...patch, id });
     this.accounts.set(id, merged);
     await this.persist();
     return merged;
@@ -159,7 +167,7 @@ export class AccountStore {
   }
 
   private async persist(): Promise<void> {
-    const arr = [...this.accounts.values()].map((account) => stripLegacyDerivedFields(account).account);
+    const arr = [...this.accounts.values()];
     await writeFile(this.file, JSON.stringify(arr, null, 2), 'utf8');
   }
 }

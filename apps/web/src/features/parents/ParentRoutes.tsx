@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AccountMemberProfileInput, AccountView, SeatType } from '@team-manager/shared';
+import type { AccountLimitType, AccountMemberProfileInput, AccountView, SeatType } from '@team-manager/shared';
 import { Alert, Button, Form, Input, Modal, Select, Space, Switch } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
@@ -41,6 +41,43 @@ function toSearch(params: URLSearchParams): string {
 
 function groupNameOf(account: AccountView): string {
   return account.groupName || '默认分组';
+}
+
+const accountSortCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
+
+function compareAccountSortName(a: AccountView, b: AccountView): number {
+  return accountSortCollator.compare(
+    a.note || a.email,
+    b.note || b.email
+  );
+}
+
+function searchableAccountText(account: AccountView): string {
+  const values = [
+    account.email,
+    account.note,
+    account.groupName,
+    account.workspaceName,
+    account.accountId,
+    ...(account.membersCache ?? []).flatMap((member) => [member.email, member.name, member.role]),
+    ...(account.pendingInvitesCache ?? []).flatMap((invite) => [invite.email, invite.role]),
+    ...Object.values(account.memberProfiles ?? {}).flatMap((profile) => [
+      profile.email,
+      profile.note,
+      profile.expiresOn
+    ])
+  ];
+  return values.filter(Boolean).join('\n').toLowerCase();
+}
+
+function accountMatchesQuery(account: AccountView, query: string): boolean {
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (terms.length === 0) return true;
+  const haystack = searchableAccountText(account);
+  return terms.every((term) => haystack.includes(term));
 }
 
 function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
@@ -91,18 +128,23 @@ export function ParentRoutes({
   const [busy, setBusy] = useState('');
   const [localError, setLocalError] = useState('');
   const [billingRisk, setBillingRisk] = useState<ParentBillingRisk | null>(null);
+  const searchQuery = searchParams.get('q')?.trim() ?? '';
+  const filteredAccounts = useMemo(
+    () => accounts.filter((account) => accountMatchesQuery(account, searchQuery)).sort(compareAccountSortName),
+    [accounts, searchQuery]
+  );
 
   const groups = useMemo(() => {
     const countByGroup = new Map<string, number>();
-    for (const account of accounts) countByGroup.set(groupNameOf(account), (countByGroup.get(groupNameOf(account)) ?? 0) + 1);
+    for (const account of filteredAccounts) countByGroup.set(groupNameOf(account), (countByGroup.get(groupNameOf(account)) ?? 0) + 1);
     return [...countByGroup.entries()].map(([name, count]) => ({ name, count }));
-  }, [accounts]);
+  }, [filteredAccounts]);
   const activeGroup = groups.some((group) => group.name === searchState.group)
     ? searchState.group
     : groups[0]?.name || '';
   const visibleAccounts = useMemo(
-    () => accounts.filter((account) => groupNameOf(account) === activeGroup),
-    [accounts, activeGroup]
+    () => filteredAccounts.filter((account) => groupNameOf(account) === activeGroup),
+    [filteredAccounts, activeGroup]
   );
   const selected = visibleAccounts.find((account) => account.id === accountId) ?? visibleAccounts[0] ?? null;
 
@@ -193,16 +235,22 @@ export function ParentRoutes({
     }
   };
 
-  const updateLocalProfile = async (payload: { note?: string; groupName?: string; session?: Record<string, unknown> }) => {
+  const updateLocalProfile = async (payload: {
+    note?: string;
+    groupName?: string;
+    limitType?: AccountLimitType;
+    session?: Record<string, unknown>;
+  }) => {
     if (!selected) return;
     setBusy('edit-parent-profile');
     setLocalError('');
     try {
       const updated = await apiClient.updateAccountLocalProfile(selected.id, payload);
       onAccountChanged(updated);
-      closeModal();
-      const next = setSearchValue(searchParams, 'group', groupNameOf(updated));
+      const next = setSearchValue(clearModalState(searchParams), 'group', groupNameOf(updated));
       navigate({ pathname: `/parents/${updated.id}`, search: toSearch(next) }, { replace: true });
+      setBillingRisk(null);
+      setLocalError('');
     } catch (error) {
       reportLocalError(error);
       throw error;
@@ -272,6 +320,12 @@ export function ParentRoutes({
     navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
   };
 
+  const changeSearchQuery = (query: string) => {
+    const next = setSearchValue(searchParams, 'q', query.trim());
+    next.set('tab', searchState.tab);
+    setSearchParams(next);
+  };
+
   const changeTab = (tab: ParentTab) => {
     setSearchParams(setSearchValue(searchParams, 'tab', tab));
   };
@@ -282,9 +336,12 @@ export function ParentRoutes({
         groups={groups}
         activeGroup={activeGroup}
         accounts={visibleAccounts}
+        totalCount={accounts.length}
+        searchQuery={searchQuery}
         selectedId={selected?.id ?? ''}
         syncingIds={syncingIds}
         onGroupChange={changeGroup}
+        onSearchChange={changeSearchQuery}
         onSelect={selectAccount}
         onRefreshAccount={onRefreshAccount}
         onOpenDelete={(account) => {
@@ -324,8 +381,12 @@ export function ParentRoutes({
         open={searchState.modal === 'edit-parent-profile' && Boolean(selected)}
         mode="parent"
         title="编辑母号本地资料"
-        description="只更新本系统内的备注、分组和 session，不修改远端 Team 名称。"
-        initialValues={{ note: selected?.note ?? '', groupName: selected?.groupName || '默认分组' }}
+        description="只更新本系统内的备注、分组、限额类型和 session，不修改远端 Team 名称。"
+        initialValues={{
+          note: selected?.note ?? '',
+          groupName: selected?.groupName || '默认分组',
+          limitType: selected?.limitType ?? 'unknown'
+        }}
         confirmLoading={busy === 'edit-parent-profile'}
         onCancel={closeModal}
         onSubmit={updateLocalProfile}
@@ -340,7 +401,7 @@ export function ParentRoutes({
         onOk={() => void deleteParent()}
         onCancel={closeModal}
       >
-        确认删除 {selected?.label} 的本地记录？远端 Team 不会被删除。
+        确认删除 {selected?.email} 的本地记录？远端 Team 不会被删除。
       </Modal>
 
       <Modal

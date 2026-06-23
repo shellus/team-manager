@@ -272,7 +272,6 @@ async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor; re
   const store = new AccountStore(dir);
   await store.init();
   const mother = await store.add({
-    label: '母号 A',
     accountId: 'workspace-account-id',
     email: 'owner@example.com',
     accessToken: 'mother-access-token'
@@ -1166,8 +1165,12 @@ describe('Subaccount API', () => {
         resend_emails: true
       });
       assert.equal(invitedJson.data!.teamLinks[0]!.accountId, mother.id);
-      assert.equal('accountLabel' in invitedJson.data!.teamLinks[0]!, false);
-      assert.equal('chatgptAccountId' in invitedJson.data!.teamLinks[0]!, false);
+      assert.deepEqual(Object.keys(invitedJson.data!.teamLinks[0]!).sort(), [
+        'accountId',
+        'seat',
+        'status',
+        'updatedAt'
+      ]);
       assert.equal(invitedJson.data!.teamLinks[0]!.seat, 'usage_based');
       assert.equal(invitedJson.data!.teamLinks[0]!.status, 'invited');
     } finally {
@@ -1179,7 +1182,6 @@ describe('Subaccount API', () => {
     const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
     try {
       const invitedMother = await store.add({
-        label: '母号 B',
         accountId: 'workspace-account-b',
         email: 'owner-b@example.com',
         accessToken: 'mother-b-access-token'
@@ -1237,12 +1239,10 @@ describe('Subaccount API', () => {
 
       assert.equal(synced.status, 200);
       assert.equal(links.size, 2);
-      assert.equal('accountLabel' in links.get(mother.id)!, false);
-      assert.equal('chatgptAccountId' in links.get(mother.id)!, false);
+      assert.deepEqual(Object.keys(links.get(mother.id)!).sort(), ['accountId', 'seat', 'status', 'updatedAt']);
       assert.equal(links.get(mother.id)!.status, 'member');
       assert.equal(links.get(mother.id)!.seat, 'usage_based');
-      assert.equal('accountLabel' in links.get(invitedMother.id)!, false);
-      assert.equal('chatgptAccountId' in links.get(invitedMother.id)!, false);
+      assert.deepEqual(Object.keys(links.get(invitedMother.id)!).sort(), ['accountId', 'seat', 'status', 'updatedAt']);
       assert.equal(links.get(invitedMother.id)!.status, 'invited');
       assert.equal(links.get(invitedMother.id)!.seat, 'default');
     } finally {
@@ -1254,13 +1254,11 @@ describe('Subaccount API', () => {
     const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
     try {
       const linkedMother = await store.add({
-        label: '母号 B',
         accountId: 'workspace-account-b',
         email: 'owner-b@example.com',
         accessToken: 'mother-b-access-token'
       });
       await store.add({
-        label: '母号 C',
         accountId: 'workspace-account-c',
         email: 'owner-c@example.com',
         accessToken: 'mother-c-access-token'

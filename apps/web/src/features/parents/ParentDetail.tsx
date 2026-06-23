@@ -1,8 +1,9 @@
 import type { AccountView } from '@team-manager/shared';
-import { Button, Card, Descriptions, Empty, Space, Tabs, Typography } from 'antd';
+import { Button, Card, Empty, Space, Tabs, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, ReloadOutlined, UserAddOutlined } from '@ant-design/icons';
 import type { ParentTab } from '../../app/routeState.js';
-import { AccountStatusTag } from '../../components/StatusTag.js';
+import { CountedTabLabel } from '../../components/CountedTabLabel.js';
+import { AccountStatusTag, SeatTag } from '../../components/StatusTag.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentMembersTable, type MemberSeatRisk } from './ParentMembersTable.js';
@@ -39,17 +40,24 @@ export function ParentDetail({
     );
   }
 
+  const memberCount = account.membersCache?.length;
+  const inviteCount = account.pendingInvitesCache?.length;
+
   return (
     <Card className="detail-pane">
       <div className="detail-header">
         <div>
           <Space align="center">
-            <Typography.Title level={2}>{account.label}</Typography.Title>
+            <Typography.Title level={2}>{account.email}</Typography.Title>
             <AccountStatusTag status={account.status} />
           </Space>
-          <Typography.Paragraph type="secondary">
-            {account.note ? `${account.note} · ${account.workspaceName || account.accountId}` : account.workspaceName || account.accountId}
-          </Typography.Paragraph>
+          <Space className="detail-meta-row" size={8} wrap>
+            <Typography.Text type="secondary">
+              {account.note ? `${account.note} · ${account.workspaceName || account.accountId}` : account.workspaceName || account.accountId}
+            </Typography.Text>
+            <Typography.Text type="secondary">默认席位</Typography.Text>
+            <SeatTag seat={account.defaultSeat} />
+          </Space>
         </div>
         <Space wrap>
           <Typography.Text type="secondary">同步 {formatRelativeTime(account.lastRefreshAt)}</Typography.Text>
@@ -68,19 +76,13 @@ export function ParentDetail({
         </Space>
       </div>
 
-      <Descriptions className="summary-descriptions" size="small" column={{ xs: 1, md: 3 }} bordered>
-        <Descriptions.Item label="成员">{account.membersCache?.length ?? '暂无缓存'}</Descriptions.Item>
-        <Descriptions.Item label="待处理邀请">{account.pendingInvitesCache?.length ?? '暂无缓存'}</Descriptions.Item>
-        <Descriptions.Item label="默认席位">{account.defaultSeat ?? '未设置'}</Descriptions.Item>
-      </Descriptions>
-
       <Tabs
         activeKey={activeTab}
         onChange={(key) => onTabChange(key as ParentTab)}
         items={[
           {
             key: 'members',
-            label: '成员',
+            label: <CountedTabLabel label="成员" count={memberCount} />,
             children: (
               <ParentMembersTable
                 account={account}
@@ -91,11 +93,10 @@ export function ParentDetail({
           },
           {
             key: 'invites',
-            label: '邀请',
+            label: <CountedTabLabel label="待处理邀请" count={inviteCount} />,
             children: (
               <ParentInvitesTable
                 account={account}
-                onOpenInvite={onOpenInvite}
                 onAccountChanged={onAccountChanged}
               />
             )
