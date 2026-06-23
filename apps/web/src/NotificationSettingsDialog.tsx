@@ -1,7 +1,7 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { NotificationSettings } from '@team-manager/shared';
+import { Alert, Divider, Form, Input, InputNumber, Modal, Space, Switch, Typography } from 'antd';
 import { apiClient } from './api.js';
-import { SettingSwitch } from './SettingSwitch.js';
 
 const emptySettings: NotificationSettings = {
   advanceReminderDays: 3,
@@ -21,7 +21,7 @@ export function NotificationSettingsDialog({
   open: boolean;
   onClose: () => void;
 }) {
-  const titleId = useId();
+  const [form] = Form.useForm<NotificationSettings>();
   const [settings, setSettings] = useState<NotificationSettings>(emptySettings);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -35,7 +35,9 @@ export function NotificationSettingsDialog({
     apiClient
       .getNotificationSettings()
       .then((data) => {
-        if (!cancelled) setSettings(data);
+        if (cancelled) return;
+        setSettings(data);
+        form.setFieldsValue(data);
       })
       .catch((e) => {
         if (!cancelled) setError((e as Error).message);
@@ -46,24 +48,25 @@ export function NotificationSettingsDialog({
     return () => {
       cancelled = true;
     };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving) onClose();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose, saving]);
-
-  if (!open) return null;
+  }, [form, open]);
 
   const save = async () => {
     setSaving(true);
     setError('');
     try {
-      setSettings(await apiClient.updateNotificationSettings(settings));
+      const values = await form.validateFields();
+      setSettings(
+        await apiClient.updateNotificationSettings({
+          ...settings,
+          ...values,
+          channels: {
+            webhook: { ...settings.channels.webhook, ...values.channels.webhook },
+            feishu: { ...settings.channels.feishu, ...values.channels.feishu },
+            telegram: { ...settings.channels.telegram, ...values.channels.telegram },
+            wecom: { ...settings.channels.wecom, ...values.channels.wecom }
+          }
+        })
+      );
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -73,255 +76,118 @@ export function NotificationSettingsDialog({
   };
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
+    <Modal
+      open={open}
+      title="通知设置"
+      okText="保存设置"
+      cancelText="取消"
+      width={760}
+      confirmLoading={saving}
+      onCancel={onClose}
+      onOk={() => void save()}
+      destroyOnClose
     >
-      <section
-        className="modal-panel notification-settings-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
+      <Typography.Paragraph type="secondary">
+        配置全局到期提醒时间和通知渠道。
+      </Typography.Paragraph>
+      {error && <Alert className="modal-error" type="error" showIcon message={error} />}
+      <Form<NotificationSettings>
+        form={form}
+        layout="vertical"
+        initialValues={emptySettings}
+        disabled={loading || saving}
       >
-        <div className="modal-head">
-          <div>
-            <h2 id={titleId}>通知设置</h2>
-            <p>配置全局到期提醒时间和通知渠道。</p>
-          </div>
-          {loading && <span className="small-status">读取中</span>}
+        <div className="form-grid two">
+          <Form.Item
+            name="advanceReminderDays"
+            label="提前提醒天数"
+            rules={[{ required: true, message: '请输入提前提醒天数' }]}
+          >
+            <InputNumber min={0} max={365} precision={0} />
+          </Form.Item>
+          <Form.Item
+            name="triggerTime"
+            label="触发时间"
+            rules={[{ required: true, message: '请选择触发时间' }]}
+          >
+            <Input type="time" />
+          </Form.Item>
         </div>
 
-        {error && <div className="banner error">{error}</div>}
+        <Divider orientation="left">通知渠道</Divider>
 
-        <div className="settings-dialog-body">
-          <section className="settings-group">
-            <div className="settings-group-head">
-              <h3>提醒规则</h3>
+        <Space direction="vertical" size={16} className="panel-stack">
+          <ChannelBlock
+            title="通用 Webhook"
+            description="发送 JSON payload 到指定 URL"
+            enabledName={['channels', 'webhook', 'enabled']}
+          >
+            <Form.Item name={['channels', 'webhook', 'url']} label="Webhook URL">
+              <Input placeholder="Webhook URL" />
+            </Form.Item>
+          </ChannelBlock>
+
+          <ChannelBlock
+            title="飞书机器人"
+            description="使用自定义机器人 webhook"
+            enabledName={['channels', 'feishu', 'enabled']}
+          >
+            <Form.Item name={['channels', 'feishu', 'webhookUrl']} label="飞书 webhook URL">
+              <Input placeholder="飞书 webhook URL" />
+            </Form.Item>
+          </ChannelBlock>
+
+          <ChannelBlock
+            title="Telegram"
+            description="使用 bot token 和 chat id 发送消息"
+            enabledName={['channels', 'telegram', 'enabled']}
+          >
+            <div className="form-grid two">
+              <Form.Item name={['channels', 'telegram', 'botToken']} label="Bot token">
+                <Input.Password placeholder="Bot token" />
+              </Form.Item>
+              <Form.Item name={['channels', 'telegram', 'chatId']} label="Chat ID">
+                <Input placeholder="Chat ID" />
+              </Form.Item>
             </div>
-            <div className="setting-list">
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <strong>提前提醒天数</strong>
-                  <span>到期日前多少天进入提醒窗口</span>
-                </div>
-                <div className="setting-control">
-                  <input
-                    type="number"
-                    min={0}
-                    max={365}
-                    value={settings.advanceReminderDays}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        advanceReminderDays: Number(event.target.value)
-                      }))
-                    }
-                  />
-                </div>
-              </div>
+          </ChannelBlock>
 
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <strong>触发时间</strong>
-                  <span>默认每天早上 08:00 检查一次</span>
-                </div>
-                <div className="setting-control">
-                  <input
-                    type="time"
-                    value={settings.triggerTime}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        triggerTime: event.target.value
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          </section>
+          <ChannelBlock
+            title="企业微信机器人"
+            description="使用群机器人 webhook"
+            enabledName={['channels', 'wecom', 'enabled']}
+          >
+            <Form.Item name={['channels', 'wecom', 'webhookUrl']} label="企业微信 webhook URL">
+              <Input placeholder="企业微信 webhook URL" />
+            </Form.Item>
+          </ChannelBlock>
+        </Space>
+      </Form>
+    </Modal>
+  );
+}
 
-          <section className="settings-group">
-            <div className="settings-group-head">
-              <h3>通知渠道</h3>
-            </div>
-            <div className="setting-list">
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <strong>通用 Webhook</strong>
-                  <span>发送 JSON payload 到指定 URL</span>
-                </div>
-                <div className="channel-control">
-                  <SettingSwitch
-                    label="启用通用 Webhook"
-                    checked={settings.channels.webhook.enabled}
-                    offLabel="关闭"
-                    onChange={(enabled) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          webhook: { ...current.channels.webhook, enabled }
-                        }
-                      }))
-                    }
-                    onLabel="开启"
-                  />
-                  <input
-                    value={settings.channels.webhook.url}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          webhook: { ...current.channels.webhook, url: event.target.value }
-                        }
-                      }))
-                    }
-                    placeholder="Webhook URL"
-                  />
-                </div>
-              </div>
-
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <strong>飞书机器人</strong>
-                  <span>使用自定义机器人 webhook</span>
-                </div>
-                <div className="channel-control">
-                  <SettingSwitch
-                    label="启用飞书机器人"
-                    checked={settings.channels.feishu.enabled}
-                    offLabel="关闭"
-                    onChange={(enabled) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          feishu: { ...current.channels.feishu, enabled }
-                        }
-                      }))
-                    }
-                    onLabel="开启"
-                  />
-                  <input
-                    value={settings.channels.feishu.webhookUrl}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          feishu: { ...current.channels.feishu, webhookUrl: event.target.value }
-                        }
-                      }))
-                    }
-                    placeholder="飞书 webhook URL"
-                  />
-                </div>
-              </div>
-
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <strong>Telegram</strong>
-                  <span>使用 bot token 和 chat id 发送消息</span>
-                </div>
-                <div className="channel-control channel-control-pair">
-                  <SettingSwitch
-                    label="启用 Telegram"
-                    checked={settings.channels.telegram.enabled}
-                    offLabel="关闭"
-                    onChange={(enabled) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          telegram: { ...current.channels.telegram, enabled }
-                        }
-                      }))
-                    }
-                    onLabel="开启"
-                  />
-                  <input
-                    value={settings.channels.telegram.botToken}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          telegram: { ...current.channels.telegram, botToken: event.target.value }
-                        }
-                      }))
-                    }
-                    placeholder="Bot token"
-                  />
-                  <input
-                    value={settings.channels.telegram.chatId}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          telegram: { ...current.channels.telegram, chatId: event.target.value }
-                        }
-                      }))
-                    }
-                    placeholder="Chat ID"
-                  />
-                </div>
-              </div>
-
-              <div className="setting-row">
-                <div className="setting-copy">
-                  <strong>企业微信机器人</strong>
-                  <span>使用群机器人 webhook</span>
-                </div>
-                <div className="channel-control">
-                  <SettingSwitch
-                    label="启用企业微信机器人"
-                    checked={settings.channels.wecom.enabled}
-                    offLabel="关闭"
-                    onChange={(enabled) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          wecom: { ...current.channels.wecom, enabled }
-                        }
-                      }))
-                    }
-                    onLabel="开启"
-                  />
-                  <input
-                    value={settings.channels.wecom.webhookUrl}
-                    onChange={(event) =>
-                      setSettings((current) => ({
-                        ...current,
-                        channels: {
-                          ...current.channels,
-                          wecom: { ...current.channels.wecom, webhookUrl: event.target.value }
-                        }
-                      }))
-                    }
-                    placeholder="企业微信 webhook URL"
-                  />
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div className="modal-actions">
-          <button type="button" className="ghost" onClick={onClose} disabled={saving}>
-            取消
-          </button>
-          <button type="button" className="primary" onClick={save} disabled={saving || loading}>
-            {saving ? '保存中' : '保存设置'}
-          </button>
-        </div>
-      </section>
+function ChannelBlock({
+  title,
+  description,
+  enabledName,
+  children
+}: {
+  title: string;
+  description: string;
+  enabledName: Array<string>;
+  children: ReactNode;
+}) {
+  return (
+    <div className="setting-row">
+      <div>
+        <Typography.Text strong>{title}</Typography.Text>
+        <Typography.Paragraph type="secondary">{description}</Typography.Paragraph>
+        {children}
+      </div>
+      <Form.Item name={enabledName} valuePropName="checked" noStyle>
+        <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+      </Form.Item>
     </div>
   );
 }

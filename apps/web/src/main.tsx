@@ -1,10 +1,17 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { App } from './App.js';
+import { BrowserRouter } from 'react-router-dom';
+import 'antd/dist/reset.css';
+import { AppRoot } from './app/AppRoot.js';
+import { TeamManagerThemeProvider } from './theme/ThemeProvider.js';
 import './styles.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <TeamManagerThemeProvider>
+        <AppRoot />
+      </TeamManagerThemeProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );

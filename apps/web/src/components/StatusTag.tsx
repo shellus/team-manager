@@ -1,0 +1,44 @@
+import type { SeatType, SubaccountStatus } from '@team-manager/shared';
+import { Tag } from 'antd';
+import { seatLabel } from '../labels.js';
+
+const SUBACCOUNT_STATUS_LABEL: Record<SubaccountStatus, string> = {
+  empty: '未录入',
+  session_ready: 'Session 可用',
+  codex_auth_pending: '授权中',
+  codex_ready: 'Codex 可用',
+  verification_required: '待验证',
+  account_locked: '账号锁定',
+  error: '异常'
+};
+
+export function AccountStatusTag({ status }: { status?: 'active' | 'invalid' | 'unknown' }) {
+  if (status === 'active') return <Tag color="success">正常</Tag>;
+  if (status === 'invalid') return <Tag color="error">失效</Tag>;
+  return <Tag>待同步</Tag>;
+}
+
+export function SubaccountStatusTag({ status }: { status: SubaccountStatus }) {
+  const color =
+    status === 'codex_ready'
+      ? 'success'
+      : status === 'error' || status === 'account_locked'
+        ? 'error'
+        : status === 'codex_auth_pending' || status === 'verification_required'
+          ? 'warning'
+          : 'default';
+  return <Tag color={color}>{SUBACCOUNT_STATUS_LABEL[status]}</Tag>;
+}
+
+export function SeatTag({ seat }: { seat?: SeatType }) {
+  if (!seat) return <Tag>未设置</Tag>;
+  return <Tag color={seat === 'default' ? 'blue' : 'purple'}>{seatLabel(seat)}</Tag>;
+}
+
+export function TeamLinkStatusTag({ status }: { status: 'invited' | 'member' | 'removed' | 'unknown' }) {
+  const label = status === 'member' ? '已在 Team' : status === 'invited' ? '邀请中' : status === 'removed' ? '未找到' : '未确认';
+  const color = status === 'member' ? 'success' : status === 'invited' ? 'processing' : status === 'removed' ? 'default' : 'warning';
+  return <Tag color={color}>{label}</Tag>;
+}
+
+export { SUBACCOUNT_STATUS_LABEL };
