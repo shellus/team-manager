@@ -22,8 +22,13 @@ import {
 } from './subaccountRegistration.js';
 import { fetchCodexQuota } from './codexQuota.js';
 import { ServiceError } from './teamService.js';
+import { ChatGptApi, ChatGptApiError, type CodexPersonalAccessTokenResponse } from './chatgptApi.js';
 import { createTransport, type Transport } from './transport.js';
 import { SubaccountStore } from './subaccountStore.js';
+
+const CODEX_PAT_NAME = 'team-manager';
+const CODEX_PAT_TTL_SECONDS = 30 * 24 * 60 * 60;
+const CODEX_LOCAL_ACCESS_SCOPE = 'chatgpt.workspace.feature.allow-codex-local-access.access';
 
 export interface CodexAuthStart {
   sessionId: string;
@@ -43,7 +48,8 @@ export class SubaccountService {
     private readonly codexFetch: typeof fetch = fetch,
     private readonly quotaTransport: Transport = createTransport(),
     private readonly codexAutoAuth: CodexAutoAuthExecutor | undefined = createCodexAutoAuthExecutor(),
-    private readonly registration: SubaccountRegistrationExecutor | undefined = createSubaccountRegistrationExecutor()
+    private readonly registration: SubaccountRegistrationExecutor | undefined = createSubaccountRegistrationExecutor(),
+    private readonly webTransport: Transport = createTransport()
   ) {}
 
   list(): SubaccountView[] {
@@ -333,6 +339,72 @@ export class SubaccountService {
     }
   }
 
+  async createPersonalAccessTokenCredential(
+    id: string,
+    targetChatgptAccountId?: string
+  ): Promise<SubaccountView> {
+    const subaccount = this.requireSubaccount(id);
+    const target = cleanTargetAccountId(targetChatgptAccountId);
+    if (!target) throw new ServiceError(400, '缺少 chatgptAccountId');
+    if (!subaccount.webAccessToken?.trim()) {
+      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法创建个人访问令牌');
+    }
+
+    await this.store.update(id, { status: 'codex_auth_pending', lastError: undefined });
+    await this.store.appendLog(id, {
+      phase: 'codex_pat_create_start',
+      status: 'codex_auth_pending',
+      message: '已开始通过子号 Web session 创建 Codex 个人访问令牌',
+      data: { targetChatgptAccountId: target }
+    });
+
+    try {
+      const api = new ChatGptApi(
+        {
+          accountId: target,
+          accessToken: subaccount.webAccessToken
+        },
+        this.webTransport
+      );
+      const response = await api.createCodexPersonalAccessToken({
+        name: CODEX_PAT_NAME,
+        scopes: [CODEX_LOCAL_ACCESS_SCOPE],
+        ttl: CODEX_PAT_TTL_SECONDS
+      });
+      const credential = codexCredentialFromPersonalAccessTokenResponse(response, subaccount.email, target);
+      const updated = await this.store.saveCodexCredential(id, credential);
+      if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      await this.store.appendLog(id, {
+        phase: 'codex_pat_create_complete',
+        status: 'codex_ready',
+        message: '已创建 Codex 个人访问令牌并保存凭证 JSON',
+        data: {
+          email: credential.email,
+          accountId: credential.account_id,
+          issuedAccountId: credential.issued_account_id,
+          credentialIdPresent: Boolean(credential.credential_id),
+          expiresAt: credential.expired
+        }
+      });
+      return updated;
+    } catch (e) {
+      const message =
+        e instanceof ChatGptApiError
+          ? `创建 Codex 个人访问令牌失败: HTTP ${e.status} ${trimForLog(e.body)}`
+          : (e as Error).message;
+      await this.store.update(id, { status: 'error', lastError: message });
+      await this.store.appendLog(id, {
+        phase: 'codex_pat_create_complete',
+        status: 'error',
+        message,
+        data: { targetChatgptAccountId: target }
+      });
+      if (e instanceof ServiceError) throw e;
+      if (e instanceof ChatGptApiError) throw new ServiceError(e.status >= 400 && e.status < 500 ? e.status : 502, message);
+      throw e;
+    }
+  }
+
   async registerNewSubaccount(input: { targetChatgptAccountId?: string; mailGroup?: string }): Promise<SubaccountView> {
     if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
     const target = cleanTargetAccountId(input.targetChatgptAccountId);
@@ -527,16 +599,37 @@ function parseCodexCredentialInput(raw: unknown): CodexCredentialJson {
     throw new ServiceError(400, '录入内容必须是 Codex credential JSON');
   }
   const record = raw as Record<string, unknown>;
+  const accessToken = readOptionalString(record, 'access_token') ?? readOptionalString(record, 'personal_access_token');
+  if (!accessToken) throw new ServiceError(400, 'Codex 凭证缺少 access_token');
+  const refreshToken = readOptionalString(record, 'refresh_token');
+  const idToken = readOptionalString(record, 'id_token');
+  const personalAccessToken = readOptionalString(record, 'personal_access_token');
+  const isPersonalAccessToken =
+    readOptionalString(record, 'auth_mode') === 'personalAccessToken' ||
+    readOptionalString(record, 'credential_source') === 'personal_access_token' ||
+    Boolean(personalAccessToken) ||
+    (!refreshToken && !idToken && accessToken.startsWith('at-'));
+  if (!isPersonalAccessToken && !idToken) throw new ServiceError(400, 'Codex 凭证缺少 id_token');
+  if (!isPersonalAccessToken && !refreshToken) throw new ServiceError(400, 'Codex 凭证缺少 refresh_token');
+
   const credential: CodexCredentialJson = {
-    id_token: readRequiredString(record, 'id_token'),
-    access_token: readRequiredString(record, 'access_token'),
-    refresh_token: readRequiredString(record, 'refresh_token'),
+    ...(idToken ? { id_token: idToken } : {}),
+    access_token: accessToken,
+    ...(refreshToken ? { refresh_token: refreshToken } : {}),
     account_id: readRequiredString(record, 'account_id'),
     last_refresh: readRequiredString(record, 'last_refresh'),
     email: readRequiredString(record, 'email'),
     type: readRequiredString(record, 'type') as 'codex',
     expired: readRequiredString(record, 'expired'),
-    plan_type: readOptionalString(record, 'plan_type')
+    plan_type: readOptionalString(record, 'plan_type'),
+    auth_mode: isPersonalAccessToken ? 'personalAccessToken' : readOptionalString(record, 'auth_mode') as CodexCredentialJson['auth_mode'],
+    credential_source: isPersonalAccessToken
+      ? 'personal_access_token'
+      : readOptionalString(record, 'credential_source') as CodexCredentialJson['credential_source'],
+    personal_access_token: isPersonalAccessToken ? personalAccessToken ?? accessToken : undefined,
+    credential_id: readOptionalString(record, 'credential_id'),
+    chatgpt_user_id: readOptionalString(record, 'chatgpt_user_id'),
+    issued_account_id: readOptionalString(record, 'issued_account_id')
   };
   if (credential.type !== 'codex') throw new ServiceError(400, 'Codex credential type 必须是 codex');
   return credential;
@@ -561,4 +654,47 @@ function assertCredentialMatchesTarget(credential: CodexCredentialJson, target?:
       `Codex 授权选择的 workspace 与目标不一致：目标 ${target}，实际 ${credential.account_id || '空'}`
     );
   }
+}
+
+function codexCredentialFromPersonalAccessTokenResponse(
+  response: CodexPersonalAccessTokenResponse,
+  fallbackEmail: string,
+  targetAccountId?: string,
+  now: Date = new Date()
+): CodexCredentialJson {
+  const accessToken = response.access_token?.trim();
+  if (!accessToken) throw new ServiceError(502, '个人访问令牌响应缺少 access_token');
+  const issuedAccountId = response.workspace_id?.trim();
+  if (!issuedAccountId) throw new ServiceError(502, '个人访问令牌响应缺少 workspace_id');
+  const accountId = targetAccountId?.trim() || issuedAccountId;
+  const email = response.creator_user_email?.trim() || fallbackEmail;
+  const lastRefresh = epochSecondsToIso(response.created_at) ?? now.toISOString();
+  const expired = epochSecondsToIso(response.expires_at);
+  if (!expired) throw new ServiceError(502, '个人访问令牌响应缺少 expires_at');
+
+  return {
+    access_token: accessToken,
+    personal_access_token: accessToken,
+    account_id: accountId,
+    last_refresh: lastRefresh,
+    email,
+    type: 'codex',
+    expired,
+    auth_mode: 'personalAccessToken',
+    credential_source: 'personal_access_token',
+    credential_id: response.credential_id,
+    chatgpt_user_id: response.owner_user_id,
+    issued_account_id: issuedAccountId === accountId ? undefined : issuedAccountId
+  };
+}
+
+function epochSecondsToIso(value: unknown): string | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
+  const date = new Date(value * 1000);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function trimForLog(value: string): string {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  return trimmed.length > 200 ? `${trimmed.slice(0, 200)}...` : trimmed;
 }

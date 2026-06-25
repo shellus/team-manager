@@ -58,7 +58,8 @@ export async function buildApp({
     subaccountCodexFetch,
     subaccountQuotaTransport,
     subaccountCodexAutoAuth,
-    subaccountRegistration
+    subaccountRegistration,
+    teamTransport
   );
 
   const syncTeamLinksByMotherScan = async (id: string, subaccount: Subaccount) => {
@@ -384,6 +385,8 @@ export async function buildApp({
       defaultSeat?: SeatType;
       workspaceReferralsEnabled?: boolean;
       personalAccessTokensEnabled?: boolean;
+      codexDeviceCodeAuthEnabled?: boolean;
+      codexRemoteControlEnabled?: boolean;
     };
     if (body.defaultSeat) return wrap(c, () => service.setDefaultSeat(c.req.param('id'), body.defaultSeat!));
     if (typeof body.workspaceReferralsEnabled === 'boolean') {
@@ -396,7 +399,21 @@ export async function buildApp({
         service.setPersonalAccessTokensEnabled(c.req.param('id'), body.personalAccessTokensEnabled!)
       );
     }
-    return c.json({ ok: false, error: '缺少 defaultSeat、workspaceReferralsEnabled 或 personalAccessTokensEnabled' }, 400);
+    if (typeof body.codexDeviceCodeAuthEnabled === 'boolean') {
+      return wrap(c, () =>
+        service.setCodexDeviceCodeAuthEnabled(c.req.param('id'), body.codexDeviceCodeAuthEnabled!)
+      );
+    }
+    if (typeof body.codexRemoteControlEnabled === 'boolean') {
+      return wrap(c, () =>
+        service.setCodexRemoteControlEnabled(c.req.param('id'), body.codexRemoteControlEnabled!)
+      );
+    }
+    return c.json({
+      ok: false,
+      error:
+        '缺少 defaultSeat、workspaceReferralsEnabled、personalAccessTokensEnabled、codexDeviceCodeAuthEnabled 或 codexRemoteControlEnabled'
+    }, 400);
   });
 
   api.patch('/accounts/:id/name', async (c) => {
@@ -452,6 +469,13 @@ export async function buildApp({
   api.post('/subaccounts/:id/codex-auth/auto', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
     return wrap(c, () => subaccountService.autoCompleteCodexAuth(c.req.param('id'), body.chatgptAccountId));
+  });
+
+  api.post('/subaccounts/:id/codex-auth/personal-access-token', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
+    return wrap(c, () =>
+      subaccountService.createPersonalAccessTokenCredential(c.req.param('id'), body.chatgptAccountId)
+    );
   });
 
   api.post('/subaccounts/:id/codex-auth/callback', async (c) => {

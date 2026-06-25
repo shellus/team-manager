@@ -53,6 +53,17 @@
 
 该设置控制 Team 成员是否可以创建个人访问令牌。写操作成功后，系统会更新本地母号 settings 缓存并返回最新 view。
 
+## 设置 Codex Local 权限
+
+母号详情页“席位与权限”会展示 `wham_local_access`，即“允许成员使用 Codex Local”。该字段来自完整 settings 读取，当前系统只读展示，不主动切换该开关。
+
+同一区域可切换两个 Codex 相关 beta feature：
+
+- `codex_device_code_auth`：为 Codex CLI 启用设备代码身份验证。
+- `codex_remote_control`：允许成员远程发现并控制设备。
+
+写操作使用 ChatGPT Web 的 `/backend-api/accounts/{account_id}/beta_features`，成功后会更新本地母号 settings 缓存并返回最新 view。
+
 ## 邀请成员
 
 母号详情页右上角菜单进入“邀请新成员”。邀请时需要填写邮箱并选择席位类型：

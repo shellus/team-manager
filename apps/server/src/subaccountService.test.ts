@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ApiResult, CodexAuthRuntimeStatus, SubaccountView } from '@team-manager/shared';
+import type { ApiResult, CodexAuthRuntimeStatus, CodexCredentialJson, SubaccountView } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -65,6 +65,7 @@ class RecordingTeamTransport implements Transport {
   membersByWorkspaceId = new Map<string, RawTeamMember[]>();
   invitesByWorkspaceId = new Map<string, RawTeamInvite[]>();
   accountsCheckByAccessToken = new Map<string, Record<string, unknown>>();
+  personalAccessTokenWorkspaceId = 'workspace-account-id';
 
   async fetch(req: { method: string; path: string; headers: Record<string, string>; body?: string }) {
     this.requests.push(req);
@@ -90,6 +91,24 @@ class RecordingTeamTransport implements Transport {
     }
     if (req.method === 'POST' && req.path.includes('/invites')) {
       return { status: 200, body: JSON.stringify({ success: true }) };
+    }
+    if (req.method === 'POST' && req.path === '/backend-api/wham/auth-credentials') {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          credential_id: 'token_generated',
+          created_at: 1782350457,
+          owner_user_id: 'user-child',
+          creator_user_email: 'child@example.com',
+          name: 'team-manager',
+          workspace_id: this.personalAccessTokenWorkspaceId,
+          scopes: ['chatgpt.workspace.feature.allow-codex-local-access.access'],
+          expires_at: 1784942457,
+          revoked: false,
+          expired: false,
+          access_token: 'at-generated-codex-token'
+        })
+      };
     }
     return { status: 404, body: JSON.stringify({ error: 'not found' }) };
   }
@@ -443,6 +462,50 @@ describe('Subaccount API', () => {
       assert.equal(addedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
       assert.equal(JSON.stringify(addedJson).includes('imported-refresh-token'), false);
       assert.equal(JSON.stringify(addedJson).includes('imported-access-token'), false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('imports a Codex personal access token credential without OAuth refresh or id tokens', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/codex-credential', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          personal_access_token: 'at-imported-codex-token',
+          account_id: 'workspace-account-id',
+          last_refresh: '2026-06-18T00:00:00.000Z',
+          email: 'child@example.com',
+          type: 'codex',
+          expired: '2026-07-18T00:00:00.000Z',
+          auth_mode: 'personalAccessToken',
+          credential_source: 'personal_access_token',
+          credential_id: 'token-imported'
+        })
+      });
+      const body = await added.text();
+      const addedJson = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(added.status, 200, body);
+      assert.equal(addedJson.data!.email, 'child@example.com');
+      assert.equal(addedJson.data!.status, 'codex_ready');
+      assert.equal(addedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
+      assert.equal(body.includes('at-imported-codex-token'), false);
+
+      const exported = await app.request(
+        `/api/subaccounts/${addedJson.data!.id}/codex-credential?chatgptAccountId=workspace-account-id`,
+        { headers: authHeaders }
+      );
+      const exportedJson = (await exported.json()) as ApiResult<CodexCredentialJson>;
+      assert.equal(exported.status, 200);
+      assert.equal(exportedJson.data!.access_token, 'at-imported-codex-token');
+      assert.equal(exportedJson.data!.personal_access_token, 'at-imported-codex-token');
+      assert.equal(exportedJson.data!.auth_mode, 'personalAccessToken');
+      assert.equal(exportedJson.data!.credential_source, 'personal_access_token');
+      assert.equal('refresh_token' in exportedJson.data!, false);
+      assert.equal('id_token' in exportedJson.data!, false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -866,6 +929,99 @@ describe('Subaccount API', () => {
       );
       const credentialJson = (await credential.json()) as ApiResult<Record<string, unknown>>;
       assert.equal(credentialJson.data!.account_id, 'workspace-account-id');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a Codex personal access token credential with the child Web session', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/personal-access-token`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
+      });
+      const body = await created.text();
+      const createdJson = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(created.status, 200, body);
+      assert.equal(createdJson.data!.status, 'codex_ready');
+      assert.equal(createdJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
+
+      const request = teamTransport.requests.find((item) => item.path === '/backend-api/wham/auth-credentials');
+      assert.equal(request?.method, 'POST');
+      assert.equal(request?.headers.Authorization, 'Bearer child-web-access-token');
+      assert.equal(request?.headers['chatgpt-account-id'], 'workspace-account-id');
+      assert.deepEqual(JSON.parse(request!.body!), {
+        name: 'team-manager',
+        scopes: ['chatgpt.workspace.feature.allow-codex-local-access.access'],
+        ttl: 2592000
+      });
+
+      const exported = await app.request(
+        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
+        { headers: authHeaders }
+      );
+      const exportedJson = (await exported.json()) as ApiResult<Record<string, unknown>>;
+      assert.equal(exportedJson.data!.access_token, 'at-generated-codex-token');
+      assert.equal(exportedJson.data!.personal_access_token, 'at-generated-codex-token');
+      assert.equal(exportedJson.data!.account_id, 'workspace-account-id');
+      assert.equal(exportedJson.data!.email, 'child@example.com');
+      assert.equal(exportedJson.data!.type, 'codex');
+      assert.equal(exportedJson.data!.auth_mode, 'personalAccessToken');
+      assert.equal('refresh_token' in exportedJson.data!, false);
+      assert.equal('id_token' in exportedJson.data!, false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stores a generated personal access token under the requested target when the returned workspace differs', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      teamTransport.personalAccessTokenWorkspaceId = 'other-workspace-id';
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/personal-access-token`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
+      });
+      const createdJson = (await created.json()) as ApiResult;
+
+      assert.equal(created.status, 200);
+      assert.equal((createdJson.data as SubaccountView).codexCredentials[0]!.accountId, 'workspace-account-id');
+
+      const exported = await app.request(
+        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
+        { headers: authHeaders }
+      );
+      const exportedJson = (await exported.json()) as ApiResult<CodexCredentialJson>;
+      assert.equal(exported.status, 200);
+      assert.equal(exportedJson.data!.account_id, 'workspace-account-id');
+      assert.equal(exportedJson.data!.issued_account_id, 'other-workspace-id');
+      assert.equal(exportedJson.data!.personal_access_token, 'at-generated-codex-token');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

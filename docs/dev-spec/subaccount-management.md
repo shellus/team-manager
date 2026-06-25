@@ -11,7 +11,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证元数据；真实 CPA/Codex auth JSON 写入独立凭证文件。
   - 凭证元数据包含 `accountId`、`fileName`、`groupName`、`planType`、授权时间和额度缓存。`groupName` 用于展示该凭证所在 CPA 号池。
   - 自动注册生成的 OpenAI 密码记录在后端持久化对象的私有字段中，普通 view 不下发。
-  - `credential.account_id` 来自 Codex `id_token` claim 中的 `chatgpt_account_id`。
+  - `credential.account_id` 是凭证绑定的 Team workspace。OAuth 凭证来自 Codex `id_token` claim 中的 `chatgpt_account_id`；个人访问令牌凭证来自 `wham/auth-credentials` 响应的 `workspace_id`。
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
 - 子号 session JSON 录入：
   - 只接受一种格式：`user.email`、`account.id`、`accessToken`。
@@ -39,6 +39,19 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 遇到 `auth_challenge` 人机校验时，worker 会先用运行环境 FlareSolverr 尝试打开 challenge；如果 solver 返回可继续的 auth JSON 状态，则继续后续手机号验证或授权状态机。
   - 若手机号池为空、绑定手机号无法匹配、尾号匹配到多个号码、短信超时、验证码重试预算耗尽或人机校验无法自动继续，子号状态写为 `verification_required`，日志记录脱敏阶段信息。
   - 若 OpenAI 返回账号锁定、停用或不可用，worker 返回 `account_locked`，后端把子号状态写为 `account_locked`，停止把它混入验证码待验证流程。
+- Codex 个人访问令牌凭证：
+  - `POST /api/subaccounts/:id/codex-auth/personal-access-token` 使用子号自己的 ChatGPT Web `accessToken` 调用 `POST /backend-api/wham/auth-credentials`。
+  - 请求目标 workspace 由 `chatgpt-account-id` header 指定，scope 固定为 `chatgpt.workspace.feature.allow-codex-local-access.access`，TTL 为 30 天。
+  - 返回的 `at-...` token 是官方 Codex CLI 支持的 personal access token。官方 Codex 将其保存为 `auth.json.personal_access_token`，不需要 `refresh_token` 或 `id_token`。
+  - team-manager 保存为 `auth_mode:"personalAccessToken"` / `credential_source:"personal_access_token"` 的 Codex credential JSON，同时保留 `access_token` 和 `personal_access_token` 便于额度刷新和导出。
+  - PAT 创建流程按用户选择的目标 workspace 写入 `credential.account_id`。若远端响应 `workspace_id` 与目标不一致，不拒绝保存，而是记录到 `issued_account_id` 供多 workspace 子号实测；OAuth 授权流程仍必须校验并拒绝 workspace 不一致。
+  - 该流程只操作子号凭证，不会自动修改母号的 `personal_access_tokens`、`wham_local_access`、`codex_device_code_auth` 或 `codex_remote_control` 等 Team 设置。若目标 Team 未允许用户创建个人访问令牌或未命中 Codex Local 后端授权规则，远端错误直接返回给调用方。
+- 官方 Codex PAT 兼容性确认：
+  - `codex-rs/login/src/auth/access_token.rs` 按 `at-` 前缀把 token 分类为 `PersonalAccessToken`。
+  - `codex-rs/login/src/auth/storage.rs` 的 `AuthDotJson` 独立支持 `personal_access_token` 字段。
+  - `codex-rs/login/src/auth/manager.rs` 对 PAT 的 `get_token()` 直接返回该 token，`get_account_id()` 使用 PAT 元数据里的 `chatgpt_account_id`；`codex login --with-access-token` 写盘时只写 `personal_access_token`，不写 OAuth `tokens`。
+  - `codex-rs/login/src/auth/personal_access_token.rs` 会用 PAT 调 `GET /api/accounts/v1/user-auth-credential/whoami` 补齐 `email`、`chatgpt_user_id`、`chatgpt_account_id`、`chatgpt_plan_type` 和 FedRAMP 标记。
+  - `codex-rs/model-provider-info/src/lib.rs` 将 `PersonalAccessToken` 视为使用 ChatGPT Codex backend 的认证模式。
 - 自动注册：
   - `POST /api/subaccounts/registration/start` 创建不带 `login_hint` 的 Codex OAuth 会话，并调用 worker `/subaccounts/register`。
   - worker 通过 GongXi-Mail `/api/get-email` 申请邮箱，生成随机强密码，执行 `screen_hint:"signup"`、`/api/accounts/user/register`、邮箱 OTP、必要手机号验证、workspace select 和 token exchange。
@@ -125,6 +138,7 @@ phones:
 - `POST /api/subaccounts/:id/codex-auth/start`，可传 `chatgptAccountId`
 - `GET /api/subaccounts/codex-auth/status`
 - `POST /api/subaccounts/:id/codex-auth/auto`，可传 `chatgptAccountId`
+- `POST /api/subaccounts/:id/codex-auth/personal-access-token`，可传 `chatgptAccountId`
 - `POST /api/subaccounts/:id/codex-auth/callback`
 - `GET /api/subaccounts/:id/codex-credential?chatgptAccountId=...`
 - `POST /api/subaccounts/:id/quota/refresh`，可传 `chatgptAccountId`

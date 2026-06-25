@@ -543,7 +543,13 @@ describe('TeamService settings cache', () => {
       workspaceReferralsEnabledVisible: true,
       workspaceReferralsEnabledCachedAt: 123,
       personalAccessTokensEnabled: true,
-      personalAccessTokensCachedAt: 123
+      personalAccessTokensCachedAt: 123,
+      codexLocalAccessEnabled: true,
+      codexLocalAccessCachedAt: 123,
+      codexDeviceCodeAuthEnabled: false,
+      codexDeviceCodeAuthCachedAt: 123,
+      codexRemoteControlEnabled: true,
+      codexRemoteControlCachedAt: 123
     });
 
     const service = new TeamService(store, transport);
@@ -553,7 +559,10 @@ describe('TeamService settings cache', () => {
       default_seat_type: 'usage_based',
       workspace_referrals_enabled: false,
       workspace_referrals_enabled_visible: true,
-      personal_access_tokens: true
+      personal_access_tokens: true,
+      wham_local_access: true,
+      codex_device_code_auth: false,
+      codex_remote_control: true
     });
     assert.equal(requests.length, 0);
   });
@@ -569,6 +578,12 @@ describe('TeamService settings cache', () => {
             default_seat_type: 'default',
             workspace_referrals_enabled: false,
             workspace_referrals_enabled_visible: true,
+            beta_settings: {
+              wham_local_access: true,
+              codex_device_code_auth: true,
+              codex_remote_control: false,
+              personal_access_tokens: true
+            },
             permissions: {
               personal_access_tokens: true
             },
@@ -599,13 +614,22 @@ describe('TeamService settings cache', () => {
     assert.equal(view.workspaceReferralsEnabled, false);
     assert.equal(view.workspaceReferralsEnabledVisible, true);
     assert.equal(view.personalAccessTokensEnabled, true);
+    assert.equal(view.codexLocalAccessEnabled, true);
+    assert.equal(view.codexDeviceCodeAuthEnabled, true);
+    assert.equal(view.codexRemoteControlEnabled, false);
     assert.equal(stored?.defaultSeat, 'default');
     assert.equal(stored?.workspaceReferralsEnabled, false);
     assert.equal(stored?.workspaceReferralsEnabledVisible, true);
     assert.equal(stored?.personalAccessTokensEnabled, true);
+    assert.equal(stored?.codexLocalAccessEnabled, true);
+    assert.equal(stored?.codexDeviceCodeAuthEnabled, true);
+    assert.equal(stored?.codexRemoteControlEnabled, false);
     assert.equal(typeof stored?.defaultSeatCachedAt, 'number');
     assert.equal(typeof stored?.workspaceReferralsEnabledCachedAt, 'number');
     assert.equal(typeof stored?.personalAccessTokensCachedAt, 'number');
+    assert.equal(typeof stored?.codexLocalAccessCachedAt, 'number');
+    assert.equal(typeof stored?.codexDeviceCodeAuthCachedAt, 'number');
+    assert.equal(typeof stored?.codexRemoteControlCachedAt, 'number');
   });
 });
 
@@ -940,6 +964,82 @@ describe('TeamService personal access token setting changes', () => {
     });
     assert.equal(view.personalAccessTokensEnabled, true);
     assert.equal(store.get(account.id)?.personalAccessTokensEnabled, true);
+  });
+});
+
+describe('TeamService Codex local access setting changes', () => {
+  it('posts the Codex device code auth toggle to the ChatGPT Web beta features endpoint', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            codex_device_code_auth: true
+          })
+        };
+      }
+    };
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.setCodexDeviceCodeAuthEnabled(account.id, true);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/beta_features');
+    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), {
+      feature: 'codex_device_code_auth',
+      value: true
+    });
+    assert.equal(view.codexDeviceCodeAuthEnabled, true);
+    assert.equal(store.get(account.id)?.codexDeviceCodeAuthEnabled, true);
+  });
+
+  it('posts the Codex remote control toggle to the ChatGPT Web beta features endpoint', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            codex_remote_control: false
+          })
+        };
+      }
+    };
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.setCodexRemoteControlEnabled(account.id, false);
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/beta_features');
+    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), {
+      feature: 'codex_remote_control',
+      value: false
+    });
+    assert.equal(view.codexRemoteControlEnabled, false);
+    assert.equal(store.get(account.id)?.codexRemoteControlEnabled, false);
   });
 });
 

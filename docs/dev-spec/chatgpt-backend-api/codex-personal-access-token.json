@@ -1,0 +1,53 @@
+{
+  "captured_at": "2026-06-25",
+  "source": "sanitized curl capture from ChatGPT Web access token creation request",
+  "page": "https://chatgpt.com/admin/access-tokens?modal=create",
+  "operation": "create_codex_personal_access_token",
+  "request": {
+    "method": "POST",
+    "url": "https://chatgpt.com/backend-api/wham/auth-credentials",
+    "target_path": "/backend-api/wham/auth-credentials",
+    "target_route": "/backend-api/wham/auth-credentials",
+    "headers": {
+      "authorization": "Bearer <child-chatgpt-web-access-token>",
+      "chatgpt-account-id": "{target_workspace_account_id}",
+      "content-type": "application/json",
+      "oai-device-id": "<redacted>",
+      "oai-session-id": "<redacted>",
+      "x-openai-target-path": "/backend-api/wham/auth-credentials",
+      "x-openai-target-route": "/backend-api/wham/auth-credentials"
+    },
+    "body": {
+      "name": "team-manager",
+      "scopes": [
+        "chatgpt.workspace.feature.allow-codex-local-access.access"
+      ],
+      "ttl": 2592000
+    }
+  },
+  "response": {
+    "status": 200,
+    "body_shape": {
+      "credential_id": "token_<redacted>",
+      "created_at": 1782350457,
+      "owner_user_id": "user-<redacted>",
+      "creator_user_display_name": "<redacted>",
+      "creator_user_email": "child@example.com",
+      "name": "team-manager",
+      "workspace_id": "{target_workspace_account_id}",
+      "scopes": [
+        "chatgpt.workspace.feature.allow-codex-local-access.access"
+      ],
+      "expires_at": 1784942457,
+      "revoked": false,
+      "expired": false,
+      "access_token": "at-<redacted>"
+    }
+  },
+  "notes": [
+    "The request is made with the child account's ChatGPT Web access token, not the Team owner token.",
+    "The request carries the target workspace in the chatgpt-account-id request header; multi-workspace child accounts may still return a different workspace_id, so callers should inspect the response.",
+    "The response access_token is a Codex personal access token. Official Codex CLI stores this as personal_access_token auth, without refresh_token or id_token.",
+    "If the Team setting personal_access_tokens is disabled, this endpoint may fail. team-manager should surface the failure and must not toggle the parent Team setting from a child credential action."
+  ]
+}

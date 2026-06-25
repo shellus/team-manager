@@ -22,7 +22,6 @@ export function SubaccountDetail({
   runtimeStatus,
   logs,
   busy,
-  credentialJson,
   quota,
   runningTarget,
   onTabChange,
@@ -33,6 +32,7 @@ export function SubaccountDetail({
   onRefreshRuntime,
   onStartAuth,
   onAutoAuth,
+  onCreatePersonalAccessToken,
   onRefreshQuota,
   onExportCredential,
   onOpenDeleteCredential
@@ -43,7 +43,6 @@ export function SubaccountDetail({
   runtimeStatus: CodexAuthRuntimeStatus | null;
   logs: SubaccountAuthLog[];
   busy: string;
-  credentialJson: string;
   quota: CodexQuotaSnapshot | null;
   runningTarget: string;
   onTabChange: (tab: SubaccountTab) => void;
@@ -54,6 +53,7 @@ export function SubaccountDetail({
   onRefreshRuntime: () => void;
   onStartAuth: (workspaceId: string, displayName: string) => void;
   onAutoAuth: (workspaceId: string) => void;
+  onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
   onExportCredential: (workspaceId: string) => void;
   onOpenDeleteCredential: (workspaceId: string) => void;
@@ -124,10 +124,10 @@ export function SubaccountDetail({
                 accounts={accounts}
                 runtimeStatus={runtimeStatus}
                 busy={busy}
-                credentialJson={credentialJson}
                 quota={quota}
                 onStartAuth={onStartAuth}
                 onAutoAuth={onAutoAuth}
+                onCreatePersonalAccessToken={onCreatePersonalAccessToken}
                 onRefreshQuota={onRefreshQuota}
                 onExportCredential={onExportCredential}
                 onOpenDeleteCredential={onOpenDeleteCredential}

@@ -1,0 +1,75 @@
+{
+  "captured_at": "2026-06-25",
+  "source": "sanitized curl captures from ChatGPT Web admin settings requests",
+  "page": "https://chatgpt.com/admin",
+  "operations": [
+    {
+      "operation": "set_codex_device_code_auth",
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/accounts/{account_id}/beta_features",
+        "target_path": "/backend-api/accounts/{account_id}/beta_features",
+        "target_route": "/backend-api/accounts/{account_id}/beta_features",
+        "headers": {
+          "authorization": "Bearer <redacted>",
+          "chatgpt-account-id": "{account_id}",
+          "content-type": "application/json",
+          "x-openai-target-path": "/backend-api/accounts/{account_id}/beta_features",
+          "x-openai-target-route": "/backend-api/accounts/{account_id}/beta_features"
+        },
+        "body": {
+          "feature": "codex_device_code_auth",
+          "value": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "body_shape": {
+          "codex_device_code_auth": true
+        }
+      }
+    },
+    {
+      "operation": "set_codex_remote_control",
+      "request": {
+        "method": "POST",
+        "url": "https://chatgpt.com/backend-api/accounts/{account_id}/beta_features",
+        "target_path": "/backend-api/accounts/{account_id}/beta_features",
+        "target_route": "/backend-api/accounts/{account_id}/beta_features",
+        "headers": {
+          "authorization": "Bearer <redacted>",
+          "chatgpt-account-id": "{account_id}",
+          "content-type": "application/json",
+          "x-openai-target-path": "/backend-api/accounts/{account_id}/beta_features",
+          "x-openai-target-route": "/backend-api/accounts/{account_id}/beta_features"
+        },
+        "body": {
+          "feature": "codex_remote_control",
+          "value": true
+        }
+      },
+      "response": {
+        "status": 200,
+        "body_shape": {
+          "codex_remote_control": true
+        }
+      }
+    }
+  ],
+  "settings_read": {
+    "path": "/backend-api/accounts/{account_id}/settings",
+    "body_shape": {
+      "beta_settings": {
+        "wham_local_access": true,
+        "codex_device_code_auth": true,
+        "codex_remote_control": true,
+        "personal_access_tokens": true
+      }
+    }
+  },
+  "notes": [
+    "codex_device_code_auth and codex_remote_control are writable through the beta_features endpoint.",
+    "wham_local_access is read from the full settings response and is displayed by team-manager as the Codex Local access state.",
+    "The captures include real browser cookies and session headers in the local request*.sh files; this sample intentionally keeps only the reusable endpoint and body shapes."
+  ]
+}

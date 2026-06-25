@@ -7,9 +7,9 @@ import type {
   SubaccountTeamLink,
   SubaccountView
 } from '@team-manager/shared';
-import { Button, Card, Descriptions, Input, Progress, Space, Table, Typography } from 'antd';
+import { Button, Card, Descriptions, Progress, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { formatDateTime, formatRelativeTime } from '../../components/format.js';
+import { formatDateTime } from '../../components/format.js';
 import { SeatTag, TeamLinkStatusTag } from '../../components/StatusTag.js';
 
 interface CredentialTeamRow {
@@ -38,10 +38,10 @@ export function SubaccountCredentialPanel({
   accounts,
   runtimeStatus,
   busy,
-  credentialJson,
   quota,
   onStartAuth,
   onAutoAuth,
+  onCreatePersonalAccessToken,
   onRefreshQuota,
   onExportCredential,
   onOpenDeleteCredential
@@ -50,10 +50,10 @@ export function SubaccountCredentialPanel({
   accounts: AccountView[];
   runtimeStatus: CodexAuthRuntimeStatus | null;
   busy: string;
-  credentialJson: string;
   quota: CodexQuotaSnapshot | null;
   onStartAuth: (workspaceId: string, displayName: string) => void;
   onAutoAuth: (workspaceId: string) => void;
+  onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
   onExportCredential: (workspaceId: string) => void;
   onOpenDeleteCredential: (workspaceId: string) => void;
@@ -137,11 +137,18 @@ export function SubaccountCredentialPanel({
     {
       title: '操作',
       key: 'actions',
-      width: 420,
+      width: 520,
       render: (_, row) => (
         <Space wrap>
           <Button
             type="primary"
+            disabled={!row.workspaceId || !subaccount.hasWebSession}
+            loading={busy === `codex-pat-${row.workspaceId || 'default'}`}
+            onClick={() => onCreatePersonalAccessToken(row.workspaceId)}
+          >
+            创建令牌
+          </Button>
+          <Button
             disabled={!row.workspaceId || runtimeStatus?.codexAutoAuth === false}
             loading={busy === `codex-auto-${row.workspaceId || 'default'}`}
             onClick={() => onAutoAuth(row.workspaceId)}
@@ -209,11 +216,6 @@ export function SubaccountCredentialPanel({
               </div>
             ))}
           </Space>
-        </Card>
-      )}
-      {credentialJson && (
-        <Card title={`凭证 JSON · ${formatRelativeTime(Date.now())}`}>
-          <Input.TextArea rows={12} value={credentialJson} readOnly spellCheck={false} />
         </Card>
       )}
     </Space>

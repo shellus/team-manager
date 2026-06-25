@@ -23,6 +23,8 @@ import { isBillingRiskError } from '../../components/format.js';
 import { JsonImportModal } from '../../components/JsonImportModal.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { SEAT_LABEL } from '../../labels.js';
+import { buildCredentialDownload, downloadTextFile } from './credentialDownload.js';
+import { shouldForwardSubaccountErrorToGlobal } from './errorHandling.js';
 import { SubaccountDetail } from './SubaccountDetail.js';
 import { SubaccountList } from './SubaccountList.js';
 
@@ -65,11 +67,9 @@ function accountOptionLabel(account: AccountView): string {
 
 export function SubaccountRoutes({
   accounts,
-  globalError,
   onError
 }: {
   accounts: AccountView[];
-  globalError: string;
   onError: (error: unknown) => void;
 }) {
   const navigate = useNavigate();
@@ -84,7 +84,6 @@ export function SubaccountRoutes({
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
   const [authSession, setAuthSession] = useState<ManualAuthSession | null>(null);
   const [callbackUrl, setCallbackUrl] = useState('');
-  const [credentialJson, setCredentialJson] = useState('');
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
   const [billingRisk, setBillingRisk] = useState<SubaccountBillingRisk | null>(null);
   const [loading, setLoading] = useState(false);
@@ -114,7 +113,7 @@ export function SubaccountRoutes({
   const reportLocalError = useCallback(
     (error: unknown) => {
       setLocalError((error as Error).message);
-      onError(error);
+      if (shouldForwardSubaccountErrorToGlobal(error)) onError(error);
     },
     [onError]
   );
@@ -179,7 +178,6 @@ export function SubaccountRoutes({
   }, [loading, location.pathname, navigate, searchParams, searchState.tab, selected, subaccounts.length]);
 
   useEffect(() => {
-    setCredentialJson('');
     setQuota(null);
     setAuthSession(null);
     setCallbackUrl('');
@@ -396,6 +394,21 @@ export function SubaccountRoutes({
     }
   };
 
+  const createPersonalAccessToken = async (workspaceId: string) => {
+    if (!selected || !workspaceId) return;
+    const key = targetKey('codex-pat', workspaceId);
+    setBusy(key);
+    setLocalError('');
+    try {
+      mergeSubaccount(await apiClient.createSubaccountPersonalAccessTokenCredential(selected.id, workspaceId));
+      await loadLogs(selected.id);
+    } catch (error) {
+      reportLocalError(error);
+    } finally {
+      setBusy('');
+    }
+  };
+
   const completeManualAuth = async () => {
     if (!selected || !authSession) return;
     setBusy('codex-callback');
@@ -434,8 +447,8 @@ export function SubaccountRoutes({
     setBusy(key);
     setLocalError('');
     try {
-      setCredentialJson(JSON.stringify(await apiClient.getSubaccountCodexCredential(selected.id, workspaceId), null, 2));
-      setSearchParams(setSearchValue(searchParams, 'credential', workspaceId));
+      const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
+      downloadTextFile(buildCredentialDownload(selected, workspaceId, credential));
     } catch (error) {
       reportLocalError(error);
     } finally {
@@ -451,7 +464,6 @@ export function SubaccountRoutes({
     setLocalError('');
     try {
       mergeSubaccount(await apiClient.removeSubaccountCodexCredential(selected.id, workspaceId));
-      setCredentialJson('');
       setQuota(null);
       closeModal();
     } catch (error) {
@@ -483,7 +495,7 @@ export function SubaccountRoutes({
       />
 
       <Space direction="vertical" size={12} className="content-pane">
-        {(globalError || localError) && <Alert type="error" showIcon message={localError || globalError} />}
+        {localError && <Alert type="error" showIcon message={localError} />}
         <SubaccountDetail
           subaccount={selected}
           accounts={accounts}
@@ -491,7 +503,6 @@ export function SubaccountRoutes({
           runtimeStatus={runtimeStatus}
           logs={logs}
           busy={busy}
-          credentialJson={credentialJson}
           quota={quota}
           runningTarget={runningTarget}
           onTabChange={changeTab}
@@ -502,6 +513,7 @@ export function SubaccountRoutes({
           onRefreshRuntime={() => void loadRuntimeStatus()}
           onStartAuth={(workspaceId, displayName) => void startAuth(workspaceId, displayName)}
           onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
+          onCreatePersonalAccessToken={(workspaceId) => void createPersonalAccessToken(workspaceId)}
           onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
           onExportCredential={(workspaceId) => void exportCredential(workspaceId)}
           onOpenDeleteCredential={(workspaceId) => openModal('delete-codex-credential', workspaceId)}

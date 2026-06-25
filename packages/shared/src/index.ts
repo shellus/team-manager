@@ -38,6 +38,12 @@ export interface Account {
   workspaceReferralsEnabledCachedAt?: number;
   personalAccessTokensEnabled?: boolean; // 允许用户创建个人访问令牌
   personalAccessTokensCachedAt?: number;
+  codexLocalAccessEnabled?: boolean; // 允许成员使用 Codex Local
+  codexLocalAccessCachedAt?: number;
+  codexDeviceCodeAuthEnabled?: boolean; // 为 Codex CLI 启用设备代码身份验证
+  codexDeviceCodeAuthCachedAt?: number;
+  codexRemoteControlEnabled?: boolean; // 允许成员远程发现并控制设备
+  codexRemoteControlCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   memberProfiles?: Record<string, AccountMemberProfile>; // 母号下的邮箱维度本地资料，key 为小写邮箱
@@ -72,6 +78,12 @@ export interface AccountView {
   workspaceReferralsEnabledCachedAt?: number;
   personalAccessTokensEnabled?: boolean;
   personalAccessTokensCachedAt?: number;
+  codexLocalAccessEnabled?: boolean;
+  codexLocalAccessCachedAt?: number;
+  codexDeviceCodeAuthEnabled?: boolean;
+  codexDeviceCodeAuthCachedAt?: number;
+  codexRemoteControlEnabled?: boolean;
+  codexRemoteControlCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   memberProfiles?: Record<string, AccountMemberProfile>;
@@ -229,15 +241,21 @@ export interface SubaccountCodexCredentialView {
 
 /** CPA / Codex 兼容凭证 JSON，后端按需显式导出 */
 export interface CodexCredentialJson {
-  id_token: string;
+  id_token?: string;
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
   account_id: string;
   last_refresh: string;
   email: string;
   type: 'codex';
   expired: string;
   plan_type?: string;
+  auth_mode?: 'chatgpt' | 'personalAccessToken';
+  credential_source?: 'oauth' | 'personal_access_token';
+  personal_access_token?: string;
+  credential_id?: string;
+  chatgpt_user_id?: string;
+  issued_account_id?: string;
 }
 
 export interface QuotaWindow {

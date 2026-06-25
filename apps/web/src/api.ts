@@ -99,6 +99,10 @@ export const apiClient = {
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { workspaceReferralsEnabled }),
   setPersonalAccessTokensEnabled: (id: string, personalAccessTokensEnabled: boolean) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { personalAccessTokensEnabled }),
+  setCodexDeviceCodeAuthEnabled: (id: string, codexDeviceCodeAuthEnabled: boolean) =>
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { codexDeviceCodeAuthEnabled }),
+  setCodexRemoteControlEnabled: (id: string, codexRemoteControlEnabled: boolean) =>
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { codexRemoteControlEnabled }),
   getNotificationSettings: () => call<NotificationSettings>('GET', '/settings/notifications'),
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
@@ -125,6 +129,8 @@ export const apiClient = {
   getCodexAuthRuntimeStatus: () => call<CodexAuthRuntimeStatus>('GET', '/subaccounts/codex-auth/status'),
   autoSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/auto`, { chatgptAccountId }),
+  createSubaccountPersonalAccessTokenCredential: (id: string, chatgptAccountId?: string) =>
+    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/personal-access-token`, { chatgptAccountId }),
   completeSubaccountCodexAuth: (id: string, sessionId: string, callbackUrl: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/callback`, { sessionId, callbackUrl }),
   getSubaccountCodexCredential: (id: string, chatgptAccountId?: string) => {

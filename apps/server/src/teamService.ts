@@ -76,6 +76,12 @@ export class TeamService {
       workspaceReferralsEnabledCachedAt: account.workspaceReferralsEnabledCachedAt,
       personalAccessTokensEnabled: account.personalAccessTokensEnabled,
       personalAccessTokensCachedAt: account.personalAccessTokensCachedAt,
+      codexLocalAccessEnabled: account.codexLocalAccessEnabled,
+      codexLocalAccessCachedAt: account.codexLocalAccessCachedAt,
+      codexDeviceCodeAuthEnabled: account.codexDeviceCodeAuthEnabled,
+      codexDeviceCodeAuthCachedAt: account.codexDeviceCodeAuthCachedAt,
+      codexRemoteControlEnabled: account.codexRemoteControlEnabled,
+      codexRemoteControlCachedAt: account.codexRemoteControlCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       memberProfiles: account.memberProfiles,
@@ -437,6 +443,30 @@ export class TeamService {
     return this.viewFromAccount(updated);
   }
 
+  async setCodexDeviceCodeAuthEnabled(id: string, enabled: boolean): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.setCodexDeviceCodeAuthEnabled(enabled);
+    const now = Date.now();
+    const updated = await this.store.update(
+      id,
+      this.settingsPatchFromResponse(settings, now, { codexDeviceCodeAuthEnabled: enabled })
+    );
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
+  async setCodexRemoteControlEnabled(id: string, enabled: boolean): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.setCodexRemoteControlEnabled(enabled);
+    const now = Date.now();
+    const updated = await this.store.update(
+      id,
+      this.settingsPatchFromResponse(settings, now, { codexRemoteControlEnabled: enabled })
+    );
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
   private settingsFromAccount(
     account: Pick<
       Account,
@@ -444,6 +474,9 @@ export class TeamService {
       | 'workspaceReferralsEnabled'
       | 'workspaceReferralsEnabledVisible'
       | 'personalAccessTokensEnabled'
+      | 'codexLocalAccessEnabled'
+      | 'codexDeviceCodeAuthEnabled'
+      | 'codexRemoteControlEnabled'
     >
   ): Record<string, unknown> {
     const settings: Record<string, unknown> = {};
@@ -457,6 +490,15 @@ export class TeamService {
     if (typeof account.personalAccessTokensEnabled === 'boolean') {
       settings.personal_access_tokens = account.personalAccessTokensEnabled;
     }
+    if (typeof account.codexLocalAccessEnabled === 'boolean') {
+      settings.wham_local_access = account.codexLocalAccessEnabled;
+    }
+    if (typeof account.codexDeviceCodeAuthEnabled === 'boolean') {
+      settings.codex_device_code_auth = account.codexDeviceCodeAuthEnabled;
+    }
+    if (typeof account.codexRemoteControlEnabled === 'boolean') {
+      settings.codex_remote_control = account.codexRemoteControlEnabled;
+    }
     return settings;
   }
 
@@ -467,6 +509,8 @@ export class TeamService {
       defaultSeat?: SeatType;
       workspaceReferralsEnabled?: boolean;
       personalAccessTokensEnabled?: boolean;
+      codexDeviceCodeAuthEnabled?: boolean;
+      codexRemoteControlEnabled?: boolean;
     } = {}
   ): Partial<Account> {
     const patch: Partial<Account> = {
@@ -493,13 +537,39 @@ export class TeamService {
     }
 
     const permissions = this.recordValue(settings.permissions);
+    const betaSettings = this.recordValue(settings.beta_settings);
     const personalAccessTokensEnabled =
       settings.personal_access_tokens ??
+      betaSettings?.personal_access_tokens ??
       permissions?.personal_access_tokens ??
       fallback.personalAccessTokensEnabled;
     if (typeof personalAccessTokensEnabled === 'boolean') {
       patch.personalAccessTokensEnabled = personalAccessTokensEnabled;
       patch.personalAccessTokensCachedAt = now;
+    }
+
+    const codexLocalAccessEnabled = settings.wham_local_access ?? betaSettings?.wham_local_access;
+    if (typeof codexLocalAccessEnabled === 'boolean') {
+      patch.codexLocalAccessEnabled = codexLocalAccessEnabled;
+      patch.codexLocalAccessCachedAt = now;
+    }
+
+    const codexDeviceCodeAuthEnabled =
+      settings.codex_device_code_auth ??
+      betaSettings?.codex_device_code_auth ??
+      fallback.codexDeviceCodeAuthEnabled;
+    if (typeof codexDeviceCodeAuthEnabled === 'boolean') {
+      patch.codexDeviceCodeAuthEnabled = codexDeviceCodeAuthEnabled;
+      patch.codexDeviceCodeAuthCachedAt = now;
+    }
+
+    const codexRemoteControlEnabled =
+      settings.codex_remote_control ??
+      betaSettings?.codex_remote_control ??
+      fallback.codexRemoteControlEnabled;
+    if (typeof codexRemoteControlEnabled === 'boolean') {
+      patch.codexRemoteControlEnabled = codexRemoteControlEnabled;
+      patch.codexRemoteControlCachedAt = now;
     }
 
     return patch;

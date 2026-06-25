@@ -30,7 +30,7 @@
 
 ### 导入已有 Codex 凭证
 
-已有 CPA/Codex auth JSON 可以通过“导入凭证”录入。导入内容需要包含 `email`、`account_id`、`access_token`、`refresh_token`、`id_token`、`last_refresh`、`expired` 和 `type:"codex"`。
+已有 CPA/Codex auth JSON 可以通过“导入凭证”录入。导入内容需要包含 `email`、`account_id`、`access_token`、`last_refresh`、`expired` 和 `type:"codex"`。OAuth 凭证还需要 `refresh_token` 和 `id_token`；Codex 个人访问令牌凭证可使用 `personal_access_token` / `access_token` 和 `auth_mode:"personalAccessToken"`，不需要 `refresh_token` 或 `id_token`。
 
 导入时可填写自定义文件名和 CPA 号池。系统按 `credential.email` 创建或更新子号，按 `credential.account_id` 保存对应 Team workspace 的 Codex 凭证元数据，并把 credential JSON 写入独立凭证文件。该子号可以没有 Web session，页面会显示“无 Web Session”和对应凭证数量。
 
@@ -58,11 +58,15 @@ Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 
 子号页的“凭证与 Codex Auth”按 Team workspace 展示操作行。操作行会显示 Team、凭证文件名、CPA 号池、授权时间和额度缓存；如果凭证已导入但 Team 关联还没同步，也会先按凭证里的 workspace `account_id` 显示。
 
 - 自动授权：使用运行环境已配置的 worker、授权页面 clearance、GongXi-Mail 和可选短信 OTP 能力完成授权。短信 OTP 能力可处理首次手机号绑定、已绑定手机号二次验证，以及验证码被拒后的候选码重试。
+- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若远端响应里的 `workspace_id` 和目标不一致，系统仍按目标 workspace 保存，并在导出的凭证 JSON 里记录 `issued_account_id` 便于实测多 workspace 子号行为。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
+- 若个人访问令牌能创建但 Codex CLI 或 CPA 调用仍返回 access enforcement 401，应先检查母号设置里的 Codex Local、个人访问令牌、设备代码身份验证和远程控制状态，再结合 OpenAI 远端返回判断是否为 workspace/成员授权规则问题。
 - 登录 URL：生成手动授权 URL。授权完成后，把 callback URL 粘贴回系统。
 - 刷新额度：使用该 Team workspace 对应凭证查询 `/backend-api/wham/usage`。
 - 凭证 JSON：显式导出该 Team workspace 对应的 Codex credential JSON。
 
 如果自动授权运行能力不可用，页面会禁用自动授权入口，但保留登录 URL 手动授权。
+
+官方 Codex CLI 支持 `at-...` 个人访问令牌作为独立认证方式，保存时只需要 `personal_access_token`，不需要 OAuth 的 `refresh_token` 或 `id_token`。team-manager 导出的这类凭证会标记 `auth_mode:"personalAccessToken"`，并同时保留 `access_token` 供额度刷新使用。
 
 ## 自动授权运行能力
 

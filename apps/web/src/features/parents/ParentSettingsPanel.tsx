@@ -153,6 +153,57 @@ export function ParentSettingsPanel({
               }
             />
           </div>
+
+          <div className="setting-row">
+            <div>
+              <Typography.Text strong>允许成员使用 Codex Local</Typography.Text>
+              <Typography.Paragraph type="secondary">
+                上次刷新 {formatRelativeTime(account.codexLocalAccessCachedAt)}
+              </Typography.Paragraph>
+            </div>
+            <Switch
+              checked={Boolean(account.codexLocalAccessEnabled)}
+              checkedChildren="允许"
+              unCheckedChildren="关闭"
+              disabled
+            />
+          </div>
+
+          <div className="setting-row">
+            <div>
+              <Typography.Text strong>为 Codex CLI 启用设备代码身份验证</Typography.Text>
+              <Typography.Paragraph type="secondary">
+                上次刷新 {formatRelativeTime(account.codexDeviceCodeAuthCachedAt)}
+              </Typography.Paragraph>
+            </div>
+            <Switch
+              checked={Boolean(account.codexDeviceCodeAuthEnabled)}
+              checkedChildren="允许"
+              unCheckedChildren="关闭"
+              loading={busy === 'codex-device-code-auth'}
+              onChange={(checked) =>
+                void run('codex-device-code-auth', () => apiClient.setCodexDeviceCodeAuthEnabled(account.id, checked))
+              }
+            />
+          </div>
+
+          <div className="setting-row">
+            <div>
+              <Typography.Text strong>允许成员远程发现并控制设备</Typography.Text>
+              <Typography.Paragraph type="secondary">
+                上次刷新 {formatRelativeTime(account.codexRemoteControlCachedAt)}
+              </Typography.Paragraph>
+            </div>
+            <Switch
+              checked={Boolean(account.codexRemoteControlEnabled)}
+              checkedChildren="允许"
+              unCheckedChildren="关闭"
+              loading={busy === 'codex-remote-control'}
+              onChange={(checked) =>
+                void run('codex-remote-control', () => apiClient.setCodexRemoteControlEnabled(account.id, checked))
+              }
+            />
+          </div>
         </Space>
       </Card>
     </Space>

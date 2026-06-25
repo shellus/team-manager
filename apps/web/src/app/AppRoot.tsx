@@ -118,7 +118,7 @@ export function AppRoot() {
         />
         <Route
           path="/subaccounts/:subaccountId?"
-          element={<SubaccountRoutes accounts={accounts} globalError={error} onError={handleError} />}
+          element={<SubaccountRoutes accounts={accounts} onError={handleError} />}
         />
         <Route path="/login" element={<Navigate to="/parents" replace />} />
         <Route path="*" element={<Navigate to="/parents" replace />} />

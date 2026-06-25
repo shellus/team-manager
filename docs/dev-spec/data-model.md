@@ -34,6 +34,9 @@
 | `workspaceReferralsEnabled` / `workspaceReferralsEnabledCachedAt` | settings 刷新或 Codex 邀请开关写操作 | “允许成员发送 Codex 邀请”缓存 |
 | `workspaceReferralsEnabledVisible` | settings 刷新或 Codex 邀请开关写操作 | 远端是否展示该设置 |
 | `personalAccessTokensEnabled` / `personalAccessTokensCachedAt` | settings 刷新或 beta feature 写操作 | “允许用户创建个人访问令牌”缓存 |
+| `codexLocalAccessEnabled` / `codexLocalAccessCachedAt` | settings 刷新 | “允许成员使用 Codex Local”缓存，来自 `beta_settings.wham_local_access` |
+| `codexDeviceCodeAuthEnabled` / `codexDeviceCodeAuthCachedAt` | settings 刷新或 beta feature 写操作 | “为 Codex CLI 启用设备代码身份验证”缓存 |
+| `codexRemoteControlEnabled` / `codexRemoteControlCachedAt` | settings 刷新或 beta feature 写操作 | “允许成员远程发现并控制设备”缓存 |
 | `memberProfiles` | 本地输入 | 母号下邮箱维度资料，key 为小写邮箱 |
 
 ### Member profiles
@@ -74,6 +77,8 @@
 | 改默认席位 | 远端修改成功后更新 `defaultSeat` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 邀请开关 | 远端修改成功后更新 `workspaceReferralsEnabled`、`workspaceReferralsEnabledVisible` 和缓存时间 | 合并返回的母号 view |
 | 改个人访问令牌开关 | 远端修改成功后更新 `personalAccessTokensEnabled` 和缓存时间 | 合并返回的母号 view |
+| 改 Codex 设备代码身份验证开关 | 远端修改成功后更新 `codexDeviceCodeAuthEnabled` 和缓存时间 | 合并返回的母号 view |
+| 改 Codex 远程控制开关 | 远端修改成功后更新 `codexRemoteControlEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `note`、`groupName`、`limitType`；提供 session 时更新 `email`、`accountId`、`accessToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 
@@ -124,6 +129,8 @@
 - `fileName`：独立凭证文件名，文件位于 `data/subaccount-credentials/<subaccountId>/`。
 - `groupName`：CPA 号池分组名，缺省为 `默认号池`。
 - `planType`：导入或授权时凭证里的 `plan_type` 摘要。
+- `auth_mode` / `credential_source`：独立凭证文件内的敏感 JSON 可记录凭证来源。OAuth 凭证通常有 `refresh_token` 和 `id_token`；Codex 个人访问令牌凭证使用 `auth_mode:"personalAccessToken"` 和 `credential_source:"personal_access_token"`，可以没有 `refresh_token` / `id_token`。
+- `issued_account_id`：仅写入独立凭证 JSON。创建个人访问令牌时，如果远端响应的 `workspace_id` 和用户选择的目标 workspace 不一致，`account_id` 仍按用户目标保存，远端返回值记录到该字段，便于验证多 workspace PAT 行为。
 - `lastQuota` / `lastQuotaAt`：该 workspace 凭证的额度缓存。
 - `lastAuthAt`：该 workspace 凭证最近授权时间。
 
@@ -160,6 +167,7 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 | 自动注册子号 | 通过 worker 申请邮箱并注册 OpenAI 账号；写入 `email`、`registrationPassword`、`registeredAt`、`registrationSource`；如授权成功则写入独立凭证文件并 upsert `codexCredentials[]` 元数据 | 合并返回的子号 view，密码不下发 |
 | 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`chatgptAccountId`、`webAccessToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
+| 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；返回的 `at-...` token 写入独立凭证文件，按 `workspace_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
 | 邀请加入母号 | 远端邀请成功后写入 `teamLinks[].status = "invited"`，账单风险沿用母号邀请规则 | 合并返回的子号 view |
 | 同步 Team 关联 | 逐个母号查询 members 和 pending invites，写入 `member` / `invited` / `removed` / `unknown` | 合并返回的子号 view |

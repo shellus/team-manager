@@ -28,6 +28,20 @@ export interface ChatGptAccountCheckEntry {
   canAccessWithSession?: boolean;
 }
 
+export interface CodexPersonalAccessTokenResponse {
+  credential_id?: string;
+  created_at?: number;
+  owner_user_id?: string;
+  creator_user_email?: string;
+  name?: string;
+  workspace_id?: string;
+  scopes?: string[];
+  expires_at?: number;
+  revoked?: boolean;
+  expired?: boolean;
+  access_token?: string;
+}
+
 /**
  * ChatGPT 网页 backend-api 薄封装。
  * 阶段一实测：所有请求必须带 Authorization: Bearer；workspace 操作还需 chatgpt-account-id。
@@ -216,8 +230,32 @@ export class ChatGptApi {
 
   /** 改“允许用户创建个人访问令牌”开关 */
   async setPersonalAccessTokensEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    return this.setBetaFeature('personal_access_tokens', enabled);
+  }
+
+  /** 改“为 Codex CLI 启用设备代码身份验证”开关 */
+  async setCodexDeviceCodeAuthEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    return this.setBetaFeature('codex_device_code_auth', enabled);
+  }
+
+  /** 改“允许成员远程发现并控制设备”开关 */
+  async setCodexRemoteControlEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    return this.setBetaFeature('codex_remote_control', enabled);
+  }
+
+  private async setBetaFeature(feature: string, enabled: boolean): Promise<Record<string, unknown>> {
     const path = `/backend-api/accounts/${this.account.accountId}/beta_features`;
-    return this.request('POST', path, { feature: 'personal_access_tokens', value: enabled });
+    return this.request('POST', path, { feature, value: enabled });
+  }
+
+  /** 创建 Codex 本地访问所需的个人访问令牌。 */
+  async createCodexPersonalAccessToken(input: {
+    name: string;
+    scopes: string[];
+    ttl: number;
+  }): Promise<CodexPersonalAccessTokenResponse> {
+    const path = '/backend-api/wham/auth-credentials';
+    return this.request<CodexPersonalAccessTokenResponse>('POST', path, input);
   }
 
   /** 改 workspace 名称 */
