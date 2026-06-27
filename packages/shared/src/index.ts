@@ -1,7 +1,9 @@
 // team-manager 前后端共享类型。基于阶段一对 chatgpt.com/backend-api 的实测结构。
 
+import type { ChatGptSessionCookie } from './sessionInput.js';
+
 export { getChatGptSessionUserEmail, parseChatGptSessionInput } from './sessionInput.js';
-export type { ChatGptSessionInput, ChatGptSessionParseResult } from './sessionInput.js';
+export type { ChatGptSessionCookie, ChatGptSessionInput, ChatGptSessionParseResult } from './sessionInput.js';
 
 /** 席位类型：default=ChatGPT 席位，usage_based=Codex 席位 */
 export type SeatType = 'default' | 'usage_based';
@@ -184,6 +186,7 @@ export interface Subaccount {
   label: string;               // 默认同 email
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
+  webSessionCookies?: ChatGptSessionCookie[]; // ChatGPT 浏览器会话 cookie，用于按 workspace 换取 Web accessToken
   registrationPassword?: string; // 自动注册生成的 OpenAI 密码，仅后端持久化，不下发前端
   registeredAt?: number;
   registrationSource?: string;

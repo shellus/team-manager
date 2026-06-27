@@ -26,7 +26,9 @@
 }
 ```
 
-录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。
+session JSON 可额外携带同一浏览器登录态的 `cookies` 数组。创建 Codex 个人访问令牌时，系统会用这些 cookie 设置 `_account=<目标 workspace>` 并向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次完整浏览器会话，不需要为每个 workspace 分别录入 session。
+
+录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。旧 session 明文不会回填到前端。
 
 ### 导入已有 Codex 凭证
 
@@ -38,10 +40,10 @@
 
 子号页的“Team 关联”优先使用子号自己的 ChatGPT Web session 调用 `accounts/check`，读取该子号当前可见的 workspace 列表，再和已录入母号的 workspace `account_id` 做匹配：
 
-- 子号可见且本地已录入对应母号时，状态为 `已在 Team`。
+- 子号可见且本地已录入对应母号时，会继续用子号自己的 Web session 查询目标 workspace 的 users 列表，并按该子号成员记录里的 `seat_type` 更新席位，状态为 `已在 Team`。
 - 曾经有记录但本次查不到时，状态为 `未找到`。
-- 只有没有 Web session 的 credential-only 子号，才会兜底通过子号邮箱逐个查询已录入母号的成员和 pending invite；查到 pending invite 时状态为 `邀请中`。
-- 兜底查询中单个母号失败时，状态为 `未确认`。
+- 没有 Web session 的 credential-only 子号不能从子号侧刷新 Team 关联；同步接口会返回错误，不使用母号凭证兜底读取。
+- 单个目标 workspace 查询失败时，状态为 `未确认`。
 
 Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 后，需要刷新 Team 关联。
 
@@ -58,7 +60,7 @@ Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 
 子号页的“凭证与 Codex Auth”按 Team workspace 展示操作行。操作行会显示 Team、凭证文件名、CPA 号池、授权时间和额度缓存；如果凭证已导入但 Team 关联还没同步，也会先按凭证里的 workspace `account_id` 显示。
 
 - 自动授权：使用运行环境已配置的 worker、授权页面 clearance、GongXi-Mail 和可选短信 OTP 能力完成授权。短信 OTP 能力可处理首次手机号绑定、已绑定手机号二次验证，以及验证码被拒后的候选码重试。
-- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若远端响应里的 `workspace_id` 和目标不一致，系统仍按目标 workspace 保存，并在导出的凭证 JSON 里记录 `issued_account_id` 便于实测多 workspace 子号行为。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
+- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若录入了浏览器 cookie，系统会先按目标 workspace 换取 workspace-scoped Web access token，再调用 `wham/auth-credentials`。远端响应里的 `workspace_id` 必须和目标一致，否则系统返回错误并拒绝保存。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
 - 若个人访问令牌能创建但 Codex CLI 或 CPA 调用仍返回 access enforcement 401，应先检查母号设置里的 Codex Local、个人访问令牌、设备代码身份验证和远程控制状态，再结合 OpenAI 远端返回判断是否为 workspace/成员授权规则问题。
 - 登录 URL：生成手动授权 URL。授权完成后，把 callback URL 粘贴回系统。
 - 刷新额度：使用该 Team workspace 对应凭证查询 `/backend-api/wham/usage`。

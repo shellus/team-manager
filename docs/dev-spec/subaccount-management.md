@@ -14,7 +14,9 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `credential.account_id` 是凭证绑定的 Team workspace。OAuth 凭证来自 Codex `id_token` claim 中的 `chatgpt_account_id`；个人访问令牌凭证来自 `wham/auth-credentials` 响应的 `workspace_id`。
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
 - 子号 session JSON 录入：
-  - 只接受一种格式：`user.email`、`account.id`、`accessToken`。
+  - 必需字段为 `user.email`、`account.id`、`accessToken`。
+  - 可选字段 `cookies[]` 保存同一 ChatGPT 浏览器登录态的 cookie 名称和值。该字段属于敏感运行时数据，只写入后端 `data/subaccounts.json`，普通 view 不下发。
+  - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用 `cookies[]` 构造带 `_account=<目标 workspace>` 的请求，通过 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
   - 不支持扁平字段，不做回退兼容。
 - 已有 Codex credential 录入：
   - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON，或 `{ credential, fileName, groupName }` 包装格式。
@@ -23,7 +25,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
   - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注名 `label`。
-  - 请求带新的 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken`。
+  - 请求带新的 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken`，并在存在 `cookies[]` 时更新浏览器会话 cookie；没有传 `cookies[]` 的旧格式 session 不会清空已有 cookie。
   - 保留已有 Codex 凭证、Team 关联和授权日志，响应仍为脱敏视图。
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
@@ -40,11 +42,12 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 若手机号池为空、绑定手机号无法匹配、尾号匹配到多个号码、短信超时、验证码重试预算耗尽或人机校验无法自动继续，子号状态写为 `verification_required`，日志记录脱敏阶段信息。
   - 若 OpenAI 返回账号锁定、停用或不可用，worker 返回 `account_locked`，后端把子号状态写为 `account_locked`，停止把它混入验证码待验证流程。
 - Codex 个人访问令牌凭证：
-  - `POST /api/subaccounts/:id/codex-auth/personal-access-token` 使用子号自己的 ChatGPT Web `accessToken` 调用 `POST /backend-api/wham/auth-credentials`。
+  - `POST /api/subaccounts/:id/codex-auth/personal-access-token` 默认使用子号自己的 ChatGPT Web `accessToken` 调用 `POST /backend-api/wham/auth-credentials`。
+  - 若子号保存了浏览器会话 `cookies[]`，后端先调用 `/api/auth/session`，在 cookie header 中设置 `_account=<目标 workspace>`，校验返回的 Web access token claim 属于目标 workspace 后，再调用 `wham/auth-credentials`。
   - 请求目标 workspace 由 `chatgpt-account-id` header 指定，scope 固定为 `chatgpt.workspace.feature.allow-codex-local-access.access`，TTL 为 30 天。
   - 返回的 `at-...` token 是官方 Codex CLI 支持的 personal access token。官方 Codex 将其保存为 `auth.json.personal_access_token`，不需要 `refresh_token` 或 `id_token`。
   - team-manager 保存为 `auth_mode:"personalAccessToken"` / `credential_source:"personal_access_token"` 的 Codex credential JSON，同时保留 `access_token` 和 `personal_access_token` 便于额度刷新和导出。
-  - PAT 创建流程按用户选择的目标 workspace 写入 `credential.account_id`。若远端响应 `workspace_id` 与目标不一致，不拒绝保存，而是记录到 `issued_account_id` 供多 workspace 子号实测；OAuth 授权流程仍必须校验并拒绝 workspace 不一致。
+  - PAT 创建流程按远端响应 `workspace_id` 写入 `credential.account_id`。该 `workspace_id` 必须和用户选择的目标 workspace 一致；不一致时后端返回 409 并拒绝保存，避免把绑定到其他 workspace 的 PAT 错记到目标 Team。
   - 该流程只操作子号凭证，不会自动修改母号的 `personal_access_tokens`、`wham_local_access`、`codex_device_code_auth` 或 `codex_remote_control` 等 Team 设置。若目标 Team 未允许用户创建个人访问令牌或未命中 Codex Local 后端授权规则，远端错误直接返回给调用方。
 - 官方 Codex PAT 兼容性确认：
   - `codex-rs/login/src/auth/access_token.rs` 按 `at-` 前缀把 token 分类为 `PersonalAccessToken`。
@@ -71,10 +74,11 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
 - Team 关联同步：
   - `teamLinks` 是本地缓存，不是唯一事实来源。
   - 有 ChatGPT Web session 的子号，点击同步时用子号自己的 access token 调用 `GET /backend-api/accounts/check/v4-2023-04-27`，从响应 `accounts[].account.account_id` 得到该子号可见的 workspace 列表，再和已录入母号的 workspace `accountId` 做交集。
-  - 子号可见且本地已录入对应母号时写入 `member`；曾经有本地记录但本次子号列表不可见时写入 `removed`。
-  - `accounts/check` 不返回成员席位类型；同步时保留已有 `teamLinks[].seat`，新发现的关联默认写入 `usage_based`。
-  - 没有 Web session 的 credential-only 子号无法自列 workspace，才兜底按子号邮箱逐个查询已录入母号的 members 和 pending invites；查到成员写入 `member`，查到 pending invite 写入 `invited`。
-  - 兜底查询中单个母号失败时保留该条并写入 `unknown`。
+  - 子号可见且本地已录入对应母号时，继续用子号自己的 access token 调用 `GET /backend-api/accounts/{account_id}/users?offset=0&limit=25&query=<子号邮箱>`，从返回成员记录读取该子号自己的 `seat_type` 并写入 `member` 状态。
+  - 曾经有本地记录但本次子号列表不可见时写入 `removed`。
+  - `accounts/check` 不返回成员席位类型，只用于缩小需要查询的 workspace 范围；席位以子号 session 对目标 workspace 的 users query 返回的 `seat_type` 为准。
+  - 没有 Web session 的 credential-only 子号无法从子号侧自列 workspace，同步接口返回 400，不使用母号凭证兜底读取。
+  - 单个目标 workspace 查询失败时保留该条并写入 `unknown`。
   - 不在进入页面时自动同步，避免远端慢请求阻塞子号详情页。
 - 凭证额度查询：
   - 直接使用目标 Team workspace 对应的子号 Codex 凭证里的 `access_token`。

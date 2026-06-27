@@ -1,4 +1,5 @@
 import type {
+  ChatGptSessionCookie,
   CodexCredentialJson,
   CodexAuthRuntimeStatus,
   CodexQuotaSnapshot,
@@ -29,6 +30,8 @@ import { SubaccountStore } from './subaccountStore.js';
 const CODEX_PAT_NAME = 'team-manager';
 const CODEX_PAT_TTL_SECONDS = 30 * 24 * 60 * 60;
 const CODEX_LOCAL_ACCESS_SCOPE = 'chatgpt.workspace.feature.allow-codex-local-access.access';
+const CHATGPT_WEB_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
 export interface CodexAuthStart {
   sessionId: string;
@@ -359,10 +362,11 @@ export class SubaccountService {
     });
 
     try {
+      const webAccessToken = await this.resolveWorkspaceWebAccessToken(subaccount, target);
       const api = new ChatGptApi(
         {
           accountId: target,
-          accessToken: subaccount.webAccessToken
+          accessToken: webAccessToken
         },
         this.webTransport
       );
@@ -403,6 +407,16 @@ export class SubaccountService {
       if (e instanceof ChatGptApiError) throw new ServiceError(e.status >= 400 && e.status < 500 ? e.status : 502, message);
       throw e;
     }
+  }
+
+  private async resolveWorkspaceWebAccessToken(subaccount: Subaccount, target: string): Promise<string> {
+    if (subaccount.webSessionCookies?.length) {
+      return fetchWorkspaceWebAccessTokenFromCookies(this.webTransport, subaccount.webSessionCookies, target);
+    }
+    if (!subaccount.webAccessToken?.trim()) {
+      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法创建个人访问令牌');
+    }
+    return subaccount.webAccessToken;
   }
 
   async registerNewSubaccount(input: { targetChatgptAccountId?: string; mailGroup?: string }): Promise<SubaccountView> {
@@ -554,6 +568,75 @@ export class SubaccountService {
   }
 }
 
+async function fetchWorkspaceWebAccessTokenFromCookies(
+  transport: Transport,
+  cookies: ChatGptSessionCookie[],
+  targetChatgptAccountId: string
+): Promise<string> {
+  const response = await transport.fetch({
+    method: 'GET',
+    path: `/api/auth/session?team_manager_workspace=${encodeURIComponent(targetChatgptAccountId)}&t=${Date.now()}`,
+    headers: {
+      accept: 'application/json',
+      cookie: buildChatGptSessionCookieHeader(cookies, targetChatgptAccountId),
+      'user-agent': CHATGPT_WEB_USER_AGENT
+    }
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new ServiceError(
+      response.status >= 400 && response.status < 500 ? response.status : 502,
+      `获取目标 workspace Web session 失败: HTTP ${response.status} ${trimForLog(response.body)}`
+    );
+  }
+  const data = parseJsonObject(response.body, '获取目标 workspace Web session 返回不是 JSON');
+  const accessToken = readOptionalString(data, 'accessToken') ?? readOptionalString(data, 'access_token');
+  if (!accessToken) throw new ServiceError(502, '目标 workspace Web session 响应缺少 accessToken');
+  const claims = chatGptAuthClaimsFromAccessToken(accessToken);
+  if (claims.chatgptAccountId !== targetChatgptAccountId) {
+    throw new ServiceError(
+      409,
+      `目标 workspace Web session 与目标不一致：目标 ${targetChatgptAccountId}，实际 ${claims.chatgptAccountId || '空'}`
+    );
+  }
+  return accessToken;
+}
+
+function buildChatGptSessionCookieHeader(cookies: ChatGptSessionCookie[], targetChatgptAccountId: string): string {
+  const pairs = cookies
+    .filter((cookie) => cookie.name !== '_account' && cookie.name !== '_account_residency_region')
+    .filter((cookie) => cookie.name && cookie.value && !/[;\s]/.test(cookie.name) && !cookie.value.includes(';'))
+    .map((cookie) => `${cookie.name}=${cookie.value}`);
+  pairs.push(`_account=${targetChatgptAccountId}`);
+  pairs.push('_account_residency_region=no_constraint');
+  return pairs.join('; ');
+}
+
+function parseJsonObject(body: string, message: string): Record<string, unknown> {
+  try {
+    const data = JSON.parse(body) as unknown;
+    return data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : {};
+  } catch {
+    throw new ServiceError(502, message);
+  }
+}
+
+function chatGptAuthClaimsFromAccessToken(accessToken: string): { chatgptAccountId?: string; planType?: string } {
+  const parts = accessToken.split('.');
+  if (parts.length < 2) return {};
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const auth = payload['https://api.openai.com/auth'];
+    if (!auth || typeof auth !== 'object') return {};
+    const record = auth as Record<string, unknown>;
+    return {
+      chatgptAccountId: readOptionalString(record, 'chatgpt_account_id'),
+      planType: readOptionalString(record, 'chatgpt_plan_type')
+    };
+  } catch {
+    return {};
+  }
+}
+
 function subaccountStatusFromWorkerStatus(status: string): SubaccountStatus {
   if (status === 'account_locked') return 'account_locked';
   if (status === 'verification_required') return 'verification_required';
@@ -666,7 +749,14 @@ function codexCredentialFromPersonalAccessTokenResponse(
   if (!accessToken) throw new ServiceError(502, '个人访问令牌响应缺少 access_token');
   const issuedAccountId = response.workspace_id?.trim();
   if (!issuedAccountId) throw new ServiceError(502, '个人访问令牌响应缺少 workspace_id');
-  const accountId = targetAccountId?.trim() || issuedAccountId;
+  const target = targetAccountId?.trim();
+  if (target && issuedAccountId !== target) {
+    throw new ServiceError(
+      409,
+      `个人访问令牌 workspace 与目标不一致：目标 ${target}，实际 ${issuedAccountId}`
+    );
+  }
+  const accountId = issuedAccountId;
   const email = response.creator_user_email?.trim() || fallbackEmail;
   const lastRefresh = epochSecondsToIso(response.created_at) ?? now.toISOString();
   const expired = epochSecondsToIso(response.expires_at);
@@ -683,8 +773,7 @@ function codexCredentialFromPersonalAccessTokenResponse(
     auth_mode: 'personalAccessToken',
     credential_source: 'personal_access_token',
     credential_id: response.credential_id,
-    chatgpt_user_id: response.owner_user_id,
-    issued_account_id: issuedAccountId === accountId ? undefined : issuedAccountId
+    chatgpt_user_id: response.owner_user_id
   };
 }
 

@@ -6,6 +6,18 @@ export interface ChatGptSessionInput {
     id: string;
   };
   accessToken: string;
+  cookies?: ChatGptSessionCookie[];
+}
+
+export interface ChatGptSessionCookie {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  httpOnly?: boolean;
+  secure?: boolean;
+  expires?: number;
+  sameSite?: string;
 }
 
 export type ChatGptSessionParseResult = ChatGptSessionInput | { error: string };
@@ -38,7 +50,8 @@ export function parseChatGptSessionInput(raw: unknown): ChatGptSessionParseResul
   return {
     user: { email },
     account: { id: accountId },
-    accessToken
+    accessToken,
+    cookies: parseCookies(raw.cookies)
   };
 }
 
@@ -46,4 +59,26 @@ export function getChatGptSessionUserEmail(raw: unknown): string | undefined {
   const session = parseChatGptSessionInput(raw);
   if ('error' in session) return undefined;
   return session.user.email;
+}
+
+function parseCookies(value: unknown): ChatGptSessionCookie[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const cookies: ChatGptSessionCookie[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const name = readString(item, 'name');
+    const cookieValue = readString(item, 'value');
+    if (!name || !cookieValue || /[;\s]/.test(name)) continue;
+    cookies.push({
+      name,
+      value: cookieValue,
+      domain: readString(item, 'domain'),
+      path: readString(item, 'path'),
+      httpOnly: typeof item.httpOnly === 'boolean' ? item.httpOnly : undefined,
+      secure: typeof item.secure === 'boolean' ? item.secure : undefined,
+      expires: typeof item.expires === 'number' ? item.expires : undefined,
+      sameSite: readString(item, 'sameSite')
+    });
+  }
+  return cookies.length ? cookies : undefined;
 }

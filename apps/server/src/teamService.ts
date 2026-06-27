@@ -103,6 +103,19 @@ export class TeamService {
     return new ChatGptApi(session, this.transport).checkAccounts();
   }
 
+  async findSessionEmailRelation(
+    session: {
+      accountId: string;
+      accessToken: string;
+      fp?: AccountFingerprint;
+    },
+    email: string
+  ): Promise<{ status: 'member' | 'unknown'; seat?: SeatType }> {
+    const member = await new ChatGptApi(session, this.transport).findMemberByEmail(email);
+    if (!member) return { status: 'unknown' };
+    return { status: 'member', seat: member.seat };
+  }
+
   /** 慢速状态同步：显式调用，避免阻塞主页面列表。 */
   async refreshAccount(id: string): Promise<AccountView> {
     const account = this.store.get(id);

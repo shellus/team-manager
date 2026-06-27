@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   parseChatGptSessionInput,
+  type ChatGptSessionCookie,
   type ChatGptSessionInput,
   type CodexCredentialJson,
   type CodexQuotaSnapshot,
@@ -34,6 +35,29 @@ type LegacySubaccount = Subaccount & {
   lastQuotaAt?: number;
   lastAuthAt?: number;
 };
+
+function normalizeSessionCookies(value: unknown): ChatGptSessionCookie[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const cookies: ChatGptSessionCookie[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    const name = typeof record.name === 'string' ? record.name.trim() : '';
+    const cookieValue = typeof record.value === 'string' ? record.value.trim() : '';
+    if (!name || !cookieValue || /[;\s]/.test(name)) continue;
+    cookies.push({
+      name,
+      value: cookieValue,
+      domain: typeof record.domain === 'string' && record.domain.trim() ? record.domain.trim() : undefined,
+      path: typeof record.path === 'string' && record.path.trim() ? record.path.trim() : undefined,
+      httpOnly: typeof record.httpOnly === 'boolean' ? record.httpOnly : undefined,
+      secure: typeof record.secure === 'boolean' ? record.secure : undefined,
+      expires: typeof record.expires === 'number' ? record.expires : undefined,
+      sameSite: typeof record.sameSite === 'string' && record.sameSite.trim() ? record.sameSite.trim() : undefined
+    });
+  }
+  return cookies.length ? cookies : undefined;
+}
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
@@ -162,6 +186,7 @@ export class SubaccountStore {
       label: existing?.label ?? session.user.email,
       chatgptAccountId: session.account.id,
       webAccessToken: session.accessToken,
+      webSessionCookies: session.cookies ?? existing?.webSessionCookies,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,
       status: existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready',
@@ -236,6 +261,7 @@ export class SubaccountStore {
       label: existing?.label ?? email,
       chatgptAccountId: existing?.chatgptAccountId,
       webAccessToken: existing?.webAccessToken,
+      webSessionCookies: existing?.webSessionCookies,
       registrationPassword: input.password,
       registeredAt: existing?.registeredAt ?? now,
       registrationSource: input.source,
@@ -266,6 +292,7 @@ export class SubaccountStore {
       email: input.session?.user.email ?? existing.email,
       chatgptAccountId: input.session?.account.id ?? existing.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing.webAccessToken,
+      webSessionCookies: input.session === undefined ? existing.webSessionCookies : input.session.cookies ?? existing.webSessionCookies,
       status: credentials.length ? 'codex_ready' : 'session_ready',
       updatedAt: Date.now(),
       lastError: undefined
@@ -558,6 +585,7 @@ async function normalizeStoredSubaccount(
     label: record.label,
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
+    webSessionCookies: normalizeSessionCookies(record.webSessionCookies),
     registrationPassword: record.registrationPassword,
     registeredAt: record.registeredAt,
     registrationSource: record.registrationSource,
@@ -578,6 +606,7 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     label: input.label,
     chatgptAccountId: input.chatgptAccountId,
     webAccessToken: input.webAccessToken,
+    webSessionCookies: normalizeSessionCookies(input.webSessionCookies),
     registrationPassword: input.registrationPassword,
     registeredAt: input.registeredAt,
     registrationSource: input.registrationSource,

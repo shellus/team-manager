@@ -130,7 +130,7 @@
 - `groupName`：CPA 号池分组名，缺省为 `默认号池`。
 - `planType`：导入或授权时凭证里的 `plan_type` 摘要。
 - `auth_mode` / `credential_source`：独立凭证文件内的敏感 JSON 可记录凭证来源。OAuth 凭证通常有 `refresh_token` 和 `id_token`；Codex 个人访问令牌凭证使用 `auth_mode:"personalAccessToken"` 和 `credential_source:"personal_access_token"`，可以没有 `refresh_token` / `id_token`。
-- `issued_account_id`：仅写入独立凭证 JSON。创建个人访问令牌时，如果远端响应的 `workspace_id` 和用户选择的目标 workspace 不一致，`account_id` 仍按用户目标保存，远端返回值记录到该字段，便于验证多 workspace PAT 行为。
+- `issued_account_id`：仅写入独立凭证 JSON。创建个人访问令牌时，远端响应的 `workspace_id` 必须和用户选择的目标 workspace 一致；不一致时拒绝保存，避免凭证和 Team 位置断链。
 - `lastQuota` / `lastQuotaAt`：该 workspace 凭证的额度缓存。
 - `lastAuthAt`：该 workspace 凭证最近授权时间。
 
@@ -167,10 +167,10 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 | 自动注册子号 | 通过 worker 申请邮箱并注册 OpenAI 账号；写入 `email`、`registrationPassword`、`registeredAt`、`registrationSource`；如授权成功则写入独立凭证文件并 upsert `codexCredentials[]` 元数据 | 合并返回的子号 view，密码不下发 |
 | 编辑本地资料 | 更新 `label`；提供 session 时更新 `email`、`chatgptAccountId`、`webAccessToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
-| 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；返回的 `at-...` token 写入独立凭证文件，按 `workspace_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
+| 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
 | 邀请加入母号 | 远端邀请成功后写入 `teamLinks[].status = "invited"`，账单风险沿用母号邀请规则 | 合并返回的子号 view |
-| 同步 Team 关联 | 逐个母号查询 members 和 pending invites，写入 `member` / `invited` / `removed` / `unknown` | 合并返回的子号 view |
+| 同步 Team 关联 | 有 Web session 时先用子号 `accounts/check` 找可见 workspace，再用子号 Web session 查询匹配 workspace 的 users 列表读取自己的 `seat_type`；credential-only 子号缺少子号侧 Web session 时返回错误，不使用母号凭证兜底读取 | 合并返回的子号 view |
 
 ## 本地资料编辑 API
 

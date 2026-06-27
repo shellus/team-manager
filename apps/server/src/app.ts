@@ -62,68 +62,15 @@ export async function buildApp({
     teamTransport
   );
 
-  const syncTeamLinksByMotherScan = async (id: string, subaccount: Subaccount) => {
-    const accounts = await service.listAccounts();
-    const existingLinks = new Map((subaccount.teamLinks ?? []).map((link) => [link.accountId, link]));
-    const errors: Array<{ accountId: string; message: string }> = [];
-    let updated = subaccountStore.list().find((item) => item.id === id);
-    let found = 0;
-    let removed = 0;
-    let unknown = 0;
-
-    for (const account of accounts) {
-      const existing = existingLinks.get(account.id);
-      try {
-        const relation = await service.findEmailRelation(account.id, subaccount.email);
-        if (relation.status === 'member' || relation.status === 'invited') {
-          updated = await subaccountStore.saveTeamLink(id, {
-            accountId: account.id,
-            seat: relation.seat ?? existing?.seat ?? 'usage_based',
-            status: relation.status
-          });
-          found += 1;
-        } else if (existing) {
-          updated = await subaccountStore.saveTeamLink(id, {
-            accountId: account.id,
-            seat: existing.seat,
-            status: 'removed'
-          });
-          removed += 1;
-        }
-      } catch (e) {
-        errors.push({ accountId: account.id, message: (e as Error).message });
-        if (existing) {
-          updated = await subaccountStore.saveTeamLink(id, {
-            accountId: account.id,
-            seat: existing.seat,
-            status: 'unknown'
-          });
-          unknown += 1;
-        }
-      }
-    }
-
-    await subaccountStore.appendLog(id, {
-      phase: 'team_link_sync',
-      status: errors.length ? 'partial' : 'success',
-      message: `已通过母号反查同步 ${accounts.length} 个母号关联`,
-      data: {
-        source: 'mother_scan',
-        accountCount: accounts.length,
-        found,
-        removed,
-        unknown,
-        errorCount: errors.length,
-        errors
-      }
-    });
-
-    return updated ?? subaccountStore.list().find((item) => item.id === id);
-  };
-
   const syncTeamLinksByChildWorkspaces = async (id: string, subaccount: Subaccount) => {
     if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
-      return syncTeamLinksByMotherScan(id, subaccount);
+      await subaccountStore.appendLog(id, {
+        phase: 'team_link_sync',
+        status: 'error',
+        message: '子号缺少 ChatGPT Web session，无法从子号侧同步 Team 关联',
+        data: { source: 'child_accounts_check' }
+      });
+      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法从子号侧同步 Team 关联');
     }
 
     let childAccounts;
@@ -145,22 +92,50 @@ export async function buildApp({
     const parentByWorkspaceId = new Map((await service.listAccounts()).map((account) => [account.accountId, account]));
     const existingLinks = new Map((subaccount.teamLinks ?? []).map((link) => [link.accountId, link]));
     const matchedParentIds = new Set<string>();
+    const errors: Array<{ accountId: string; message: string }> = [];
     let updated = subaccountStore.list().find((item) => item.id === id);
     let found = 0;
     let removed = 0;
+    let unknown = 0;
 
     for (const childAccount of childAccounts) {
       if (!isTeamWorkspaceAccount(childAccount)) continue;
       const parent = parentByWorkspaceId.get(childAccount.accountId);
       if (!parent) continue;
       const existing = existingLinks.get(parent.id);
-      updated = await subaccountStore.saveTeamLink(id, {
-        accountId: parent.id,
-        seat: existing?.seat ?? 'usage_based',
-        status: 'member'
-      });
       matchedParentIds.add(parent.id);
-      found += 1;
+      try {
+        const relation = await service.findSessionEmailRelation(
+          {
+            accountId: childAccount.accountId,
+            accessToken: subaccount.webAccessToken
+          },
+          subaccount.email
+        );
+        if (relation.status !== 'member') {
+          updated = await subaccountStore.saveTeamLink(id, {
+            accountId: parent.id,
+            seat: existing?.seat ?? 'usage_based',
+            status: 'unknown'
+          });
+          unknown += 1;
+          continue;
+        }
+        updated = await subaccountStore.saveTeamLink(id, {
+          accountId: parent.id,
+          seat: relation.seat ?? existing?.seat ?? 'usage_based',
+          status: 'member'
+        });
+        found += 1;
+      } catch (e) {
+        errors.push({ accountId: parent.id, message: (e as Error).message });
+        updated = await subaccountStore.saveTeamLink(id, {
+          accountId: parent.id,
+          seat: existing?.seat ?? 'usage_based',
+          status: 'unknown'
+        });
+        unknown += 1;
+      }
     }
 
     for (const existing of existingLinks.values()) {
@@ -175,13 +150,16 @@ export async function buildApp({
 
     await subaccountStore.appendLog(id, {
       phase: 'team_link_sync',
-      status: 'success',
+      status: errors.length ? 'partial' : 'success',
       message: `已通过子号可见 workspace 同步 ${found} 个 Team 关联`,
       data: {
         source: 'child_accounts_check',
         visibleAccountCount: childAccounts.length,
         found,
-        removed
+        removed,
+        unknown,
+        errorCount: errors.length,
+        errors
       }
     });
 

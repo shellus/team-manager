@@ -108,9 +108,11 @@ corepack pnpm docs:build
 }
 ```
 
+子号 session 可额外携带从同一浏览器登录态提取的 `cookies` 数组。系统会在创建 Codex 个人访问令牌时通过 `_account=<target workspace>` 向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；因此一个多 workspace 子号只需录入一次完整浏览器会话，不需要为每个 workspace 分别录入 session。
+
 母号邮箱只写入 `email`；母号备注写入 `note`，母号分组写入 `groupName`，限额类型写入 `limitType`。子号备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
 
-已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入时可指定自定义文件名和 CPA 号池；导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证元数据，真实 credential JSON 写入独立凭证文件。后续可通过 Team 关联同步和额度刷新确认状态。
+已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入时可指定自定义文件名和 CPA 号池；导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证元数据，真实 credential JSON 写入独立凭证文件。credential-only 子号不能从子号侧刷新 Team 关联；后续可通过额度刷新确认凭证状态。
 
 ## 开发命令
 
