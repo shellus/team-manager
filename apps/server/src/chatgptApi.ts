@@ -23,6 +23,7 @@ export interface ChatGptAccountCheckEntry {
   accountId: string;
   role?: MemberRole;
   workspaceName?: string;
+  nextRenewalOn?: string;
   planType?: string;
   structure?: string;
   canAccessWithSession?: boolean;
@@ -107,6 +108,7 @@ export class ChatGptApi {
         accountId,
         role: readString(entry.account_user_role) as MemberRole | undefined,
         workspaceName: readString(entry.name),
+        nextRenewalOn: readRenewalDate(entry),
         planType: readString(entry.plan_type),
         structure: readString(entry.structure),
         canAccessWithSession:
@@ -117,13 +119,14 @@ export class ChatGptApi {
   }
 
   /** 母号状态：从 accounts/check 取本 workspace 那条 */
-  async checkAccount(): Promise<{ planType?: string; role?: MemberRole; workspaceName?: string }> {
+  async checkAccount(): Promise<{ planType?: string; role?: MemberRole; workspaceName?: string; nextRenewalOn?: string }> {
     const entry = (await this.checkAccounts()).find((item) => item.accountId === this.account.accountId);
     if (!entry) return {};
     return {
       planType: entry.planType,
       role: entry.role,
-      workspaceName: entry.workspaceName
+      workspaceName: entry.workspaceName,
+      nextRenewalOn: entry.nextRenewalOn
     };
   }
 
@@ -139,7 +142,7 @@ export class ChatGptApi {
         all.push({
           userId: u.id,
           email: u.email,
-          name: u.name,
+          remoteName: u.name,
           role: u.role,
           seat: (u.seat_type as SeatType) ?? 'default',
           status: u.status
@@ -161,7 +164,7 @@ export class ChatGptApi {
     return {
       userId: item.id,
       email: item.email,
-      name: item.name,
+      remoteName: item.name,
       role: item.role,
       seat: (item.seat_type as SeatType) ?? 'default',
       status: item.status
@@ -285,6 +288,15 @@ export class ChatGptApi {
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function readRenewalDate(entry: Record<string, unknown>): string | undefined {
+  const billing = entry.billing_details;
+  if (!billing || typeof billing !== 'object') return undefined;
+  const renewsAt = readString((billing as Record<string, unknown>).renews_at);
+  if (!renewsAt) return undefined;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(renewsAt);
+  return match?.[1];
 }
 
 interface RawMember {

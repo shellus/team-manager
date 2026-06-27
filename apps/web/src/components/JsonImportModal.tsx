@@ -74,7 +74,7 @@ export function JsonImportModal({
           email: '',
           accountId: '',
           planType: '',
-          inputMessage: '浏览器 cookies 只支持子号录入',
+          inputMessage: '当前入口不支持浏览器 cookies 数组',
           inputAlertType: 'warning' as const,
           cookieCount: inspection.cookieCount
         };
@@ -173,8 +173,8 @@ export function JsonImportModal({
               mode === 'credential'
                 ? '粘贴包含 email、account_id、access_token 等字段的 Codex credential JSON'
                 : allowBrowserCookies
-                  ? '粘贴 chatgpt.com session JSON，或 Cookie Editor 导出的 cookies 数组'
-                  : '粘贴 chatgpt.com session JSON'
+                  ? '粘贴 chatgpt.com session JSON（建议包含 sessionToken），或 Cookie Editor 导出的 cookies 数组'
+                  : '粘贴 chatgpt.com session JSON（建议包含 sessionToken）'
             }
           />
         </Form.Item>

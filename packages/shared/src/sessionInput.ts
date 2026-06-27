@@ -20,6 +20,8 @@ export interface ChatGptSessionCookie {
   sameSite?: string;
 }
 
+const CHATGPT_SESSION_TOKEN_COOKIE_NAME = '__Secure-next-auth.session-token';
+
 export type ChatGptSessionParseResult = ChatGptSessionInput | { error: string };
 
 export type ChatGptSessionImportParseResult =
@@ -46,6 +48,33 @@ function readString(record: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function readCookieValueString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = readString(record, key);
+  if (!value || /[;\r\n]/.test(value)) return undefined;
+  return value;
+}
+
+function chatGptSessionTokenCookie(sessionToken: string): ChatGptSessionCookie {
+  return {
+    name: CHATGPT_SESSION_TOKEN_COOKIE_NAME,
+    value: sessionToken,
+    domain: '.chatgpt.com',
+    path: '/',
+    httpOnly: true,
+    secure: true
+  };
+}
+
+function normalizeWorkspaceSessionCookies(raw: Record<string, unknown>): ChatGptSessionCookie[] | undefined {
+  const cookies = normalizeChatGptSessionCookies(raw.cookies) ?? [];
+  const hasCookieSessionToken = hasChatGptSessionTokenCookie(cookies);
+  const sessionToken = readCookieValueString(raw, 'sessionToken');
+  if (sessionToken && !hasCookieSessionToken) {
+    cookies.push(chatGptSessionTokenCookie(sessionToken));
+  }
+  return cookies.length ? cookies : undefined;
+}
+
 export function parseChatGptSessionInput(raw: unknown): ChatGptSessionParseResult {
   if (!isRecord(raw)) return { error: '录入内容不是有效 JSON 对象' };
 
@@ -66,13 +95,13 @@ export function parseChatGptSessionInput(raw: unknown): ChatGptSessionParseResul
     user: { email },
     account: { id: accountId },
     accessToken,
-    cookies: parseCookies(raw.cookies)
+    cookies: normalizeWorkspaceSessionCookies(raw)
   };
 }
 
 export function parseChatGptSessionImportInput(raw: unknown): ChatGptSessionImportParseResult {
   if (Array.isArray(raw)) {
-    const cookies = parseCookies(raw);
+    const cookies = normalizeChatGptSessionCookies(raw);
     if (!cookies) return { error: '浏览器 cookies 为空或没有有效 name/value' };
     if (!hasChatGptSessionTokenCookie(cookies)) {
       return { error: '浏览器 cookies 缺少 __Secure-next-auth.session-token' };
@@ -105,12 +134,14 @@ export function inspectChatGptSessionImportInput(raw: unknown): ChatGptSessionIn
   }
   return {
     type: 'workspace_session',
-    message: '识别到绑定了 workspace 的 session',
+    message: parsed.session.cookies
+      ? '识别到含 sessionToken 的 session JSON，将允许跨 workspace 操作'
+      : '识别到绑定了 workspace 的 session',
     email: parsed.session.user.email,
     accountId: parsed.session.account.id,
     cookieCount: parsed.session.cookies?.length,
     hasSessionTokenCookie: parsed.session.cookies ? hasChatGptSessionTokenCookie(parsed.session.cookies) : false,
-    allowsCrossWorkspace: false
+    allowsCrossWorkspace: parsed.session.cookies ? hasChatGptSessionTokenCookie(parsed.session.cookies) : false
   };
 }
 
@@ -124,7 +155,7 @@ export function hasChatGptSessionTokenCookie(cookies: ChatGptSessionCookie[]): b
   return cookies.some((cookie) => /^__Secure-next-auth\.session-token(?:\.\d+)?$/.test(cookie.name));
 }
 
-function parseCookies(value: unknown): ChatGptSessionCookie[] | undefined {
+export function normalizeChatGptSessionCookies(value: unknown): ChatGptSessionCookie[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const cookies: ChatGptSessionCookie[] = [];
   for (const item of value) {

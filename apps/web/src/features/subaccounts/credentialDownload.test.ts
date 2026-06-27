@@ -5,7 +5,7 @@ import { buildCredentialDownload } from './credentialDownload.js';
 const subaccount = {
   id: 'sub-1',
   email: 'child@example.com',
-  label: 'Child',
+  remark: 'Child',
   hasWebSession: true,
   status: 'codex_ready',
   teamLinks: [],

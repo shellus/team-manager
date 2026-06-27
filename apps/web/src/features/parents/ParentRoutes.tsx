@@ -28,7 +28,7 @@ type ParentBillingRisk =
 interface InviteValues {
   email: string;
   seat: SeatType;
-  note?: string;
+  remark?: string;
   expiresOn: string;
   expireRemove: boolean;
   expireReminder: boolean;
@@ -47,23 +47,24 @@ const accountSortCollator = new Intl.Collator('zh-CN', { numeric: true, sensitiv
 
 function compareAccountSortName(a: AccountView, b: AccountView): number {
   return accountSortCollator.compare(
-    a.note || a.email,
-    b.note || b.email
+    a.remark || a.email,
+    b.remark || b.email
   );
 }
 
 function searchableAccountText(account: AccountView): string {
   const values = [
     account.email,
-    account.note,
+    account.remark,
     account.groupName,
     account.workspaceName,
     account.accountId,
-    ...(account.membersCache ?? []).flatMap((member) => [member.email, member.name, member.role]),
+    account.nextRenewalOn,
+    ...(account.membersCache ?? []).flatMap((member) => [member.email, member.remoteName, member.role]),
     ...(account.pendingInvitesCache ?? []).flatMap((invite) => [invite.email, invite.role]),
     ...Object.values(account.memberProfiles ?? {}).flatMap((profile) => [
       profile.email,
-      profile.note,
+      profile.remark,
       profile.expiresOn
     ])
   ];
@@ -84,7 +85,7 @@ function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
   return {
     email: '',
     seat: defaultSeat ?? 'usage_based',
-    note: '',
+    remark: '',
     expiresOn: defaultMemberProfileExpiresOn(),
     expireRemove: false,
     expireReminder: true
@@ -93,7 +94,7 @@ function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
 
 function profileFromInviteValues(values: InviteValues): AccountMemberProfileInput {
   return {
-    note: values.note?.trim() ?? '',
+    remark: values.remark?.trim() ?? '',
     expiresOn: values.expiresOn,
     expireRemove: values.expireRemove,
     expireReminder: values.expireReminder
@@ -236,9 +237,10 @@ export function ParentRoutes({
   };
 
   const updateLocalProfile = async (payload: {
-    note?: string;
+    remark?: string;
     groupName?: string;
     limitType?: AccountLimitType;
+    nextRenewalOn?: string;
     session?: unknown;
   }) => {
     if (!selected) return;
@@ -246,10 +248,11 @@ export function ParentRoutes({
     setLocalError('');
     try {
       const updated = await apiClient.updateAccountLocalProfile(selected.id, payload as {
-        note?: string;
+        remark?: string;
         groupName?: string;
         limitType?: AccountLimitType;
-        session?: Record<string, unknown>;
+        nextRenewalOn?: string;
+        session?: unknown;
       });
       onAccountChanged(updated);
       const next = setSearchValue(clearModalState(searchParams), 'group', groupNameOf(updated));
@@ -375,9 +378,10 @@ export function ParentRoutes({
         open={searchState.modal === 'import-parent'}
         mode="session"
         title="录入母号 Session"
-        description="保存后先创建本地记录，ChatGPT 状态在母号详情中手动同步。"
+        description="保存后先创建本地记录，可粘贴 chatgpt.com session JSON（建议包含 sessionToken）或 Cookie Editor 导出的 cookies 数组。ChatGPT 状态在母号详情中手动同步。"
         submitLabel="保存母号"
         confirmLoading={busy === 'import-parent'}
+        allowBrowserCookies
         onCancel={closeModal}
         onSubmit={importParent}
       />
@@ -386,11 +390,12 @@ export function ParentRoutes({
         open={searchState.modal === 'edit-parent-profile' && Boolean(selected)}
         mode="parent"
         title="编辑母号本地资料"
-        description="只更新本系统内的备注、分组、限额类型和 session，不修改远端 Team 名称。"
+        description="只更新本系统内的备注、分组、限额类型、下次续费时间和 session，不修改远端 Team 名称。"
         initialValues={{
-          note: selected?.note ?? '',
+          remark: selected?.remark ?? '',
           groupName: selected?.groupName || '默认分组',
-          limitType: selected?.limitType ?? 'unknown'
+          limitType: selected?.limitType ?? 'unknown',
+          nextRenewalOn: selected?.nextRenewalOn ?? ''
         }}
         confirmLoading={busy === 'edit-parent-profile'}
         onCancel={closeModal}
@@ -436,7 +441,7 @@ export function ParentRoutes({
               ]}
             />
           </Form.Item>
-          <Form.Item name="note" label="备注文本">
+          <Form.Item name="remark" label="备注文本">
             <Input placeholder="例如客户名、用途或订单备注" />
           </Form.Item>
           <Form.Item name="expiresOn" label="到期时间" rules={[{ required: true, message: '请选择到期时间' }]}>

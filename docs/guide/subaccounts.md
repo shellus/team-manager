@@ -1,6 +1,6 @@
 # 子号与 Codex 凭证
 
-子号页管理子号本地资料、Team 关联、Codex 授权、已有凭证导入、额度缓存和授权日志。子号可以只有 Codex 凭证，没有 Web session。
+子号页管理子号本地资料、Team 关联、Codex 授权、已有凭证导入、额度缓存和授权日志。GPT 账号显示名统一来自 `email`，本地备注统一来自 `remark`。子号可以只有 Codex 凭证，没有 Web session。
 
 ## 子号录入方式
 
@@ -24,15 +24,16 @@
   "account": {
     "id": "<chatgpt-account-id>"
   },
-  "accessToken": "<JWT>"
+  "accessToken": "<JWT>",
+  "sessionToken": "<next-auth session token>"
 }
 ```
 
-该输入绑定 `account.id` 对应的 workspace。页面会提示“识别到绑定了 workspace 的 session”。
+该输入中的 `accessToken` 绑定 `account.id` 对应的当前 workspace；如果同时包含 `sessionToken`，系统会保存为 session-token cookie 材料。页面会提示“识别到含 sessionToken 的 session JSON，将允许跨 workspace 操作”。
 
 第二种是 Cookie Editor 等浏览器扩展从 `chatgpt.com` 导出的 cookies 数组。该数组必须包含 `__Secure-next-auth.session-token.*`。系统会用 cookies 请求 ChatGPT `/api/auth/session`，读取当前邮箱、workspace 和 access token 后创建或更新子号。页面会提示“识别到浏览器导出 cookies，将允许跨 workspace 操作”。
 
-创建 Codex 个人访问令牌时，若子号保存了浏览器 cookies，系统会设置 `_account=<目标 workspace>` 并向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次浏览器 cookies，不需要为每个 workspace 分别录入 session。
+创建 Codex 个人访问令牌时，若子号保存了 session JSON 的 `sessionToken` 或浏览器 cookies，系统会设置 `_account=<目标 workspace>` 并向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次带 `sessionToken` 的 session JSON 或浏览器 cookies，不需要为每个 workspace 分别录入 session。
 
 录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。旧 session 明文不会回填到前端。
 
@@ -66,7 +67,7 @@ Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 
 子号页的“凭证与 Codex Auth”按 Team workspace 展示操作行。操作行会显示 Team、凭证文件名、CPA 号池、授权时间和额度缓存；如果凭证已导入但 Team 关联还没同步，也会先按凭证里的 workspace `account_id` 显示。
 
 - 自动授权：使用运行环境已配置的 worker、授权页面 clearance、GongXi-Mail 和可选短信 OTP 能力完成授权。短信 OTP 能力可处理首次手机号绑定、已绑定手机号二次验证，以及验证码被拒后的候选码重试。
-- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若录入了浏览器 cookie，系统会先按目标 workspace 换取 workspace-scoped Web access token，再调用 `wham/auth-credentials`。远端响应里的 `workspace_id` 必须和目标一致，否则系统返回错误并拒绝保存。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
+- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若录入的 session JSON 含 `sessionToken` 或录入了浏览器 cookie，系统会先按目标 workspace 换取 workspace-scoped Web access token，再调用 `wham/auth-credentials`。远端响应里的 `workspace_id` 必须和目标一致，否则系统返回错误并拒绝保存。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
 - 若个人访问令牌能创建但 Codex CLI 或 CPA 调用仍返回 access enforcement 401，应先检查母号设置里的 Codex Local、个人访问令牌、设备代码身份验证和远程控制状态，再结合 OpenAI 远端返回判断是否为 workspace/成员授权规则问题。
 - 登录 URL：生成手动授权 URL。授权完成后，把 callback URL 粘贴回系统。
 - 刷新额度：使用该 Team workspace 对应凭证查询 `/backend-api/wham/usage`。

@@ -50,7 +50,7 @@ async function buildParentApiTestApp(transport: Transport = recordingTransport()
   const subaccountStore = new SubaccountStore(tempDir);
   await subaccountStore.init();
   const account = await store.add({
-    note: '原备注',
+    remark: '原备注',
     groupName: '自用',
     accountId: 'workspace-old',
     email: 'owner-old@example.com',
@@ -76,26 +76,35 @@ function recordingTransport(): Transport & { requests: HttpRequest[] } {
 }
 
 describe('Parent account local-profile API', () => {
-  it('updates only the local note and group without calling ChatGPT', async () => {
+  it('updates only the local remark, group, limit type and renewal date without calling ChatGPT', async () => {
     const transport = recordingTransport();
     const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);
 
     const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
       method: 'PATCH',
       headers: authHeaders,
-      body: JSON.stringify({ note: '  新备注  ', groupName: '  已租车位  ', limitType: 'monthly' })
+      body: JSON.stringify({
+        remark: '  新备注  ',
+        groupName: '  已租车位  ',
+        limitType: 'monthly',
+        nextRenewalOn: '2026-07-16'
+      })
     });
     const json = (await response.json()) as ApiResult<AccountView>;
     const stored = store.get(account.id);
+    const viewRecord = json.data as unknown as Record<string, unknown>;
 
     assert.equal(response.status, 200);
-    assert.equal(json.data!.note, '新备注');
+    assert.equal(json.data!.remark, '新备注');
+    assert.equal(hasOwn(viewRecord, 'note'), false);
     assert.equal(json.data!.groupName, '已租车位');
     assert.equal(json.data!.limitType, 'monthly');
+    assert.equal(json.data!.nextRenewalOn, '2026-07-16');
     assert.equal(json.data!.email, 'owner-old@example.com');
-    assert.equal(stored?.note, '新备注');
+    assert.equal(stored?.remark, '新备注');
     assert.equal(stored?.groupName, '已租车位');
     assert.equal(stored?.limitType, 'monthly');
+    assert.equal(stored?.nextRenewalOn, '2026-07-16');
     assert.equal(stored?.accountId, 'workspace-old');
     assert.equal(stored?.accessToken, 'old-token');
     assert.equal(stored?.workspaceName, 'Remote Team');
@@ -110,13 +119,14 @@ describe('Parent account local-profile API', () => {
       method: 'PATCH',
       headers: authHeaders,
       body: JSON.stringify({
-        note: '新母号备注',
+        remark: '新母号备注',
         groupName: '自用',
         limitType: 'weekly',
         session: {
           user: { email: 'owner-new@example.com' },
           account: { id: 'workspace-new' },
-          accessToken: 'new-parent-access-token'
+          accessToken: 'new-parent-access-token',
+          sessionToken: 'parent-session-json-token'
         }
       })
     });
@@ -125,19 +135,69 @@ describe('Parent account local-profile API', () => {
     const stored = store.get(account.id);
 
     assert.equal(response.status, 200);
-    assert.equal(json.data!.note, '新母号备注');
+    assert.equal(json.data!.remark, '新母号备注');
     assert.equal(json.data!.groupName, '自用');
     assert.equal(json.data!.limitType, 'weekly');
     assert.equal(json.data!.email, 'owner-new@example.com');
     assert.equal(json.data!.accountId, 'workspace-new');
-    assert.equal(stored?.note, '新母号备注');
+    assert.equal(stored?.remark, '新母号备注');
     assert.equal(stored?.groupName, '自用');
     assert.equal(stored?.limitType, 'weekly');
     assert.equal(stored?.email, 'owner-new@example.com');
     assert.equal(stored?.accountId, 'workspace-new');
     assert.equal(stored?.accessToken, 'new-parent-access-token');
+    assert.deepEqual(stored?.webSessionCookies?.map((cookie) => [cookie.name, cookie.value]), [
+      ['__Secure-next-auth.session-token', 'parent-session-json-token']
+    ]);
     assert.equal(stored?.lastError, undefined);
     assert.equal(body.includes('new-parent-access-token'), false);
+    assert.equal(body.includes('parent-session-json-token'), false);
+  });
+
+  it('updates parent local session from browser cookies exported by Cookie Editor', async () => {
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              user: { email: 'owner-cookie@example.com' },
+              account: { id: 'workspace-cookie' },
+              accessToken: 'cookie-parent-access-token'
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        remark: 'cookie 母号',
+        session: [
+          { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' },
+          { name: '__Secure-next-auth.session-token.1', value: 'session-token-1', domain: '.chatgpt.com', path: '/' }
+        ]
+      })
+    });
+    const body = await response.text();
+    const json = JSON.parse(body) as ApiResult<AccountView>;
+    const stored = store.get(account.id);
+
+    assert.equal(response.status, 200, body);
+    assert.equal(json.data!.remark, 'cookie 母号');
+    assert.equal(json.data!.email, 'owner-cookie@example.com');
+    assert.equal(json.data!.accountId, 'workspace-cookie');
+    assert.equal(stored?.accessToken, 'cookie-parent-access-token');
+    assert.equal(stored?.webSessionCookies?.length, 2);
+    assert.equal(body.includes('cookie-parent-access-token'), false);
+    assert.equal(body.includes('session-token-0'), false);
+    assert.equal(transport.requests[0]!.path.startsWith('/api/auth/session'), true);
   });
 
   it('returns 400 for invalid replacement parent session JSON', async () => {
@@ -147,7 +207,7 @@ describe('Parent account local-profile API', () => {
       method: 'PATCH',
       headers: authHeaders,
       body: JSON.stringify({
-        note: '新母号备注',
+        remark: '新母号备注',
         session: { email: 'owner-new@example.com', accessToken: 'new-parent-access-token' }
       })
     });
@@ -246,7 +306,7 @@ describe('AccountStore account sanitation', () => {
         [
           {
             id: 'account-legacy',
-            note: '母号备注',
+            remark: '母号备注',
             limitType: 'weekly',
             accountId: 'workspace-id',
             email: 'owner@example.com',
@@ -258,6 +318,8 @@ describe('AccountStore account sanitation', () => {
               {
                 userId: 'user-a',
                 email: 'a@example.com',
+                name: '旧远端显示名',
+                remoteName: '当前远端显示名',
                 role: 'standard-user',
                 seat: 'default'
               }
@@ -285,19 +347,24 @@ describe('AccountStore account sanitation', () => {
     await store.init();
     const stored = store.get('account-legacy') as Record<string, unknown> | undefined;
     const persisted = JSON.parse(await readFile(join(tempDir, 'accounts.json'), 'utf8')) as Record<string, unknown>[];
+    const storedMember = (stored?.membersCache as Record<string, unknown>[] | undefined)?.[0];
+    const persistedMember = (persisted[0]?.membersCache as Record<string, unknown>[] | undefined)?.[0];
 
     assert.equal(hasOwn(stored, 'memberCount'), false);
     assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
     assert.equal(hasOwn(stored, 'pendingInviteCount'), false);
-    assert.equal(stored?.note, '母号备注');
+    assert.equal(stored?.remark, '母号备注');
     assert.equal(stored?.groupName, '默认分组');
     assert.equal(stored?.limitType, 'weekly');
     assert.equal(hasOwn(persisted[0], 'memberCount'), false);
     assert.equal(hasOwn(persisted[0], 'chatgptSeatCount'), false);
     assert.equal(hasOwn(persisted[0], 'pendingInviteCount'), false);
-    assert.equal(persisted[0]!.note, '母号备注');
+    assert.equal(persisted[0]!.remark, '母号备注');
     assert.equal(persisted[0]!.groupName, '默认分组');
     assert.equal(persisted[0]!.limitType, 'weekly');
+    assert.equal(hasOwn(storedMember, 'name'), false);
+    assert.equal(hasOwn(persistedMember, 'name'), false);
+    assert.equal(storedMember?.remoteName, '当前远端显示名');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
   });
@@ -350,6 +417,59 @@ describe('TeamService account listing', () => {
     assert.equal(hasOwn(accounts[0], 'chatgptSeatCount'), false);
     assert.equal(hasOwn(accounts[0], 'pendingInviteCount'), false);
   });
+
+  it('refreshes account status and stores the next renewal date from accounts/check billing details', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'workspace-id': {
+                  account: {
+                    account_id: 'workspace-id',
+                    account_user_role: 'account-owner',
+                    name: 'Workspace',
+                    plan_type: 'team',
+                    structure: 'workspace',
+                    billing_details: {
+                      renews_at: '2026-07-16T06:29:16+00:00'
+                    }
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['workspace-id']
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
+          return { status: 200, body: JSON.stringify({ items: [] }) };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.refreshAccount(account.id);
+
+    assert.equal(view.workspaceName, 'Workspace');
+    assert.equal(view.nextRenewalOn, '2026-07-16');
+    assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-16');
+    assert.equal(requests.length, 2);
+  });
 });
 
 describe('TeamService member cache', () => {
@@ -368,7 +488,7 @@ describe('TeamService member cache', () => {
     const cachedMember = {
       userId: 'user-a',
       email: 'a@example.com',
-      name: 'A',
+      remoteName: 'A',
       role: 'standard-user',
       seat: 'usage_based' as const
     };
@@ -1175,7 +1295,7 @@ describe('TeamService invites', () => {
       email: 'New@Example.COM',
       seat: 'usage_based',
       memberProfile: {
-        note: '租给 Shellus',
+        remark: '租给 Shellus',
         expiresOn: '2026-07-23',
         expireRemove: true,
         expireReminder: false
@@ -1190,7 +1310,7 @@ describe('TeamService invites', () => {
       seat_type: 'usage_based',
       resend_emails: true
     });
-    assert.equal(view.memberProfiles?.['new@example.com']?.note, '租给 Shellus');
+    assert.equal(view.memberProfiles?.['new@example.com']?.remark, '租给 Shellus');
     assert.equal(view.memberProfiles?.['new@example.com']?.expiresOn, '2026-07-23');
     assert.equal(view.memberProfiles?.['new@example.com']?.expireRemove, true);
     assert.equal(view.memberProfiles?.['new@example.com']?.expireReminder, false);
@@ -1274,7 +1394,7 @@ describe('TeamService member email profiles', () => {
       memberProfiles: {
         'child@example.com': {
           email: 'child@example.com',
-          note: '旧备注',
+          remark: '旧备注',
           expiresOn: '2026-07-01',
           expireRemove: false,
           expireReminder: true,
@@ -1285,18 +1405,18 @@ describe('TeamService member email profiles', () => {
     const service = new TeamService(store, transport);
 
     const view = await service.updateMemberProfile(account.id, ' Child@Example.com ', {
-      note: '新备注',
+      remark: '新备注',
       expiresOn: '2026-08-01',
       expireRemove: true,
       expireReminder: false
     });
 
     assert.equal(requests.length, 0);
-    assert.equal(view.memberProfiles?.['child@example.com']?.note, '新备注');
+    assert.equal(view.memberProfiles?.['child@example.com']?.remark, '新备注');
     assert.equal(view.memberProfiles?.['child@example.com']?.expiresOn, '2026-08-01');
     assert.equal(view.memberProfiles?.['child@example.com']?.expireRemove, true);
     assert.equal(view.memberProfiles?.['child@example.com']?.expireReminder, false);
-    assert.equal(store.get(account.id)?.memberProfiles?.['child@example.com']?.note, '新备注');
+    assert.equal(store.get(account.id)?.memberProfiles?.['child@example.com']?.remark, '新备注');
     assert.equal(typeof store.get(account.id)?.memberProfiles?.['child@example.com']?.updatedAt, 'number');
   });
 });

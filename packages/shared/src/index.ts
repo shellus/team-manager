@@ -6,6 +6,7 @@ export {
   getChatGptSessionUserEmail,
   hasChatGptSessionTokenCookie,
   inspectChatGptSessionImportInput,
+  normalizeChatGptSessionCookies,
   parseChatGptSessionImportInput,
   parseChatGptSessionInput
 } from './sessionInput.js';
@@ -29,12 +30,13 @@ export type MemberRole = 'account-owner' | 'account-admin' | 'standard-user' | s
 /** 录入的母号（含凭证，仅存后端 data/，绝不下发前端明文） */
 export interface Account {
   id: string;                 // team-manager 内部 id（uuid）
-  note?: string;              // 本地备注，不等同远端 Team 名称
+  remark?: string;            // 本地备注，不等同远端 Team 名称
   groupName?: string;         // 本地母号分组，缺省由后端归入默认分组
   limitType?: AccountLimitType; // 本地记录的额度窗口类型
   accountId: string;          // workspace account_id（chatgpt-account-id 头）
   email: string;              // owner 邮箱
   accessToken: string;        // JWT，发请求用
+  webSessionCookies?: ChatGptSessionCookie[]; // ChatGPT Web session cookie 材料，用于按 workspace 换取 Web accessToken
   refreshToken?: string;      // 用于自动刷新
   fp?: AccountFingerprint;    // 每母号独立指纹
   proxy?: string;             // 每母号独立代理
@@ -42,6 +44,7 @@ export interface Account {
   planType?: string;
   role?: MemberRole;
   workspaceName?: string;
+  nextRenewalOn?: string;     // 下次续费日期，yyyy-mm-dd
   status?: 'active' | 'invalid' | 'unknown';
   membersCache?: Member[];    // 成员列表缓存，供前端先显示再后台刷新
   membersCachedAt?: number;
@@ -74,7 +77,7 @@ export interface AccountFingerprint {
 /** 下发前端的母号视图（脱敏，不含 token） */
 export interface AccountView {
   id: string;
-  note?: string;
+  remark?: string;
   groupName: string;
   limitType: AccountLimitType;
   accountId: string;
@@ -82,6 +85,7 @@ export interface AccountView {
   planType?: string;
   role?: MemberRole;
   workspaceName?: string;
+  nextRenewalOn?: string;
   status?: 'active' | 'invalid' | 'unknown';
   membersCache?: Member[];
   membersCachedAt?: number;
@@ -109,7 +113,7 @@ export interface AccountView {
 export interface Member {
   userId: string;             // users[].id
   email: string;
-  name?: string;
+  remoteName?: string;        // ChatGPT 远端用户显示名，仅作辅助展示
   role: MemberRole;
   seat: SeatType;             // users[].seat_type
   status?: string;
@@ -129,7 +133,7 @@ export interface PendingInvite {
 /** 母号下某个成员/邀请邮箱的本地资料，跟随邮箱从 pending invite 过渡到 member。 */
 export interface AccountMemberProfile {
   email: string;
-  note?: string;
+  remark?: string;
   expiresOn: string;           // yyyy-mm-dd
   expireRemove: boolean;
   expireReminder: boolean;
@@ -137,7 +141,7 @@ export interface AccountMemberProfile {
 }
 
 export interface AccountMemberProfileInput {
-  note?: string;
+  remark?: string;
   expiresOn?: string;
   expireRemove?: boolean;
   expireReminder?: boolean;
@@ -195,10 +199,10 @@ export type SubaccountStatus =
 export interface Subaccount {
   id: string;                  // team-manager 内部 id（uuid）
   email: string;               // 只取 session.user.email 或注册得到的邮箱
-  label: string;               // 默认同 email
+  remark?: string;             // 本地备注
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
-  webSessionCookies?: ChatGptSessionCookie[]; // ChatGPT 浏览器会话 cookie，用于按 workspace 换取 Web accessToken
+  webSessionCookies?: ChatGptSessionCookie[]; // ChatGPT Web session cookie 材料，用于按 workspace 换取 Web accessToken
   registrationPassword?: string; // 自动注册生成的 OpenAI 密码，仅后端持久化，不下发前端
   registeredAt?: number;
   registrationSource?: string;
@@ -214,7 +218,7 @@ export interface Subaccount {
 export interface SubaccountView {
   id: string;
   email: string;
-  label: string;
+  remark?: string;
   chatgptAccountId?: string;
   status: SubaccountStatus;
   hasWebSession: boolean;

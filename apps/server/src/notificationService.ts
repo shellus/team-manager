@@ -5,15 +5,16 @@ import { AppSettingsStore } from './appSettingsStore.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface ExpirationReminderItem {
+  type: 'member_expiration' | 'team_renewal';
   accountId: string;
   accountDisplayName: string;
   workspaceName: string;
   email: string;
-  note?: string;
+  remark?: string;
   expiresOn: string;
   daysUntilExpiry: number;
   expireRemove: boolean;
-  status: 'invited' | 'member' | 'tracked';
+  status: 'invited' | 'member' | 'tracked' | 'team_renewal';
 }
 
 export interface NotificationRunResult {
@@ -33,6 +34,25 @@ export function collectExpirationReminderItems(
   const items: ExpirationReminderItem[] = [];
 
   for (const account of accounts) {
+    const renewal = accountDateTime(account.nextRenewalOn);
+    if (renewal !== undefined) {
+      const daysUntilExpiry = Math.floor((renewal - today) / DAY_MS);
+      if (daysUntilExpiry >= 0 && daysUntilExpiry <= settings.advanceReminderDays) {
+        items.push({
+          type: 'team_renewal',
+          accountId: account.id,
+          accountDisplayName: account.remark || account.email,
+          workspaceName: account.workspaceName ?? account.accountId,
+          email: account.email,
+          ...(account.remark ? { remark: account.remark } : {}),
+          expiresOn: account.nextRenewalOn!,
+          daysUntilExpiry,
+          expireRemove: false,
+          status: 'team_renewal'
+        });
+      }
+    }
+
     const profiles = account.memberProfiles ?? {};
     for (const profile of Object.values(profiles)) {
       if (!profile.expireReminder) continue;
@@ -42,11 +62,12 @@ export function collectExpirationReminderItems(
       if (daysUntilExpiry < 0 || daysUntilExpiry > settings.advanceReminderDays) continue;
 
       items.push({
+        type: 'member_expiration',
         accountId: account.id,
-        accountDisplayName: account.note || account.email,
+        accountDisplayName: account.remark || account.email,
         workspaceName: account.workspaceName ?? account.accountId,
         email: profile.email,
-        ...(profile.note ? { note: profile.note } : {}),
+        ...(profile.remark ? { remark: profile.remark } : {}),
         expiresOn: profile.expiresOn,
         daysUntilExpiry,
         expireRemove: profile.expireRemove,
@@ -146,7 +167,11 @@ function relationStatus(account: Account, email: string): ExpirationReminderItem
 }
 
 function profileDateTime(profile: AccountMemberProfile): number | undefined {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(profile.expiresOn);
+  return accountDateTime(profile.expiresOn);
+}
+
+function accountDateTime(dateOnly: string | undefined): number | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOnly ?? '');
   if (!match) return undefined;
   return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
 }
@@ -171,11 +196,18 @@ function localTimeString(date: Date): string {
 function formatReminderText(settings: NotificationSettings, items: ExpirationReminderItem[]): string {
   const lines = [`Team 成员到期提醒：${items.length} 个邮箱将在 ${settings.advanceReminderDays} 天内到期`];
   for (const item of items) {
+    if (item.type === 'team_renewal') {
+      const remark = item.remark ? `，备注：${item.remark}` : '';
+      lines.push(
+        `- ${item.workspaceName}，Team 续费，${item.expiresOn} 续费，剩余 ${item.daysUntilExpiry} 天${remark}`
+      );
+      continue;
+    }
     const statusLabel = item.status === 'member' ? '成员' : item.status === 'invited' ? '待邀请' : '仅记录';
     const removeLabel = item.expireRemove ? '到期移除' : '仅提醒';
-    const note = item.note ? `，备注：${item.note}` : '';
+    const remark = item.remark ? `，备注：${item.remark}` : '';
     lines.push(
-      `- ${item.email}，${item.workspaceName}，${statusLabel}，${item.expiresOn} 到期，剩余 ${item.daysUntilExpiry} 天，${removeLabel}${note}`
+      `- ${item.email}，${item.workspaceName}，${statusLabel}，${item.expiresOn} 到期，剩余 ${item.daysUntilExpiry} 天，${removeLabel}${remark}`
     );
   }
   return lines.join('\n');

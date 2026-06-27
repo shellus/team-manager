@@ -9,7 +9,7 @@ import { SeatTag, TeamLinkStatusTag } from '../../components/StatusTag.js';
 
 function accountDisplayName(account: AccountView | undefined, fallback: string): string {
   if (!account) return fallback;
-  return account.note || account.workspaceName || account.email;
+  return account.remark || account.workspaceName || account.email;
 }
 
 export function SubaccountTeamLinks({

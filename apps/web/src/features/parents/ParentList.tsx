@@ -71,7 +71,8 @@ export function ParentList({
           const seatCount = account.membersCache?.filter((member) => member.seat === 'default').length;
           const selected = account.id === selectedId;
           const syncing = syncingIds.has(account.id);
-          const note = account.note || account.workspaceName || account.accountId;
+          const title = account.remark || account.email;
+          const subtitle = account.workspaceName || account.accountId;
           return (
             <List.Item>
               <Card
@@ -81,8 +82,8 @@ export function ParentList({
                 onClick={() => onSelect(account)}
               >
                 <div className="record-card-head">
-                  <Typography.Text strong ellipsis={{ tooltip: note }}>
-                    {note}
+                  <Typography.Text strong ellipsis={{ tooltip: title }}>
+                    {title}
                   </Typography.Text>
                   <Space size={4}>
                     <Typography.Text type="secondary">同步 {formatRelativeTime(account.lastRefreshAt)}</Typography.Text>
@@ -127,6 +128,18 @@ export function ParentList({
                     {account.email}
                   </Typography.Text>
                 </div>
+                {subtitle !== account.email && (
+                  <div className="record-meta muted">
+                    <Typography.Text type="secondary" ellipsis={{ tooltip: subtitle }}>
+                      {subtitle}
+                    </Typography.Text>
+                  </div>
+                )}
+                {account.nextRenewalOn && (
+                  <div className="record-meta">
+                    <span>续费 {account.nextRenewalOn}</span>
+                  </div>
+                )}
                 <div className="record-meta">
                   <span>成员 {memberCount ?? '暂无'}</span>
                   <span className={seatCount !== undefined && seatCount >= MAX_CHATGPT_SEATS ? 'text-warning' : undefined}>

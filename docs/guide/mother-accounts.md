@@ -4,7 +4,7 @@
 
 ## 录入母号
 
-母号录入只接受 chatgpt.com session JSON：
+母号录入支持 chatgpt.com session JSON，也支持 Cookie Editor 等浏览器扩展导出的 cookies 数组。常用输入是 session JSON：
 
 ```json
 {
@@ -14,11 +14,12 @@
   "account": {
     "id": "<workspace-account-id>"
   },
-  "accessToken": "<JWT>"
+  "accessToken": "<JWT>",
+  "sessionToken": "<next-auth session token>"
 }
 ```
 
-录入后先创建本地记录。ChatGPT 远端状态需要在母号详情页点击“刷新”获取。
+`sessionToken` 可用于后续按目标 workspace 换取 Web access token；旧导出内容如果没有该字段，系统仍可录入当前 workspace 的 `accessToken`。录入后先创建本地记录。ChatGPT 远端状态需要在母号详情页点击“刷新”获取。
 
 新母号默认进入 `默认分组`。母号列表会默认选中第一个分组，只显示该分组中的母号；可在列表顶部切换其他分组。
 
@@ -106,12 +107,12 @@ pending invite 与正式 member 需要区分。子号处于 pending invite 时�
 - 每日触发时间，默认 `08:00`。
 - 通用 Webhook、飞书、Telegram、企业微信等通知渠道。
 
-通知任务每天按本地时间最多运行一次，扫描所有母号下开启到期提醒且到期日在提醒窗口内的邮箱资料。
+通知任务每天按本地时间最多运行一次，扫描所有母号下开启到期提醒且到期日在提醒窗口内的邮箱资料，并扫描母号 Team 的下次续费时间。
 
 ## Team 改名、本地备注与分组
 
-Team 改名修改远端 workspace 名称。母号邮箱显示名统一来自 `email`，备注使用 `note`，两者都不修改 ChatGPT 远端 Team 名称。
+Team 改名修改远端 workspace 名称。GPT 账号显示名统一来自 `email`，备注使用 `remark`，两者都不修改 ChatGPT 远端 Team 名称。
 
-编辑母号本地资料可修改备注 `note`、母号分组 `groupName`、限额类型 `limitType`，也可同时替换 session。替换 session 时，系统会用新 session 的 `user.email` 更新 `email`，旧 session 明文不会回填到前端。
+编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn`，也可同时替换 session。替换 session 支持 chatgpt.com session JSON 或浏览器 cookies 数组；session JSON 中的 `sessionToken` 会被保存为后续换取 workspace Web access token 的 cookie 材料。系统会用新 session 的 `user.email` 更新 `email`，旧 session 明文不会回填到前端。
 
 分组用于区分自用、已出租车位等运营集合。分组只是本地展示和筛选字段，不影响远端 Team workspace。

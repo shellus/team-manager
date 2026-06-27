@@ -10,7 +10,6 @@ import type {
   SeatType,
   InviteRequest
 } from '@team-manager/shared';
-import { parseChatGptSessionInput } from '@team-manager/shared';
 import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import {
@@ -19,6 +18,7 @@ import {
   tokenNeedsRefresh,
   type ChatGptAccountCheckEntry
 } from './chatgptApi.js';
+import { ChatGptWebSessionError, resolveChatGptSessionImportInput } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -58,7 +58,7 @@ export class TeamService {
   private viewFromAccount(account: Account): AccountView {
     return {
       id: account.id,
-      note: account.note,
+      remark: account.remark,
       groupName: account.groupName || '默认分组',
       limitType: account.limitType ?? 'unknown',
       accountId: account.accountId,
@@ -66,6 +66,7 @@ export class TeamService {
       planType: account.planType,
       role: account.role,
       workspaceName: account.workspaceName,
+      nextRenewalOn: account.nextRenewalOn,
       status: account.status ?? 'unknown',
       membersCache: account.membersCache,
       membersCachedAt: account.membersCachedAt,
@@ -130,6 +131,7 @@ export class TeamService {
         planType: check.planType ?? account.planType,
         role: check.role ?? account.role,
         workspaceName: check.workspaceName ?? account.workspaceName,
+        nextRenewalOn: check.nextRenewalOn ?? account.nextRenewalOn,
         membersCache: members,
         membersCachedAt: now,
         status: 'active',
@@ -152,15 +154,33 @@ export class TeamService {
     return this.viewFromAccount(account);
   }
 
+  async addAccountFromSessionInput(raw: unknown): Promise<AccountView> {
+    const input = await this.resolveAccountSessionInput(raw);
+    return this.addAccount({
+      groupName: '默认分组',
+      limitType: 'unknown',
+      accountId: input.session.account.id,
+      email: input.session.user.email,
+      accessToken: input.session.accessToken,
+      webSessionCookies: input.session.cookies
+    });
+  }
+
   async updateLocalProfile(
     id: string,
-    input: { note?: unknown; groupName?: unknown; limitType?: unknown; session?: unknown }
+    input: {
+      remark?: unknown;
+      groupName?: unknown;
+      limitType?: unknown;
+      nextRenewalOn?: unknown;
+      session?: unknown;
+    }
   ): Promise<AccountView> {
     const existing = this.store.get(id);
     if (!existing) throw new ServiceError(404, `母号不存在: ${id}`);
 
     const patch: Partial<Account> = { lastError: undefined };
-    if (typeof input.note === 'string') patch.note = input.note.trim() || undefined;
+    if (typeof input.remark === 'string') patch.remark = input.remark.trim() || undefined;
     if (typeof input.groupName === 'string') {
       patch.groupName = input.groupName.trim() || '默认分组';
     }
@@ -170,13 +190,16 @@ export class TeamService {
       }
       patch.limitType = input.limitType as AccountLimitType;
     }
+    if (input.nextRenewalOn !== undefined) {
+      patch.nextRenewalOn = this.normalizeOptionalDate(input.nextRenewalOn, '下次续费时间');
+    }
 
     if (input.session !== undefined) {
-      const session = parseChatGptSessionInput(input.session);
-      if ('error' in session) throw new ServiceError(400, session.error);
+      const { session } = await this.resolveAccountSessionInput(input.session);
       patch.email = session.user.email;
       patch.accountId = session.account.id;
       patch.accessToken = session.accessToken;
+      patch.webSessionCookies = session.cookies;
       patch.status = 'unknown';
     }
 
@@ -280,11 +303,11 @@ export class TeamService {
     existing: AccountMemberProfile | undefined,
     input: AccountMemberProfileInput
   ): AccountMemberProfile {
-    const note = typeof input.note === 'string' ? input.note.trim() : existing?.note;
+    const remark = typeof input.remark === 'string' ? input.remark.trim() : existing?.remark;
     const expiresOn = this.normalizeProfileDate(input.expiresOn, existing?.expiresOn);
     return {
       email,
-      ...(note ? { note } : {}),
+      ...(remark ? { remark } : {}),
       expiresOn,
       expireRemove: typeof input.expireRemove === 'boolean' ? input.expireRemove : (existing?.expireRemove ?? false),
       expireReminder:
@@ -301,6 +324,25 @@ export class TeamService {
     }
     if (fallback && DATE_ONLY_PATTERN.test(fallback)) return fallback;
     return localDateAfterDays(30);
+  }
+
+  private normalizeOptionalDate(value: unknown, label: string): string | undefined {
+    if (typeof value !== 'string') throw new ServiceError(400, `${label}格式应为 yyyy-mm-dd`);
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    if (!DATE_ONLY_PATTERN.test(trimmed)) throw new ServiceError(400, `${label}格式应为 yyyy-mm-dd`);
+    return trimmed;
+  }
+
+  private async resolveAccountSessionInput(
+    raw: unknown
+  ): Promise<Awaited<ReturnType<typeof resolveChatGptSessionImportInput>>> {
+    try {
+      return await resolveChatGptSessionImportInput(raw, this.transport);
+    } catch (e) {
+      if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
+      throw e;
+    }
   }
 
   async listCachedPendingInvites(id: string): Promise<PendingInvite[]> {

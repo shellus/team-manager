@@ -7,7 +7,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
 ## 已实现
 
 - 子号池：`data/subaccounts.json` 和 `data/subaccount-credentials/<subaccountId>/`
-  - 记录邮箱、备注名、ChatGPT account id、web session 状态、按 Team workspace 保存的 Codex 凭证状态，以及该子号加入过的母号关系。
+  - 记录邮箱、本地备注 `remark`、ChatGPT account id、web session 状态、按 Team workspace 保存的 Codex 凭证状态，以及该子号加入过的母号关系。
   - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证元数据；真实 CPA/Codex auth JSON 写入独立凭证文件。
   - 凭证元数据包含 `accountId`、`fileName`、`groupName`、`planType`、授权时间和额度缓存。`groupName` 用于展示该凭证所在 CPA 号池。
   - 自动注册生成的 OpenAI 密码记录在后端持久化对象的私有字段中，普通 view 不下发。
@@ -15,10 +15,10 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
 - 子号 Web 登录态录入：
   - `POST /api/subaccounts/session` 接受两种互斥输入类型：chatgpt.com session JSON 对象，或 Cookie Editor 等浏览器扩展导出的 cookies 数组。
-  - session JSON 对象必需字段为 `user.email`、`account.id`、`accessToken`，该输入绑定 `account.id` 对应 workspace。
+  - session JSON 对象必需字段为 `user.email`、`account.id`、`accessToken`；可选字段 `sessionToken` 会被保存为 ChatGPT session-token cookie 材料，用于后续按目标 workspace 换取 Web access token。
   - 浏览器 cookies 数组必须包含 `__Secure-next-auth.session-token.*`。后端会先用 cookies 请求 ChatGPT `/api/auth/session`，读取当前 `user.email`、`account.id` 和 `accessToken` 后保存子号。
-  - 浏览器 cookies 属于敏感运行时数据，只写入后端 `data/subaccounts.json`，普通 view 不下发。
-  - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用保存的 cookies 构造带 `_account=<目标 workspace>` 的请求，通过 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
+  - `sessionToken` 和浏览器 cookies 属于敏感运行时数据，只写入后端 `data/subaccounts.json`，普通 view 不下发。
+  - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用保存的 session-token cookie 材料构造带 `_account=<目标 workspace>` 的请求，通过 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
   - 不支持扁平字段，不做回退兼容。
 - 已有 Codex credential 录入：
   - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON，或 `{ credential, fileName, groupName }` 包装格式。
@@ -26,8 +26,8 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `fileName` 为独立凭证文件名，`groupName` 为 CPA 号池名；缺省文件名由邮箱和 workspace 派生，缺省号池为 `默认号池`。
   - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
-  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注名 `label`。
-  - 请求带新的 session JSON 对象时更新 `email`、`chatgptAccountId`、`webAccessToken`；请求带浏览器 cookies 数组时，后端先通过 `/api/auth/session` 解析当前登录态，再更新 `email`、`chatgptAccountId`、`webAccessToken` 和浏览器 cookies。
+  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注 `remark`。
+  - 请求带新的 session JSON 对象时更新 `email`、`chatgptAccountId`、`webAccessToken`，并在存在 `sessionToken` 时更新 session-token cookie 材料；请求带浏览器 cookies 数组时，后端先通过 `/api/auth/session` 解析当前登录态，再更新 `email`、`chatgptAccountId`、`webAccessToken` 和浏览器 cookies。
   - 保留已有 Codex 凭证、Team 关联和授权日志，响应仍为脱敏视图。
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
@@ -45,7 +45,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 若 OpenAI 返回账号锁定、停用或不可用，worker 返回 `account_locked`，后端把子号状态写为 `account_locked`，停止把它混入验证码待验证流程。
 - Codex 个人访问令牌凭证：
   - `POST /api/subaccounts/:id/codex-auth/personal-access-token` 默认使用子号自己的 ChatGPT Web `accessToken` 调用 `POST /backend-api/wham/auth-credentials`。
-  - 若子号保存了浏览器会话 `cookies[]`，后端先调用 `/api/auth/session`，在 cookie header 中设置 `_account=<目标 workspace>`，校验返回的 Web access token claim 属于目标 workspace 后，再调用 `wham/auth-credentials`。
+  - 若子号保存了 session JSON `sessionToken` 或浏览器会话 `cookies[]`，后端先调用 `/api/auth/session`，在 cookie header 中设置 `_account=<目标 workspace>`，校验返回的 Web access token claim 属于目标 workspace 后，再调用 `wham/auth-credentials`。
   - 请求目标 workspace 由 `chatgpt-account-id` header 指定，scope 固定为 `chatgpt.workspace.feature.allow-codex-local-access.access`，TTL 为 30 天。
   - 返回的 `at-...` token 是官方 Codex CLI 支持的 personal access token。官方 Codex 将其保存为 `auth.json.personal_access_token`，不需要 `refresh_token` 或 `id_token`。
   - team-manager 保存为 `auth_mode:"personalAccessToken"` / `credential_source:"personal_access_token"` 的 Codex credential JSON，同时保留 `access_token` 和 `personal_access_token` 便于额度刷新和导出。

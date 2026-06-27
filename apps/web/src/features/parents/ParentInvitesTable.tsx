@@ -78,7 +78,7 @@ export function ParentInvitesTable({
         return (
           <div className="profile-cell">
             <Typography.Text>{memberProfileSummary(profile)}</Typography.Text>
-            {profile?.note && <Typography.Text type="secondary">{profile.note}</Typography.Text>}
+            {profile?.remark && <Typography.Text type="secondary">{profile.remark}</Typography.Text>}
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(invite.email)}>
               编辑资料
             </Button>

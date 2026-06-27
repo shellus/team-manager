@@ -51,7 +51,7 @@ export function SubaccountDetail({
   onOpenDelete: () => void;
   onOpenInvite: () => void;
   onRefreshRuntime: () => void;
-  onStartAuth: (workspaceId: string, displayName: string) => void;
+  onStartAuth: (workspaceId: string, teamTitle: string) => void;
   onAutoAuth: (workspaceId: string) => void;
   onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
@@ -75,7 +75,7 @@ export function SubaccountDetail({
       <div className="detail-header">
         <div>
           <Space align="center">
-            <Typography.Title level={2}>{subaccount.label}</Typography.Title>
+            <Typography.Title level={2}>{subaccount.remark || subaccount.email}</Typography.Title>
             <SubaccountStatusTag status={subaccount.status} />
           </Space>
           <Space className="detail-meta-row" size={8} wrap>

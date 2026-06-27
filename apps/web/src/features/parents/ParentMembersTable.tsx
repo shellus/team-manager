@@ -105,7 +105,7 @@ export function ParentMembersTable({
       render: (_, member) => (
         <div className="table-main-cell">
           <Typography.Text strong>{member.email}</Typography.Text>
-          <Typography.Text type="secondary">{member.name || member.userId}</Typography.Text>
+          <Typography.Text type="secondary">{member.remoteName || member.userId}</Typography.Text>
         </div>
       )
     },
@@ -117,7 +117,7 @@ export function ParentMembersTable({
         return (
           <div className="profile-cell">
             <Typography.Text>{memberProfileSummary(profile)}</Typography.Text>
-            {profile?.note && <Typography.Text type="secondary">{profile.note}</Typography.Text>}
+            {profile?.remark && <Typography.Text type="secondary">{profile.remark}</Typography.Text>}
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(member.email)}>
               编辑资料
             </Button>

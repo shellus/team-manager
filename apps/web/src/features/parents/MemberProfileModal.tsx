@@ -3,7 +3,7 @@ import type { AccountMemberProfile, AccountMemberProfileInput, AccountView } fro
 import { Form, Input, Modal, Switch, Typography } from 'antd';
 
 interface MemberProfileValues {
-  note?: string;
+  remark?: string;
   expiresOn: string;
   expireRemove: boolean;
   expireReminder: boolean;
@@ -39,7 +39,7 @@ export function memberProfileSummary(profile: AccountMemberProfile | undefined):
 function initialValues(account: AccountView, email: string): MemberProfileValues {
   const profile = memberProfileForEmail(account.memberProfiles, email);
   return {
-    note: profile?.note ?? '',
+    remark: profile?.remark ?? '',
     expiresOn: profile?.expiresOn ?? defaultMemberProfileExpiresOn(),
     expireRemove: profile?.expireRemove ?? false,
     expireReminder: profile?.expireReminder ?? true
@@ -73,7 +73,7 @@ export function MemberProfileModal({
   const submit = async () => {
     const values = await form.validateFields();
     await onSubmit(email, {
-      note: values.note?.trim() ?? '',
+      remark: values.remark?.trim() ?? '',
       expiresOn: values.expiresOn,
       expireRemove: values.expireRemove,
       expireReminder: values.expireReminder
@@ -100,7 +100,7 @@ export function MemberProfileModal({
         initialValues={initialValues(account, email)}
         disabled={confirmLoading}
       >
-        <Form.Item name="note" label="备注文本">
+        <Form.Item name="remark" label="备注文本">
           <Input placeholder="例如客户名、用途或订单备注" />
         </Form.Item>
         <Form.Item name="expiresOn" label="到期时间" rules={[{ required: true, message: '请选择到期时间' }]}>

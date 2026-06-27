@@ -21,8 +21,10 @@ describe('expiration reminder collection', () => {
         id: 'account-a',
         accountId: 'workspace-id',
         email: 'owner@example.com',
+        remark: '主 Team',
         accessToken: 'token',
         workspaceName: 'Team A',
+        nextRenewalOn: '2026-07-02',
         pendingInvitesCache: [
           {
             inviteId: 'invite-a',
@@ -45,7 +47,7 @@ describe('expiration reminder collection', () => {
         memberProfiles: {
           'pending@example.com': {
             email: 'pending@example.com',
-            note: '待接受',
+            remark: '待接受',
             expiresOn: '2026-07-03',
             expireRemove: false,
             expireReminder: true,
@@ -53,7 +55,7 @@ describe('expiration reminder collection', () => {
           },
           'member@example.com': {
             email: 'member@example.com',
-            note: '已入组',
+            remark: '已入组',
             expiresOn: '2026-07-04',
             expireRemove: true,
             expireReminder: true,
@@ -61,7 +63,7 @@ describe('expiration reminder collection', () => {
           },
           'quiet@example.com': {
             email: 'quiet@example.com',
-            note: '关闭提醒',
+            remark: '关闭提醒',
             expiresOn: '2026-07-02',
             expireRemove: false,
             expireReminder: false,
@@ -88,6 +90,15 @@ describe('expiration reminder collection', () => {
         expireRemove: item.expireRemove
       })),
       [
+        {
+          accountId: 'account-a',
+          workspaceName: 'Team A',
+          email: 'owner@example.com',
+          status: 'team_renewal',
+          expiresOn: '2026-07-02',
+          daysUntilExpiry: 2,
+          expireRemove: false
+        },
         {
           accountId: 'account-a',
           workspaceName: 'Team A',

@@ -12,7 +12,6 @@ import { AppSettingsStore } from './appSettingsStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
-import { normalizeAccountInput } from './normalizeAccount.js';
 import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
 import type { SubaccountRegistrationExecutor } from './subaccountRegistration.js';
 import type { Transport } from './transport.js';
@@ -261,20 +260,17 @@ export async function buildApp({
 
   api.post('/accounts', async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const norm = normalizeAccountInput(body);
-    if ('error' in norm) {
-      return c.json({ ok: false, error: norm.error }, 400);
-    }
-    return wrap(c, () => service.addAccount(norm));
+    return wrap(c, () => service.addAccountFromSessionInput(body));
   });
 
   api.delete('/accounts/:id', (c) => wrap(c, () => service.removeAccount(c.req.param('id'))));
 
   api.patch('/accounts/:id/local-profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
-      note?: unknown;
+      remark?: unknown;
       groupName?: unknown;
       limitType?: unknown;
+      nextRenewalOn?: unknown;
       session?: unknown;
     };
     return wrap(c, () => service.updateLocalProfile(c.req.param('id'), body));
@@ -304,7 +300,7 @@ export async function buildApp({
   api.patch('/accounts/:id/member-profiles', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       email?: string;
-      note?: string;
+      remark?: string;
       expiresOn?: string;
       expireRemove?: boolean;
       expireReminder?: boolean;
@@ -312,7 +308,7 @@ export async function buildApp({
     if (!body.email?.trim()) return c.json({ ok: false, error: '缺少 email' }, 400);
     return wrap(c, () =>
       service.updateMemberProfile(c.req.param('id'), body.email!, {
-        note: body.note,
+        remark: body.remark,
         expiresOn: body.expiresOn,
         expireRemove: body.expireRemove,
         expireReminder: body.expireReminder
@@ -427,7 +423,7 @@ export async function buildApp({
   });
 
   api.patch('/subaccounts/:id/local-profile', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { label?: unknown; session?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { remark?: unknown; session?: unknown };
     return wrap(c, () => subaccountService.updateLocalProfile(c.req.param('id'), body));
   });
 

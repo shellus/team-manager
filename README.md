@@ -11,7 +11,7 @@ ChatGPT Team 母号与子号管理后台。系统录入 Team 母号和子号的 
 1. [`AGENTS.md`](./AGENTS.md)：项目协作、git、安全、数据文件操作规则。
 2. 本 README：项目定位、架构地图、验证命令和文档索引。
 3. [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：母号、子号、Team、席位、Codex 凭证和账单红线的基本规则。
-4. `README.local.md`：如果本机存在该文件，读取当前运行实例、nginx 入口、tmux/docker 状态。该文件是本机私有说明，不进入 git。
+4. `.codex/AGENTS.md`：如果本机存在该文件，读取当前运行实例、nginx 入口、tmux/docker 状态。该文件是本机私有说明，不进入 git。
 
 开始改代码前先执行：
 
@@ -33,7 +33,7 @@ corepack pnpm docs:build
 
 - 源码可以公开；运行时持有的 access token、refresh token、cookie、Codex credential、管理员口令、代理和部署入口不得进入 git。
 - 运行时数据放在部署环境挂载的 `data/`，环境变量放 `.env` 或部署系统配置。
-- git 管理文件不得写真实域名、IP、端口、账号、token、代理地址或本机部署路径；本机事实记录到 `README.local.md`。
+- git 管理文件不得写真实域名、IP、端口、账号、token、代理地址或本机部署路径；本机事实记录到 `.codex/AGENTS.md`。
 - GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 连接信息属于运行环境配置；业务代码只检查脱敏可用状态，不在源码或公开文档中保存真实连接参数。
 - 后端普通视图接口只返回脱敏 view；只有显式凭证导出接口才返回 Codex credential JSON。
 - 不要通过编辑 `data/*.json` 执行业务操作。业务变更走 API、UI 或 service/store 方法。
@@ -41,7 +41,7 @@ corepack pnpm docs:build
 ## 功能范围
 
 - **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
-- **本地资料编辑**：母号邮箱只使用 `email`，备注写入 `note`，按 `groupName` 分组，并用 `limitType` 记录本地限额类型；子号仍使用 `label` 作为本地备注名。母号可替换 session JSON；子号可替换 session JSON 或录入浏览器导出的 cookies；不会修改远端 Team 名称。
+- **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号可按 `groupName` 分组，用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可替换 session JSON 或录入浏览器导出的 cookies；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
@@ -94,7 +94,7 @@ corepack pnpm docs:build
 
 ## 录入格式
 
-母号录入只支持 chatgpt.com session JSON，不支持扁平字段或兼容字段：
+母号和子号的 Web 登录态录入支持两种互斥输入类型：
 
 ```json
 {
@@ -104,16 +104,17 @@ corepack pnpm docs:build
   "account": {
     "id": "<workspace account_id>"
   },
-  "accessToken": "<JWT>"
+  "accessToken": "<JWT>",
+  "sessionToken": "<next-auth session token>"
 }
 ```
 
-子号录入支持两种互斥输入类型：
+1. chatgpt.com session JSON。必需字段是 `user.email`、`account.id` 和 `accessToken`；如果包含 `sessionToken`，系统会保存为 ChatGPT session-token cookie 材料，后续可按目标 workspace 换取 Web access token。
+2. Cookie Editor 等浏览器扩展导出的 cookies 数组。该输入必须包含 `__Secure-next-auth.session-token.*`，系统会先用 cookies 请求 ChatGPT `/api/auth/session` 读取当前邮箱、workspace 和 access token，再保存浏览器会话 cookies。
 
-1. chatgpt.com session JSON。该输入绑定 `account.id` 对应的 workspace。
-2. Cookie Editor 等浏览器扩展导出的 cookies 数组。该输入必须包含 `__Secure-next-auth.session-token.*`，系统会先用 cookies 请求 ChatGPT `/api/auth/session` 读取当前邮箱、workspace 和 access token，再保存浏览器会话 cookies。后续创建 Codex 个人访问令牌时，系统会通过 `_account=<target workspace>` 向 `/api/auth/session` 换取目标 workspace 的 Web access token。因此一个多 workspace 子号只需录入一次浏览器 cookies，不需要为每个 workspace 分别录入 session。
+后续需要目标 workspace Web access token 时，系统会通过 `_account=<target workspace>` 向 `/api/auth/session` 换取。多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON 或浏览器 cookies，不需要为每个 workspace 分别录入 session。
 
-母号邮箱只写入 `email`；母号备注写入 `note`，母号分组写入 `groupName`，限额类型写入 `limitType`。子号备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
+GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType` 和 `nextRenewalOn`。替换 session 时，旧 session 明文不会回填到前端。
 
 已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入时可指定自定义文件名和 CPA 号池；导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证元数据，真实 credential JSON 写入独立凭证文件。credential-only 子号不能从子号侧刷新 Team 关联；后续可通过额度刷新确认凭证状态。
 
@@ -130,7 +131,7 @@ corepack pnpm build
 corepack pnpm docs:build
 ```
 
-`corepack pnpm dev` 会读取仓库根目录 `.env`。实际部署入口、nginx vhost、tmux/docker 运行状态属于环境事实，不写入公开仓库；本机可用 `README.local.md` 记录。
+`corepack pnpm dev` 会读取仓库根目录 `.env`。实际部署入口、nginx vhost、tmux/docker 运行状态属于环境事实，不写入公开仓库；本机可用 `.codex/AGENTS.md` 记录。
 
 `corepack pnpm docs:dev` 启动 VitePress 使用手册，`corepack pnpm docs:build` 构建静态文档站点。
 

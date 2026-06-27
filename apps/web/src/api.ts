@@ -65,7 +65,13 @@ export const apiClient = {
   renameTeam: (id: string, name: string) => call<AccountView>('PATCH', `/accounts/${id}/name`, { name }),
   updateAccountLocalProfile: (
     id: string,
-    payload: { note?: string; groupName?: string; limitType?: AccountLimitType; session?: Record<string, unknown> }
+    payload: {
+      remark?: string;
+      groupName?: string;
+      limitType?: AccountLimitType;
+      nextRenewalOn?: string;
+      session?: unknown;
+    }
   ) =>
     call<AccountView>('PATCH', `/accounts/${id}/local-profile`, payload),
   addAccount: (payload: Record<string, unknown>) => call<AccountView>('POST', '/accounts', payload),
@@ -117,7 +123,7 @@ export const apiClient = {
     call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
   registerSubaccount: (payload: { mailGroup?: string; chatgptAccountId?: string } = {}) =>
     call<SubaccountView>('POST', '/subaccounts/registration/start', payload),
-  updateSubaccountLocalProfile: (id: string, payload: { label: string; session?: unknown }) =>
+  updateSubaccountLocalProfile: (id: string, payload: { remark?: string; session?: unknown }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
   startSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>

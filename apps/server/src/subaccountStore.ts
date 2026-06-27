@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile, appendFile, unlink } from 'node:fs/promises
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
+  normalizeChatGptSessionCookies,
   parseChatGptSessionInput,
-  type ChatGptSessionCookie,
   type ChatGptSessionInput,
   type CodexCredentialJson,
   type CodexQuotaSnapshot,
@@ -35,29 +35,6 @@ type LegacySubaccount = Subaccount & {
   lastQuotaAt?: number;
   lastAuthAt?: number;
 };
-
-function normalizeSessionCookies(value: unknown): ChatGptSessionCookie[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const cookies: ChatGptSessionCookie[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') continue;
-    const record = item as Record<string, unknown>;
-    const name = typeof record.name === 'string' ? record.name.trim() : '';
-    const cookieValue = typeof record.value === 'string' ? record.value.trim() : '';
-    if (!name || !cookieValue || /[;\s]/.test(name)) continue;
-    cookies.push({
-      name,
-      value: cookieValue,
-      domain: typeof record.domain === 'string' && record.domain.trim() ? record.domain.trim() : undefined,
-      path: typeof record.path === 'string' && record.path.trim() ? record.path.trim() : undefined,
-      httpOnly: typeof record.httpOnly === 'boolean' ? record.httpOnly : undefined,
-      secure: typeof record.secure === 'boolean' ? record.secure : undefined,
-      expires: typeof record.expires === 'number' ? record.expires : undefined,
-      sameSite: typeof record.sameSite === 'string' && record.sameSite.trim() ? record.sameSite.trim() : undefined
-    });
-  }
-  return cookies.length ? cookies : undefined;
-}
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
@@ -183,10 +160,10 @@ export class SubaccountStore {
     const next: Subaccount = {
       id: existing?.id ?? randomUUID(),
       email: session.user.email,
-      label: existing?.label ?? session.user.email,
+      remark: existing?.remark,
       chatgptAccountId: session.account.id,
       webAccessToken: session.accessToken,
-      webSessionCookies: session.cookies ?? existing?.webSessionCookies,
+      webSessionCookies: session.cookies,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,
       status: existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready',
@@ -225,7 +202,7 @@ export class SubaccountStore {
     const next: Subaccount = {
       id,
       email,
-      label: existing?.label ?? email,
+      remark: existing?.remark,
       chatgptAccountId: existing?.chatgptAccountId,
       webAccessToken: existing?.webAccessToken,
       codexCredentials: credentials,
@@ -258,7 +235,7 @@ export class SubaccountStore {
     const next: Subaccount = {
       id: existing?.id ?? randomUUID(),
       email,
-      label: existing?.label ?? email,
+      remark: existing?.remark,
       chatgptAccountId: existing?.chatgptAccountId,
       webAccessToken: existing?.webAccessToken,
       webSessionCookies: existing?.webSessionCookies,
@@ -280,7 +257,7 @@ export class SubaccountStore {
 
   async updateLocalProfile(
     id: string,
-    input: { label: string; session?: ChatGptSessionInput }
+    input: { remark?: string; session?: ChatGptSessionInput }
   ): Promise<SubaccountView | undefined> {
     this.ensureLoaded();
     const existing = this.subaccounts.get(id);
@@ -288,11 +265,11 @@ export class SubaccountStore {
     const credentials = existing.codexCredentials ?? [];
     const merged: Subaccount = {
       ...existing,
-      label: input.label,
+      remark: Object.prototype.hasOwnProperty.call(input, 'remark') ? input.remark : existing.remark,
       email: input.session?.user.email ?? existing.email,
       chatgptAccountId: input.session?.account.id ?? existing.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing.webAccessToken,
-      webSessionCookies: input.session === undefined ? existing.webSessionCookies : input.session.cookies ?? existing.webSessionCookies,
+      webSessionCookies: input.session === undefined ? existing.webSessionCookies : input.session.cookies,
       status: credentials.length ? 'codex_ready' : 'session_ready',
       updatedAt: Date.now(),
       lastError: undefined
@@ -332,7 +309,7 @@ export class SubaccountStore {
     const merged: Subaccount = {
       ...existing,
       email: credential.email || existing.email,
-      label: existing.label || credential.email || existing.email,
+      remark: existing.remark,
       codexCredentials: credentials,
       status: 'codex_ready',
       updatedAt: now,
@@ -456,7 +433,7 @@ export class SubaccountStore {
     return {
       id: account.id,
       email: account.email,
-      label: account.label,
+      remark: account.remark,
       chatgptAccountId: account.chatgptAccountId,
       status: account.status,
       hasWebSession: Boolean(account.webAccessToken),
@@ -582,10 +559,10 @@ async function normalizeStoredSubaccount(
   const account = sanitizeSubaccount({
     id: record.id,
     email: record.email,
-    label: record.label,
+    remark: record.remark,
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
-    webSessionCookies: normalizeSessionCookies(record.webSessionCookies),
+    webSessionCookies: normalizeChatGptSessionCookies(record.webSessionCookies),
     registrationPassword: record.registrationPassword,
     registeredAt: record.registeredAt,
     registrationSource: record.registrationSource,
@@ -603,10 +580,10 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
   return {
     id: input.id,
     email: input.email,
-    label: input.label,
+    remark: input.remark?.trim() || undefined,
     chatgptAccountId: input.chatgptAccountId,
     webAccessToken: input.webAccessToken,
-    webSessionCookies: normalizeSessionCookies(input.webSessionCookies),
+    webSessionCookies: normalizeChatGptSessionCookies(input.webSessionCookies),
     registrationPassword: input.registrationPassword,
     registeredAt: input.registeredAt,
     registrationSource: input.registrationSource,

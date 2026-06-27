@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Account, AccountLimitType } from '@team-manager/shared';
+import { normalizeChatGptSessionCookies, type Account, type AccountLimitType, type Member } from '@team-manager/shared';
 
 type StoredAccount = Account & Record<string, unknown>;
 
@@ -24,6 +24,38 @@ function normalizeLimitType(value: unknown): AccountLimitType {
     : 'unknown';
 }
 
+function normalizeDateOnly(value: unknown): string | undefined {
+  return typeof value === 'string' && DATE_ONLY_PATTERN.test(value.trim()) ? value.trim() : undefined;
+}
+
+function normalizeMembersCache(input: Account['membersCache']): Account['membersCache'] | undefined {
+  if (!Array.isArray(input)) return undefined;
+
+  const members: Member[] = [];
+  for (const rawMember of input) {
+    if (!rawMember || typeof rawMember !== 'object' || Array.isArray(rawMember)) continue;
+    const member = rawMember as unknown as Record<string, unknown>;
+    const userId = readTrimmedString(member.userId);
+    const email = readTrimmedString(member.email);
+    const role = readTrimmedString(member.role);
+    const seat = readTrimmedString(member.seat);
+    if (!userId || !email || !role || !seat) continue;
+
+    const remoteName = readTrimmedString(member.remoteName);
+    const status = readTrimmedString(member.status);
+    members.push({
+      userId,
+      email,
+      ...(remoteName ? { remoteName } : {}),
+      role: role as Member['role'],
+      seat: seat as Member['seat'],
+      ...(status ? { status } : {})
+    });
+  }
+
+  return members.length ? members : undefined;
+}
+
 function normalizeMemberProfiles(input: Account['memberProfiles']): Account['memberProfiles'] | undefined {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
 
@@ -39,14 +71,14 @@ function normalizeMemberProfiles(input: Account['memberProfiles']): Account['mem
       : undefined;
     if (!expiresOn) continue;
 
-    const note = typeof profile.note === 'string' ? profile.note.trim() : '';
+    const remark = typeof profile.remark === 'string' ? profile.remark.trim() : '';
     const updatedAt = typeof profile.updatedAt === 'number' && Number.isFinite(profile.updatedAt)
       ? profile.updatedAt
       : Date.now();
 
     profiles[email] = {
       email,
-      ...(note ? { note } : {}),
+      ...(remark ? { remark } : {}),
       expiresOn,
       expireRemove: typeof profile.expireRemove === 'boolean' ? profile.expireRemove : false,
       expireReminder: typeof profile.expireReminder === 'boolean' ? profile.expireReminder : true,
@@ -59,23 +91,25 @@ function normalizeMemberProfiles(input: Account['memberProfiles']): Account['mem
 
 function sanitizeAccount(input: StoredAccount): { account: Account; changed: boolean } {
   const email = readTrimmedString(input.email);
-  const note = readTrimmedString(input.note);
+  const remark = readTrimmedString(input.remark);
   const normalized: Account = {
     id: input.id,
-    ...(note ? { note } : {}),
+    ...(remark ? { remark } : {}),
     groupName: readTrimmedString(input.groupName) || DEFAULT_ACCOUNT_GROUP,
     limitType: normalizeLimitType(input.limitType),
     accountId: readTrimmedString(input.accountId),
     email,
     accessToken: readTrimmedString(input.accessToken),
+    webSessionCookies: normalizeChatGptSessionCookies(input.webSessionCookies),
     ...(readTrimmedString(input.refreshToken) ? { refreshToken: readTrimmedString(input.refreshToken) } : {}),
     fp: input.fp,
     ...(readTrimmedString(input.proxy) ? { proxy: readTrimmedString(input.proxy) } : {}),
     ...(readTrimmedString(input.planType) ? { planType: readTrimmedString(input.planType) } : {}),
     role: input.role,
     ...(readTrimmedString(input.workspaceName) ? { workspaceName: readTrimmedString(input.workspaceName) } : {}),
+    ...(normalizeDateOnly(input.nextRenewalOn) ? { nextRenewalOn: normalizeDateOnly(input.nextRenewalOn) } : {}),
     status: input.status,
-    membersCache: input.membersCache,
+    membersCache: normalizeMembersCache(input.membersCache),
     membersCachedAt: input.membersCachedAt,
     defaultSeat: input.defaultSeat,
     defaultSeatCachedAt: input.defaultSeatCachedAt,

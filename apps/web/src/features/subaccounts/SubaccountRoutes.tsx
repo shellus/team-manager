@@ -38,7 +38,7 @@ interface ManualAuthSession {
   authUrl: string;
   expiresAt: number;
   targetChatgptAccountId?: string;
-  targetDisplayName?: string;
+  targetTeamTitle?: string;
 }
 
 interface SubaccountBillingRisk {
@@ -57,7 +57,7 @@ function targetKey(prefix: string, accountId?: string): string {
 }
 
 function accountDisplayName(account: AccountView): string {
-  return account.note || account.workspaceName || account.email;
+  return account.remark || account.workspaceName || account.email;
 }
 
 function accountOptionLabel(account: AccountView): string {
@@ -284,13 +284,13 @@ export function SubaccountRoutes({
     }
   };
 
-  const updateLocalProfile = async (payload: { label?: string; session?: unknown }) => {
-    if (!selected || !payload.label) return;
+  const updateLocalProfile = async (payload: { remark?: string; session?: unknown }) => {
+    if (!selected) return;
     setBusy('edit-subaccount-profile');
     setLocalError('');
     try {
       const updated = await apiClient.updateSubaccountLocalProfile(selected.id, {
-        label: payload.label,
+        remark: payload.remark ?? '',
         ...(payload.session ? { session: payload.session } : {})
       });
       mergeSubaccount(updated);
@@ -361,7 +361,7 @@ export function SubaccountRoutes({
     }
   };
 
-  const startAuth = async (workspaceId: string, displayName: string) => {
+  const startAuth = async (workspaceId: string, teamTitle: string) => {
     if (!selected || !workspaceId) return;
     const key = targetKey('codex-start', workspaceId);
     setBusy(key);
@@ -369,7 +369,7 @@ export function SubaccountRoutes({
     try {
       setAuthSession({
         ...(await apiClient.startSubaccountCodexAuth(selected.id, workspaceId)),
-        targetDisplayName: displayName
+        targetTeamTitle: teamTitle
       });
       openModal('manual-codex-callback', workspaceId);
     } catch (error) {
@@ -514,7 +514,7 @@ export function SubaccountRoutes({
           onOpenDelete={() => selected && openModal('delete-subaccount', selected.id)}
           onOpenInvite={() => openModal('invite-to-team', selected?.id ?? '')}
           onRefreshRuntime={() => void loadRuntimeStatus()}
-          onStartAuth={(workspaceId, displayName) => void startAuth(workspaceId, displayName)}
+          onStartAuth={(workspaceId, teamTitle) => void startAuth(workspaceId, teamTitle)}
           onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
           onCreatePersonalAccessToken={(workspaceId) => void createPersonalAccessToken(workspaceId)}
           onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
@@ -529,7 +529,7 @@ export function SubaccountRoutes({
         title="录入子号 Session"
         description={
           <>
-            保存子号本地记录后，可继续生成 Codex 凭证并查询额度。也可以使用{' '}
+            保存子号本地记录后，可继续生成 Codex 凭证并查询额度。优先粘贴含 sessionToken 的 session JSON；也可以使用{' '}
             <a href={COOKIE_EDITOR_URL} target="_blank" rel="noreferrer">Cookie Editor</a>
             {' '}导出 chatgpt.com cookies，并粘贴到输入框。
           </>
@@ -558,12 +558,12 @@ export function SubaccountRoutes({
         title="编辑子号本地资料"
         description={
           <>
-            只更新本系统保存的备注名和 Web session，不修改 Codex 凭证。需要补充浏览器 cookies 时，使用{' '}
+            只更新本系统保存的备注名和 Web session，不修改 Codex 凭证。优先粘贴含 sessionToken 的 session JSON；也可以使用{' '}
             <a href={COOKIE_EDITOR_URL} target="_blank" rel="noreferrer">Cookie Editor</a>
             {' '}导出 chatgpt.com cookies，并粘贴到输入框。
           </>
         }
-        initialValues={{ label: selected?.label ?? '' }}
+        initialValues={{ remark: selected?.remark ?? '' }}
         confirmLoading={busy === 'edit-subaccount-profile'}
         onCancel={closeModal}
         onSubmit={updateLocalProfile}
@@ -590,7 +590,7 @@ export function SubaccountRoutes({
         onCancel={closeModal}
         onOk={() => void deleteSubaccount()}
       >
-        仅从本系统移除 {selected?.label} 的本地记录，不会移除 ChatGPT Team 成员。
+        仅从本系统移除 {selected?.remark || selected?.email} 的本地记录，不会移除 ChatGPT Team 成员。
       </Modal>
 
       <Modal
@@ -625,7 +625,7 @@ export function SubaccountRoutes({
 
       <Modal
         open={searchState.modal === 'manual-codex-callback' && Boolean(authSession)}
-        title={`手动授权回调${authSession?.targetDisplayName ? ` · ${authSession.targetDisplayName}` : ''}`}
+        title={`手动授权回调${authSession?.targetTeamTitle ? ` · ${authSession.targetTeamTitle}` : ''}`}
         okText="提交回调并生成凭证"
         cancelText="取消"
         confirmLoading={busy === 'codex-callback'}

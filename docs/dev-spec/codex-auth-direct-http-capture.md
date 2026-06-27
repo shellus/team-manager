@@ -153,19 +153,20 @@ code_verifier=<pkce-verifier>
 
 响应包含 `access_token` / `refresh_token` / `id_token`，可转换为 CPA/Codex 兼容凭证 JSON。
 
-## 当前 session JSON 的限制
+## ChatGPT Web session JSON 的边界
 
-team-manager 当前只保存子号 session JSON 的三项：
+team-manager 保存子号 session JSON 的 Web access token，并在输入含 `sessionToken` 时保存为 ChatGPT session-token cookie 材料：
 
 ```json
 {
   "user": { "email": "child@example.com" },
   "account": { "id": "<chatgpt account id>" },
-  "accessToken": "<chatgpt web access token>"
+  "accessToken": "<chatgpt web access token>",
+  "sessionToken": "<next-auth session token>"
 }
 ```
 
-最小实验确认：把该 `accessToken` 作为 `Authorization: Bearer` 请求 Codex OAuth authorize，不会进入已登录授权态，返回登录页。因此 `accessToken` 不能替代 auth.openai.com 的浏览器登录 cookie，也不能直接生成 OAuth authorization code。
+`sessionToken` 可用于 chatgpt.com `/api/auth/session` 按 `_account=<目标 workspace>` 换取 workspace-scoped Web access token。最小实验仍确认：仅把 `accessToken` 作为 `Authorization: Bearer` 请求 Codex OAuth authorize，不会进入 auth.openai.com 已登录授权态，返回登录页。因此 ChatGPT Web `accessToken` 不能替代 auth.openai.com 的浏览器登录 cookie，也不能直接生成 OAuth authorization code。
 
 ## 直接请求实现前置条件
 

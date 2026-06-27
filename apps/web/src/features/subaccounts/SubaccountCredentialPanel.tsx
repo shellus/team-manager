@@ -15,7 +15,7 @@ import { SeatTag, TeamLinkStatusTag } from '../../components/StatusTag.js';
 interface CredentialTeamRow {
   key: string;
   workspaceId: string;
-  displayName: string;
+  teamTitle: string;
   link?: SubaccountTeamLink;
   credential?: SubaccountCodexCredentialView;
   account?: AccountView;
@@ -23,7 +23,7 @@ interface CredentialTeamRow {
 
 function accountDisplayName(account: AccountView | undefined, fallback: string): string {
   if (!account) return fallback;
-  return account.note || account.workspaceName || account.email;
+  return account.remark || account.workspaceName || account.email;
 }
 
 function quotaLabel(credential?: SubaccountCodexCredentialView): string {
@@ -51,7 +51,7 @@ export function SubaccountCredentialPanel({
   runtimeStatus: CodexAuthRuntimeStatus | null;
   busy: string;
   quota: CodexQuotaSnapshot | null;
-  onStartAuth: (workspaceId: string, displayName: string) => void;
+  onStartAuth: (workspaceId: string, teamTitle: string) => void;
   onAutoAuth: (workspaceId: string) => void;
   onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
@@ -71,7 +71,7 @@ export function SubaccountCredentialPanel({
       return {
         key: `link-${link.accountId}`,
         workspaceId,
-        displayName: accountDisplayName(account, link.accountId),
+        teamTitle: accountDisplayName(account, link.accountId),
         link,
         account,
         credential: workspaceId ? credentialByWorkspaceId.get(workspaceId) : undefined
@@ -85,7 +85,7 @@ export function SubaccountCredentialPanel({
         return {
           key: `credential-${credential.accountId}`,
           workspaceId: credential.accountId,
-          displayName: accountDisplayName(account, credential.accountId),
+          teamTitle: accountDisplayName(account, credential.accountId),
           account,
           credential
         };
@@ -96,10 +96,10 @@ export function SubaccountCredentialPanel({
   const columns: ColumnsType<CredentialTeamRow> = [
     {
       title: 'Team workspace',
-      dataIndex: 'displayName',
+      dataIndex: 'teamTitle',
       render: (_, row) => (
         <div className="table-main-cell">
-          <Typography.Text strong>{row.displayName}</Typography.Text>
+          <Typography.Text strong>{row.teamTitle}</Typography.Text>
           <Typography.Text type="secondary">{row.workspaceId || row.link?.accountId || '缺少 workspace id'}</Typography.Text>
         </div>
       )
@@ -158,7 +158,7 @@ export function SubaccountCredentialPanel({
           <Button
             disabled={!row.workspaceId}
             loading={busy === `codex-start-${row.workspaceId || 'default'}`}
-            onClick={() => onStartAuth(row.workspaceId, row.displayName)}
+            onClick={() => onStartAuth(row.workspaceId, row.teamTitle)}
           >
             登录 URL
           </Button>

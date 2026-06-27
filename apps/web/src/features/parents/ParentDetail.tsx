@@ -42,19 +42,23 @@ export function ParentDetail({
 
   const memberCount = account.membersCache?.length;
   const inviteCount = account.pendingInvitesCache?.length;
+  const title = account.remark || account.email;
+  const workspaceLabel = account.workspaceName || account.accountId;
 
   return (
     <Card className="detail-pane">
       <div className="detail-header">
         <div>
           <Space align="center">
-            <Typography.Title level={2}>{account.email}</Typography.Title>
+            <Typography.Title level={2}>{title}</Typography.Title>
             <AccountStatusTag status={account.status} />
           </Space>
           <Space className="detail-meta-row" size={8} wrap>
-            <Typography.Text type="secondary">
-              {account.note ? `${account.note} · ${account.workspaceName || account.accountId}` : account.workspaceName || account.accountId}
-            </Typography.Text>
+            <Typography.Text type="secondary">{account.email}</Typography.Text>
+            <Typography.Text type="secondary">{workspaceLabel}</Typography.Text>
+            {account.nextRenewalOn && (
+              <Typography.Text type="secondary">续费 {account.nextRenewalOn}</Typography.Text>
+            )}
             <Typography.Text type="secondary">默认席位</Typography.Text>
             <SeatTag seat={account.defaultSeat} />
           </Space>

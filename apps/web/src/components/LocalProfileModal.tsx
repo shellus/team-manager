@@ -1,23 +1,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { getChatGptSessionUserEmail, inspectChatGptSessionImportInput, type AccountLimitType } from '@team-manager/shared';
+import { inspectChatGptSessionImportInput, type AccountLimitType } from '@team-manager/shared';
 import { Alert, Descriptions, Form, Input, Modal, Select } from 'antd';
-import { parseJsonObject, parseJsonValue } from './format.js';
+import { parseJsonValue } from './format.js';
 import { LIMIT_TYPE_LABEL } from '../labels.js';
 
 type LocalProfileMode = 'parent' | 'subaccount';
 
-function readNestedAccountId(payload: Record<string, unknown>): string {
-  const account = payload.account;
-  if (!account || typeof account !== 'object') return '';
-  const id = (account as Record<string, unknown>).id;
-  return typeof id === 'string' ? id : '';
-}
-
 interface LocalProfileFormValues {
-  label?: string;
-  note?: string;
+  remark?: string;
   groupName?: string;
   limitType?: AccountLimitType;
+  nextRenewalOn?: string;
   rawSession?: string;
 }
 
@@ -36,18 +29,18 @@ export function LocalProfileModal({
   title: string;
   description: ReactNode;
   initialValues: {
-    label?: string;
-    note?: string;
+    remark?: string;
     groupName?: string;
     limitType?: AccountLimitType;
+    nextRenewalOn?: string;
   };
   confirmLoading?: boolean;
   onCancel: () => void;
   onSubmit: (payload: {
-    label?: string;
-    note?: string;
+    remark?: string;
     groupName?: string;
     limitType?: AccountLimitType;
+    nextRenewalOn?: string;
     session?: unknown;
   }) => Promise<void>;
 }) {
@@ -58,15 +51,22 @@ export function LocalProfileModal({
   useEffect(() => {
     if (!open) return;
     form.setFieldsValue({
-      label: initialValues.label,
-      note: initialValues.note,
+      remark: initialValues.remark,
       groupName: initialValues.groupName || '默认分组',
       limitType: initialValues.limitType ?? 'unknown',
+      nextRenewalOn: initialValues.nextRenewalOn ?? '',
       rawSession: ''
     });
     setRawSession('');
     setError('');
-  }, [form, initialValues.groupName, initialValues.label, initialValues.limitType, initialValues.note, open]);
+  }, [
+    form,
+    initialValues.groupName,
+    initialValues.limitType,
+    initialValues.nextRenewalOn,
+    initialValues.remark,
+    open
+  ]);
 
   const sessionPreview = useMemo(() => {
     if (!rawSession.trim()) {
@@ -80,18 +80,6 @@ export function LocalProfileModal({
     }
     try {
       const payload = JSON.parse(rawSession) as unknown;
-      if (mode !== 'subaccount') {
-        return {
-          email: getChatGptSessionUserEmail(payload) ?? '',
-          accountId:
-            payload && typeof payload === 'object' && !Array.isArray(payload)
-              ? readNestedAccountId(payload as Record<string, unknown>)
-              : '',
-          inputMessage: Array.isArray(payload) ? '浏览器 cookies 只支持子号录入' : '',
-          inputAlertType: 'warning' as const,
-          cookieCount: undefined
-        };
-      }
       const inspection = inspectChatGptSessionImportInput(payload);
       if (inspection.type === 'browser_cookies') {
         return {
@@ -134,14 +122,14 @@ export function LocalProfileModal({
     try {
       let session: unknown;
       if (values.rawSession?.trim()) {
-        session = mode === 'subaccount' ? parseJsonValue(values.rawSession) : parseJsonObject(values.rawSession);
+        session = parseJsonValue(values.rawSession);
       }
       await onSubmit({
-        ...(mode === 'subaccount' ? { label: values.label?.trim() } : {}),
+        remark: values.remark?.trim() ?? '',
         ...(mode === 'parent' ? {
-          note: values.note?.trim(),
           groupName: values.groupName?.trim() || '默认分组',
-          limitType: values.limitType ?? 'unknown'
+          limitType: values.limitType ?? 'unknown',
+          nextRenewalOn: values.nextRenewalOn?.trim() ?? ''
         } : {}),
         ...(session ? { session } : {})
       });
@@ -171,13 +159,13 @@ export function LocalProfileModal({
         onValuesChange={(_, values) => setRawSession(values.rawSession ?? '')}
       >
         {mode === 'subaccount' ? (
-          <Form.Item name="label" label="本地备注名" rules={[{ required: true, message: '请输入本地备注名' }]}>
-            <Input placeholder="用于本系统列表展示" />
+          <Form.Item name="remark" label="备注">
+            <Input placeholder="例如用途、客户或订单备注" />
           </Form.Item>
         ) : (
-          <div className="form-grid three">
-            <Form.Item name="note" label="母号备注">
-              <Input placeholder="例如用途、客户、到期时间" />
+          <div className="form-grid two">
+            <Form.Item name="remark" label="备注">
+              <Input placeholder="例如用途、客户或订单备注" />
             </Form.Item>
             <Form.Item name="groupName" label="母号分组" rules={[{ required: true, message: '请输入分组' }]}>
               <Input placeholder="例如默认分组" />
@@ -191,6 +179,18 @@ export function LocalProfileModal({
                 ]}
               />
             </Form.Item>
+            <Form.Item
+              name="nextRenewalOn"
+              label="下次续费时间"
+              rules={[
+                {
+                  pattern: /^$|^\d{4}-\d{2}-\d{2}$/,
+                  message: '请使用 yyyy-mm-dd'
+                }
+              ]}
+            >
+              <Input type="date" />
+            </Form.Item>
           </div>
         )}
         <Form.Item name="rawSession" label="新的 Session JSON">
@@ -199,24 +199,20 @@ export function LocalProfileModal({
             spellCheck={false}
             placeholder={
               mode === 'subaccount'
-                ? '可留空。粘贴 chatgpt.com session JSON，或 Cookie Editor 导出的 cookies 数组'
-                : '可留空。需要更换 session 时粘贴 chatgpt.com session JSON'
+                ? '可留空。粘贴 chatgpt.com session JSON（建议包含 sessionToken），或 Cookie Editor 导出的 cookies 数组'
+                : '可留空。粘贴 chatgpt.com session JSON（建议包含 sessionToken），或 Cookie Editor 导出的 cookies 数组'
             }
           />
         </Form.Item>
-        {mode === 'subaccount' && sessionPreview.inputMessage && (
+        {sessionPreview.inputMessage && (
           <Alert className="input-detection" type={sessionPreview.inputAlertType} showIcon message={sessionPreview.inputMessage} />
         )}
-        <Descriptions size="small" column={1} bordered>
+        <Descriptions size="small" column={mode === 'subaccount' ? 1 : 2} bordered>
           <Descriptions.Item label="识别邮箱">{sessionPreview.email || '暂无'}</Descriptions.Item>
-          {mode === 'subaccount' && (
-            <>
-              <Descriptions.Item label="workspace account_id">{sessionPreview.accountId || '暂无'}</Descriptions.Item>
-              <Descriptions.Item label="cookies">
-                {sessionPreview.cookieCount ? `${sessionPreview.cookieCount} 个` : '暂无'}
-              </Descriptions.Item>
-            </>
-          )}
+          <Descriptions.Item label="workspace account_id">{sessionPreview.accountId || '暂无'}</Descriptions.Item>
+          <Descriptions.Item label="cookies">
+            {sessionPreview.cookieCount ? `${sessionPreview.cookieCount} 个` : '暂无'}
+          </Descriptions.Item>
         </Descriptions>
       </Form>
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}

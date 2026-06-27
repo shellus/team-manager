@@ -65,7 +65,8 @@ export function SubaccountList({
         locale={{ emptyText: '还没有子号' }}
         renderItem={(subaccount) => {
           const selected = selectedId === subaccount.id;
-          const repeatedEmail = subaccount.label.trim().toLowerCase() === subaccount.email.trim().toLowerCase();
+          const title = subaccount.remark || subaccount.email;
+          const repeatedEmail = title.trim().toLowerCase() === subaccount.email.trim().toLowerCase();
           return (
             <List.Item>
               <Card
@@ -76,8 +77,8 @@ export function SubaccountList({
               >
                 <div className="record-card-head">
                   <div className="record-title">
-                    <Typography.Text strong ellipsis={{ tooltip: subaccount.label }}>
-                      {subaccount.label}
+                    <Typography.Text strong ellipsis={{ tooltip: title }}>
+                      {title}
                     </Typography.Text>
                     {!repeatedEmail && (
                       <Typography.Text type="secondary" ellipsis={{ tooltip: subaccount.email }}>

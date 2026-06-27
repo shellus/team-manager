@@ -28,14 +28,38 @@ describe('SubaccountStore', () => {
         account: { id: 'chatgpt-account-id' },
         accessToken: 'web-access-token'
       });
+      const savedRecord = saved as unknown as Record<string, unknown>;
 
       assert.equal(saved.email, 'child@example.com');
-      assert.equal(saved.label, 'child@example.com');
+      assert.equal(saved.remark, undefined);
+      assert.equal(hasOwn(savedRecord, 'label'), false);
       assert.equal(saved.chatgptAccountId, 'chatgpt-account-id');
       assert.equal(saved.hasWebSession, true);
       assert.equal(hasOwn(saved, 'hasCodexCredential'), false);
       assert.equal(saved.status, 'session_ready');
       assert.equal(store.list()[0]?.email, 'child@example.com');
+    });
+  });
+
+  it('replaces session cookie material when re-importing a child session JSON', async () => {
+    await withStore(async (store) => {
+      const saved = await store.importSession({
+        user: { email: 'child@example.com' },
+        account: { id: 'chatgpt-account-id' },
+        accessToken: 'web-access-token',
+        sessionToken: 'child-session-token'
+      });
+      assert.deepEqual(store.get(saved.id)?.webSessionCookies?.map((cookie) => [cookie.name, cookie.value]), [
+        ['__Secure-next-auth.session-token', 'child-session-token']
+      ]);
+
+      await store.importSession({
+        user: { email: 'child@example.com' },
+        account: { id: 'chatgpt-account-id' },
+        accessToken: 'new-web-access-token'
+      });
+
+      assert.equal(store.get(saved.id)?.webSessionCookies, undefined);
     });
   });
 
@@ -128,7 +152,7 @@ describe('SubaccountStore', () => {
             {
               id: 'child-id',
               email: 'child@example.com',
-              label: 'Child',
+              remark: 'Child',
               chatgptAccountId: 'child-chatgpt-account-id',
               webAccessToken: 'web-access-token',
               status: 'codex_ready',
@@ -178,6 +202,7 @@ describe('SubaccountStore', () => {
       const store = new SubaccountStore(dir);
       await store.init();
       const view = store.list()[0]!;
+      const viewRecord = view as unknown as Record<string, unknown>;
       const migratedFileName = view.codexCredentials[0]!.fileName;
       const persisted = JSON.parse(await readFile(join(dir, 'subaccounts.json'), 'utf8')) as Array<{
         codexCredentials: Array<Record<string, unknown>>;
@@ -188,6 +213,8 @@ describe('SubaccountStore', () => {
       ) as { refresh_token?: string };
 
       assert.equal(view.codexCredentials[0]!.accountId, 'real-workspace-id');
+      assert.equal(view.remark, 'Child');
+      assert.equal(hasOwn(viewRecord, 'label'), false);
       assert.equal(typeof migratedFileName, 'string');
       assert.equal(view.codexCredentials[0]!.groupName, '默认号池');
       assert.equal(hasOwn(view, 'hasCodexCredential'), false);
@@ -197,6 +224,8 @@ describe('SubaccountStore', () => {
       assert.equal(persisted[0]!.codexCredentials[0]!.accountId, 'real-workspace-id');
       assert.equal(persisted[0]!.codexCredentials[0]!.fileName, migratedFileName);
       assert.equal(persisted[0]!.codexCredentials[0]!.groupName, '默认号池');
+      assert.equal(persisted[0]!.remark, 'Child');
+      assert.equal(hasOwn(persisted[0], 'label'), false);
       assert.equal(hasOwn(persisted[0]!.codexCredentials[0], 'credential'), false);
       assert.equal(migratedCredential.refresh_token, 'refresh-token');
     } finally {
