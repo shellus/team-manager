@@ -108,7 +108,7 @@ export class ChatGptApi {
         accountId,
         role: readString(entry.account_user_role) as MemberRole | undefined,
         workspaceName: readString(entry.name),
-        nextRenewalOn: readRenewalDate(entry),
+        nextRenewalOn: readRenewalDate(value as Record<string, unknown>),
         planType: readString(entry.plan_type),
         structure: readString(entry.structure),
         canAccessWithSession:
@@ -291,9 +291,9 @@ function readString(value: unknown): string | undefined {
 }
 
 function readRenewalDate(entry: Record<string, unknown>): string | undefined {
-  const billing = entry.billing_details;
-  if (!billing || typeof billing !== 'object') return undefined;
-  const renewsAt = readString((billing as Record<string, unknown>).renews_at);
+  const entitlement = entry.entitlement;
+  if (!entitlement || typeof entitlement !== 'object') return undefined;
+  const renewsAt = readString((entitlement as Record<string, unknown>).renews_at);
   if (!renewsAt) return undefined;
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(renewsAt);
   return match?.[1];

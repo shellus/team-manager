@@ -451,10 +451,25 @@ export class TeamService {
   }
 
   async refreshSettings(id: string): Promise<AccountView> {
-    const { api } = await this.clientFor(id);
+    const { account, api } = await this.clientFor(id);
     const settings = await api.getSettings();
     const now = Date.now();
-    const patch = this.settingsPatchFromResponse(settings, now);
+    let accountPatch: Partial<Account> = {};
+    try {
+      const check = await api.checkAccount();
+      accountPatch = {
+        planType: check.planType ?? account.planType,
+        role: check.role ?? account.role,
+        workspaceName: check.workspaceName ?? account.workspaceName,
+        nextRenewalOn: check.nextRenewalOn ?? account.nextRenewalOn
+      };
+    } catch {
+      accountPatch = {};
+    }
+    const patch: Partial<Account> = {
+      ...this.settingsPatchFromResponse(settings, now),
+      ...accountPatch
+    };
     const updated = await this.store.update(id, patch);
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);

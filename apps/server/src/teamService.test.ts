@@ -418,7 +418,7 @@ describe('TeamService account listing', () => {
     assert.equal(hasOwn(accounts[0], 'pendingInviteCount'), false);
   });
 
-  it('refreshes account status and stores the next renewal date from accounts/check billing details', async () => {
+  it('refreshes account status and stores the next renewal date from accounts/check entitlement', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -434,10 +434,10 @@ describe('TeamService account listing', () => {
                     account_user_role: 'account-owner',
                     name: 'Workspace',
                     plan_type: 'team',
-                    structure: 'workspace',
-                    billing_details: {
-                      renews_at: '2026-07-16T06:29:16+00:00'
-                    }
+                    structure: 'workspace'
+                  },
+                  entitlement: {
+                    renews_at: '2026-07-16T06:29:16+00:00'
                   },
                   can_access_with_session: true
                 }
@@ -692,6 +692,29 @@ describe('TeamService settings cache', () => {
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'workspace-id': {
+                  account: {
+                    account_id: 'workspace-id',
+                    account_user_role: 'account-owner',
+                    name: 'Workspace',
+                    plan_type: 'team',
+                    structure: 'workspace'
+                  },
+                  entitlement: {
+                    renews_at: '2026-07-17T09:23:45+00:00'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['workspace-id']
+            })
+          };
+        }
         return {
           status: 200,
           body: JSON.stringify({
@@ -727,10 +750,13 @@ describe('TeamService settings cache', () => {
     const view = await service.refreshSettings(account.id);
     const stored = store.get(account.id);
 
-    assert.equal(requests.length, 1);
+    assert.equal(requests.length, 2);
     assert.equal(requests[0].method, 'GET');
     assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/settings');
+    assert.equal(requests[1].method, 'GET');
+    assert.equal(requests[1].path.startsWith('/backend-api/accounts/check/'), true);
     assert.equal(view.defaultSeat, 'default');
+    assert.equal(view.nextRenewalOn, '2026-07-17');
     assert.equal(view.workspaceReferralsEnabled, false);
     assert.equal(view.workspaceReferralsEnabledVisible, true);
     assert.equal(view.personalAccessTokensEnabled, true);
@@ -738,6 +764,7 @@ describe('TeamService settings cache', () => {
     assert.equal(view.codexDeviceCodeAuthEnabled, true);
     assert.equal(view.codexRemoteControlEnabled, false);
     assert.equal(stored?.defaultSeat, 'default');
+    assert.equal(stored?.nextRenewalOn, '2026-07-17');
     assert.equal(stored?.workspaceReferralsEnabled, false);
     assert.equal(stored?.workspaceReferralsEnabledVisible, true);
     assert.equal(stored?.personalAccessTokensEnabled, true);
