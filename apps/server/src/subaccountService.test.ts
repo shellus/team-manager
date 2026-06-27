@@ -77,13 +77,14 @@ class RecordingTeamTransport implements Transport {
   invitesByWorkspaceId = new Map<string, RawTeamInvite[]>();
   accountsCheckByAccessToken = new Map<string, Record<string, unknown>>();
   sessionAccessTokensByWorkspaceId = new Map<string, string>();
+  currentSessionAccountId = 'browser-current-workspace-id';
   personalAccessTokenWorkspaceId = 'workspace-account-id';
 
   async fetch(req: { method: string; path: string; headers: Record<string, string>; body?: string }) {
     this.requests.push(req);
     if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
       const cookie = req.headers.cookie ?? req.headers.Cookie ?? '';
-      const accountId = cookie.match(/(?:^|;\s*)_account=([^;]+)/)?.[1] ?? '';
+      const accountId = cookie.match(/(?:^|;\s*)_account=([^;]+)/)?.[1] ?? this.currentSessionAccountId;
       return {
         status: 200,
         body: JSON.stringify({
@@ -455,6 +456,43 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('imports browser cookies exported by Cookie Editor as a child session', async () => {
+    const { app, dir, authHeaders, subaccountStore, teamTransport } = await buildTestApp();
+    try {
+      teamTransport.currentSessionAccountId = 'browser-current-workspace-id';
+      const currentWebAccessToken = chatGptWebAccessToken('browser-current-workspace-id');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('browser-current-workspace-id', currentWebAccessToken);
+
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify([
+          { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' },
+          { name: '__Secure-next-auth.session-token.1', value: 'session-token-1', domain: '.chatgpt.com', path: '/' },
+          { name: 'oai-did', value: 'device-id', domain: '.chatgpt.com', path: '/' }
+        ])
+      });
+      const body = await added.text();
+      const addedJson = JSON.parse(body) as ApiResult<SubaccountView>;
+      const stored = subaccountStore.get(addedJson.data!.id);
+
+      assert.equal(added.status, 200, body);
+      assert.equal(addedJson.data!.email, 'child@example.com');
+      assert.equal(addedJson.data!.chatgptAccountId, 'browser-current-workspace-id');
+      assert.equal(addedJson.data!.hasWebSession, true);
+      assert.equal(stored?.webAccessToken, currentWebAccessToken);
+      assert.equal(stored?.webSessionCookies?.length, 3);
+      assert.equal(body.includes('session-token-0'), false);
+      assert.equal(body.includes(currentWebAccessToken), false);
+
+      const sessionRequest = teamTransport.requests.find((item) => item.path.startsWith('/api/auth/session'));
+      assert.equal(sessionRequest?.method, 'GET');
+      assert.match(sessionRequest?.headers.cookie ?? '', /__Secure-next-auth\.session-token\.0=session-token-0/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('imports an existing Codex credential JSON as a credential-only child', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {
@@ -665,6 +703,49 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('returns 400 when a child session object mixes browser cookies into the workspace session type', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const response = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token',
+          cookies: [
+            { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' }
+          ]
+        })
+      });
+      const json = (await response.json()) as ApiResult;
+
+      assert.equal(response.status, 400);
+      assert.equal(json.ok, false);
+      assert.equal(json.error, 'session JSON 和浏览器 cookies 数组需要作为互斥输入；请直接粘贴 cookies 数组');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns 400 for browser cookies without a ChatGPT session token', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const response = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify([{ name: 'oai-did', value: 'device-id', domain: '.chatgpt.com', path: '/' }])
+      });
+      const json = (await response.json()) as ApiResult;
+
+      assert.equal(response.status, 400);
+      assert.equal(json.ok, false);
+      assert.equal(json.error, '浏览器 cookies 缺少 __Secure-next-auth.session-token');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('updates only the child local label while preserving credentials and Team links', async () => {
     const { app, dir, subaccountStore, authHeaders, mother } = await buildTestApp();
     try {
@@ -759,6 +840,50 @@ describe('Subaccount API', () => {
       assert.equal(stored?.webAccessToken, 'child-new-web-access-token');
       assert.equal(stored?.lastError, undefined);
       assert.equal(body.includes('child-new-web-access-token'), false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('updates child local session from browser cookies exported by Cookie Editor', async () => {
+    const { app, dir, subaccountStore, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      teamTransport.currentSessionAccountId = 'browser-current-workspace-id';
+      const currentWebAccessToken = chatGptWebAccessToken('browser-current-workspace-id');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('browser-current-workspace-id', currentWebAccessToken);
+
+      const updated = await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({
+          label: '子号备注',
+          session: [
+            { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' },
+            { name: '__Secure-next-auth.session-token.1', value: 'session-token-1', domain: '.chatgpt.com', path: '/' }
+          ]
+        })
+      });
+      const body = await updated.text();
+      const updatedJson = JSON.parse(body) as ApiResult<SubaccountView>;
+      const stored = subaccountStore.get(subaccount.id);
+
+      assert.equal(updated.status, 200, body);
+      assert.equal(updatedJson.data!.label, '子号备注');
+      assert.equal(updatedJson.data!.chatgptAccountId, 'browser-current-workspace-id');
+      assert.equal(stored?.webAccessToken, currentWebAccessToken);
+      assert.equal(stored?.webSessionCookies?.length, 2);
+      assert.equal(body.includes('session-token-0'), false);
+      assert.equal(body.includes(currentWebAccessToken), false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1017,21 +1142,17 @@ describe('Subaccount API', () => {
   it('uses stored ChatGPT browser cookies to mint a workspace-scoped Web access token before creating a personal access token', async () => {
     const { app, dir, authHeaders, teamTransport } = await buildTestApp();
     try {
+      teamTransport.currentSessionAccountId = 'personal-account-id';
       const workspaceWebAccessToken = chatGptWebAccessToken('workspace-account-id');
       teamTransport.sessionAccessTokensByWorkspaceId.set('workspace-account-id', workspaceWebAccessToken);
       const added = await app.request('/api/subaccounts/session', {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'personal-account-id' },
-          accessToken: 'personal-web-access-token',
-          cookies: [
-            { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' },
-            { name: '__Secure-next-auth.session-token.1', value: 'session-token-1', domain: '.chatgpt.com', path: '/' },
-            { name: 'oai-did', value: 'device-id', domain: '.chatgpt.com', path: '/' }
-          ]
-        })
+        body: JSON.stringify([
+          { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' },
+          { name: '__Secure-next-auth.session-token.1', value: 'session-token-1', domain: '.chatgpt.com', path: '/' },
+          { name: 'oai-did', value: 'device-id', domain: '.chatgpt.com', path: '/' }
+        ])
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
 
@@ -1046,7 +1167,9 @@ describe('Subaccount API', () => {
       assert.equal(created.status, 200, body);
       assert.equal(createdJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
 
-      const sessionRequest = teamTransport.requests.find((item) => item.path.startsWith('/api/auth/session'));
+      const sessionRequest = teamTransport.requests.find(
+        (item) => item.path.startsWith('/api/auth/session') && (item.headers.cookie ?? '').includes('_account=workspace-account-id')
+      );
       assert.equal(sessionRequest?.method, 'GET');
       assert.match(sessionRequest?.headers.cookie ?? '', /_account=workspace-account-id/);
       assert.match(sessionRequest?.headers.cookie ?? '', /__Secure-next-auth\.session-token\.0=session-token-0/);

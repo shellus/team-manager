@@ -112,7 +112,8 @@ body {
 }
 
 .login-error,
-.modal-error {
+.modal-error,
+.input-detection {
   margin: 12px 0;
 }
 

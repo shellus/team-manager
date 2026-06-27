@@ -41,7 +41,7 @@ corepack pnpm docs:build
 ## 功能范围
 
 - **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
-- **本地资料编辑**：母号邮箱只使用 `email`，备注写入 `note`，按 `groupName` 分组，并用 `limitType` 记录本地限额类型；子号仍使用 `label` 作为本地备注名。两者均可选择替换 session JSON；不会修改远端 Team 名称。
+- **本地资料编辑**：母号邮箱只使用 `email`，备注写入 `note`，按 `groupName` 分组，并用 `limitType` 记录本地限额类型；子号仍使用 `label` 作为本地备注名。母号可替换 session JSON；子号可替换 session JSON 或录入浏览器导出的 cookies；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
@@ -94,7 +94,7 @@ corepack pnpm docs:build
 
 ## 录入格式
 
-母号和子号 session 录入只支持 chatgpt.com session JSON，不支持扁平字段或兼容字段：
+母号录入只支持 chatgpt.com session JSON，不支持扁平字段或兼容字段：
 
 ```json
 {
@@ -108,7 +108,10 @@ corepack pnpm docs:build
 }
 ```
 
-子号 session 可额外携带从同一浏览器登录态提取的 `cookies` 数组。系统会在创建 Codex 个人访问令牌时通过 `_account=<target workspace>` 向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；因此一个多 workspace 子号只需录入一次完整浏览器会话，不需要为每个 workspace 分别录入 session。
+子号录入支持两种互斥输入类型：
+
+1. chatgpt.com session JSON。该输入绑定 `account.id` 对应的 workspace。
+2. Cookie Editor 等浏览器扩展导出的 cookies 数组。该输入必须包含 `__Secure-next-auth.session-token.*`，系统会先用 cookies 请求 ChatGPT `/api/auth/session` 读取当前邮箱、workspace 和 access token，再保存浏览器会话 cookies。后续创建 Codex 个人访问令牌时，系统会通过 `_account=<target workspace>` 向 `/api/auth/session` 换取目标 workspace 的 Web access token。因此一个多 workspace 子号只需录入一次浏览器 cookies，不需要为每个 workspace 分别录入 session。
 
 母号邮箱只写入 `email`；母号备注写入 `note`，母号分组写入 `groupName`，限额类型写入 `limitType`。子号备注名 `label` 默认使用邮箱，可通过本地资料编辑单独修改。替换 session 时，旧 session 明文不会回填到前端。
 

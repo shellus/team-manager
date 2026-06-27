@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getChatGptSessionUserEmail } from '@team-manager/shared';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { getChatGptSessionUserEmail, inspectChatGptSessionImportInput } from '@team-manager/shared';
 import { Alert, Descriptions, Form, Input, Modal } from 'antd';
-import { parseJsonObject, readStringField } from './format.js';
+import { parseJsonObject, parseJsonValue, readStringField } from './format.js';
 
 type JsonImportMode = 'session' | 'credential';
 
@@ -18,17 +18,19 @@ export function JsonImportModal({
   description,
   submitLabel,
   confirmLoading = false,
+  allowBrowserCookies = false,
   onCancel,
   onSubmit
 }: {
   open: boolean;
   mode: JsonImportMode;
   title: string;
-  description: string;
+  description: ReactNode;
   submitLabel: string;
   confirmLoading?: boolean;
+  allowBrowserCookies?: boolean;
   onCancel: () => void;
-  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+  onSubmit: (payload: unknown) => Promise<void>;
 }) {
   const [form] = Form.useForm<JsonImportFormValues>();
   const [raw, setRaw] = useState('');
@@ -43,41 +45,96 @@ export function JsonImportModal({
   }, [form, mode, open]);
 
   const preview = useMemo(() => {
-    if (!raw.trim()) return { email: '', accountId: '', planType: '' };
+    if (!raw.trim()) {
+      return {
+        email: '',
+        accountId: '',
+        planType: '',
+        inputMessage: '',
+        inputAlertType: 'info' as const,
+        cookieCount: undefined as number | undefined
+      };
+    }
     try {
-      const payload = JSON.parse(raw) as Record<string, unknown>;
+      const payload = JSON.parse(raw) as unknown;
       if (mode === 'credential') {
+        const record = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
         return {
-          email: readStringField(payload, 'email'),
-          accountId: readStringField(payload, 'account_id'),
-          planType: readStringField(payload, 'plan_type')
+          email: readStringField(record, 'email'),
+          accountId: readStringField(record, 'account_id'),
+          planType: readStringField(record, 'plan_type'),
+          inputMessage: '',
+          inputAlertType: 'info' as const,
+          cookieCount: undefined
         };
       }
+      const inspection = inspectChatGptSessionImportInput(payload);
+      if (inspection.type === 'browser_cookies' && !allowBrowserCookies) {
+        return {
+          email: '',
+          accountId: '',
+          planType: '',
+          inputMessage: '浏览器 cookies 只支持子号录入',
+          inputAlertType: 'warning' as const,
+          cookieCount: inspection.cookieCount
+        };
+      }
+      if (inspection.type === 'browser_cookies') {
+        return {
+          email: '提交后读取',
+          accountId: '提交后读取',
+          planType: '',
+          inputMessage: inspection.message,
+          inputAlertType: 'success' as const,
+          cookieCount: inspection.cookieCount
+        };
+      }
+      if (inspection.type === 'invalid') {
+        return {
+          email: '',
+          accountId: '',
+          planType: '',
+          inputMessage: inspection.message,
+          inputAlertType: 'warning' as const,
+          cookieCount: undefined
+        };
+      }
+      const record = payload as Record<string, unknown>;
       return {
         email: getChatGptSessionUserEmail(payload) ?? '',
         accountId:
-          payload.account && typeof payload.account === 'object'
-            ? readStringField(payload.account, 'id')
+          record.account && typeof record.account === 'object'
+            ? readStringField(record.account, 'id')
             : '',
-        planType: ''
+        planType: '',
+        inputMessage: inspection.message,
+        inputAlertType: 'info' as const,
+        cookieCount: inspection.cookieCount
       };
     } catch {
-      return { email: '', accountId: '', planType: '' };
+      return {
+        email: '',
+        accountId: '',
+        planType: '',
+        inputMessage: 'JSON 解析失败，请检查格式',
+        inputAlertType: 'warning' as const,
+        cookieCount: undefined
+      };
     }
-  }, [mode, raw]);
+  }, [allowBrowserCookies, mode, raw]);
 
   const submit = async (values: JsonImportFormValues) => {
     setError('');
     try {
-      const parsed = parseJsonObject(values.raw);
       if (mode === 'credential') {
+        const parsed = parseJsonObject(values.raw);
         await onSubmit({
           credential: parsed,
           ...(values.fileName?.trim() ? { fileName: values.fileName.trim() } : {}),
           groupName: values.groupName?.trim() || '默认号池'
         });
       } else {
-        await onSubmit(parsed);
+        await onSubmit(allowBrowserCookies ? parseJsonValue(values.raw) : parseJsonObject(values.raw));
       }
     } catch (submitError) {
       setError((submitError as Error).message);
@@ -115,10 +172,16 @@ export function JsonImportModal({
             placeholder={
               mode === 'credential'
                 ? '粘贴包含 email、account_id、access_token 等字段的 Codex credential JSON'
-                : '粘贴 chatgpt.com session JSON'
+                : allowBrowserCookies
+                  ? '粘贴 chatgpt.com session JSON，或 Cookie Editor 导出的 cookies 数组'
+                  : '粘贴 chatgpt.com session JSON'
             }
           />
         </Form.Item>
+
+        {mode === 'session' && preview.inputMessage && (
+          <Alert className="input-detection" type={preview.inputAlertType} showIcon message={preview.inputMessage} />
+        )}
 
         {mode === 'credential' && (
           <div className="form-grid two">
@@ -131,10 +194,13 @@ export function JsonImportModal({
           </div>
         )}
 
-        <Descriptions size="small" column={mode === 'credential' ? 3 : 2} bordered>
+        <Descriptions size="small" column={mode === 'credential' || allowBrowserCookies ? 3 : 2} bordered>
           <Descriptions.Item label="识别邮箱">{preview.email || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="workspace account_id">{preview.accountId || '暂无'}</Descriptions.Item>
           {mode === 'credential' && <Descriptions.Item label="plan_type">{preview.planType || '暂无'}</Descriptions.Item>}
+          {mode === 'session' && allowBrowserCookies && (
+            <Descriptions.Item label="cookies">{preview.cookieCount ? `${preview.cookieCount} 个` : '暂无'}</Descriptions.Item>
+          )}
         </Descriptions>
       </Form>
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}

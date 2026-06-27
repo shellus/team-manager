@@ -107,7 +107,7 @@ export const apiClient = {
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
-  importSubaccountSession: (payload: Record<string, unknown>) =>
+  importSubaccountSession: (payload: unknown) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
   importSubaccountCodexCredential: (payload: {
     credential: Record<string, unknown>;
@@ -117,7 +117,7 @@ export const apiClient = {
     call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
   registerSubaccount: (payload: { mailGroup?: string; chatgptAccountId?: string } = {}) =>
     call<SubaccountView>('POST', '/subaccounts/registration/start', payload),
-  updateSubaccountLocalProfile: (id: string, payload: { label: string; session?: Record<string, unknown> }) =>
+  updateSubaccountLocalProfile: (id: string, payload: { label: string; session?: unknown }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
   startSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>

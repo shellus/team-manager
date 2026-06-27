@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getChatGptSessionUserEmail, type AccountLimitType } from '@team-manager/shared';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { getChatGptSessionUserEmail, inspectChatGptSessionImportInput, type AccountLimitType } from '@team-manager/shared';
 import { Alert, Descriptions, Form, Input, Modal, Select } from 'antd';
-import { parseJsonObject } from './format.js';
+import { parseJsonObject, parseJsonValue } from './format.js';
 import { LIMIT_TYPE_LABEL } from '../labels.js';
 
 type LocalProfileMode = 'parent' | 'subaccount';
+
+function readNestedAccountId(payload: Record<string, unknown>): string {
+  const account = payload.account;
+  if (!account || typeof account !== 'object') return '';
+  const id = (account as Record<string, unknown>).id;
+  return typeof id === 'string' ? id : '';
+}
 
 interface LocalProfileFormValues {
   label?: string;
@@ -27,7 +34,7 @@ export function LocalProfileModal({
   open: boolean;
   mode: LocalProfileMode;
   title: string;
-  description: string;
+  description: ReactNode;
   initialValues: {
     label?: string;
     note?: string;
@@ -41,7 +48,7 @@ export function LocalProfileModal({
     note?: string;
     groupName?: string;
     limitType?: AccountLimitType;
-    session?: Record<string, unknown>;
+    session?: unknown;
   }) => Promise<void>;
 }) {
   const [form] = Form.useForm<LocalProfileFormValues>();
@@ -61,20 +68,74 @@ export function LocalProfileModal({
     setError('');
   }, [form, initialValues.groupName, initialValues.label, initialValues.limitType, initialValues.note, open]);
 
-  const detectedEmail = useMemo(() => {
-    if (!rawSession.trim()) return '';
-    try {
-      return getChatGptSessionUserEmail(JSON.parse(rawSession)) ?? '';
-    } catch {
-      return '';
+  const sessionPreview = useMemo(() => {
+    if (!rawSession.trim()) {
+      return {
+        email: '',
+        accountId: '',
+        inputMessage: '',
+        inputAlertType: 'info' as const,
+        cookieCount: undefined as number | undefined
+      };
     }
-  }, [rawSession]);
+    try {
+      const payload = JSON.parse(rawSession) as unknown;
+      if (mode !== 'subaccount') {
+        return {
+          email: getChatGptSessionUserEmail(payload) ?? '',
+          accountId:
+            payload && typeof payload === 'object' && !Array.isArray(payload)
+              ? readNestedAccountId(payload as Record<string, unknown>)
+              : '',
+          inputMessage: Array.isArray(payload) ? '浏览器 cookies 只支持子号录入' : '',
+          inputAlertType: 'warning' as const,
+          cookieCount: undefined
+        };
+      }
+      const inspection = inspectChatGptSessionImportInput(payload);
+      if (inspection.type === 'browser_cookies') {
+        return {
+          email: '提交后读取',
+          accountId: '提交后读取',
+          inputMessage: inspection.message,
+          inputAlertType: 'success' as const,
+          cookieCount: inspection.cookieCount
+        };
+      }
+      if (inspection.type === 'invalid') {
+        return {
+          email: '',
+          accountId: '',
+          inputMessage: inspection.message,
+          inputAlertType: 'warning' as const,
+          cookieCount: undefined
+        };
+      }
+      return {
+        email: inspection.email ?? '',
+        accountId: inspection.accountId ?? '',
+        inputMessage: inspection.message,
+        inputAlertType: 'info' as const,
+        cookieCount: inspection.cookieCount
+      };
+    } catch {
+      return {
+        email: '',
+        accountId: '',
+        inputMessage: 'JSON 解析失败，请检查格式',
+        inputAlertType: 'warning' as const,
+        cookieCount: undefined
+      };
+    }
+  }, [mode, rawSession]);
 
   const submit = async (values: LocalProfileFormValues) => {
     setError('');
     try {
-      let session: Record<string, unknown> | undefined;
-      if (values.rawSession?.trim()) session = parseJsonObject(values.rawSession);
+      let session: unknown;
+      if (values.rawSession?.trim()) {
+        session = mode === 'subaccount' ? parseJsonValue(values.rawSession) : parseJsonObject(values.rawSession);
+      }
       await onSubmit({
         ...(mode === 'subaccount' ? { label: values.label?.trim() } : {}),
         ...(mode === 'parent' ? {
@@ -133,10 +194,29 @@ export function LocalProfileModal({
           </div>
         )}
         <Form.Item name="rawSession" label="新的 Session JSON">
-          <Input.TextArea rows={8} spellCheck={false} placeholder="可留空。需要更换 session 时粘贴 chatgpt.com session JSON" />
+          <Input.TextArea
+            rows={8}
+            spellCheck={false}
+            placeholder={
+              mode === 'subaccount'
+                ? '可留空。粘贴 chatgpt.com session JSON，或 Cookie Editor 导出的 cookies 数组'
+                : '可留空。需要更换 session 时粘贴 chatgpt.com session JSON'
+            }
+          />
         </Form.Item>
+        {mode === 'subaccount' && sessionPreview.inputMessage && (
+          <Alert className="input-detection" type={sessionPreview.inputAlertType} showIcon message={sessionPreview.inputMessage} />
+        )}
         <Descriptions size="small" column={1} bordered>
-          <Descriptions.Item label="识别邮箱">{detectedEmail || '暂无'}</Descriptions.Item>
+          <Descriptions.Item label="识别邮箱">{sessionPreview.email || '暂无'}</Descriptions.Item>
+          {mode === 'subaccount' && (
+            <>
+              <Descriptions.Item label="workspace account_id">{sessionPreview.accountId || '暂无'}</Descriptions.Item>
+              <Descriptions.Item label="cookies">
+                {sessionPreview.cookieCount ? `${sessionPreview.cookieCount} 个` : '暂无'}
+              </Descriptions.Item>
+            </>
+          )}
         </Descriptions>
       </Form>
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}

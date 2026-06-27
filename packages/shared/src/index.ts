@@ -2,8 +2,20 @@
 
 import type { ChatGptSessionCookie } from './sessionInput.js';
 
-export { getChatGptSessionUserEmail, parseChatGptSessionInput } from './sessionInput.js';
-export type { ChatGptSessionCookie, ChatGptSessionInput, ChatGptSessionParseResult } from './sessionInput.js';
+export {
+  getChatGptSessionUserEmail,
+  hasChatGptSessionTokenCookie,
+  inspectChatGptSessionImportInput,
+  parseChatGptSessionImportInput,
+  parseChatGptSessionInput
+} from './sessionInput.js';
+export type {
+  ChatGptSessionCookie,
+  ChatGptSessionImportParseResult,
+  ChatGptSessionInput,
+  ChatGptSessionInputInspection,
+  ChatGptSessionParseResult
+} from './sessionInput.js';
 
 /** 席位类型：default=ChatGPT 席位，usage_based=Codex 席位 */
 export type SeatType = 'default' | 'usage_based';

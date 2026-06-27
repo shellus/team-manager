@@ -1,5 +1,6 @@
 import type {
   ChatGptSessionCookie,
+  ChatGptSessionInput,
   CodexCredentialJson,
   CodexAuthRuntimeStatus,
   CodexQuotaSnapshot,
@@ -8,7 +9,7 @@ import type {
   SubaccountStatus,
   SubaccountView
 } from '@team-manager/shared';
-import { parseChatGptSessionInput } from '@team-manager/shared';
+import { parseChatGptSessionImportInput, parseChatGptSessionInput } from '@team-manager/shared';
 import { createCodexAuthSession, exchangeCodexCallback, type CodexAuthSession } from './codexAuth.js';
 import {
   CodexAutoAuthError,
@@ -121,21 +122,20 @@ export class SubaccountService {
   }
 
   async importSession(raw: unknown): Promise<SubaccountView> {
-    let view: SubaccountView;
-    try {
-      view = await this.store.importSession(raw);
-    } catch (e) {
-      const message = (e as Error).message;
-      if (message.startsWith('缺少 ') || message.startsWith('录入内容')) {
-        throw new ServiceError(400, message);
-      }
-      throw e;
-    }
+    const input = await this.resolveSubaccountSessionInput(raw);
+    const view = await this.store.importSession(input.session);
     await this.store.appendLog(view.id, {
       phase: 'session_import',
       status: 'session_ready',
-      message: '已录入子号 ChatGPT session JSON',
-      data: { email: view.email, accountIdPresent: Boolean(view.chatgptAccountId) }
+      message:
+        input.type === 'browser_cookies'
+          ? '已通过浏览器 cookies 录入子号 ChatGPT session'
+          : '已录入子号 ChatGPT session JSON',
+      data: {
+        email: view.email,
+        accountIdPresent: Boolean(view.chatgptAccountId),
+        inputType: input.type
+      }
     });
     return view;
   }
@@ -189,15 +189,14 @@ export class SubaccountService {
     const label = typeof input.label === 'string' ? input.label.trim() : '';
     if (!label) throw new ServiceError(400, '缺少本地备注名');
 
-    const session =
+    const sessionInput =
       input.session === undefined
         ? undefined
-        : parseChatGptSessionInput(input.session);
-    if (session && 'error' in session) throw new ServiceError(400, session.error);
+        : await this.resolveSubaccountSessionInput(input.session);
 
     const updated = await this.store.updateLocalProfile(id, {
       label,
-      session
+      session: sessionInput?.session
     });
     if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
 
@@ -208,7 +207,8 @@ export class SubaccountService {
       data: {
         email: updated.email,
         accountIdPresent: Boolean(updated.chatgptAccountId),
-        sessionUpdated: input.session !== undefined
+        sessionUpdated: input.session !== undefined,
+        inputType: sessionInput?.type
       }
     });
     return updated;
@@ -419,6 +419,20 @@ export class SubaccountService {
     return subaccount.webAccessToken;
   }
 
+  private async resolveSubaccountSessionInput(
+    raw: unknown
+  ): Promise<{ type: 'workspace_session' | 'browser_cookies'; session: ChatGptSessionInput }> {
+    const parsed = parseChatGptSessionImportInput(raw);
+    if ('error' in parsed) throw new ServiceError(400, parsed.error);
+    if (parsed.type === 'browser_cookies') {
+      return {
+        type: parsed.type,
+        session: await fetchCurrentWebSessionFromCookies(this.webTransport, parsed.cookies)
+      };
+    }
+    return { type: parsed.type, session: parsed.session };
+  }
+
   async registerNewSubaccount(input: { targetChatgptAccountId?: string; mailGroup?: string }): Promise<SubaccountView> {
     if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
     const target = cleanTargetAccountId(input.targetChatgptAccountId);
@@ -601,13 +615,50 @@ async function fetchWorkspaceWebAccessTokenFromCookies(
   return accessToken;
 }
 
-function buildChatGptSessionCookieHeader(cookies: ChatGptSessionCookie[], targetChatgptAccountId: string): string {
+async function fetchCurrentWebSessionFromCookies(
+  transport: Transport,
+  cookies: ChatGptSessionCookie[]
+): Promise<ChatGptSessionInput> {
+  const response = await transport.fetch({
+    method: 'GET',
+    path: `/api/auth/session?team_manager_import=browser_cookies&t=${Date.now()}`,
+    headers: {
+      accept: 'application/json',
+      cookie: buildChatGptSessionCookieHeader(cookies),
+      'user-agent': CHATGPT_WEB_USER_AGENT
+    }
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new ServiceError(
+      response.status >= 400 && response.status < 500 ? response.status : 502,
+      `获取浏览器 cookies Web session 失败: HTTP ${response.status} ${trimForLog(response.body)}`
+    );
+  }
+  const data = parseJsonObject(response.body, '浏览器 cookies Web session 返回不是 JSON');
+  const session = parseChatGptSessionInput({ ...data, cookies });
+  if ('error' in session) throw new ServiceError(502, `浏览器 cookies Web session 响应无效: ${session.error}`);
+  const claims = chatGptAuthClaimsFromAccessToken(session.accessToken);
+  if (claims.chatgptAccountId && claims.chatgptAccountId !== session.account.id) {
+    throw new ServiceError(
+      409,
+      `浏览器 cookies Web session 与响应 workspace 不一致：响应 ${session.account.id}，实际 ${claims.chatgptAccountId}`
+    );
+  }
+  return session;
+}
+
+function buildChatGptSessionCookieHeader(cookies: ChatGptSessionCookie[], targetChatgptAccountId?: string): string {
   const pairs = cookies
-    .filter((cookie) => cookie.name !== '_account' && cookie.name !== '_account_residency_region')
+    .filter((cookie) => {
+      if (!targetChatgptAccountId) return true;
+      return cookie.name !== '_account' && cookie.name !== '_account_residency_region';
+    })
     .filter((cookie) => cookie.name && cookie.value && !/[;\s]/.test(cookie.name) && !cookie.value.includes(';'))
     .map((cookie) => `${cookie.name}=${cookie.value}`);
-  pairs.push(`_account=${targetChatgptAccountId}`);
-  pairs.push('_account_residency_region=no_constraint');
+  if (targetChatgptAccountId) {
+    pairs.push(`_account=${targetChatgptAccountId}`);
+    pairs.push('_account_residency_region=no_constraint');
+  }
   return pairs.join('; ');
 }
 

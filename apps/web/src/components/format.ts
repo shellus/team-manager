@@ -28,14 +28,18 @@ export function isBillingRiskError(error: unknown): boolean {
 }
 
 export function parseJsonObject(raw: string): Record<string, unknown> {
+  const parsed = parseJsonValue(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('JSON 必须是对象');
+  }
+  return parsed as Record<string, unknown>;
+}
+
+export function parseJsonValue(raw: string): unknown {
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('JSON 必须是对象');
-    }
-    return parsed as Record<string, unknown>;
+    return parsed;
   } catch (error) {
-    if (error instanceof Error && error.message === 'JSON 必须是对象') throw error;
     throw new Error('JSON 解析失败，请检查格式');
   }
 }

@@ -10,9 +10,11 @@
 
 自动注册会继续尝试完成 Codex 授权；成功后页面显示对应 Team workspace 的 Codex 凭证。注册阶段遇到 sentinel、人机校验或短信问题时，子号会进入待验证或异常状态；账号锁定会进入单独的账号锁定状态。日志只展示脱敏阶段信息。对这类已落库账号再次点击“自动授权”时，后端会复用私有保存的注册密码继续登录，但页面和日志仍不会展示密码。
 
-### 录入子号 session
+### 录入子号 session 或浏览器 cookies
 
-子号 session 录入只接受 chatgpt.com session JSON：
+子号 Web 登录态支持两种互斥输入类型。输入框会即时识别类型并显示提示。
+
+第一种是 chatgpt.com session JSON：
 
 ```json
 {
@@ -26,7 +28,11 @@
 }
 ```
 
-session JSON 可额外携带同一浏览器登录态的 `cookies` 数组。创建 Codex 个人访问令牌时，系统会用这些 cookie 设置 `_account=<目标 workspace>` 并向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次完整浏览器会话，不需要为每个 workspace 分别录入 session。
+该输入绑定 `account.id` 对应的 workspace。页面会提示“识别到绑定了 workspace 的 session”。
+
+第二种是 Cookie Editor 等浏览器扩展从 `chatgpt.com` 导出的 cookies 数组。该数组必须包含 `__Secure-next-auth.session-token.*`。系统会用 cookies 请求 ChatGPT `/api/auth/session`，读取当前邮箱、workspace 和 access token 后创建或更新子号。页面会提示“识别到浏览器导出 cookies，将允许跨 workspace 操作”。
+
+创建 Codex 个人访问令牌时，若子号保存了浏览器 cookies，系统会设置 `_account=<目标 workspace>` 并向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次浏览器 cookies，不需要为每个 workspace 分别录入 session。
 
 录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。旧 session 明文不会回填到前端。
 

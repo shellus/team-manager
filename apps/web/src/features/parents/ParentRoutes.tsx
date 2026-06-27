@@ -202,11 +202,11 @@ export function ParentRoutes({
     onError(error);
   };
 
-  const importParent = async (payload: Record<string, unknown>) => {
+  const importParent = async (payload: unknown) => {
     setBusy('import-parent');
     setLocalError('');
     try {
-      const account = await apiClient.addAccount(payload);
+      const account = await apiClient.addAccount(payload as Record<string, unknown>);
       onAccountChanged(account);
       const next = new URLSearchParams();
       next.set('group', groupNameOf(account));
@@ -239,13 +239,18 @@ export function ParentRoutes({
     note?: string;
     groupName?: string;
     limitType?: AccountLimitType;
-    session?: Record<string, unknown>;
+    session?: unknown;
   }) => {
     if (!selected) return;
     setBusy('edit-parent-profile');
     setLocalError('');
     try {
-      const updated = await apiClient.updateAccountLocalProfile(selected.id, payload);
+      const updated = await apiClient.updateAccountLocalProfile(selected.id, payload as {
+        note?: string;
+        groupName?: string;
+        limitType?: AccountLimitType;
+        session?: Record<string, unknown>;
+      });
       onAccountChanged(updated);
       const next = setSearchValue(clearModalState(searchParams), 'group', groupNameOf(updated));
       navigate({ pathname: `/parents/${updated.id}`, search: toSearch(next) }, { replace: true });

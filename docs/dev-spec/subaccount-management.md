@@ -13,10 +13,12 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 自动注册生成的 OpenAI 密码记录在后端持久化对象的私有字段中，普通 view 不下发。
   - `credential.account_id` 是凭证绑定的 Team workspace。OAuth 凭证来自 Codex `id_token` claim 中的 `chatgpt_account_id`；个人访问令牌凭证来自 `wham/auth-credentials` 响应的 `workspace_id`。
   - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
-- 子号 session JSON 录入：
-  - 必需字段为 `user.email`、`account.id`、`accessToken`。
-  - 可选字段 `cookies[]` 保存同一 ChatGPT 浏览器登录态的 cookie 名称和值。该字段属于敏感运行时数据，只写入后端 `data/subaccounts.json`，普通 view 不下发。
-  - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用 `cookies[]` 构造带 `_account=<目标 workspace>` 的请求，通过 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
+- 子号 Web 登录态录入：
+  - `POST /api/subaccounts/session` 接受两种互斥输入类型：chatgpt.com session JSON 对象，或 Cookie Editor 等浏览器扩展导出的 cookies 数组。
+  - session JSON 对象必需字段为 `user.email`、`account.id`、`accessToken`，该输入绑定 `account.id` 对应 workspace。
+  - 浏览器 cookies 数组必须包含 `__Secure-next-auth.session-token.*`。后端会先用 cookies 请求 ChatGPT `/api/auth/session`，读取当前 `user.email`、`account.id` 和 `accessToken` 后保存子号。
+  - 浏览器 cookies 属于敏感运行时数据，只写入后端 `data/subaccounts.json`，普通 view 不下发。
+  - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用保存的 cookies 构造带 `_account=<目标 workspace>` 的请求，通过 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
   - 不支持扁平字段，不做回退兼容。
 - 已有 Codex credential 录入：
   - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON，或 `{ credential, fileName, groupName }` 包装格式。
@@ -25,7 +27,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
   - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注名 `label`。
-  - 请求带新的 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken`，并在存在 `cookies[]` 时更新浏览器会话 cookie；没有传 `cookies[]` 的旧格式 session 不会清空已有 cookie。
+  - 请求带新的 session JSON 对象时更新 `email`、`chatgptAccountId`、`webAccessToken`；请求带浏览器 cookies 数组时，后端先通过 `/api/auth/session` 解析当前登录态，再更新 `email`、`chatgptAccountId`、`webAccessToken` 和浏览器 cookies。
   - 保留已有 Codex 凭证、Team 关联和授权日志，响应仍为脱敏视图。
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
