@@ -143,7 +143,9 @@ export function startNotificationScheduler(
     const items = collectExpirationReminderItems(accountStore.list(), settings, now);
     const result = await sendExpirationReminders(settings, items);
     const runDate = localDateString(now);
-    await settingsStore.markNotificationRun(runDate);
+    if (shouldMarkNotificationRun(result)) {
+      await settingsStore.markNotificationRun(runDate);
+    }
     if (result.errors.length > 0) {
       console.warn('[team-manager] 到期提醒发送存在失败:', result.errors.join('; '));
     }
@@ -157,6 +159,10 @@ export function startNotificationScheduler(
   timer.unref?.();
   void tick();
   return () => clearInterval(timer);
+}
+
+function shouldMarkNotificationRun(result: NotificationRunResult): boolean {
+  return result.itemCount === 0 || result.errors.length === 0 || result.sentChannels.length > 0;
 }
 
 function relationStatus(account: Account, email: string): ExpirationReminderItem['status'] {
