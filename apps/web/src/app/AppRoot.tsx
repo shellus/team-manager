@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AccountView } from '@team-manager/shared';
 import { Alert } from 'antd';
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, ApiError, clearToken, getToken, setToken } from '../api.js';
 import { Login } from '../Login.js';
 import { ParentRoutes } from '../features/parents/ParentRoutes.js';
+import { PublicSeatPage } from '../features/public-seat/PublicSeatPage.js';
 import { SubaccountRoutes } from '../features/subaccounts/SubaccountRoutes.js';
 import { AppShell } from './AppShell.js';
 
 export function AppRoot() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [authed, setAuthed] = useState(() => Boolean(getToken()));
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
@@ -87,6 +89,15 @@ export function AppRoot() {
     setAuthed(true);
     navigate('/parents', { replace: true });
   };
+
+  if (location.pathname.startsWith('/seat/')) {
+    return (
+      <Routes>
+        <Route path="/seat/:seatKey" element={<PublicSeatPage />} />
+        <Route path="*" element={<Navigate to={location.pathname} replace />} />
+      </Routes>
+    );
+  }
 
   if (!authed) {
     return (

@@ -10,7 +10,7 @@
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
 - curl_cffi worker、GongXi-Mail、短信接码和授权页面 clearance 属于运行环境能力，不是账号业务模型字段；后端只暴露脱敏可用状态，前端只读展示。
 - store 只按当前 schema 持久化对象；历史冗余字段应通过离线数据清洗删除，不在业务代码中做兼容映射。
-- GPT 账号基础字段统一为 `email` 和 `remark`。`email` 是账号名称和唯一可读身份；`remark` 是本系统本地备注。母号、子号、成员邮箱资料不得再使用 `label`、`note`、`displayName` 或 `name` 表示本地账号名称/备注。
+- GPT 账号基础字段统一为 `email` 和 `remark`。`email` 是账号名称和唯一可读身份；`remark` 是本系统本地备注。母号、子号和席位资料不得再使用 `label`、`note`、`displayName` 或 `name` 表示本地账号名称/备注。
 
 ## 母号模型
 
@@ -40,24 +40,33 @@
 | `codexLocalAccessEnabled` / `codexLocalAccessCachedAt` | settings 刷新 | “允许成员使用 Codex Local”缓存，来自 `beta_settings.wham_local_access` |
 | `codexDeviceCodeAuthEnabled` / `codexDeviceCodeAuthCachedAt` | settings 刷新或 beta feature 写操作 | “为 Codex CLI 启用设备代码身份验证”缓存 |
 | `codexRemoteControlEnabled` / `codexRemoteControlCachedAt` | settings 刷新或 beta feature 写操作 | “允许成员远程发现并控制设备”缓存 |
-| `memberProfiles` | 本地输入 | 母号下邮箱维度资料，key 为小写邮箱 |
+| `seatSlots` | 本地输入或迁移 | 母号下 ChatGPT 固定席位位置资料，按 `seatKey` 定位 |
 
-### Member profiles
+### Seat slots
 
 `membersCache[]` 中的成员显示名来自 ChatGPT 远端 `users[].name` 时，只能落到 `remoteName`。本地账号名称仍以 `email` 为准，不能把远端显示名复制成账号 `name`。
 
-`memberProfiles` 保存母号下某个邮箱的本地运营资料：
+`seatSlots` 保存母号下已运营的 ChatGPT 固定席位位置。该资料的维度是“母号内部 id × 席位位置”，不是邮箱、invite id 或 user id。邮箱只是当前位置的占用者，换号后 `remark`、`expiresOn`、`price` 和 `seatKey` 继续属于同一个 slot。
 
 | 字段 | 说明 |
 |---|---|
-| `email` | 小写邮箱，和 map key 一致 |
-| `remark` | 邮箱备注文本，可为空 |
+| `seatKey` | 16 位随机字符，用于免登录席位页鉴权 |
+| `email` | 当前绑定邮箱，可为空 |
+| `remark` | 席位备注文本，可为空 |
 | `expiresOn` | 到期日期，格式为 `yyyy-mm-dd` |
+| `price` | 本地价格文本，可为空 |
+| `seat` | 固定为 `default`，只表示 ChatGPT 固定席位 |
+| `status` | 本地派生状态：`empty`、`invited`、`member`、`unknown` |
+| `currentUserId` / `currentInviteId` | 最近一次同步到的远端成员或邀请 id |
 | `expireRemove` | 到期移除标记，默认 `false` |
-| `expireReminder` | 是否进入到期提醒，邀请默认 `true` |
+| `expireReminder` | 是否进入到期提醒，默认 `true` |
+| `lastSwap` | 最近一次免登录换号任务状态和步骤 |
+| `swapHistory` | 同一席位的免登录换号历史数组，按换号发生时间追加 |
 | `updatedAt` | 本地更新时间 |
 
-该资料的维度是“母号内部 id × 邮箱”，不是 invite id 或 user id。pending invite 被接受后，该邮箱会从 `pendingInvitesCache` 移动到 `membersCache`，但 `memberProfiles[邮箱]` 保持不变。前端展示时按当前行邮箱关联资料。
+`seatSlots` 不表示 `usage_based` / Codex 席位。`usage_based` 邀请不会创建 slot。
+
+免登录换号使用 `seatKey` 定位固定席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条历史记录。`lastSwap` 只保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号历史。store 初始化清洗时，旧数据中的 `lastSwap` 会并入 `swapHistory`。
 
 ### Derived values
 
@@ -75,7 +84,8 @@
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
 | 邀请成员 | 远端邀请成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
-| 编辑邮箱资料 | 更新 `memberProfiles[lowercase(email)]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
+| 编辑席位资料 | 按当前邮箱更新或创建对应 `seatSlots[]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
+| 免登录席位换号 | 按 `seatKey` 定位固定席位，刷新母号成员/邀请后只移除或撤销该 slot 当前邮箱，再邀请新邮箱为 `default`，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页重新读取返回的 slot view |
 | 撤销邀请 | 远端撤销成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
 | 移除成员 | 远端移除成功后刷新 `membersCache`，返回 `AccountView` | 合并返回的母号 view |
 | 改成员席位 | 远端修改成功后刷新 `membersCache`；目标席位未变化时也保存当前成员缓存 | 合并返回的母号 view |
@@ -87,7 +97,7 @@
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn`；提供 session JSON 或浏览器 cookies 时更新 `email`、`accountId`、`accessToken` 和可用的 `webSessionCookies`；session JSON 中的 `sessionToken` 会规范化为 session-token cookie 材料，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 
-邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。邀请成功后，service 会为目标邮箱 upsert `memberProfiles`。如果调用方未提供邮箱资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
+邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。`default` 邀请成功后，service 会为目标邮箱 upsert 一个 `seatSlots[]` 条目。`usage_based` 邀请不创建 slot。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
 
 `expireRemove` 是本地运营标记，不会在提醒任务中自动移除远端成员。远端移除仍必须由页面、API 或 service 显式调用。
 
@@ -105,7 +115,7 @@
 | `channels.wecom` | 企业微信机器人 webhook |
 | `lastRunDate` / `lastRunAt` | 提醒任务最近一次运行标记 |
 
-通知任务按 `triggerTime` 每天最多运行一次，扫描所有母号 `memberProfiles` 中 `expireReminder=true` 且到期日在提醒窗口内的邮箱，并扫描母号 `nextRenewalOn` 是否进入同一提醒窗口。通知内容会包含邮箱或 Team workspace、当前行状态（`invited`、`member`、仅本地记录或 Team 续费）、到期/续费日期、剩余天数、到期移除标记和备注。
+通知任务按 `triggerTime` 每天最多运行一次，扫描所有母号 `seatSlots` 中 `expireReminder=true` 且到期日在提醒窗口内的席位，并扫描母号 `nextRenewalOn` 是否进入同一提醒窗口。通知内容会包含当前邮箱或 Team workspace、当前行状态（`invited`、`member`、仅本地记录或 Team 续费）、到期/续费日期、剩余天数、到期移除标记和备注。
 
 ## 子号模型
 

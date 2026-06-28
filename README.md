@@ -44,6 +44,7 @@ corepack pnpm docs:build
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号可按 `groupName` 分组，用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可替换 session JSON 或录入浏览器导出的 cookies；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
+- **席位位置**：用 `seatSlots` 记录母号下售出的 ChatGPT 固定席位位置，`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
 - **子号池**：录入子号 session 或导入已有 Codex credential，保存子号状态、Team 关联、Codex 凭证状态和授权日志。
@@ -86,6 +87,7 @@ corepack pnpm docs:build
 数据模型原则：
 
 - 母号成员数、ChatGPT 席位数、pending invite 数不作为独立字段持久化，应从 `membersCache` 和 `pendingInvitesCache` 派生。
+- 母号下售出的 ChatGPT 固定席位保存为 `seatSlots`。slot 绑定的是席位位置，不是当前邮箱；换号后备注、到期时间、价格、换号历史和 `seatKey` 留在同一个 slot。`usage_based` / Codex 席位不创建 slot。
 - 子号的 Codex 凭证按 workspace 维度保存；同一子号在不同 Team 下需要不同凭证。凭证 JSON 独立保存到运行时凭证文件，普通 view 只返回文件名、CPA 号池和额度缓存等脱敏元数据。
 - Team 关联里的母号名称、workspace id 等展示信息从当前母号列表派生，不复制到 `teamLinks`。
 - 写操作成功后必须更新本地 canonical cache 或返回最新 view，避免 UI 列表、详情和运行时 JSON 断链。

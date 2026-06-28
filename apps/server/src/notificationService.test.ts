@@ -44,32 +44,38 @@ describe('expiration reminder collection', () => {
             seat: 'default'
           }
         ],
-        memberProfiles: {
-          'pending@example.com': {
+        seatSlots: [
+          {
+            seatKey: 'pend1234efgh5678',
             email: 'pending@example.com',
             remark: '待接受',
             expiresOn: '2026-07-03',
+            seat: 'default',
             expireRemove: false,
             expireReminder: true,
             updatedAt: 100
           },
-          'member@example.com': {
+          {
+            seatKey: 'memb1234efgh5678',
             email: 'member@example.com',
             remark: '已入组',
             expiresOn: '2026-07-04',
+            seat: 'default',
             expireRemove: true,
             expireReminder: true,
             updatedAt: 100
           },
-          'quiet@example.com': {
+          {
+            seatKey: 'quie1234efgh5678',
             email: 'quiet@example.com',
             remark: '关闭提醒',
             expiresOn: '2026-07-02',
+            seat: 'default',
             expireRemove: false,
             expireReminder: false,
             updatedAt: 100
           }
-        }
+        ]
       }
     ];
 

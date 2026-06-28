@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { AccountMemberProfile, AccountMemberProfileInput, AccountView } from '@team-manager/shared';
+import type { AccountMemberProfileInput, AccountSeatSlot, AccountView } from '@team-manager/shared';
 import { Form, Input, Modal, Switch, Typography } from 'antd';
 
 interface MemberProfileValues {
@@ -23,13 +23,14 @@ export function defaultMemberProfileExpiresOn(): string {
 }
 
 export function memberProfileForEmail(
-  profiles: AccountView['memberProfiles'] | undefined,
+  account: AccountView,
   email: string
-): AccountMemberProfile | undefined {
-  return profiles?.[normalizeMemberProfileEmail(email)];
+): AccountSeatSlot | undefined {
+  const target = normalizeMemberProfileEmail(email);
+  return account.seatSlots?.find((slot) => slot.email?.toLowerCase() === target);
 }
 
-export function memberProfileSummary(profile: AccountMemberProfile | undefined): string {
+export function memberProfileSummary(profile: AccountSeatSlot | undefined): string {
   if (!profile) return '未设置';
   return [profile.expiresOn, profile.expireReminder ? '提醒' : '不提醒', profile.expireRemove ? '到期移除' : '']
     .filter(Boolean)
@@ -37,7 +38,7 @@ export function memberProfileSummary(profile: AccountMemberProfile | undefined):
 }
 
 function initialValues(account: AccountView, email: string): MemberProfileValues {
-  const profile = memberProfileForEmail(account.memberProfiles, email);
+  const profile = memberProfileForEmail(account, email);
   return {
     remark: profile?.remark ?? '',
     expiresOn: profile?.expiresOn ?? defaultMemberProfileExpiresOn(),

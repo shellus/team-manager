@@ -64,6 +64,7 @@ export interface Account {
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   memberProfiles?: Record<string, AccountMemberProfile>; // 母号下的邮箱维度本地资料，key 为小写邮箱
+  seatSlots?: AccountSeatSlot[]; // 母号下的固定 ChatGPT 席位位置，本地运营主模型
   lastRefreshAt?: number;
   lastError?: string;
 }
@@ -105,6 +106,7 @@ export interface AccountView {
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   memberProfiles?: Record<string, AccountMemberProfile>;
+  seatSlots?: AccountSeatSlot[];
   lastRefreshAt?: number;
   lastError?: string;
 }
@@ -145,6 +147,72 @@ export interface AccountMemberProfileInput {
   expiresOn?: string;
   expireRemove?: boolean;
   expireReminder?: boolean;
+}
+
+export type AccountSeatSlotStatus = 'empty' | 'invited' | 'member' | 'unknown';
+
+export type SeatSlotSwapStatus = 'running' | 'succeeded' | 'failed';
+
+export type SeatSlotSwapStepKey =
+  | 'refreshing_parent'
+  | 'confirming_current_email'
+  | 'removing_current_member'
+  | 'revoking_current_invite'
+  | 'inviting_new_email'
+  | 'saving_new_profile'
+  | 'refreshing_final_state';
+
+export interface SeatSlotSwapStep {
+  key: SeatSlotSwapStepKey;
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  message?: string;
+  at?: number;
+}
+
+export interface SeatSlotSwapState {
+  id: string;
+  status: SeatSlotSwapStatus;
+  fromEmail?: string;
+  toEmail: string;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  error?: string;
+  steps: SeatSlotSwapStep[];
+}
+
+/** 母号下一个售出的 ChatGPT 固定席位位置。邮箱只是当前位置的占用者。 */
+export interface AccountSeatSlot {
+  seatKey: string;
+  email?: string;
+  remark?: string;
+  expiresOn: string;
+  price?: string;
+  seat: 'default';
+  status?: AccountSeatSlotStatus;
+  currentUserId?: string;
+  currentInviteId?: string;
+  expireRemove: boolean;
+  expireReminder: boolean;
+  lastSwap?: SeatSlotSwapState;
+  swapHistory?: SeatSlotSwapState[];
+  updatedAt: number;
+}
+
+export interface PublicSeatSlotView {
+  seatKey: string;
+  email?: string;
+  remark?: string;
+  expiresOn: string;
+  price?: string;
+  status: AccountSeatSlotStatus;
+  swap?: SeatSlotSwapState;
+  swapHistory?: SeatSlotSwapState[];
+}
+
+export interface PublicSeatSwapRequest {
+  email: string;
 }
 
 /** 邀请录入 */

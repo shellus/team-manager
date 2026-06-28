@@ -13,6 +13,7 @@ import {
   memberProfileSummary,
   normalizeMemberProfileEmail
 } from './MemberProfileModal.js';
+import { buildSeatManagementUrl } from './seatSlotUrl.js';
 
 export function ParentInvitesTable({
   account,
@@ -74,11 +75,16 @@ export function ParentInvitesTable({
       title: '本地资料',
       key: 'profile',
       render: (_, invite) => {
-        const profile = memberProfileForEmail(account.memberProfiles, invite.email);
+        const profile = memberProfileForEmail(account, invite.email);
         return (
           <div className="profile-cell">
             <Typography.Text>{memberProfileSummary(profile)}</Typography.Text>
             {profile?.remark && <Typography.Text type="secondary">{profile.remark}</Typography.Text>}
+            {profile?.seatKey && (
+              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(profile.seatKey) }}>
+                席位管理 URL
+              </Typography.Text>
+            )}
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(invite.email)}>
               编辑资料
             </Button>

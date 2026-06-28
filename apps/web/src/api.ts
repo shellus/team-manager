@@ -4,6 +4,7 @@ import type {
   AccountView,
   Member,
   NotificationSettings,
+  PublicSeatSlotView,
   PendingInvite,
   SeatType,
   ApiResult,
@@ -57,7 +58,25 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return json.data as T;
 }
 
+async function publicCall<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  const res = await fetch(`/public${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+  const json = (await res.json().catch(() => ({}))) as ApiResult<T>;
+  if (!json.ok) throw new ApiError(res.status, json.error ?? `请求失败 ${res.status}`, `/public${path}`);
+  return json.data as T;
+}
+
 export const apiClient = {
+  getPublicSeatSlot: (seatKey: string) =>
+    publicCall<PublicSeatSlotView>('GET', `/seat-slots/${encodeURIComponent(seatKey)}`),
+  swapPublicSeatSlotEmail: (seatKey: string, email: string) =>
+    publicCall<PublicSeatSlotView>('POST', `/seat-slots/${encodeURIComponent(seatKey)}/swap`, { email }),
   login: (username: string, password: string) =>
     call<{ token: string }>('POST', '/auth/login', { username, password }),
   listAccounts: () => call<AccountView[]>('GET', '/accounts'),

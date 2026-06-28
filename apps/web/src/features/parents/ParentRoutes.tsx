@@ -62,10 +62,12 @@ function searchableAccountText(account: AccountView): string {
     account.nextRenewalOn,
     ...(account.membersCache ?? []).flatMap((member) => [member.email, member.remoteName, member.role]),
     ...(account.pendingInvitesCache ?? []).flatMap((invite) => [invite.email, invite.role]),
-    ...Object.values(account.memberProfiles ?? {}).flatMap((profile) => [
-      profile.email,
-      profile.remark,
-      profile.expiresOn
+    ...(account.seatSlots ?? []).flatMap((slot) => [
+      slot.email,
+      slot.remark,
+      slot.expiresOn,
+      slot.price,
+      slot.seatKey
     ])
   ];
   return values.filter(Boolean).join('\n').toLowerCase();

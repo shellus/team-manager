@@ -15,7 +15,7 @@ import { SubaccountStore } from './subaccountStore.js';
 import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
 import type { SubaccountRegistrationExecutor } from './subaccountRegistration.js';
 import type { Transport } from './transport.js';
-import type { InviteRequest, SeatType, Subaccount } from '@team-manager/shared';
+import type { InviteRequest, PublicSeatSwapRequest, SeatType, Subaccount } from '@team-manager/shared';
 
 export interface BuildAppDeps {
   config: AppConfig;
@@ -244,6 +244,17 @@ export async function buildApp({
       return c.json({ ok: false, error: (e as Error).message }, 500);
     }
   };
+
+  // ---- 免登录席位页 ----
+  app.get('/public/seat-slots/:seatKey', (c) =>
+    wrap(c, () => service.getPublicSeatSlot(c.req.param('seatKey')))
+  );
+
+  app.post('/public/seat-slots/:seatKey/swap', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<PublicSeatSwapRequest>;
+    if (!body.email?.trim()) return c.json({ ok: false, error: '缺少 email' }, 400);
+    return wrap(c, () => service.swapPublicSeatSlotEmail(c.req.param('seatKey'), body.email!));
+  });
 
   // ---- 全局设置 ----
   api.get('/settings/notifications', (c) =>

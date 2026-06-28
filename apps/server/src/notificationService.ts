@@ -1,4 +1,4 @@
-import type { Account, AccountMemberProfile, NotificationSettings } from '@team-manager/shared';
+import type { Account, AccountSeatSlot, NotificationSettings } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { AppSettingsStore } from './appSettingsStore.js';
 
@@ -53,10 +53,10 @@ export function collectExpirationReminderItems(
       }
     }
 
-    const profiles = account.memberProfiles ?? {};
-    for (const profile of Object.values(profiles)) {
-      if (!profile.expireReminder) continue;
-      const expiry = profileDateTime(profile);
+    const seatSlots = account.seatSlots ?? [];
+    for (const slot of seatSlots) {
+      if (!slot.expireReminder) continue;
+      const expiry = slotDateTime(slot);
       if (expiry === undefined) continue;
       const daysUntilExpiry = Math.floor((expiry - today) / DAY_MS);
       if (daysUntilExpiry < 0 || daysUntilExpiry > settings.advanceReminderDays) continue;
@@ -66,12 +66,12 @@ export function collectExpirationReminderItems(
         accountId: account.id,
         accountDisplayName: account.remark || account.email,
         workspaceName: account.workspaceName ?? account.accountId,
-        email: profile.email,
-        ...(profile.remark ? { remark: profile.remark } : {}),
-        expiresOn: profile.expiresOn,
+        email: slot.email ?? '未绑定邮箱',
+        ...(slot.remark ? { remark: slot.remark } : {}),
+        expiresOn: slot.expiresOn,
         daysUntilExpiry,
-        expireRemove: profile.expireRemove,
-        status: relationStatus(account, profile.email)
+        expireRemove: slot.expireRemove,
+        status: slot.email ? relationStatus(account, slot.email) : 'tracked'
       });
     }
   }
@@ -172,8 +172,8 @@ function relationStatus(account: Account, email: string): ExpirationReminderItem
   return 'tracked';
 }
 
-function profileDateTime(profile: AccountMemberProfile): number | undefined {
-  return accountDateTime(profile.expiresOn);
+function slotDateTime(slot: AccountSeatSlot): number | undefined {
+  return accountDateTime(slot.expiresOn);
 }
 
 function accountDateTime(dateOnly: string | undefined): number | undefined {

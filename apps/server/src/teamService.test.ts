@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { AccountView, ApiResult, NotificationSettings } from '@team-manager/shared';
+import type { AccountView, ApiResult, NotificationSettings, PublicSeatSlotView } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -334,6 +334,51 @@ describe('AccountStore account sanitation', () => {
                 createdTime: '2026-06-18T00:00:00Z',
                 isScimManaged: false
               }
+            ],
+            seatSlots: [
+              {
+                seatKey: 'abcd1234efgh5678',
+                email: 'A@Example.com',
+                remark: '已售席位',
+                expiresOn: '2026-07-23',
+                price: '399',
+                seat: 'default',
+                status: 'member',
+                currentUserId: 'user-a',
+                lastSwap: {
+                  id: 'swap-legacy',
+                  status: 'succeeded',
+                  fromEmail: 'old@example.com',
+                  toEmail: 'A@Example.com',
+                  startedAt: 90,
+                  updatedAt: 99,
+                  completedAt: 99,
+                  steps: [
+                    {
+                      key: 'inviting_new_email',
+                      label: '正在添加新成员',
+                      status: 'done',
+                      message: 'A@Example.com',
+                      at: 99
+                    }
+                  ]
+                },
+                updatedAt: 100
+              },
+              {
+                seatKey: 'short',
+                email: 'broken@example.com',
+                expiresOn: '2026-07-23',
+                seat: 'default',
+                updatedAt: 100
+              },
+              {
+                seatKey: 'usage1234efgh5678',
+                email: 'usage@example.com',
+                expiresOn: '2026-07-23',
+                seat: 'usage_based',
+                updatedAt: 100
+              }
             ]
           }
         ],
@@ -349,6 +394,8 @@ describe('AccountStore account sanitation', () => {
     const persisted = JSON.parse(await readFile(join(tempDir, 'accounts.json'), 'utf8')) as Record<string, unknown>[];
     const storedMember = (stored?.membersCache as Record<string, unknown>[] | undefined)?.[0];
     const persistedMember = (persisted[0]?.membersCache as Record<string, unknown>[] | undefined)?.[0];
+    const storedSlots = stored?.seatSlots as Record<string, unknown>[] | undefined;
+    const persistedSlots = persisted[0]?.seatSlots as Record<string, unknown>[] | undefined;
 
     assert.equal(hasOwn(stored, 'memberCount'), false);
     assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
@@ -367,6 +414,15 @@ describe('AccountStore account sanitation', () => {
     assert.equal(storedMember?.remoteName, '当前远端显示名');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
+    assert.equal(storedSlots?.length, 1);
+    assert.equal(persistedSlots?.length, 1);
+    assert.equal(storedSlots?.[0]?.seatKey, 'abcd1234efgh5678');
+    assert.equal(storedSlots?.[0]?.email, 'a@example.com');
+    assert.equal(storedSlots?.[0]?.seat, 'default');
+    assert.equal(storedSlots?.[0]?.status, 'member');
+    assert.equal((storedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
+    assert.equal((persistedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
+    assert.equal(((storedSlots?.[0]?.swapHistory as Record<string, unknown>[] | undefined)?.[0])?.id, 'swap-legacy');
   });
 });
 
@@ -469,6 +525,315 @@ describe('TeamService account listing', () => {
     assert.equal(view.nextRenewalOn, '2026-07-16');
     assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-16');
     assert.equal(requests.length, 2);
+  });
+});
+
+describe('TeamService public seat slots', () => {
+  it('serves a public slot view without admin auth', async () => {
+    const { app, store, account } = await buildParentApiTestApp();
+    await store.update(account.id, {
+      seatSlots: [
+        {
+          seatKey: 'abcd1234efgh5678',
+          email: 'old@example.com',
+          remark: '客户 A',
+          expiresOn: '2026-07-23',
+          price: '399',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-old',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+
+    const response = await app.request('/public/seat-slots/abcd1234efgh5678');
+    const json = (await response.json()) as ApiResult<PublicSeatSlotView>;
+
+    assert.equal(response.status, 200);
+    assert.equal(json.ok, true);
+    assert.deepEqual(json.data, {
+      seatKey: 'abcd1234efgh5678',
+      email: 'old@example.com',
+      remark: '客户 A',
+      expiresOn: '2026-07-23',
+      price: '399',
+      status: 'member'
+    });
+  });
+
+  it('returns only the slot identified by the seat key', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      seatSlots: [
+        {
+          seatKey: 'abcd1234efgh5678',
+          email: 'old@example.com',
+          remark: '客户 A',
+          expiresOn: '2026-07-23',
+          price: '399',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-old',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'zzzz1234efgh5678',
+          email: 'other@example.com',
+          expiresOn: '2026-07-24',
+          seat: 'default',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+    const service = new TeamService(store, recordingTransport());
+
+    const view = await service.getPublicSeatSlot('abcd1234efgh5678');
+
+    assert.deepEqual(view, {
+      seatKey: 'abcd1234efgh5678',
+      email: 'old@example.com',
+      remark: '客户 A',
+      expiresOn: '2026-07-23',
+      price: '399',
+      status: 'member'
+    });
+  });
+
+  it('swaps only the member bound to the selected slot and preserves slot metadata', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      seatSlots: [
+        {
+          seatKey: 'abcd1234efgh5678',
+          email: 'old@example.com',
+          remark: '客户 A',
+          expiresOn: '2026-07-23',
+          price: '399',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-old',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'zzzz1234efgh5678',
+          email: 'other@example.com',
+          remark: '客户 B',
+          expiresOn: '2026-07-24',
+          price: '499',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-other',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        if (req.method === 'GET' && req.path.includes('/users?')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                { id: 'user-old', email: 'old@example.com', name: 'Old', role: 'standard-user', seat_type: 'default' },
+                { id: 'user-other', email: 'other@example.com', name: 'Other', role: 'standard-user', seat_type: 'default' }
+              ]
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.includes('/invites?')) {
+          return { status: 200, body: JSON.stringify({ items: [] }) };
+        }
+        if (req.method === 'DELETE' && req.path.endsWith('/users/user-old')) {
+          return { status: 200, body: JSON.stringify({ success: true }) };
+        }
+        if (req.method === 'POST' && req.path.endsWith('/invites')) {
+          return { status: 200, body: JSON.stringify({ success: true }) };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const service = new TeamService(store, transport);
+
+    const view = await service.swapPublicSeatSlotEmail('abcd1234efgh5678', 'New@Example.com');
+    const stored = store.get(account.id)!;
+    const slot = stored.seatSlots?.find((item) => item.seatKey === 'abcd1234efgh5678');
+    const otherSlot = stored.seatSlots?.find((item) => item.seatKey === 'zzzz1234efgh5678');
+
+    assert.equal(view.email, 'new@example.com');
+    assert.equal(view.remark, '客户 A');
+    assert.equal(view.expiresOn, '2026-07-23');
+    assert.equal(view.price, '399');
+    assert.equal(slot?.email, 'new@example.com');
+    assert.equal(slot?.remark, '客户 A');
+    assert.equal(slot?.expiresOn, '2026-07-23');
+    assert.equal(slot?.price, '399');
+    assert.equal(slot?.lastSwap?.status, 'succeeded');
+    assert.equal(otherSlot?.email, 'other@example.com');
+    assert.equal(transport.requests.some((req) => req.method === 'DELETE' && req.path.endsWith('/users/user-other')), false);
+    const inviteRequest = transport.requests.find((req) => req.method === 'POST' && req.path.endsWith('/invites'));
+    assert.deepEqual(JSON.parse(inviteRequest?.body ?? '{}'), {
+      email_addresses: ['new@example.com'],
+      role: 'standard-user',
+      seat_type: 'default',
+      resend_emails: true
+    });
+  });
+
+  it('keeps every swap history entry for the selected seat slot', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-history-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      seatSlots: [
+        {
+          seatKey: 'abcd1234efgh5678',
+          email: 'old@example.com',
+          remark: '客户 A',
+          expiresOn: '2026-07-23',
+          price: '399',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-old',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'zzzz1234efgh5678',
+          email: 'other@example.com',
+          expiresOn: '2026-07-24',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-other',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+    const members = new Map([
+      ['user-old', { id: 'user-old', email: 'old@example.com', name: 'Old', role: 'standard-user', seat_type: 'default' }],
+      ['user-other', { id: 'user-other', email: 'other@example.com', name: 'Other', role: 'standard-user', seat_type: 'default' }]
+    ]);
+    const invites = new Map<string, Record<string, unknown>>();
+    const transport: Transport = {
+      async fetch(req) {
+        if (req.method === 'GET' && req.path.includes('/users?')) {
+          return { status: 200, body: JSON.stringify({ items: Array.from(members.values()) }) };
+        }
+        if (req.method === 'GET' && req.path.includes('/invites?')) {
+          return { status: 200, body: JSON.stringify({ items: Array.from(invites.values()) }) };
+        }
+        if (req.method === 'DELETE' && req.path.includes('/users/')) {
+          const userId = req.path.split('/').at(-1);
+          if (userId) members.delete(userId);
+          return { status: 200, body: JSON.stringify({ success: true }) };
+        }
+        if (req.method === 'DELETE' && req.path.endsWith('/invites')) {
+          const body = JSON.parse(req.body ?? '{}') as { email_address?: string };
+          if (body.email_address) invites.delete(body.email_address.toLowerCase());
+          return { status: 200, body: JSON.stringify({ success: true }) };
+        }
+        if (req.method === 'POST' && req.path.endsWith('/invites')) {
+          const body = JSON.parse(req.body ?? '{}') as { email_addresses?: string[] };
+          const email = body.email_addresses?.[0]?.toLowerCase();
+          if (email) {
+            invites.set(email, {
+              id: `invite-${email}`,
+              email_address: email,
+              role: 'standard-user',
+              status: 1,
+              seat_type: 'default',
+              created_time: '2026-06-28T00:00:00Z',
+              is_scim_managed: false
+            });
+          }
+          return { status: 200, body: JSON.stringify({ success: true }) };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const service = new TeamService(store, transport);
+
+    await service.swapPublicSeatSlotEmail('abcd1234efgh5678', 'new@example.com');
+    const view = await service.swapPublicSeatSlotEmail('abcd1234efgh5678', 'next@example.com');
+    const slot = store.get(account.id)?.seatSlots?.find((item) => item.seatKey === 'abcd1234efgh5678');
+    const history = slot?.swapHistory;
+
+    assert.equal(history?.length, 2);
+    assert.deepEqual(
+      history?.map((swap) => ({ fromEmail: swap.fromEmail, toEmail: swap.toEmail, status: swap.status })),
+      [
+        { fromEmail: 'old@example.com', toEmail: 'new@example.com', status: 'succeeded' },
+        { fromEmail: 'new@example.com', toEmail: 'next@example.com', status: 'succeeded' }
+      ]
+    );
+    assert.equal(slot?.lastSwap?.id, history?.[1]?.id);
+    assert.equal(view.swapHistory?.length, 2);
+    assert.equal(view.swap?.id, view.swapHistory?.[1]?.id);
+  });
+
+  it('rejects swapping to an email bound to another slot in the same parent account', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      seatSlots: [
+        {
+          seatKey: 'abcd1234efgh5678',
+          email: 'old@example.com',
+          expiresOn: '2026-07-23',
+          seat: 'default',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'zzzz1234efgh5678',
+          email: 'other@example.com',
+          expiresOn: '2026-07-24',
+          seat: 'default',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+    const service = new TeamService(store, recordingTransport());
+
+    await assert.rejects(
+      () => service.swapPublicSeatSlotEmail('abcd1234efgh5678', 'other@example.com'),
+      /该邮箱已绑定到同一母号的其他席位/
+    );
   });
 });
 
@@ -1290,7 +1655,7 @@ describe('TeamService invites', () => {
     assert.equal(hasOwn(store.get(account.id), 'pendingInviteCount'), false);
   });
 
-  it('stores invite metadata on the parent email profile keyed by normalized email', async () => {
+  it('stores default invite metadata on a parent seat slot keyed by normalized email', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -1305,7 +1670,7 @@ describe('TeamService invites', () => {
                   email_address: 'new@example.com',
                   role: 'standard-user',
                   status: 1,
-                  seat_type: 'usage_based',
+                  seat_type: 'default',
                   created_time: '2026-06-18T00:00:00Z',
                   is_scim_managed: false
                 }
@@ -1320,7 +1685,7 @@ describe('TeamService invites', () => {
 
     const view = await service.invite(account.id, {
       email: 'New@Example.COM',
-      seat: 'usage_based',
+      seat: 'default',
       memberProfile: {
         remark: '租给 Shellus',
         expiresOn: '2026-07-23',
@@ -1329,22 +1694,27 @@ describe('TeamService invites', () => {
       }
     });
 
-    assert.equal(requests.length, 2);
-    assert.equal(requests[0].method, 'POST');
-    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), {
+    const slot = view.seatSlots?.find((item) => item.email === 'new@example.com');
+    assert.equal(requests.length, 3);
+    assert.equal(requests[1].method, 'POST');
+    assert.deepEqual(JSON.parse(requests[1].body ?? '{}'), {
       email_addresses: ['New@Example.COM'],
       role: 'standard-user',
-      seat_type: 'usage_based',
+      seat_type: 'default',
       resend_emails: true
     });
-    assert.equal(view.memberProfiles?.['new@example.com']?.remark, '租给 Shellus');
-    assert.equal(view.memberProfiles?.['new@example.com']?.expiresOn, '2026-07-23');
-    assert.equal(view.memberProfiles?.['new@example.com']?.expireRemove, true);
-    assert.equal(view.memberProfiles?.['new@example.com']?.expireReminder, false);
-    assert.deepEqual(store.get(account.id)?.memberProfiles, view.memberProfiles);
+    assert.equal(slot?.remark, '租给 Shellus');
+    assert.equal(slot?.expiresOn, '2026-07-23');
+    assert.equal(slot?.expireRemove, true);
+    assert.equal(slot?.expireReminder, false);
+    assert.equal(slot?.status, 'invited');
+    assert.equal(slot?.currentInviteId, 'invite-new');
+    assert.match(slot?.seatKey ?? '', /^[A-Za-z0-9]{16}$/);
+    assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
+    assert.equal(store.get(account.id)?.memberProfiles, undefined);
   });
 
-  it('creates a 30-day expiring member profile when an invite omits metadata', async () => {
+  it('creates a 30-day expiring seat slot when a default invite omits metadata', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -1359,7 +1729,7 @@ describe('TeamService invites', () => {
                   email_address: 'new@example.com',
                   role: 'standard-user',
                   status: 1,
-                  seat_type: 'usage_based',
+                  seat_type: 'default',
                   created_time: '2026-06-18T00:00:00Z',
                   is_scim_managed: false
                 }
@@ -1373,16 +1743,18 @@ describe('TeamService invites', () => {
     const { account, service } = await createServiceWithTransport(transport);
     const expectedExpiresOn = localDateAfterDays(30);
 
-    const view = await service.invite(account.id, { email: 'new@example.com', seat: 'usage_based' });
+    const view = await service.invite(account.id, { email: 'new@example.com', seat: 'default' });
+    const slot = view.seatSlots?.find((item) => item.email === 'new@example.com');
 
-    assert.equal(view.memberProfiles?.['new@example.com']?.expiresOn, expectedExpiresOn);
-    assert.equal(view.memberProfiles?.['new@example.com']?.expireRemove, false);
-    assert.equal(view.memberProfiles?.['new@example.com']?.expireReminder, true);
+    assert.equal(slot?.expiresOn, expectedExpiresOn);
+    assert.equal(slot?.expireRemove, false);
+    assert.equal(slot?.expireReminder, true);
+    assert.match(slot?.seatKey ?? '', /^[A-Za-z0-9]{16}$/);
   });
 });
 
 describe('TeamService member email profiles', () => {
-  it('edits the metadata for a parent email without calling ChatGPT', async () => {
+  it('edits the seat slot metadata for a parent email without calling ChatGPT', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -1418,16 +1790,20 @@ describe('TeamService member email profiles', () => {
           seat: 'usage_based'
         }
       ],
-      memberProfiles: {
-        'child@example.com': {
+      seatSlots: [
+        {
+          seatKey: 'abcd1234efgh5678',
           email: 'child@example.com',
           remark: '旧备注',
           expiresOn: '2026-07-01',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-a',
           expireRemove: false,
           expireReminder: true,
           updatedAt: 100
         }
-      }
+      ]
     });
     const service = new TeamService(store, transport);
 
@@ -1439,12 +1815,15 @@ describe('TeamService member email profiles', () => {
     });
 
     assert.equal(requests.length, 0);
-    assert.equal(view.memberProfiles?.['child@example.com']?.remark, '新备注');
-    assert.equal(view.memberProfiles?.['child@example.com']?.expiresOn, '2026-08-01');
-    assert.equal(view.memberProfiles?.['child@example.com']?.expireRemove, true);
-    assert.equal(view.memberProfiles?.['child@example.com']?.expireReminder, false);
-    assert.equal(store.get(account.id)?.memberProfiles?.['child@example.com']?.remark, '新备注');
-    assert.equal(typeof store.get(account.id)?.memberProfiles?.['child@example.com']?.updatedAt, 'number');
+    const slot = view.seatSlots?.find((item) => item.email === 'child@example.com');
+    assert.equal(slot?.seatKey, 'abcd1234efgh5678');
+    assert.equal(slot?.remark, '新备注');
+    assert.equal(slot?.expiresOn, '2026-08-01');
+    assert.equal(slot?.expireRemove, true);
+    assert.equal(slot?.expireReminder, false);
+    assert.equal(store.get(account.id)?.seatSlots?.[0]?.remark, '新备注');
+    assert.equal(typeof store.get(account.id)?.seatSlots?.[0]?.updatedAt, 'number');
+    assert.equal(store.get(account.id)?.memberProfiles, undefined);
   });
 });
 

@@ -2,15 +2,21 @@ import type {
   Account,
   AccountFingerprint,
   AccountLimitType,
-  AccountMemberProfile,
   AccountMemberProfileInput,
+  AccountSeatSlot,
+  AccountSeatSlotStatus,
   AccountView,
   Member,
   PendingInvite,
+  PublicSeatSlotView,
   SeatType,
-  InviteRequest
+  InviteRequest,
+  SeatSlotSwapState,
+  SeatSlotSwapStep,
+  SeatSlotSwapStepKey
 } from '@team-manager/shared';
 import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/shared';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { AccountStore } from './accountStore.js';
 import {
   ChatGptApi,
@@ -23,9 +29,12 @@ import { createTransport, type Transport } from './transport.js';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
+const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 /** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
 export class TeamService {
+  private readonly seatSlotLocks = new Set<string>();
+
   constructor(
     private readonly store: AccountStore,
     private readonly transport: Transport = createTransport()
@@ -86,6 +95,7 @@ export class TeamService {
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       memberProfiles: account.memberProfiles,
+      seatSlots: account.seatSlots,
       lastRefreshAt: account.lastRefreshAt,
       lastError: account.lastError
     };
@@ -94,6 +104,261 @@ export class TeamService {
   /** 母号列表只读本地缓存，不触发 ChatGPT 慢请求。 */
   async listAccounts(): Promise<AccountView[]> {
     return this.store.list().map((account) => this.viewFromAccount(account));
+  }
+
+  async getPublicSeatSlot(seatKey: string): Promise<PublicSeatSlotView> {
+    const { slot } = this.findSeatSlotByKey(seatKey);
+    return this.publicSeatSlotView(slot);
+  }
+
+  async swapPublicSeatSlotEmail(seatKey: string, email: string): Promise<PublicSeatSlotView> {
+    const normalizedEmail = this.normalizeProfileEmail(email);
+    const found = this.findSeatSlotByKey(seatKey);
+    if (found.account.seatSlots?.some((slot) => slot.seatKey !== seatKey && slot.email?.toLowerCase() === normalizedEmail)) {
+      throw new ServiceError(409, '该邮箱已绑定到同一母号的其他席位');
+    }
+    if (this.seatSlotLocks.has(seatKey)) throw new ServiceError(409, '该席位正在换号，请稍后再试');
+
+    this.seatSlotLocks.add(seatKey);
+    try {
+      return await this.runSeatSlotSwap(found.account.id, seatKey, normalizedEmail);
+    } finally {
+      this.seatSlotLocks.delete(seatKey);
+    }
+  }
+
+  private async runSeatSlotSwap(accountId: string, seatKey: string, newEmail: string): Promise<PublicSeatSlotView> {
+    const initial = this.findSeatSlotByKey(seatKey);
+    const swap = this.createSeatSlotSwap(initial.slot.email, newEmail);
+    await this.persistSeatSlotSwap(accountId, seatKey, swap);
+
+    try {
+      const { api } = await this.clientFor(accountId);
+      this.markSeatSlotSwapStep(swap, 'refreshing_parent', 'running');
+      await this.persistSeatSlotSwap(accountId, seatKey, swap);
+      let members = await api.listMembers();
+      let invites = await api.listPendingInvites();
+      await this.saveMemberCache(accountId, members);
+      await this.savePendingInviteCache(accountId, invites);
+      await this.refreshSeatSlotRelation(accountId, seatKey, members, invites);
+      this.markSeatSlotSwapStep(swap, 'refreshing_parent', 'done');
+
+      const current = this.findSeatSlotByKey(seatKey).slot;
+      this.markSeatSlotSwapStep(swap, 'confirming_current_email', 'running');
+      await this.persistSeatSlotSwap(accountId, seatKey, swap);
+      const currentEmail = current.email?.toLowerCase();
+      const currentMember = currentEmail ? members.find((member) => member.email.toLowerCase() === currentEmail) : undefined;
+      const currentInvite = currentEmail ? invites.find((invite) => invite.email.toLowerCase() === currentEmail) : undefined;
+      this.markSeatSlotSwapStep(
+        swap,
+        'confirming_current_email',
+        'done',
+        currentEmail ? `当前邮箱 ${currentEmail}` : '当前席位为空'
+      );
+
+      if (currentMember) {
+        if (currentMember.role === 'account-owner' || currentMember.role === 'account-admin') {
+          throw new ServiceError(409, '席位当前邮箱是 owner/admin，拒绝通过自助页移除');
+        }
+        this.markSeatSlotSwapStep(swap, 'removing_current_member', 'running', currentMember.email);
+        await this.persistSeatSlotSwap(accountId, seatKey, swap);
+        await api.removeMember(currentMember.userId);
+        this.markSeatSlotSwapStep(swap, 'removing_current_member', 'done', currentMember.email);
+      } else {
+        this.markSeatSlotSwapStep(swap, 'removing_current_member', 'skipped', '当前邮箱不是成员');
+      }
+
+      if (!currentMember && currentInvite) {
+        this.markSeatSlotSwapStep(swap, 'revoking_current_invite', 'running', currentInvite.email);
+        await this.persistSeatSlotSwap(accountId, seatKey, swap);
+        await api.revokePendingInvite(currentInvite.email);
+        this.markSeatSlotSwapStep(swap, 'revoking_current_invite', 'done', currentInvite.email);
+      } else {
+        this.markSeatSlotSwapStep(swap, 'revoking_current_invite', 'skipped', currentMember ? '已移除成员' : '当前邮箱不是邀请');
+      }
+
+      this.markSeatSlotSwapStep(swap, 'inviting_new_email', 'running', newEmail);
+      await this.persistSeatSlotSwap(accountId, seatKey, swap);
+      await api.invite(newEmail, 'default', 'standard-user');
+      this.markSeatSlotSwapStep(swap, 'inviting_new_email', 'done', newEmail);
+
+      this.markSeatSlotSwapStep(swap, 'saving_new_profile', 'running', newEmail);
+      await this.patchSeatSlot(accountId, seatKey, (slot) => ({
+        ...slot,
+        email: newEmail,
+        status: 'unknown',
+        currentUserId: undefined,
+        currentInviteId: undefined,
+        lastSwap: swap,
+        updatedAt: Date.now()
+      }));
+      this.markSeatSlotSwapStep(swap, 'saving_new_profile', 'done', newEmail);
+
+      this.markSeatSlotSwapStep(swap, 'refreshing_final_state', 'running');
+      await this.persistSeatSlotSwap(accountId, seatKey, swap);
+      members = await api.listMembers();
+      invites = await api.listPendingInvites();
+      await this.saveMemberCache(accountId, members);
+      await this.savePendingInviteCache(accountId, invites);
+      await this.refreshSeatSlotRelation(accountId, seatKey, members, invites);
+      this.markSeatSlotSwapStep(swap, 'refreshing_final_state', 'done');
+
+      swap.status = 'succeeded';
+      swap.completedAt = Date.now();
+      swap.updatedAt = swap.completedAt;
+      await this.persistSeatSlotSwap(accountId, seatKey, swap);
+      return this.publicSeatSlotView(this.findSeatSlotByKey(seatKey).slot);
+    } catch (error) {
+      swap.status = 'failed';
+      swap.error = (error as Error).message;
+      swap.completedAt = Date.now();
+      swap.updatedAt = swap.completedAt;
+      const running = swap.steps.find((step) => step.status === 'running');
+      if (running) {
+        running.status = 'failed';
+        running.message = swap.error;
+        running.at = swap.completedAt;
+      }
+      await this.persistSeatSlotSwap(accountId, seatKey, swap).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private findSeatSlotByKey(seatKey: string): { account: Account; slot: AccountSeatSlot; index: number } {
+    const normalized = seatKey.trim();
+    for (const account of this.store.list()) {
+      const index = account.seatSlots?.findIndex((slot) => slot.seatKey === normalized) ?? -1;
+      if (index >= 0 && account.seatSlots) return { account, slot: account.seatSlots[index]!, index };
+    }
+    throw new ServiceError(404, '席位不存在');
+  }
+
+  private publicSeatSlotView(slot: AccountSeatSlot): PublicSeatSlotView {
+    const swapHistory = this.seatSlotSwapHistory(slot);
+    return {
+      seatKey: slot.seatKey,
+      ...(slot.email ? { email: slot.email } : {}),
+      ...(slot.remark ? { remark: slot.remark } : {}),
+      expiresOn: slot.expiresOn,
+      ...(slot.price ? { price: slot.price } : {}),
+      status: slot.status ?? 'unknown',
+      ...(slot.lastSwap ? { swap: slot.lastSwap } : {}),
+      ...(swapHistory.length ? { swapHistory } : {})
+    };
+  }
+
+  private createSeatSlotSwap(fromEmail: string | undefined, toEmail: string): SeatSlotSwapState {
+    const now = Date.now();
+    return {
+      id: randomUUID(),
+      status: 'running',
+      ...(fromEmail ? { fromEmail } : {}),
+      toEmail,
+      startedAt: now,
+      updatedAt: now,
+      steps: [
+        this.createSeatSlotSwapStep('refreshing_parent', '正在同步母号信息'),
+        this.createSeatSlotSwapStep('confirming_current_email', '确认要移除的成员'),
+        this.createSeatSlotSwapStep('removing_current_member', '正在移除当前成员'),
+        this.createSeatSlotSwapStep('revoking_current_invite', '正在撤销当前邀请'),
+        this.createSeatSlotSwapStep('inviting_new_email', '正在添加新成员'),
+        this.createSeatSlotSwapStep('saving_new_profile', '正在设置新成员资料'),
+        this.createSeatSlotSwapStep('refreshing_final_state', '正在刷新最终状态')
+      ]
+    };
+  }
+
+  private createSeatSlotSwapStep(key: SeatSlotSwapStepKey, label: string): SeatSlotSwapStep {
+    return { key, label, status: 'pending' };
+  }
+
+  private markSeatSlotSwapStep(
+    swap: SeatSlotSwapState,
+    key: SeatSlotSwapStepKey,
+    status: SeatSlotSwapStep['status'],
+    message?: string
+  ): void {
+    const step = swap.steps.find((item) => item.key === key);
+    if (!step) return;
+    step.status = status;
+    step.at = Date.now();
+    if (message) step.message = message;
+    swap.updatedAt = step.at;
+  }
+
+  private async persistSeatSlotSwap(accountId: string, seatKey: string, swap: SeatSlotSwapState): Promise<AccountSeatSlot> {
+    return this.patchSeatSlot(accountId, seatKey, (slot) => ({
+      ...slot,
+      lastSwap: swap,
+      swapHistory: this.upsertSeatSlotSwapHistory(slot, swap),
+      updatedAt: Date.now()
+    }));
+  }
+
+  private upsertSeatSlotSwapHistory(slot: AccountSeatSlot, swap: SeatSlotSwapState): SeatSlotSwapState[] {
+    const history = this.seatSlotSwapHistory(slot);
+    const existingIndex = history.findIndex((item) => item.id === swap.id);
+    if (existingIndex >= 0) {
+      history[existingIndex] = swap;
+    } else {
+      history.push(swap);
+    }
+    return history;
+  }
+
+  private seatSlotSwapHistory(slot: AccountSeatSlot): SeatSlotSwapState[] {
+    const history = [...(slot.swapHistory ?? [])];
+    if (slot.lastSwap && !history.some((swap) => swap.id === slot.lastSwap?.id)) {
+      history.push(slot.lastSwap);
+    }
+    return history;
+  }
+
+  private async patchSeatSlot(
+    accountId: string,
+    seatKey: string,
+    patch: (slot: AccountSeatSlot) => AccountSeatSlot
+  ): Promise<AccountSeatSlot> {
+    const account = this.store.get(accountId);
+    if (!account?.seatSlots) throw new ServiceError(404, '席位不存在');
+    const index = account.seatSlots.findIndex((slot) => slot.seatKey === seatKey);
+    if (index < 0) throw new ServiceError(404, '席位不存在');
+    const nextSlots = account.seatSlots.map((slot, slotIndex) => (slotIndex === index ? patch(slot) : slot));
+    const updated = await this.store.update(accountId, { seatSlots: nextSlots, lastError: undefined });
+    const nextSlot = updated?.seatSlots?.find((slot) => slot.seatKey === seatKey);
+    if (!nextSlot) throw new ServiceError(404, '席位不存在');
+    return nextSlot;
+  }
+
+  private async refreshSeatSlotRelation(
+    accountId: string,
+    seatKey: string,
+    members: Member[],
+    invites: PendingInvite[]
+  ): Promise<AccountSeatSlot> {
+    const slot = this.findSeatSlotByKey(seatKey).slot;
+    const relation = this.seatSlotRelation(slot.email, members, invites);
+    return this.patchSeatSlot(accountId, seatKey, (current) => ({
+      ...current,
+      status: relation.status,
+      currentUserId: relation.currentUserId,
+      currentInviteId: relation.currentInviteId,
+      updatedAt: Date.now()
+    }));
+  }
+
+  private seatSlotRelation(
+    email: string | undefined,
+    members: Member[],
+    invites: PendingInvite[]
+  ): { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string } {
+    const target = email?.trim().toLowerCase();
+    if (!target) return { status: 'empty' };
+    const member = members.find((item) => item.email.toLowerCase() === target);
+    if (member) return { status: 'member', currentUserId: member.userId };
+    const invite = invites.find((item) => item.email.toLowerCase() === target);
+    if (invite) return { status: 'invited', currentInviteId: invite.inviteId };
+    return { status: 'unknown' };
   }
 
   async checkSessionAccounts(session: {
@@ -266,7 +531,8 @@ export class TeamService {
       }
     }
     await api.invite(email, req.seat, req.role);
-    await this.refreshPendingInviteCache(id, api);
+    const updated = await this.refreshPendingInviteCache(id, api);
+    if (req.seat !== 'default') return this.viewFromAccount(updated);
     return this.updateMemberProfile(id, email, req.memberProfile ?? {});
   }
 
@@ -279,13 +545,17 @@ export class TeamService {
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
 
     const normalizedEmail = this.normalizeProfileEmail(email);
-    const existingProfiles = account.memberProfiles ?? {};
-    const nextProfile = this.buildMemberProfile(normalizedEmail, existingProfiles[normalizedEmail], input);
+    const existingSlots = account.seatSlots ?? [];
+    const existingSlot = existingSlots.find((slot) => slot.email?.toLowerCase() === normalizedEmail);
+    const usedKeys = new Set(existingSlots.map((slot) => slot.seatKey));
+    const relation = this.seatSlotRelation(normalizedEmail, account.membersCache ?? [], account.pendingInvitesCache ?? []);
+    const nextSlot = this.buildSeatSlotProfile(normalizedEmail, existingSlot, input, relation, usedKeys);
+    const nextSlots = existingSlot
+      ? existingSlots.map((slot) => (slot.seatKey === existingSlot.seatKey ? nextSlot : slot))
+      : [...existingSlots, nextSlot];
     const updated = await this.store.update(id, {
-      memberProfiles: {
-        ...existingProfiles,
-        [normalizedEmail]: nextProfile
-      },
+      memberProfiles: undefined,
+      seatSlots: nextSlots,
       lastError: undefined
     });
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
@@ -298,22 +568,44 @@ export class TeamService {
     return normalized;
   }
 
-  private buildMemberProfile(
+  private buildSeatSlotProfile(
     email: string,
-    existing: AccountMemberProfile | undefined,
-    input: AccountMemberProfileInput
-  ): AccountMemberProfile {
+    existing: AccountSeatSlot | undefined,
+    input: AccountMemberProfileInput,
+    relation: { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string },
+    usedKeys: Set<string>
+  ): AccountSeatSlot {
     const remark = typeof input.remark === 'string' ? input.remark.trim() : existing?.remark;
     const expiresOn = this.normalizeProfileDate(input.expiresOn, existing?.expiresOn);
     return {
+      seatKey: existing?.seatKey ?? this.generateSeatKey(usedKeys),
       email,
       ...(remark ? { remark } : {}),
       expiresOn,
+      ...(existing?.price ? { price: existing.price } : {}),
+      seat: 'default',
+      status: relation.status,
+      ...(relation.currentUserId ? { currentUserId: relation.currentUserId } : {}),
+      ...(relation.currentInviteId ? { currentInviteId: relation.currentInviteId } : {}),
       expireRemove: typeof input.expireRemove === 'boolean' ? input.expireRemove : (existing?.expireRemove ?? false),
       expireReminder:
         typeof input.expireReminder === 'boolean' ? input.expireReminder : (existing?.expireReminder ?? true),
+      lastSwap: existing?.lastSwap,
+      ...(existing?.swapHistory ? { swapHistory: existing.swapHistory } : {}),
       updatedAt: Date.now()
     };
+  }
+
+  private generateSeatKey(usedKeys: Set<string>): string {
+    for (;;) {
+      const bytes = randomBytes(16);
+      let key = '';
+      for (const byte of bytes) key += SEAT_KEY_ALPHABET[byte % SEAT_KEY_ALPHABET.length];
+      if (!usedKeys.has(key)) {
+        usedKeys.add(key);
+        return key;
+      }
+    }
   }
 
   private normalizeProfileDate(value: string | undefined, fallback: string | undefined): string {

@@ -13,6 +13,7 @@ import {
   memberProfileSummary,
   normalizeMemberProfileEmail
 } from './MemberProfileModal.js';
+import { buildSeatManagementUrl } from './seatSlotUrl.js';
 
 function memberRoleRank(member: Member): number {
   return member.role === 'account-owner' ? 0 : 1;
@@ -113,11 +114,16 @@ export function ParentMembersTable({
       title: '本地资料',
       key: 'profile',
       render: (_, member) => {
-        const profile = memberProfileForEmail(account.memberProfiles, member.email);
+        const profile = memberProfileForEmail(account, member.email);
         return (
           <div className="profile-cell">
             <Typography.Text>{memberProfileSummary(profile)}</Typography.Text>
             {profile?.remark && <Typography.Text type="secondary">{profile.remark}</Typography.Text>}
+            {profile?.seatKey && (
+              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(profile.seatKey) }}>
+                席位管理 URL
+              </Typography.Text>
+            )}
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(member.email)}>
               编辑资料
             </Button>

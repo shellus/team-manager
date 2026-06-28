@@ -2,13 +2,36 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { normalizeChatGptSessionCookies, type Account, type AccountLimitType, type Member } from '@team-manager/shared';
+import {
+  normalizeChatGptSessionCookies,
+  type Account,
+  type AccountLimitType,
+  type AccountSeatSlot,
+  type AccountSeatSlotStatus,
+  type Member,
+  type SeatSlotSwapState,
+  type SeatSlotSwapStep,
+  type SeatSlotSwapStepKey
+} from '@team-manager/shared';
 
 type StoredAccount = Account & Record<string, unknown>;
 
 const DEFAULT_ACCOUNT_GROUP = '默认分组';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const SEAT_KEY_PATTERN = /^[A-Za-z0-9]{16}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
+const SEAT_SLOT_STATUSES = new Set<AccountSeatSlotStatus>(['empty', 'invited', 'member', 'unknown']);
+const SWAP_STATUSES = new Set<SeatSlotSwapState['status']>(['running', 'succeeded', 'failed']);
+const SWAP_STEP_KEYS = new Set<SeatSlotSwapStepKey>([
+  'refreshing_parent',
+  'confirming_current_email',
+  'removing_current_member',
+  'revoking_current_invite',
+  'inviting_new_email',
+  'saving_new_profile',
+  'refreshing_final_state'
+]);
+const SWAP_STEP_STATUSES = new Set<SeatSlotSwapStep['status']>(['pending', 'running', 'done', 'failed', 'skipped']);
 
 function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -89,6 +112,135 @@ function normalizeMemberProfiles(input: Account['memberProfiles']): Account['mem
   return Object.keys(profiles).length > 0 ? profiles : undefined;
 }
 
+function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] | undefined {
+  if (!Array.isArray(input)) return undefined;
+
+  const seen = new Set<string>();
+  const slots: AccountSeatSlot[] = [];
+  for (const rawSlot of input) {
+    if (!rawSlot || typeof rawSlot !== 'object' || Array.isArray(rawSlot)) continue;
+    const slot = rawSlot as unknown as Record<string, unknown>;
+    const seatKey = readTrimmedString(slot.seatKey);
+    if (!SEAT_KEY_PATTERN.test(seatKey) || seen.has(seatKey)) continue;
+    if (slot.seat !== 'default') continue;
+
+    const expiresOn = normalizeDateOnly(slot.expiresOn);
+    if (!expiresOn) continue;
+
+    const email = normalizeEmail(slot.email);
+    const remark = readTrimmedString(slot.remark);
+    const price = readTrimmedString(slot.price);
+    const statusValue = readTrimmedString(slot.status);
+    const status = SEAT_SLOT_STATUSES.has(statusValue as AccountSeatSlotStatus)
+      ? (statusValue as AccountSeatSlotStatus)
+      : undefined;
+    const currentUserId = readTrimmedString(slot.currentUserId);
+    const currentInviteId = readTrimmedString(slot.currentInviteId);
+    const updatedAt = typeof slot.updatedAt === 'number' && Number.isFinite(slot.updatedAt)
+      ? slot.updatedAt
+      : Date.now();
+    const lastSwap = normalizeSeatSlotSwap(slot.lastSwap);
+    const swapHistory = normalizeSeatSlotSwapHistory(slot.swapHistory, lastSwap);
+
+    seen.add(seatKey);
+    slots.push({
+      seatKey,
+      ...(email ? { email } : {}),
+      ...(remark ? { remark } : {}),
+      expiresOn,
+      ...(price ? { price } : {}),
+      seat: 'default',
+      ...(status ? { status } : {}),
+      ...(currentUserId ? { currentUserId } : {}),
+      ...(currentInviteId ? { currentInviteId } : {}),
+      expireRemove: typeof slot.expireRemove === 'boolean' ? slot.expireRemove : false,
+      expireReminder: typeof slot.expireReminder === 'boolean' ? slot.expireReminder : true,
+      ...(lastSwap ? { lastSwap } : {}),
+      ...(swapHistory ? { swapHistory } : {}),
+      updatedAt
+    });
+  }
+
+  return slots.length ? slots : undefined;
+}
+
+function normalizeSeatSlotSwapHistory(input: unknown, lastSwap?: SeatSlotSwapState): SeatSlotSwapState[] | undefined {
+  const history: SeatSlotSwapState[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const swap = normalizeSeatSlotSwap(item);
+      if (!swap || seen.has(swap.id)) continue;
+      seen.add(swap.id);
+      history.push(swap);
+    }
+  }
+
+  if (lastSwap) {
+    const existingIndex = history.findIndex((swap) => swap.id === lastSwap.id);
+    if (existingIndex >= 0) {
+      history[existingIndex] = lastSwap;
+    } else {
+      history.push(lastSwap);
+    }
+  }
+
+  return history.length ? history : undefined;
+}
+
+function normalizeSeatSlotSwap(input: unknown): SeatSlotSwapState | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const raw = input as Record<string, unknown>;
+  const id = readTrimmedString(raw.id);
+  const status = readTrimmedString(raw.status);
+  const toEmail = normalizeEmail(raw.toEmail);
+  const startedAt = readNumber(raw.startedAt);
+  const updatedAt = readNumber(raw.updatedAt);
+  if (!id || !SWAP_STATUSES.has(status as SeatSlotSwapState['status']) || !toEmail || startedAt === undefined || updatedAt === undefined) {
+    return undefined;
+  }
+
+  const fromEmail = normalizeEmail(raw.fromEmail);
+  const completedAt = readNumber(raw.completedAt);
+  const error = readTrimmedString(raw.error);
+  const steps = Array.isArray(raw.steps) ? raw.steps.map(normalizeSeatSlotSwapStep).filter((step): step is SeatSlotSwapStep => Boolean(step)) : [];
+  return {
+    id,
+    status: status as SeatSlotSwapState['status'],
+    ...(fromEmail ? { fromEmail } : {}),
+    toEmail,
+    startedAt,
+    updatedAt,
+    ...(completedAt !== undefined ? { completedAt } : {}),
+    ...(error ? { error } : {}),
+    steps
+  };
+}
+
+function normalizeSeatSlotSwapStep(input: unknown): SeatSlotSwapStep | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const raw = input as Record<string, unknown>;
+  const key = readTrimmedString(raw.key);
+  const status = readTrimmedString(raw.status);
+  const label = readTrimmedString(raw.label);
+  if (!SWAP_STEP_KEYS.has(key as SeatSlotSwapStepKey) || !SWAP_STEP_STATUSES.has(status as SeatSlotSwapStep['status']) || !label) {
+    return undefined;
+  }
+  const message = readTrimmedString(raw.message);
+  const at = readNumber(raw.at);
+  return {
+    key: key as SeatSlotSwapStepKey,
+    label,
+    status: status as SeatSlotSwapStep['status'],
+    ...(message ? { message } : {}),
+    ...(at !== undefined ? { at } : {})
+  };
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function sanitizeAccount(input: StoredAccount): { account: Account; changed: boolean } {
   const email = readTrimmedString(input.email);
   const remark = readTrimmedString(input.remark);
@@ -127,6 +279,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     pendingInvitesCache: input.pendingInvitesCache,
     pendingInvitesCachedAt: input.pendingInvitesCachedAt,
     memberProfiles: normalizeMemberProfiles(input.memberProfiles),
+    seatSlots: normalizeSeatSlots(input.seatSlots),
     lastRefreshAt: input.lastRefreshAt,
     ...(readTrimmedString(input.lastError) ? { lastError: readTrimmedString(input.lastError) } : {})
   };

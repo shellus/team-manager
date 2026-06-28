@@ -111,6 +111,61 @@ body {
   font-size: 24px;
 }
 
+.public-seat-page {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--color-bg-app);
+}
+
+.public-seat-panel {
+  width: min(640px, 100%);
+  padding: 24px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-shell);
+}
+
+.public-seat-header {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.public-seat-header h1.ant-typography {
+  margin: 0 0 4px;
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.public-seat-section h2.ant-typography {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.seat-history-label {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.seat-history-label > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.seat-history-label .ant-typography {
+  overflow-wrap: anywhere;
+}
+
 .login-error,
 .modal-error,
 .input-detection {
