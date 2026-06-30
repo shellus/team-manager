@@ -38,6 +38,7 @@
    | `usage_based` | Codex/usage-based 席位，不占固定 ChatGPT 席位，没有 Team 额度窗口 |
 
    字段名是 `seat_type`，不是 `seat`。`seat` 只是 team-manager 内部模型字段名。
+   OpenAI 自 2026-06-24 起限制新 ChatGPT Business/Team workspace 获得首个 Codex 席位；此前已存在 Codex 席位或 pending invite 的 workspace 仍可继续管理 `usage_based` 席位。
 
 4. **ChatGPT 席位超出已购数量会产生账单风险。**
    `default` 席位需要预先购买固定数量。邀请或切换成员到 `default` 时，如果同一 Team 内 `default` 成员数超过已购数量，超出的席位会进入后续账单。team-manager service 层会对这类操作做账单风险确认。
