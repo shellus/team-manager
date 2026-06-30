@@ -1,21 +1,6 @@
 import type { CodexCredentialJson, SubaccountView } from '@team-manager/shared';
-
-export interface FileDownload {
-  fileName: string;
-  content: string;
-  mimeType: string;
-}
-
-const JSON_MIME_TYPE = 'application/json;charset=utf-8';
-
-function safeFileSegment(value: string): string {
-  const segment = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return segment || 'credential';
-}
+import { JSON_MIME_TYPE, safeFileSegment, type FileDownload } from '../../components/fileDownload.js';
+export { downloadTextFile } from '../../components/fileDownload.js';
 
 export function buildCredentialDownload(
   subaccount: SubaccountView,
@@ -32,16 +17,4 @@ export function buildCredentialDownload(
     content: `${JSON.stringify(credential, null, 2)}\n`,
     mimeType: JSON_MIME_TYPE
   };
-}
-
-export function downloadTextFile(download: FileDownload): void {
-  const blob = new Blob([download.content], { type: download.mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = download.fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }

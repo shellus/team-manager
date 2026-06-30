@@ -76,6 +76,94 @@ function recordingTransport(): Transport & { requests: HttpRequest[] } {
 }
 
 describe('Parent account local-profile API', () => {
+  it('refreshes and persists the raw parent billing snapshot', async () => {
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        if (req.path === '/backend-api/invoices?limit=10&account_id=workspace-old') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              object: 'list',
+              data: [
+                {
+                  id: 'invoice-1',
+                  amount_due: 1100,
+                  currency: 'gbp',
+                  next_payment_attempt: 1783728000
+                }
+              ]
+            })
+          };
+        }
+        if (req.path === '/backend-api/payments/payment_methods?account_id=workspace-old') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              data: [{ id: 'pm_1', card: { brand: 'visa', last4: '4242' } }]
+            })
+          };
+        }
+        if (req.path === '/backend-api/payments/billing_info?account_id=workspace-old') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              name: 'Billing Name',
+              email: 'billing@example.com',
+              address: { country: 'GB' }
+            })
+          };
+        }
+        if (req.path === '/backend-api/accounts/workspace-old/users/seat_type_counts') {
+          return {
+            status: 200,
+            body: JSON.stringify({ seat_type_counts: { default: 3, usage_based: 1 } })
+          };
+        }
+        return { status: 404, body: `{"error":"unexpected ${req.path}"}` };
+      }
+    };
+    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const refreshResponse = await app.request(`/api/accounts/${account.id}/billing/refresh`, {
+      method: 'POST',
+      headers: authHeaders
+    });
+    const refreshJson = (await refreshResponse.json()) as ApiResult<Record<string, unknown>>;
+    const storedFile = JSON.parse(
+      await readFile(join(tempDir!, 'account-billing-snapshots.json'), 'utf8')
+    ) as Record<string, unknown>;
+
+    assert.equal(refreshResponse.status, 200);
+    assert.equal(refreshJson.data!.accountId, account.id);
+    assert.equal(refreshJson.data!.workspaceAccountId, 'workspace-old');
+    assert.deepEqual((refreshJson.data!.raw as Record<string, unknown>).seatTypeCounts, {
+      seat_type_counts: { default: 3, usage_based: 1 }
+    });
+    assert.deepEqual((refreshJson.data!.raw as Record<string, unknown>).billingInfo, {
+      name: 'Billing Name',
+      email: 'billing@example.com',
+      address: { country: 'GB' }
+    });
+    assert.deepEqual((storedFile[account.id] as Record<string, unknown>).raw, refreshJson.data!.raw);
+    assert.deepEqual(transport.requests.map((request) => request.path), [
+      '/backend-api/invoices?limit=10&account_id=workspace-old',
+      '/backend-api/payments/payment_methods?account_id=workspace-old',
+      '/backend-api/payments/billing_info?account_id=workspace-old',
+      '/backend-api/accounts/workspace-old/users/seat_type_counts'
+    ]);
+
+    const getResponse = await app.request(`/api/accounts/${account.id}/billing`, {
+      method: 'GET',
+      headers: authHeaders
+    });
+    const getJson = (await getResponse.json()) as ApiResult<Record<string, unknown>>;
+
+    assert.equal(getResponse.status, 200);
+    assert.deepEqual(getJson.data, refreshJson.data);
+  });
+
   it('updates only the local remark, group, limit type and renewal date without calling ChatGPT', async () => {
     const transport = recordingTransport();
     const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);

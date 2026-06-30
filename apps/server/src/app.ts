@@ -8,6 +8,7 @@ import type { AppConfig } from './config.js';
 import { signJwt, verifyJwt } from './auth/jwt.js';
 import { hashPassword, verifyPasswordHash } from './auth/password.js';
 import { AccountStore } from './accountStore.js';
+import { AccountBillingStore } from './accountBillingStore.js';
 import { AppSettingsStore } from './appSettingsStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
@@ -27,6 +28,7 @@ export interface BuildAppDeps {
   subaccountRegistration?: SubaccountRegistrationExecutor;
   teamTransport?: Transport;
   settingsStore?: AppSettingsStore;
+  billingStore?: AccountBillingStore;
 }
 
 // 恒定时间字符串比较，避免 token 校验的时序侧信道
@@ -46,10 +48,13 @@ export async function buildApp({
   subaccountCodexAutoAuth,
   subaccountRegistration,
   teamTransport,
-  settingsStore
+  settingsStore,
+  billingStore
 }: BuildAppDeps): Promise<Hono> {
   const app = new Hono();
-  const service = new TeamService(store, teamTransport);
+  const accountBillingStore = billingStore ?? new AccountBillingStore(config.dataDir);
+  await accountBillingStore.init();
+  const service = new TeamService(store, teamTransport, accountBillingStore);
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
   const subaccountService = new SubaccountService(
@@ -288,6 +293,12 @@ export async function buildApp({
   });
 
   api.post('/accounts/:id/refresh', (c) => wrap(c, () => service.refreshAccount(c.req.param('id'))));
+
+  api.get('/accounts/:id/billing', (c) => wrap(c, () => service.getCachedBillingSnapshot(c.req.param('id'))));
+
+  api.post('/accounts/:id/billing/refresh', (c) =>
+    wrap(c, () => service.refreshBillingSnapshot(c.req.param('id')))
+  );
 
   // ---- 成员 ----
   api.get('/accounts/:id/members', (c) => wrap(c, () => service.listCachedMembers(c.req.param('id'))));

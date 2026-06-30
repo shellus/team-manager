@@ -6,6 +6,7 @@ import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { AccountStatusTag, SeatTag } from '../../components/StatusTag.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { ParentInvitesTable } from './ParentInvitesTable.js';
+import { ParentBillingPanel } from './ParentBillingPanel.js';
 import { ParentMembersTable, type MemberSeatRisk } from './ParentMembersTable.js';
 import { ParentSettingsPanel } from './ParentSettingsPanel.js';
 
@@ -115,6 +116,11 @@ export function ParentDetail({
                 onOpenLocalProfile={onOpenLocalProfile}
               />
             )
+          },
+          {
+            key: 'billing',
+            label: '账单',
+            children: <ParentBillingPanel account={account} />
           }
         ]}
       />

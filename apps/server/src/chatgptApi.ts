@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { Account, AccountFingerprint, Member, PendingInvite, SeatType, MemberRole } from '@team-manager/shared';
+import type {
+  Account,
+  AccountBillingSnapshot,
+  AccountFingerprint,
+  Member,
+  PendingInvite,
+  SeatType,
+  MemberRole
+} from '@team-manager/shared';
 import type { Transport } from './transport.js';
 
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -247,6 +255,24 @@ export class ChatGptApi {
   async setWorkspaceReferralsEnabled(enabled: boolean): Promise<Record<string, unknown>> {
     const path = `/backend-api/accounts/${this.account.accountId}/settings/workspace_referrals_enabled`;
     return this.request('POST', path, { value: enabled });
+  }
+
+  async getBillingSnapshotRaw(): Promise<AccountBillingSnapshot['raw']> {
+    const workspaceAccountId = encodeURIComponent(this.account.accountId);
+    const invoices = await this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${workspaceAccountId}`);
+    const paymentMethods = await this.request<unknown>(
+      'GET',
+      `/backend-api/payments/payment_methods?account_id=${workspaceAccountId}`
+    );
+    const billingInfo = await this.request<unknown>(
+      'GET',
+      `/backend-api/payments/billing_info?account_id=${workspaceAccountId}`
+    );
+    const seatTypeCounts = await this.request<unknown>(
+      'GET',
+      `/backend-api/accounts/${this.account.accountId}/users/seat_type_counts`
+    );
+    return { invoices, paymentMethods, billingInfo, seatTypeCounts };
   }
 
   /** 改“允许用户创建个人访问令牌”开关 */

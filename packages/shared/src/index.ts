@@ -215,6 +215,18 @@ export interface PublicSeatSwapRequest {
   email: string;
 }
 
+export interface AccountBillingSnapshot {
+  accountId: string;
+  workspaceAccountId: string;
+  refreshedAt: number;
+  raw: {
+    invoices: unknown;
+    paymentMethods: unknown;
+    billingInfo: unknown;
+    seatTypeCounts: unknown;
+  };
+}
+
 /** 邀请录入 */
 export interface InviteRequest {
   email: string;

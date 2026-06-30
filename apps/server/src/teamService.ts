@@ -1,5 +1,6 @@
 import type {
   Account,
+  AccountBillingSnapshot,
   AccountFingerprint,
   AccountLimitType,
   AccountMemberProfileInput,
@@ -18,6 +19,7 @@ import type {
 import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AccountStore } from './accountStore.js';
+import { AccountBillingStore } from './accountBillingStore.js';
 import {
   ChatGptApi,
   refreshAccessToken,
@@ -37,7 +39,8 @@ export class TeamService {
 
   constructor(
     private readonly store: AccountStore,
-    private readonly transport: Transport = createTransport()
+    private readonly transport: Transport = createTransport(),
+    private readonly billingStore?: AccountBillingStore
   ) {}
 
   /** 取母号并在 token 临过期时刷新（刷新后回写 store） */
@@ -770,6 +773,28 @@ export class TeamService {
   async getSettings(id: string): Promise<Record<string, unknown>> {
     const view = await this.refreshSettings(id);
     return this.settingsFromAccount(view);
+  }
+
+  async getCachedBillingSnapshot(id: string): Promise<AccountBillingSnapshot | null> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.requireBillingStore().get(id) ?? null;
+  }
+
+  async refreshBillingSnapshot(id: string): Promise<AccountBillingSnapshot> {
+    const { account, api } = await this.clientFor(id);
+    const raw = await api.getBillingSnapshotRaw();
+    return this.requireBillingStore().save({
+      accountId: account.id,
+      workspaceAccountId: account.accountId,
+      refreshedAt: Date.now(),
+      raw
+    });
+  }
+
+  private requireBillingStore(): AccountBillingStore {
+    if (!this.billingStore) throw new ServiceError(500, 'AccountBillingStore 未初始化');
+    return this.billingStore;
   }
 
   async setDefaultSeat(id: string, seat: SeatType): Promise<AccountView> {

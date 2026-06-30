@@ -1,5 +1,6 @@
 import type {
   AccountMemberProfileInput,
+  AccountBillingSnapshot,
   AccountLimitType,
   AccountView,
   Member,
@@ -118,6 +119,9 @@ export const apiClient = {
     call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),
   getSettings: (id: string) => call<Record<string, unknown>>('GET', `/accounts/${id}/settings`),
   refreshSettings: (id: string) => call<AccountView>('POST', `/accounts/${id}/settings/refresh`),
+  getBillingSnapshot: (id: string) => call<AccountBillingSnapshot | null>('GET', `/accounts/${id}/billing`),
+  refreshBillingSnapshot: (id: string) =>
+    call<AccountBillingSnapshot>('POST', `/accounts/${id}/billing/refresh`),
   setDefaultSeat: (id: string, defaultSeat: SeatType) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { defaultSeat }),
   setWorkspaceReferralsEnabled: (id: string, workspaceReferralsEnabled: boolean) =>

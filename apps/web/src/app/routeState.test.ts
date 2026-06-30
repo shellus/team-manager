@@ -51,6 +51,12 @@ describe('routeState', () => {
     expect(params.toString()).toBe('group=A&tab=settings');
   });
 
+  test('accepts the parent billing tab from search params', () => {
+    const state = parseParentSearchState(new URLSearchParams('group=A&tab=billing'));
+
+    expect(state.tab).toBe('billing');
+  });
+
   test('sets and clears modal state while preserving route params', () => {
     const opened = setModalState(new URLSearchParams('group=A&tab=members'), 'invite-member', 'team-1');
 
