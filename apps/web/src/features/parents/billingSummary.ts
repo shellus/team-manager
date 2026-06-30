@@ -1,9 +1,3 @@
-export interface BillingSeatCount {
-  key: string;
-  label: string;
-  count: number;
-}
-
 export interface BillingInvoiceSummary {
   id: string;
   number: string;
@@ -13,9 +7,11 @@ export interface BillingInvoiceSummary {
   total?: number;
   amountDue?: number;
   amountPaid?: number;
+  amountRemaining?: number;
   subtotal?: number;
   tax?: number;
   createdAt?: number;
+  nextPaymentAttempt?: number;
   periodStart?: number;
   periodEnd?: number;
   billingReason: string;
@@ -46,16 +42,11 @@ export interface BillingInfoSummary {
 }
 
 export interface BillingSummary {
-  seatCounts: BillingSeatCount[];
+  upcomingInvoice?: BillingInvoiceSummary;
   invoices: BillingInvoiceSummary[];
   paymentMethods: BillingPaymentMethodSummary[];
   billingInfo: BillingInfoSummary;
 }
-
-const SEAT_COUNT_LABELS: Record<string, string> = {
-  default: 'ChatGPT',
-  usage_based: 'Codex'
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -115,52 +106,46 @@ export function formatBillingAmount(amount?: number, currency?: string): string 
   }
 }
 
-function buildSeatCounts(raw: unknown): BillingSeatCount[] {
-  const seatCounts = readRecord(raw, 'seat_type_counts') ?? (isRecord(raw) ? raw : {});
-  return Object.entries(seatCounts)
-    .filter(([, count]) => typeof count === 'number' && Number.isFinite(count))
-    .map(([key, count]) => ({
-      key,
-      label: SEAT_COUNT_LABELS[key] ?? key,
-      count: count as number
-    }));
+function buildInvoice(raw: unknown): BillingInvoiceSummary | undefined {
+  if (!isRecord(raw)) return undefined;
+  const lines = readRecord(raw, 'lines');
+  const firstLine = readArray(lines, 'data').find(isRecord);
+  const price = readRecord(firstLine, 'price');
+  const plan = readRecord(firstLine, 'plan');
+  const period = readRecord(firstLine, 'period');
+
+  return {
+    id: readString(raw, 'id'),
+    number: readString(raw, 'number'),
+    status: readString(raw, 'status'),
+    paid: readBoolean(raw, 'paid'),
+    currency: readString(raw, 'currency'),
+    total: readNumber(raw, 'total'),
+    amountDue: readNumber(raw, 'amount_due'),
+    amountPaid: readNumber(raw, 'amount_paid'),
+    amountRemaining: readNumber(raw, 'amount_remaining'),
+    subtotal: readNumber(raw, 'subtotal'),
+    tax: readNumber(raw, 'tax'),
+    createdAt: unixSecondsToMillis(readNumber(raw, 'created')),
+    nextPaymentAttempt: unixSecondsToMillis(readNumber(raw, 'next_payment_attempt')),
+    billingReason: readString(raw, 'billing_reason'),
+    hostedInvoiceUrl: readString(raw, 'hosted_invoice_url'),
+    invoicePdfUrl: readString(raw, 'invoice_pdf'),
+    customerName: readString(raw, 'customer_name'),
+    customerEmail: readString(raw, 'customer_email'),
+    lineDescription: readString(firstLine, 'description'),
+    lineQuantity: readNumber(firstLine, 'quantity'),
+    lineAmount: readNumber(firstLine, 'amount'),
+    lineUnitAmount: readNumber(price, 'unit_amount') ?? readNumber(plan, 'amount'),
+    periodStart: unixSecondsToMillis(readNumber(period, 'start')) ?? unixSecondsToMillis(readNumber(raw, 'period_start')),
+    periodEnd: unixSecondsToMillis(readNumber(period, 'end')) ?? unixSecondsToMillis(readNumber(raw, 'period_end'))
+  };
 }
 
 function buildInvoices(raw: unknown): BillingInvoiceSummary[] {
   return readArray(raw, 'data')
-    .filter(isRecord)
-    .map((invoice) => {
-      const lines = readRecord(invoice, 'lines');
-      const firstLine = readArray(lines, 'data').find(isRecord);
-      const price = readRecord(firstLine, 'price');
-      const plan = readRecord(firstLine, 'plan');
-      const period = readRecord(firstLine, 'period');
-
-      return {
-        id: readString(invoice, 'id'),
-        number: readString(invoice, 'number'),
-        status: readString(invoice, 'status'),
-        paid: readBoolean(invoice, 'paid'),
-        currency: readString(invoice, 'currency'),
-        total: readNumber(invoice, 'total'),
-        amountDue: readNumber(invoice, 'amount_due'),
-        amountPaid: readNumber(invoice, 'amount_paid'),
-        subtotal: readNumber(invoice, 'subtotal'),
-        tax: readNumber(invoice, 'tax'),
-        createdAt: unixSecondsToMillis(readNumber(invoice, 'created')),
-        billingReason: readString(invoice, 'billing_reason'),
-        hostedInvoiceUrl: readString(invoice, 'hosted_invoice_url'),
-        invoicePdfUrl: readString(invoice, 'invoice_pdf'),
-        customerName: readString(invoice, 'customer_name'),
-        customerEmail: readString(invoice, 'customer_email'),
-        lineDescription: readString(firstLine, 'description'),
-        lineQuantity: readNumber(firstLine, 'quantity'),
-        lineAmount: readNumber(firstLine, 'amount'),
-        lineUnitAmount: readNumber(price, 'unit_amount') ?? readNumber(plan, 'amount'),
-        periodStart: unixSecondsToMillis(readNumber(period, 'start')) ?? unixSecondsToMillis(readNumber(invoice, 'period_start')),
-        periodEnd: unixSecondsToMillis(readNumber(period, 'end')) ?? unixSecondsToMillis(readNumber(invoice, 'period_end'))
-      };
-    });
+    .map(buildInvoice)
+    .filter((invoice): invoice is BillingInvoiceSummary => Boolean(invoice));
 }
 
 function buildPaymentMethods(raw: unknown): BillingPaymentMethodSummary[] {
@@ -191,7 +176,7 @@ function buildBillingInfo(raw: unknown): BillingInfoSummary {
 
 export function buildBillingSummary(raw: unknown): BillingSummary {
   return {
-    seatCounts: buildSeatCounts(readRecord(raw, 'seatTypeCounts')),
+    upcomingInvoice: buildInvoice(readRecord(raw, 'upcomingInvoice')),
     invoices: buildInvoices(readRecord(raw, 'invoices')),
     paymentMethods: buildPaymentMethods(readRecord(raw, 'paymentMethods')),
     billingInfo: buildBillingInfo(readRecord(raw, 'billingInfo'))

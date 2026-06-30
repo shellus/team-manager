@@ -19,6 +19,7 @@ describe('billingDownload', () => {
       refreshedAt: Date.UTC(2026, 5, 30, 8, 12, 13, 456),
       raw: {
         invoices: { items: [{ id: 'invoice-1' }] },
+        upcomingInvoice: { status: 'draft', billing_reason: 'upcoming' },
         paymentMethods: { data: [] },
         billingInfo: { name: 'Shellus' },
         seatTypeCounts: { default: 2, usage_based: 1 }

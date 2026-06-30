@@ -20,6 +20,7 @@ function normalizeSnapshot(input: unknown): AccountBillingSnapshot | undefined {
     refreshedAt: input.refreshedAt,
     raw: {
       invoices: input.raw.invoices,
+      upcomingInvoice: input.raw.upcomingInvoice,
       paymentMethods: input.raw.paymentMethods,
       billingInfo: input.raw.billingInfo,
       seatTypeCounts: input.raw.seatTypeCounts

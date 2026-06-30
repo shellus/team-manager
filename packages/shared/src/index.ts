@@ -221,6 +221,7 @@ export interface AccountBillingSnapshot {
   refreshedAt: number;
   raw: {
     invoices: unknown;
+    upcomingInvoice: unknown;
     paymentMethods: unknown;
     billingInfo: unknown;
     seatTypeCounts: unknown;

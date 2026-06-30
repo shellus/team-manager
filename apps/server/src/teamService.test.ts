@@ -97,6 +97,31 @@ describe('Parent account local-profile API', () => {
             })
           };
         }
+        if (req.path === '/backend-api/invoices/upcoming?account_id=workspace-old') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              object: 'invoice',
+              status: 'draft',
+              billing_reason: 'upcoming',
+              amount_due: 1100,
+              amount_remaining: 1100,
+              currency: 'gbp',
+              next_payment_attempt: 1784784000,
+              lines: {
+                data: [
+                  {
+                    description: '2 seat × ChatGPT Business Subscription',
+                    quantity: 2,
+                    amount: 3600,
+                    currency: 'gbp',
+                    period: { start: 1784700000, end: 1787378400 }
+                  }
+                ]
+              }
+            })
+          };
+        }
         if (req.path === '/backend-api/payments/payment_methods?account_id=workspace-old') {
           return {
             status: 200,
@@ -141,6 +166,26 @@ describe('Parent account local-profile API', () => {
     assert.deepEqual((refreshJson.data!.raw as Record<string, unknown>).seatTypeCounts, {
       seat_type_counts: { default: 3, usage_based: 1 }
     });
+    assert.deepEqual((refreshJson.data!.raw as Record<string, unknown>).upcomingInvoice, {
+      object: 'invoice',
+      status: 'draft',
+      billing_reason: 'upcoming',
+      amount_due: 1100,
+      amount_remaining: 1100,
+      currency: 'gbp',
+      next_payment_attempt: 1784784000,
+      lines: {
+        data: [
+          {
+            description: '2 seat × ChatGPT Business Subscription',
+            quantity: 2,
+            amount: 3600,
+            currency: 'gbp',
+            period: { start: 1784700000, end: 1787378400 }
+          }
+        ]
+      }
+    });
     assert.deepEqual((refreshJson.data!.raw as Record<string, unknown>).billingInfo, {
       name: 'Billing Name',
       email: 'billing@example.com',
@@ -149,6 +194,7 @@ describe('Parent account local-profile API', () => {
     assert.deepEqual((storedFile[account.id] as Record<string, unknown>).raw, refreshJson.data!.raw);
     assert.deepEqual(transport.requests.map((request) => request.path), [
       '/backend-api/invoices?limit=10&account_id=workspace-old',
+      '/backend-api/invoices/upcoming?account_id=workspace-old',
       '/backend-api/payments/payment_methods?account_id=workspace-old',
       '/backend-api/payments/billing_info?account_id=workspace-old',
       '/backend-api/accounts/workspace-old/users/seat_type_counts'

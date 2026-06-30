@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { buildBillingSummary, formatBillingAmount } from './billingSummary.js';
 
 describe('billingSummary', () => {
-  test('extracts seat counts invoice payment method and billing info from raw billing snapshot', () => {
+  test('extracts invoice payment method and billing info from raw billing snapshot', () => {
     const summary = buildBillingSummary({
       seatTypeCounts: {
         seat_type_counts: { default: 2, usage_based: 3, automation: 0 }
@@ -39,6 +39,31 @@ describe('billingSummary', () => {
           }
         ]
       },
+      upcomingInvoice: {
+        object: 'invoice',
+        status: 'draft',
+        paid: false,
+        billing_reason: 'upcoming',
+        currency: 'gbp',
+        total: 1100,
+        amount_due: 1100,
+        amount_paid: 0,
+        amount_remaining: 1100,
+        created: 1784784000,
+        next_payment_attempt: 1784787600,
+        lines: {
+          data: [
+            {
+              description: '2 seat x ChatGPT Business Subscription',
+              quantity: 2,
+              amount: 3600,
+              currency: 'gbp',
+              price: { unit_amount: 1800 },
+              period: { start: 1784784000, end: 1787462400 }
+            }
+          ]
+        }
+      },
       paymentMethods: {
         payment_methods: [
           {
@@ -62,11 +87,7 @@ describe('billingSummary', () => {
       }
     });
 
-    expect(summary.seatCounts).toEqual([
-      { key: 'default', label: 'ChatGPT', count: 2 },
-      { key: 'usage_based', label: 'Codex', count: 3 },
-      { key: 'automation', label: 'automation', count: 0 }
-    ]);
+    expect(summary).not.toHaveProperty('seatCounts');
     expect(summary.invoices[0]).toMatchObject({
       id: 'in_1',
       number: 'K5J6V64S-0001',
@@ -78,6 +99,22 @@ describe('billingSummary', () => {
       lineDescription: '2 seat x ChatGPT Business Subscription',
       lineQuantity: 2,
       lineUnitAmount: 1800
+    });
+    expect(summary.upcomingInvoice).toMatchObject({
+      status: 'draft',
+      paid: false,
+      billingReason: 'upcoming',
+      currency: 'gbp',
+      total: 1100,
+      amountDue: 1100,
+      amountPaid: 0,
+      amountRemaining: 1100,
+      nextPaymentAttempt: 1784787600000,
+      lineDescription: '2 seat x ChatGPT Business Subscription',
+      lineQuantity: 2,
+      lineUnitAmount: 1800,
+      periodStart: 1784784000000,
+      periodEnd: 1787462400000
     });
     expect(summary.paymentMethods[0]).toMatchObject({
       id: 'pm_1',

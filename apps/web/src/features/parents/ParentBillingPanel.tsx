@@ -10,8 +10,7 @@ import {
   buildBillingSummary,
   formatBillingAmount,
   type BillingInvoiceSummary,
-  type BillingPaymentMethodSummary,
-  type BillingSeatCount
+  type BillingPaymentMethodSummary
 } from './billingSummary.js';
 
 function billingManageUrl(workspaceAccountId: string): string {
@@ -21,6 +20,7 @@ function billingManageUrl(workspaceAccountId: string): string {
 function statusTag(status: string, paid?: boolean) {
   if (paid || status === 'paid') return <Tag color="success">paid</Tag>;
   if (status === 'open') return <Tag color="processing">open</Tag>;
+  if (status === 'draft') return <Tag color="warning">draft</Tag>;
   if (status === 'void' || status === 'uncollectible') return <Tag color="error">{status}</Tag>;
   return <Tag>{status || '暂无'}</Tag>;
 }
@@ -108,17 +108,53 @@ export function ParentBillingPanel({ account }: { account: AccountView }) {
               <Descriptions.Item label="保存时间">{formatDateTime(snapshot.refreshedAt)}</Descriptions.Item>
               <Descriptions.Item label="距现在">{formatRelativeTime(snapshot.refreshedAt)}</Descriptions.Item>
             </Descriptions>
-            <Typography.Title level={5}>席位计数</Typography.Title>
-            <Table<BillingSeatCount>
-              rowKey="key"
+            <Typography.Title level={5}>下期预计账单</Typography.Title>
+            <Table<BillingInvoiceSummary>
+              rowKey={() => 'upcoming'}
               size="small"
               pagination={false}
-              dataSource={summary?.seatCounts ?? []}
-              locale={{ emptyText: '暂无席位计数' }}
+              dataSource={summary?.upcomingInvoice ? [summary.upcomingInvoice] : []}
+              locale={{ emptyText: '暂无下期预计账单' }}
               columns={[
-                { title: '席位类型', dataIndex: 'label' },
-                { title: '原始类型', dataIndex: 'key' },
-                { title: '数量', dataIndex: 'count', align: 'right' }
+                {
+                  title: '状态',
+                  render: (_, invoice) => (
+                    <Space direction="vertical" size={2}>
+                      {statusTag(invoice.status, invoice.paid)}
+                      <Typography.Text type="secondary">{invoice.billingReason || '暂无'}</Typography.Text>
+                    </Space>
+                  )
+                },
+                {
+                  title: '预计扣款',
+                  render: (_, invoice) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text strong>{formatBillingAmount(invoice.amountDue ?? invoice.total, invoice.currency)}</Typography.Text>
+                      <Typography.Text type="secondary">
+                        剩余 {formatBillingAmount(invoice.amountRemaining, invoice.currency)}
+                      </Typography.Text>
+                    </Space>
+                  )
+                },
+                {
+                  title: '项目',
+                  render: (_, invoice) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text>{invoice.lineDescription || '暂无'}</Typography.Text>
+                      <Typography.Text type="secondary">
+                        数量 {invoice.lineQuantity ?? '暂无'} · 单价 {formatBillingAmount(invoice.lineUnitAmount, invoice.currency)}
+                      </Typography.Text>
+                    </Space>
+                  )
+                },
+                {
+                  title: '下期账期',
+                  render: (_, invoice) => `${formatDateTime(invoice.periodStart)} - ${formatDateTime(invoice.periodEnd)}`
+                },
+                {
+                  title: '预计扣款时间',
+                  render: (_, invoice) => formatDateTime(invoice.nextPaymentAttempt)
+                }
               ]}
             />
             <Typography.Title level={5}>最近发票</Typography.Title>

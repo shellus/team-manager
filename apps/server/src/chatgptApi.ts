@@ -260,6 +260,10 @@ export class ChatGptApi {
   async getBillingSnapshotRaw(): Promise<AccountBillingSnapshot['raw']> {
     const workspaceAccountId = encodeURIComponent(this.account.accountId);
     const invoices = await this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${workspaceAccountId}`);
+    const upcomingInvoice = await this.request<unknown>(
+      'GET',
+      `/backend-api/invoices/upcoming?account_id=${workspaceAccountId}`
+    );
     const paymentMethods = await this.request<unknown>(
       'GET',
       `/backend-api/payments/payment_methods?account_id=${workspaceAccountId}`
@@ -272,7 +276,7 @@ export class ChatGptApi {
       'GET',
       `/backend-api/accounts/${this.account.accountId}/users/seat_type_counts`
     );
-    return { invoices, paymentMethods, billingInfo, seatTypeCounts };
+    return { invoices, upcomingInvoice, paymentMethods, billingInfo, seatTypeCounts };
   }
 
   /** 改“允许用户创建个人访问令牌”开关 */
