@@ -5,8 +5,8 @@ import { EditOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Switch, Typography } from 'antd';
 import { apiClient } from '../../api.js';
 import { formatRelativeTime } from '../../components/format.js';
-import { SeatTag } from '../../components/StatusTag.js';
-import { limitTypeLabel, planLabel, roleLabel, SEAT_LABEL } from '../../labels.js';
+import { DefaultSeatTag, LimitTypeTag } from '../../components/StatusTag.js';
+import { planLabel, roleLabel, SEAT_LABEL } from '../../labels.js';
 
 interface TeamNameValues {
   teamName: string;
@@ -71,7 +71,7 @@ export function ParentSettingsPanel({
           <Descriptions.Item label="owner">{account.email}</Descriptions.Item>
           <Descriptions.Item label="备注">{account.remark || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="分组">{account.groupName || '默认分组'}</Descriptions.Item>
-          <Descriptions.Item label="限额类型">{limitTypeLabel(account.limitType)}</Descriptions.Item>
+          <Descriptions.Item label="限额类型"><LimitTypeTag limitType={account.limitType} /></Descriptions.Item>
           <Descriptions.Item label="下次续费">{account.nextRenewalOn || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="workspace">{account.workspaceName || account.accountId}</Descriptions.Item>
           <Descriptions.Item label="套餐">{planLabel(account.planType)}</Descriptions.Item>
@@ -81,7 +81,7 @@ export function ParentSettingsPanel({
             / {MAX_CHATGPT_SEATS}
           </Descriptions.Item>
           <Descriptions.Item label="默认席位">
-            <SeatTag seat={account.defaultSeat} />
+            <DefaultSeatTag seat={account.defaultSeat} />
           </Descriptions.Item>
         </Descriptions>
       </Card>

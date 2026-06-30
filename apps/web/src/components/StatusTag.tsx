@@ -1,6 +1,6 @@
-import type { SeatType, SubaccountStatus } from '@team-manager/shared';
+import type { AccountLimitType, SeatType, SubaccountStatus } from '@team-manager/shared';
 import { Tag } from 'antd';
-import { seatLabel } from '../labels.js';
+import { limitTypeLabel, seatLabel } from '../labels.js';
 
 const SUBACCOUNT_STATUS_LABEL: Record<SubaccountStatus, string> = {
   empty: '未录入',
@@ -33,6 +33,16 @@ export function SubaccountStatusTag({ status }: { status: SubaccountStatus }) {
 export function SeatTag({ seat }: { seat?: SeatType }) {
   if (!seat) return <Tag>未设置</Tag>;
   return <Tag color={seat === 'default' ? 'blue' : 'purple'}>{seatLabel(seat)}</Tag>;
+}
+
+export function DefaultSeatTag({ seat }: { seat?: SeatType }) {
+  if (seat === 'usage_based') return <Tag className="default-codex-seat-tag">Codex 席位 · 绝版</Tag>;
+  return <SeatTag seat={seat} />;
+}
+
+export function LimitTypeTag({ limitType }: { limitType?: AccountLimitType | null }) {
+  const normalized = limitType ?? 'unknown';
+  return <Tag className={`limit-type-tag limit-type-${normalized}`}>{limitTypeLabel(normalized)}</Tag>;
 }
 
 export function TeamLinkStatusTag({ status }: { status: 'invited' | 'member' | 'removed' | 'unknown' }) {

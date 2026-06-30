@@ -3,7 +3,7 @@ import { Button, Card, Empty, Space, Tabs, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, ReloadOutlined, UserAddOutlined } from '@ant-design/icons';
 import type { ParentTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
-import { AccountStatusTag, SeatTag } from '../../components/StatusTag.js';
+import { AccountStatusTag, DefaultSeatTag } from '../../components/StatusTag.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentBillingPanel } from './ParentBillingPanel.js';
@@ -61,7 +61,7 @@ export function ParentDetail({
               <Typography.Text type="secondary">续费 {account.nextRenewalOn}</Typography.Text>
             )}
             <Typography.Text type="secondary">默认席位</Typography.Text>
-            <SeatTag seat={account.defaultSeat} />
+            <DefaultSeatTag seat={account.defaultSeat} />
           </Space>
         </div>
         <Space wrap>

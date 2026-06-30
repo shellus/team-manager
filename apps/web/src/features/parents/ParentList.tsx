@@ -1,16 +1,16 @@
 import type { AccountView } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import { DeleteOutlined, MoreOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Card, Dropdown, Input, List, Segmented, Space, Typography } from 'antd';
+import { Button, Card, Dropdown, Input, List, Segmented, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
-import { limitTypeLabel } from '../../labels.js';
+import { LimitTypeTag } from '../../components/StatusTag.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
+import { parentListIdentity, parentSeatUsageClass } from './parentListItem.js';
 
 export function ParentList({
   groups,
   activeGroup,
   accounts,
-  totalCount,
   searchQuery,
   selectedId,
   syncingIds,
@@ -23,7 +23,6 @@ export function ParentList({
   groups: Array<{ name: string; count: number }>;
   activeGroup: string;
   accounts: AccountView[];
-  totalCount: number;
   searchQuery: string;
   selectedId: string;
   syncingIds: Set<string>;
@@ -35,14 +34,6 @@ export function ParentList({
 }) {
   return (
     <div className="side-pane">
-      <div className="pane-title">
-        <div>
-          <Typography.Title level={2}>母号</Typography.Title>
-          <Typography.Text type="secondary">
-            {searchQuery ? `${accounts.length} / ${totalCount} 个 workspace` : `${accounts.length} 个 workspace`}
-          </Typography.Text>
-        </div>
-      </div>
       <Input
         allowClear
         className="pane-search"
@@ -78,8 +69,10 @@ export function ParentList({
           const seatCount = account.membersCache?.filter((member) => member.seat === 'default').length;
           const selected = account.id === selectedId;
           const syncing = syncingIds.has(account.id);
-          const title = account.remark || account.email;
-          const subtitle = account.workspaceName || account.accountId;
+          const title = parentListIdentity(account);
+          const workspaceLabel = account.workspaceName || account.accountId;
+          const titleTooltip =
+            workspaceLabel && workspaceLabel !== account.email ? `${title} · ${workspaceLabel}` : title;
           return (
             <List.Item>
               <Card
@@ -89,69 +82,49 @@ export function ParentList({
                 onClick={() => onSelect(account)}
               >
                 <div className="record-card-head">
-                  <Typography.Text strong ellipsis={{ tooltip: title }}>
+                  <Typography.Text strong ellipsis={{ tooltip: titleTooltip }}>
                     {title}
                   </Typography.Text>
-                  <Space size={4}>
-                    <Typography.Text type="secondary">同步 {formatRelativeTime(account.lastRefreshAt)}</Typography.Text>
-                    <Dropdown
-                      trigger={['click']}
-                      menu={{
-                        items: [
-                          {
-                            key: 'refresh',
-                            icon: <ReloadOutlined />,
-                            label: '同步 Team',
-                            onClick: () => onRefreshAccount(account)
-                          },
-                          {
-                            key: 'delete',
-                            danger: true,
-                            icon: <DeleteOutlined />,
-                            label: '删除母号',
-                            onClick: () => onOpenDelete(account)
-                          }
-                        ]
-                      }}
-                    >
-                      <Button
-                        aria-label="更多操作"
-                        icon={<MoreOutlined />}
-                        size="small"
-                        type="text"
-                        loading={syncing}
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                    </Dropdown>
-                  </Space>
-                </div>
-                <div className="record-meta record-meta-line">
-                  <span>限额 {limitTypeLabel(account.limitType)}</span>
-                  <Typography.Text
-                    className="record-meta-email"
-                    type="secondary"
-                    ellipsis={{ tooltip: account.email }}
+                  <Dropdown
+                    trigger={['click']}
+                    menu={{
+                      items: [
+                        {
+                          key: 'refresh',
+                          icon: <ReloadOutlined />,
+                          label: '同步 Team',
+                          onClick: () => onRefreshAccount(account)
+                        },
+                        {
+                          key: 'delete',
+                          danger: true,
+                          icon: <DeleteOutlined />,
+                          label: '删除母号',
+                          onClick: () => onOpenDelete(account)
+                        }
+                      ]
+                    }}
                   >
-                    {account.email}
-                  </Typography.Text>
+                    <Button
+                      aria-label="更多操作"
+                      icon={<MoreOutlined />}
+                      size="small"
+                      type="text"
+                      loading={syncing}
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                  </Dropdown>
                 </div>
-                {subtitle !== account.email && (
-                  <div className="record-meta muted">
-                    <Typography.Text type="secondary" ellipsis={{ tooltip: subtitle }}>
-                      {subtitle}
-                    </Typography.Text>
-                  </div>
-                )}
-                {account.nextRenewalOn && (
-                  <div className="record-meta">
-                    <span>续费 {account.nextRenewalOn}</span>
-                  </div>
-                )}
                 <div className="record-meta">
-                  <span>成员 {memberCount ?? '暂无'}</span>
-                  <span className={seatCount !== undefined && seatCount >= MAX_CHATGPT_SEATS ? 'text-warning' : undefined}>
+                  <span className={parentSeatUsageClass(seatCount, MAX_CHATGPT_SEATS)}>
                     ChatGPT {seatCount ?? '暂无'} / {MAX_CHATGPT_SEATS}
                   </span>
+                  <span>成员 {memberCount ?? '暂无'}</span>
+                  {account.nextRenewalOn && <span>续费 {account.nextRenewalOn}</span>}
+                </div>
+                <div className="record-meta muted">
+                  <span className="record-meta-tag"><LimitTypeTag limitType={account.limitType} /></span>
+                  <span>同步 {formatRelativeTime(account.lastRefreshAt)}</span>
                 </div>
                 {account.lastError && (
                   <Typography.Text className="record-error" type="danger" title={account.lastError}>

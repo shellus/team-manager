@@ -7,7 +7,7 @@ import {
   PlusOutlined,
   RobotOutlined
 } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Space, Typography } from 'antd';
+import { Button, Card, Dropdown, List, Segmented, Space, Typography } from 'antd';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
 import { formatDateTime, shortText } from '../../components/format.js';
 
@@ -36,12 +36,6 @@ export function SubaccountList({
 }) {
   return (
     <div className="side-pane">
-      <div className="pane-title">
-        <div>
-          <Typography.Title level={2}>子号</Typography.Title>
-          <Typography.Text type="secondary">{subaccounts.length} 个账号</Typography.Text>
-        </div>
-      </div>
       <div className="side-actions">
         <Button
           type="primary"
@@ -59,6 +53,17 @@ export function SubaccountList({
           导入凭证
         </Button>
       </div>
+      <Segmented
+        className="group-selector"
+        block
+        value="all"
+        options={[
+          {
+            label: `所有 (${subaccounts.length})`,
+            value: 'all'
+          }
+        ]}
+      />
       <List
         className="record-list"
         dataSource={subaccounts}

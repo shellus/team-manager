@@ -353,7 +353,6 @@ export function ParentRoutes({
         groups={groups}
         activeGroup={activeGroup}
         accounts={visibleAccounts}
-        totalCount={accounts.length}
         searchQuery={searchQuery}
         selectedId={selected?.id ?? ''}
         syncingIds={syncingIds}
