@@ -43,6 +43,7 @@ export function SubaccountCredentialPanel({
   onAutoAuth,
   onCreatePersonalAccessToken,
   onRefreshQuota,
+  onCopyCredentialAccessToken,
   onExportCredential,
   onOpenDeleteCredential
 }: {
@@ -55,6 +56,7 @@ export function SubaccountCredentialPanel({
   onAutoAuth: (workspaceId: string) => void;
   onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
+  onCopyCredentialAccessToken: (workspaceId: string) => void;
   onExportCredential: (workspaceId: string) => void;
   onOpenDeleteCredential: (workspaceId: string) => void;
 }) {
@@ -170,7 +172,14 @@ export function SubaccountCredentialPanel({
             刷新额度
           </Button>
           <Button
-            disabled={!row.credential}
+            disabled={!row.workspaceId || !row.credential}
+            loading={busy === `credential-copy-ak-${row.workspaceId || 'default'}`}
+            onClick={() => onCopyCredentialAccessToken(row.workspaceId)}
+          >
+            复制 AK
+          </Button>
+          <Button
+            disabled={!row.workspaceId || !row.credential}
             loading={busy === `credential-export-${row.workspaceId || 'default'}`}
             onClick={() => onExportCredential(row.workspaceId)}
           >
