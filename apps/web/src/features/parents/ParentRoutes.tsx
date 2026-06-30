@@ -20,6 +20,13 @@ import { defaultMemberProfileExpiresOn } from './MemberProfileModal.js';
 import { ParentDetail } from './ParentDetail.js';
 import { ParentList } from './ParentList.js';
 import type { MemberSeatRisk } from './ParentMembersTable.js';
+import {
+  ALL_PARENT_GROUP,
+  countParentGroups,
+  filterParentsByGroup,
+  parentGroupName,
+  resolveParentGroup
+} from './parentGroups.js';
 
 type ParentBillingRisk =
   | MemberSeatRisk
@@ -37,10 +44,6 @@ interface InviteValues {
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
   return value ? `?${value}` : '';
-}
-
-function groupNameOf(account: AccountView): string {
-  return account.groupName || '默认分组';
 }
 
 const accountSortCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
@@ -138,15 +141,11 @@ export function ParentRoutes({
   );
 
   const groups = useMemo(() => {
-    const countByGroup = new Map<string, number>();
-    for (const account of filteredAccounts) countByGroup.set(groupNameOf(account), (countByGroup.get(groupNameOf(account)) ?? 0) + 1);
-    return [...countByGroup.entries()].map(([name, count]) => ({ name, count }));
+    return countParentGroups(filteredAccounts);
   }, [filteredAccounts]);
-  const activeGroup = groups.some((group) => group.name === searchState.group)
-    ? searchState.group
-    : groups[0]?.name || '';
+  const activeGroup = resolveParentGroup(searchState.group, groups);
   const visibleAccounts = useMemo(
-    () => filteredAccounts.filter((account) => groupNameOf(account) === activeGroup),
+    () => filterParentsByGroup(filteredAccounts, activeGroup),
     [filteredAccounts, activeGroup]
   );
   const selected = visibleAccounts.find((account) => account.id === accountId) ?? visibleAccounts[0] ?? null;
@@ -155,8 +154,9 @@ export function ParentRoutes({
     if (loading || accounts.length === 0) return;
     const nextParams = new URLSearchParams(searchParams);
     let changed = false;
-    if (activeGroup && searchState.group !== activeGroup) {
-      nextParams.set('group', activeGroup);
+    if (searchState.group !== activeGroup) {
+      if (activeGroup === ALL_PARENT_GROUP) nextParams.delete('group');
+      else nextParams.set('group', activeGroup);
       changed = true;
     }
     if (!searchParams.get('tab')) {
@@ -212,7 +212,7 @@ export function ParentRoutes({
       const account = await apiClient.addAccount(payload as Record<string, unknown>);
       onAccountChanged(account);
       const next = new URLSearchParams();
-      next.set('group', groupNameOf(account));
+      next.set('group', parentGroupName(account));
       next.set('tab', 'members');
       navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
     } catch (error) {
@@ -257,7 +257,7 @@ export function ParentRoutes({
         session?: unknown;
       });
       onAccountChanged(updated);
-      const next = setSearchValue(clearModalState(searchParams), 'group', groupNameOf(updated));
+      const next = setSearchValue(clearModalState(searchParams), 'group', parentGroupName(updated));
       navigate({ pathname: `/parents/${updated.id}`, search: toSearch(next) }, { replace: true });
       setBillingRisk(null);
       setLocalError('');
@@ -319,14 +319,21 @@ export function ParentRoutes({
   };
 
   const changeGroup = (group: string) => {
-    const firstInGroup = accounts.find((account) => groupNameOf(account) === group);
+    const firstInGroup =
+      group === ALL_PARENT_GROUP
+        ? filteredAccounts[0]
+        : filteredAccounts.find((account) => parentGroupName(account) === group);
     const next = setSearchValue(searchParams, 'group', group);
     next.set('tab', searchState.tab);
     navigate({ pathname: firstInGroup ? `/parents/${firstInGroup.id}` : '/parents', search: toSearch(next) });
   };
 
   const selectAccount = (account: AccountView) => {
-    const next = setSearchValue(searchParams, 'group', groupNameOf(account));
+    const next = setSearchValue(
+      searchParams,
+      'group',
+      activeGroup === ALL_PARENT_GROUP ? ALL_PARENT_GROUP : parentGroupName(account)
+    );
     navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
   };
 

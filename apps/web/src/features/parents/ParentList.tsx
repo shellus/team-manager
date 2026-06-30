@@ -4,6 +4,7 @@ import { DeleteOutlined, MoreOutlined, ReloadOutlined, SearchOutlined } from '@a
 import { Button, Card, Dropdown, Input, List, Segmented, Space, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
 import { limitTypeLabel } from '../../labels.js';
+import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 
 export function ParentList({
   groups,
@@ -55,10 +56,16 @@ export function ParentList({
           className="group-selector"
           block
           value={activeGroup}
-          options={groups.map((group) => ({
-            label: `${group.name} (${group.count})`,
-            value: group.name
-          }))}
+          options={[
+            {
+              label: `${ALL_PARENT_GROUP_LABEL} (${groups.reduce((sum, group) => sum + group.count, 0)})`,
+              value: ALL_PARENT_GROUP
+            },
+            ...groups.map((group) => ({
+              label: `${group.name} (${group.count})`,
+              value: group.name
+            }))
+          ]}
           onChange={(value) => onGroupChange(String(value))}
         />
       )}
