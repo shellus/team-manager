@@ -41,7 +41,7 @@ describe('SubaccountStore', () => {
     });
   });
 
-  it('replaces session cookie material when re-importing a child session JSON', async () => {
+  it('replaces sessionToken when re-importing a child session JSON', async () => {
     await withStore(async (store) => {
       const saved = await store.importSession({
         user: { email: 'child@example.com' },
@@ -49,9 +49,7 @@ describe('SubaccountStore', () => {
         accessToken: 'web-access-token',
         sessionToken: 'child-session-token'
       });
-      assert.deepEqual(store.get(saved.id)?.webSessionCookies?.map((cookie) => [cookie.name, cookie.value]), [
-        ['__Secure-next-auth.session-token', 'child-session-token']
-      ]);
+      assert.equal(store.get(saved.id)?.sessionToken, 'child-session-token');
 
       await store.importSession({
         user: { email: 'child@example.com' },
@@ -59,7 +57,7 @@ describe('SubaccountStore', () => {
         accessToken: 'new-web-access-token'
       });
 
-      assert.equal(store.get(saved.id)?.webSessionCookies, undefined);
+      assert.equal(store.get(saved.id)?.sessionToken, undefined);
     });
   });
 

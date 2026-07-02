@@ -14,7 +14,7 @@
 
 ## 母号模型
 
-母号持久化对象为 `Account`，只在后端保存敏感字段。前端使用 `AccountView`，不包含 access token、refresh token、cookie 或指纹明文。
+母号持久化对象为 `Account`，只在后端保存敏感字段。前端使用 `AccountView`，不包含 access token、refresh token、sessionToken 或指纹明文。
 
 ### Canonical fields
 
@@ -24,10 +24,10 @@
 | `remark` | 本地输入 | 母号本地备注，不等同远端 Team 名称 |
 | `groupName` | 本地输入 | 母号本地分组，缺省归入 `默认分组` |
 | `limitType` | 本地输入 | 本地记录的额度窗口类型：`unknown`、`weekly`、`monthly` |
-| `accountId` | session JSON | ChatGPT workspace account id，用于 `chatgpt-account-id` 上下文 |
+| `accountId` | `accounts/check` 解析结果 | ChatGPT Team workspace account id，用于 `chatgpt-account-id` 上下文；母号录入和替换 session 时不得直接信任输入 JSON 的 `account.id` |
 | `email` | session JSON | 母号 owner 邮箱 |
-| `accessToken` / `refreshToken` | session JSON 或浏览器 cookies 解析结果 | 后端调用 ChatGPT Web backend-api 使用，不下发前端 |
-| `webSessionCookies` | session JSON 的 `sessionToken` 或浏览器 cookies 数组 | ChatGPT 浏览器会话 cookie 材料，用于后续按 workspace 换取 Web access token，不下发前端 |
+| `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用，不下发前端 |
+| `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token，不下发前端 |
 | `workspaceName` | accounts/check 或远端改名结果 | 远端 Team workspace 名称 |
 | `nextRenewalOn` | accounts/check 自动识别或本地输入 | Team 下次续费日期，格式为 `yyyy-mm-dd` |
 | `planType` / `role` / `status` / `lastError` | refresh 结果 | 远端状态与错误摘要 |
@@ -79,6 +79,19 @@
 
 `memberCount`、`chatgptSeatCount`、`pendingInviteCount` 不属于 `Account` schema，应通过数据清洗删除。母号不保存 `label`、`note` 或本地 `name`，显示邮箱统一来自 `email`，备注统一来自 `remark`。
 
+母号 session 录入规则：
+
+- 后端先用输入 session 调用 `accounts/check`，只接受 `structure=workspace` 且角色为 `account-owner` 或 `account-admin` 的 Team workspace。
+- 替换已有母号 session 时，如果新 session 仍可访问原 `accountId`，优先保留原 Team workspace，只更新该 workspace 的 Web access token。
+- 新录入时，如果当前 session 指向某个可管理 Team workspace，保存该 workspace；如果只发现一个可管理 Team workspace，保存该 workspace；如果发现多个候选且无法自动判断目标，返回 409，禁止随机选择。
+- 当目标 Team workspace 与输入 session 的 `account.id` 不一致时，必须存在 `sessionToken`，后端通过 `/api/auth/session` 换取目标 workspace Web access token 后再保存。
+
+母号 backend-api 请求认证规则：
+
+- `ChatGptApi` 是母号远端请求的统一封装。成员、邀请、设置、账单和改名等远端请求都通过该封装发送。
+- 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 时，如果母号保存了 `sessionToken`，封装会换取目标 Team workspace 的新 Web access token，回写 `accessToken` 并重试一次原请求。
+- 权限不足、目标不存在、账单风险确认等非认证失效错误不得被重试逻辑吞掉。
+
 ## 母号写操作规则
 
 | 操作 | 后端写入规则 | 前端更新规则 |
@@ -95,7 +108,7 @@
 | 改 Codex 设备代码身份验证开关 | 远端修改成功后更新 `codexDeviceCodeAuthEnabled` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 远程控制开关 | 远端修改成功后更新 `codexRemoteControlEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
-| 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn`；提供 session JSON 或浏览器 cookies 时更新 `email`、`accountId`、`accessToken` 和可用的 `webSessionCookies`；session JSON 中的 `sessionToken` 会规范化为 session-token cookie 材料，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
+| 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn`；提供 session JSON 时先按母号 session 录入规则解析 Team workspace，再更新 `email`、`accountId`、`accessToken`、workspace 元数据和可用的 `sessionToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
 
 邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。`default` 邀请成功后，service 会为目标邮箱 upsert 一个 `seatSlots[]` 条目。`usage_based` 邀请不创建 slot。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
 
@@ -126,11 +139,11 @@
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id |
-| `email` | session JSON、浏览器 cookies 解析结果、注册结果或 Codex credential | 子号邮箱 |
+| `email` | session JSON、注册结果或 Codex credential | 子号邮箱 |
 | `remark` | 本地输入 | 子号本地备注 |
-| `chatgptAccountId` | session JSON 或浏览器 cookies 解析结果 | 子号自身 ChatGPT account id |
-| `webAccessToken` | session JSON 或浏览器 cookies 解析结果 | 子号 ChatGPT Web access token，不下发前端 |
-| `webSessionCookies` | session JSON 的 `sessionToken` 或浏览器 cookies 数组 | 子号 ChatGPT 浏览器会话 cookie 材料，用于按目标 workspace 换取 Web access token，不下发前端 |
+| `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
+| `webAccessToken` | session JSON | 子号 ChatGPT Web access token，不下发前端 |
+| `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token，不下发前端 |
 | `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证元数据 |
 | `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据，仅后端持久化，不下发前端 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
@@ -178,10 +191,10 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
-| 导入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入规范化后的 `webSessionCookies`；浏览器 cookies 数组先通过 `/api/auth/session` 解析当前登录态，再写入这些字段和 `webSessionCookies`；追加脱敏日志 | 合并返回的子号 view |
+| 导入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加脱敏日志 | 合并返回的子号 view |
 | 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 自动注册子号 | 通过 worker 申请邮箱并注册 OpenAI 账号；写入 `email`、`registrationPassword`、`registeredAt`、`registrationSource`；如授权成功则写入独立凭证文件并 upsert `codexCredentials[]` 元数据 | 合并返回的子号 view，密码不下发 |
-| 编辑本地资料 | 更新 `remark`；提供 session JSON 或浏览器 cookies 时更新 `email`、`chatgptAccountId`、`webAccessToken`，session JSON 的 `sessionToken` 或 cookies 输入还会更新 `webSessionCookies`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
+| 编辑本地资料 | 更新 `remark`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
 | 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |

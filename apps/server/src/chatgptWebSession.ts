@@ -1,7 +1,5 @@
 import {
   parseChatGptSessionImportInput,
-  parseChatGptSessionInput,
-  type ChatGptSessionCookie,
   type ChatGptSessionInput
 } from '@team-manager/shared';
 import type { Transport } from './transport.js';
@@ -21,22 +19,16 @@ export class ChatGptWebSessionError extends Error {
 
 export async function resolveChatGptSessionImportInput(
   raw: unknown,
-  transport: Transport
-): Promise<{ type: 'workspace_session' | 'browser_cookies'; session: ChatGptSessionInput }> {
+  _transport: Transport
+): Promise<{ type: 'workspace_session'; session: ChatGptSessionInput }> {
   const parsed = parseChatGptSessionImportInput(raw);
   if ('error' in parsed) throw new ChatGptWebSessionError(400, parsed.error);
-  if (parsed.type === 'browser_cookies') {
-    return {
-      type: parsed.type,
-      session: await fetchCurrentWebSessionFromCookies(transport, parsed.cookies)
-    };
-  }
-  return { type: parsed.type, session: parsed.session };
+  return parsed;
 }
 
-export async function fetchWorkspaceWebAccessTokenFromCookies(
+export async function fetchWorkspaceWebAccessTokenFromSessionToken(
   transport: Transport,
-  cookies: ChatGptSessionCookie[],
+  sessionToken: string,
   targetChatgptAccountId: string
 ): Promise<string> {
   const response = await transport.fetch({
@@ -44,7 +36,7 @@ export async function fetchWorkspaceWebAccessTokenFromCookies(
     path: `/api/auth/session?team_manager_workspace=${encodeURIComponent(targetChatgptAccountId)}&t=${Date.now()}`,
     headers: {
       accept: 'application/json',
-      cookie: buildChatGptSessionCookieHeader(cookies, targetChatgptAccountId),
+      cookie: buildSessionTokenHeader(sessionToken, targetChatgptAccountId),
       'user-agent': CHATGPT_WEB_USER_AGENT
     }
   });
@@ -67,53 +59,16 @@ export async function fetchWorkspaceWebAccessTokenFromCookies(
   return accessToken;
 }
 
-async function fetchCurrentWebSessionFromCookies(
-  transport: Transport,
-  cookies: ChatGptSessionCookie[]
-): Promise<ChatGptSessionInput> {
-  const response = await transport.fetch({
-    method: 'GET',
-    path: `/api/auth/session?team_manager_import=browser_cookies&t=${Date.now()}`,
-    headers: {
-      accept: 'application/json',
-      cookie: buildChatGptSessionCookieHeader(cookies),
-      'user-agent': CHATGPT_WEB_USER_AGENT
-    }
-  });
-  if (response.status < 200 || response.status >= 300) {
-    throw new ChatGptWebSessionError(
-      response.status >= 400 && response.status < 500 ? response.status : 502,
-      `获取浏览器 cookies Web session 失败: HTTP ${response.status} ${trimForLog(response.body)}`
-    );
+function buildSessionTokenHeader(sessionToken: string, targetChatgptAccountId: string): string {
+  const trimmed = sessionToken.trim();
+  if (!trimmed || /[;\r\n]/.test(trimmed)) {
+    throw new ChatGptWebSessionError(400, 'sessionToken 无效，无法换取目标 workspace Web session');
   }
-  const data = parseJsonObject(response.body, '浏览器 cookies Web session 返回不是 JSON');
-  const session = parseChatGptSessionInput({ ...data, cookies });
-  if ('error' in session) {
-    throw new ChatGptWebSessionError(502, `浏览器 cookies Web session 响应无效: ${session.error}`);
-  }
-  const claims = chatGptAuthClaimsFromAccessToken(session.accessToken);
-  if (claims.chatgptAccountId && claims.chatgptAccountId !== session.account.id) {
-    throw new ChatGptWebSessionError(
-      409,
-      `浏览器 cookies Web session 与响应 workspace 不一致：响应 ${session.account.id}，实际 ${claims.chatgptAccountId}`
-    );
-  }
-  return session;
-}
-
-function buildChatGptSessionCookieHeader(cookies: ChatGptSessionCookie[], targetChatgptAccountId?: string): string {
-  const pairs = cookies
-    .filter((cookie) => {
-      if (!targetChatgptAccountId) return true;
-      return cookie.name !== '_account' && cookie.name !== '_account_residency_region';
-    })
-    .filter((cookie) => cookie.name && cookie.value && !/[;\s]/.test(cookie.name) && !cookie.value.includes(';'))
-    .map((cookie) => `${cookie.name}=${cookie.value}`);
-  if (targetChatgptAccountId) {
-    pairs.push(`_account=${targetChatgptAccountId}`);
-    pairs.push('_account_residency_region=no_constraint');
-  }
-  return pairs.join('; ');
+  return [
+    `__Secure-next-auth.session-token=${trimmed}`,
+    `_account=${targetChatgptAccountId}`,
+    '_account_residency_region=no_constraint'
+  ].join('; ');
 }
 
 function parseJsonObject(body: string, message: string): Record<string, unknown> {

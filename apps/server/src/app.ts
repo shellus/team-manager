@@ -77,11 +77,19 @@ export async function buildApp({
       throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法从子号侧同步 Team 关联');
     }
 
+    let childWebAccessToken = subaccount.webAccessToken;
+    const updateChildWebAccessToken = async (accessToken: string) => {
+      childWebAccessToken = accessToken;
+      await subaccountStore.update(id, { webAccessToken: accessToken, lastError: undefined });
+    };
+
     let childAccounts;
     try {
       childAccounts = await service.checkSessionAccounts({
         accountId: subaccount.chatgptAccountId,
-        accessToken: subaccount.webAccessToken
+        accessToken: childWebAccessToken,
+        sessionToken: subaccount.sessionToken,
+        onAccessTokenRefreshed: updateChildWebAccessToken
       });
     } catch (e) {
       await subaccountStore.appendLog(id, {
@@ -112,7 +120,9 @@ export async function buildApp({
         const relation = await service.findSessionEmailRelation(
           {
             accountId: childAccount.accountId,
-            accessToken: subaccount.webAccessToken
+            accessToken: childWebAccessToken,
+            sessionToken: subaccount.sessionToken,
+            onAccessTokenRefreshed: updateChildWebAccessToken
           },
           subaccount.email
         );

@@ -18,6 +18,25 @@ function hasOwn(value: object | undefined, key: string): boolean {
   return Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
 }
 
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function unsignedJwt(payload: Record<string, unknown>): string {
+  return `${base64UrlJson({ alg: 'none', typ: 'JWT' })}.${base64UrlJson(payload)}.signature`;
+}
+
+function chatGptWebAccessToken(accountId: string, planType = 'team'): string {
+  return unsignedJwt({
+    'https://api.openai.com/auth': {
+      chatgpt_account_id: accountId,
+      chatgpt_plan_type: planType,
+      chatgpt_user_id: 'user-owner'
+    },
+    exp: 1783387600
+  });
+}
+
 function localDateAfterDays(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
@@ -247,7 +266,34 @@ describe('Parent account local-profile API', () => {
   });
 
   it('updates local session fields and keeps token material out of the response', async () => {
-    const { app, store, account, authHeaders } = await buildParentApiTestApp();
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'workspace-new': {
+                  account: {
+                    account_id: 'workspace-new',
+                    account_user_role: 'account-owner',
+                    name: 'New Team',
+                    plan_type: 'team',
+                    structure: 'workspace'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['workspace-new']
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);
 
     const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
       method: 'PATCH',
@@ -280,26 +326,56 @@ describe('Parent account local-profile API', () => {
     assert.equal(stored?.email, 'owner-new@example.com');
     assert.equal(stored?.accountId, 'workspace-new');
     assert.equal(stored?.accessToken, 'new-parent-access-token');
-    assert.deepEqual(stored?.webSessionCookies?.map((cookie) => [cookie.name, cookie.value]), [
-      ['__Secure-next-auth.session-token', 'parent-session-json-token']
-    ]);
+    assert.equal(stored?.sessionToken, 'parent-session-json-token');
     assert.equal(stored?.lastError, undefined);
     assert.equal(body.includes('new-parent-access-token'), false);
     assert.equal(body.includes('parent-session-json-token'), false);
   });
 
-  it('updates parent local session from browser cookies exported by Cookie Editor', async () => {
+  it('resolves the parent workspace from accounts/check instead of trusting the session account id', async () => {
+    const personalAccessToken = chatGptWebAccessToken('personal-account-id', 'free');
+    const workspaceAccessToken = chatGptWebAccessToken('workspace-team-id', 'team');
     const transport: Transport & { requests: HttpRequest[] } = {
       requests: [],
       async fetch(req) {
         this.requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'personal-account-id': {
+                  account: {
+                    account_id: 'personal-account-id',
+                    account_user_role: 'account-owner',
+                    name: 'Personal',
+                    plan_type: 'free',
+                    structure: 'personal'
+                  },
+                  can_access_with_session: true
+                },
+                'workspace-team-id': {
+                  account: {
+                    account_id: 'workspace-team-id',
+                    account_user_role: 'account-owner',
+                    name: 'Owner Team',
+                    plan_type: 'team',
+                    structure: 'workspace'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['personal-account-id', 'workspace-team-id']
+            })
+          };
+        }
         if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
           return {
             status: 200,
             body: JSON.stringify({
-              user: { email: 'owner-cookie@example.com' },
-              account: { id: 'workspace-cookie' },
-              accessToken: 'cookie-parent-access-token'
+              user: { email: 'owner-new@example.com' },
+              account: { id: 'workspace-team-id' },
+              accessToken: workspaceAccessToken
             })
           };
         }
@@ -312,11 +388,12 @@ describe('Parent account local-profile API', () => {
       method: 'PATCH',
       headers: authHeaders,
       body: JSON.stringify({
-        remark: 'cookie 母号',
-        session: [
-          { name: '__Secure-next-auth.session-token.0', value: 'session-token-0', domain: '.chatgpt.com', path: '/' },
-          { name: '__Secure-next-auth.session-token.1', value: 'session-token-1', domain: '.chatgpt.com', path: '/' }
-        ]
+        session: {
+          user: { email: 'owner-new@example.com' },
+          account: { id: 'personal-account-id' },
+          accessToken: personalAccessToken,
+          sessionToken: 'parent-session-json-token'
+        }
       })
     });
     const body = await response.text();
@@ -324,14 +401,124 @@ describe('Parent account local-profile API', () => {
     const stored = store.get(account.id);
 
     assert.equal(response.status, 200, body);
-    assert.equal(json.data!.remark, 'cookie 母号');
-    assert.equal(json.data!.email, 'owner-cookie@example.com');
-    assert.equal(json.data!.accountId, 'workspace-cookie');
-    assert.equal(stored?.accessToken, 'cookie-parent-access-token');
-    assert.equal(stored?.webSessionCookies?.length, 2);
-    assert.equal(body.includes('cookie-parent-access-token'), false);
-    assert.equal(body.includes('session-token-0'), false);
-    assert.equal(transport.requests[0]!.path.startsWith('/api/auth/session'), true);
+    assert.equal(json.data!.accountId, 'workspace-team-id');
+    assert.equal(json.data!.workspaceName, 'Owner Team');
+    assert.equal(stored?.accountId, 'workspace-team-id');
+    assert.equal(stored?.accessToken, workspaceAccessToken);
+    assert.equal(stored?.sessionToken, 'parent-session-json-token');
+    assert.equal(
+      transport.requests.some(
+        (req) => req.path.startsWith('/api/auth/session') && (req.headers.cookie ?? '').includes('_account=workspace-team-id')
+      ),
+      true
+    );
+  });
+
+  it('refreshes a stale replacement session token before resolving the parent workspace', async () => {
+    const refreshedToken = chatGptWebAccessToken('workspace-new', 'team');
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          if (req.headers.Authorization === 'Bearer stale-session-access-token') {
+            return {
+              status: 401,
+              body: JSON.stringify({
+                error: {
+                  message: 'Your authentication token has been invalidated. Please try signing in again.',
+                  type: 'invalid_request_error',
+                  code: 'token_invalidated',
+                  param: null
+                }
+              })
+            };
+          }
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'workspace-new': {
+                  account: {
+                    account_id: 'workspace-new',
+                    account_user_role: 'account-owner',
+                    name: 'New Team',
+                    plan_type: 'team',
+                    structure: 'workspace'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['workspace-new']
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              user: { email: 'owner-new@example.com' },
+              account: { id: 'workspace-new' },
+              accessToken: refreshedToken
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        session: {
+          user: { email: 'owner-new@example.com' },
+          account: { id: 'workspace-new' },
+          accessToken: 'stale-session-access-token',
+          sessionToken: 'parent-session-json-token'
+        }
+      })
+    });
+    const body = await response.text();
+    const stored = store.get(account.id);
+    const accountCheckRequests = transport.requests.filter((req) => req.path.startsWith('/backend-api/accounts/check/'));
+
+    assert.equal(response.status, 200, body);
+    assert.equal(accountCheckRequests.length, 2);
+    assert.equal(accountCheckRequests[0]!.headers.Authorization, 'Bearer stale-session-access-token');
+    assert.equal(accountCheckRequests[1]!.headers.Authorization, `Bearer ${refreshedToken}`);
+    assert.equal(stored?.accountId, 'workspace-new');
+    assert.equal(stored?.accessToken, refreshedToken);
+  });
+
+  it('rejects array input for parent local session replacement', async () => {
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        remark: '数组输入母号',
+        session: [
+          { name: 'legacy-token-0', value: 'session-token-0' },
+          { name: 'legacy-token-1', value: 'session-token-1' }
+        ]
+      })
+    });
+    const json = (await response.json()) as ApiResult;
+
+    assert.equal(response.status, 400);
+    assert.equal(json.ok, false);
+    assert.equal(json.error, '只支持 chatgpt.com session JSON，不支持数组输入');
+    assert.equal(transport.requests.length, 0);
   });
 
   it('returns 400 for invalid replacement parent session JSON', async () => {
@@ -1460,6 +1647,80 @@ describe('TeamService member seat changes', () => {
 });
 
 describe('TeamService member removal', () => {
+  it('refreshes the Web access token from saved sessionToken and retries after token_invalidated', async () => {
+    const requests: HttpRequest[] = [];
+    const refreshedToken = chatGptWebAccessToken('workspace-id');
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'DELETE' && req.path === '/backend-api/accounts/workspace-id/users/user-b') {
+          if (req.headers.Authorization === 'Bearer stale-token') {
+            return {
+              status: 401,
+              body: JSON.stringify({
+                error: {
+                  message: 'Your authentication token has been invalidated. Please try signing in again.',
+                  type: 'invalid_request_error',
+                  code: 'token_invalidated',
+                  param: null
+                }
+              })
+            };
+          }
+          return { status: 200, body: '{"success":true}' };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              user: { email: 'owner@example.com' },
+              account: { id: 'workspace-id' },
+              accessToken: refreshedToken
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                { id: 'user-a', email: 'a@example.com', name: 'A', role: 'account-owner', seat_type: 'usage_based' }
+              ]
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'stale-token',
+      sessionToken: 'parent-session-json-token',
+      status: 'active',
+      membersCache: [
+        { userId: 'user-a', email: 'a@example.com', role: 'account-owner', seat: 'usage_based' },
+        { userId: 'user-b', email: 'b@example.com', role: 'standard-user', seat: 'default' }
+      ]
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.removeMember(account.id, 'user-b');
+
+    const deleteRequests = requests.filter((req) => req.method === 'DELETE');
+    const sessionRequest = requests.find((req) => req.path.startsWith('/api/auth/session'));
+    assert.equal(deleteRequests.length, 2);
+    assert.equal(deleteRequests[0]!.headers.Authorization, 'Bearer stale-token');
+    assert.equal(deleteRequests[1]!.headers.Authorization, `Bearer ${refreshedToken}`);
+    assert.match(sessionRequest?.headers.cookie ?? '', /_account=workspace-id/);
+    assert.match(sessionRequest?.headers.cookie ?? '', /__Secure-next-auth\.session-token=parent-session-json-token/);
+    assert.equal(store.get(account.id)?.accessToken, refreshedToken);
+    assert.deepEqual(view.membersCache?.map((member) => member.userId), ['user-a']);
+  });
+
   it('removes a member and refreshes the canonical member cache', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {

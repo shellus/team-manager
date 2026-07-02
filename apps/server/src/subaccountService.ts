@@ -24,7 +24,7 @@ import { ServiceError } from './teamService.js';
 import { ChatGptApi, ChatGptApiError, type CodexPersonalAccessTokenResponse } from './chatgptApi.js';
 import {
   ChatGptWebSessionError,
-  fetchWorkspaceWebAccessTokenFromCookies,
+  fetchWorkspaceWebAccessTokenFromSessionToken,
   resolveChatGptSessionImportInput
 } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
@@ -127,10 +127,7 @@ export class SubaccountService {
     await this.store.appendLog(view.id, {
       phase: 'session_import',
       status: 'session_ready',
-      message:
-        input.type === 'browser_cookies'
-          ? '已通过浏览器 cookies 录入子号 ChatGPT session'
-          : '已录入子号 ChatGPT session JSON',
+      message: '已录入子号 ChatGPT session JSON',
       data: {
         email: view.email,
         accountIdPresent: Boolean(view.chatgptAccountId),
@@ -413,9 +410,9 @@ export class SubaccountService {
   }
 
   private async resolveWorkspaceWebAccessToken(subaccount: Subaccount, target: string): Promise<string> {
-    if (subaccount.webSessionCookies?.length) {
+    if (subaccount.sessionToken?.trim()) {
       try {
-        return await fetchWorkspaceWebAccessTokenFromCookies(this.webTransport, subaccount.webSessionCookies, target);
+        return await fetchWorkspaceWebAccessTokenFromSessionToken(this.webTransport, subaccount.sessionToken, target);
       } catch (e) {
         if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
         throw e;

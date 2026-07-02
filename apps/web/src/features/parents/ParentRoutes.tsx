@@ -386,10 +386,9 @@ export function ParentRoutes({
         open={searchState.modal === 'import-parent'}
         mode="session"
         title="录入母号 Session"
-        description="保存后先创建本地记录，可粘贴 chatgpt.com session JSON（建议包含 sessionToken）或 Cookie Editor 导出的 cookies 数组。ChatGPT 状态在母号详情中手动同步。"
+        description="保存后先创建本地记录。粘贴 chatgpt.com session JSON，建议包含 sessionToken。ChatGPT 状态在母号详情中手动同步。"
         submitLabel="保存母号"
         confirmLoading={busy === 'import-parent'}
-        allowBrowserCookies
         onCancel={closeModal}
         onSubmit={importParent}
       />

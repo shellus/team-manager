@@ -66,9 +66,6 @@ function accountOptionLabel(account: AccountView): string {
   return primary === account.email ? primary : `${primary} · ${account.email}`;
 }
 
-const COOKIE_EDITOR_URL =
-  'https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm?utm_campaign=cgagnier.ca&pli=1';
-
 export function SubaccountRoutes({
   accounts,
   onError
@@ -546,16 +543,9 @@ export function SubaccountRoutes({
         open={searchState.modal === 'import-session'}
         mode="session"
         title="录入子号 Session"
-        description={
-          <>
-            保存子号本地记录后，可继续生成 Codex 凭证并查询额度。优先粘贴含 sessionToken 的 session JSON；也可以使用{' '}
-            <a href={COOKIE_EDITOR_URL} target="_blank" rel="noreferrer">Cookie Editor</a>
-            {' '}导出 chatgpt.com cookies，并粘贴到输入框。
-          </>
-        }
+        description="保存子号本地记录后，可继续生成 Codex 凭证并查询额度。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         submitLabel="保存子号"
         confirmLoading={busy === 'import-session'}
-        allowBrowserCookies
         onCancel={closeModal}
         onSubmit={importSession}
       />
@@ -575,13 +565,7 @@ export function SubaccountRoutes({
         open={searchState.modal === 'edit-subaccount-profile' && Boolean(selected)}
         mode="subaccount"
         title="编辑子号本地资料"
-        description={
-          <>
-            只更新本系统保存的备注名和 Web session，不修改 Codex 凭证。优先粘贴含 sessionToken 的 session JSON；也可以使用{' '}
-            <a href={COOKIE_EDITOR_URL} target="_blank" rel="noreferrer">Cookie Editor</a>
-            {' '}导出 chatgpt.com cookies，并粘贴到输入框。
-          </>
-        }
+        description="只更新本系统保存的备注名和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         initialValues={{ remark: selected?.remark ?? '' }}
         confirmLoading={busy === 'edit-subaccount-profile'}
         onCancel={closeModal}

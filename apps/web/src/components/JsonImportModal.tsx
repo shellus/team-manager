@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getChatGptSessionUserEmail, inspectChatGptSessionImportInput } from '@team-manager/shared';
 import { Alert, Descriptions, Form, Input, Modal } from 'antd';
-import { parseJsonObject, parseJsonValue, readStringField } from './format.js';
+import { parseJsonObject, readStringField } from './format.js';
 
 type JsonImportMode = 'session' | 'credential';
 
@@ -18,7 +18,6 @@ export function JsonImportModal({
   description,
   submitLabel,
   confirmLoading = false,
-  allowBrowserCookies = false,
   onCancel,
   onSubmit
 }: {
@@ -28,7 +27,6 @@ export function JsonImportModal({
   description: ReactNode;
   submitLabel: string;
   confirmLoading?: boolean;
-  allowBrowserCookies?: boolean;
   onCancel: () => void;
   onSubmit: (payload: unknown) => Promise<void>;
 }) {
@@ -51,8 +49,7 @@ export function JsonImportModal({
         accountId: '',
         planType: '',
         inputMessage: '',
-        inputAlertType: 'info' as const,
-        cookieCount: undefined as number | undefined
+        inputAlertType: 'info' as const
       };
     }
     try {
@@ -64,39 +61,17 @@ export function JsonImportModal({
           accountId: readStringField(record, 'account_id'),
           planType: readStringField(record, 'plan_type'),
           inputMessage: '',
-          inputAlertType: 'info' as const,
-          cookieCount: undefined
+          inputAlertType: 'info' as const
         };
       }
       const inspection = inspectChatGptSessionImportInput(payload);
-      if (inspection.type === 'browser_cookies' && !allowBrowserCookies) {
-        return {
-          email: '',
-          accountId: '',
-          planType: '',
-          inputMessage: '当前入口不支持浏览器 cookies 数组',
-          inputAlertType: 'warning' as const,
-          cookieCount: inspection.cookieCount
-        };
-      }
-      if (inspection.type === 'browser_cookies') {
-        return {
-          email: '提交后读取',
-          accountId: '提交后读取',
-          planType: '',
-          inputMessage: inspection.message,
-          inputAlertType: 'success' as const,
-          cookieCount: inspection.cookieCount
-        };
-      }
       if (inspection.type === 'invalid') {
         return {
           email: '',
           accountId: '',
           planType: '',
           inputMessage: inspection.message,
-          inputAlertType: 'warning' as const,
-          cookieCount: undefined
+          inputAlertType: 'warning' as const
         };
       }
       const record = payload as Record<string, unknown>;
@@ -108,8 +83,7 @@ export function JsonImportModal({
             : '',
         planType: '',
         inputMessage: inspection.message,
-        inputAlertType: 'info' as const,
-        cookieCount: inspection.cookieCount
+        inputAlertType: 'info' as const
       };
     } catch {
       return {
@@ -117,11 +91,10 @@ export function JsonImportModal({
         accountId: '',
         planType: '',
         inputMessage: 'JSON 解析失败，请检查格式',
-        inputAlertType: 'warning' as const,
-        cookieCount: undefined
+        inputAlertType: 'warning' as const
       };
     }
-  }, [allowBrowserCookies, mode, raw]);
+  }, [mode, raw]);
 
   const submit = async (values: JsonImportFormValues) => {
     setError('');
@@ -134,7 +107,7 @@ export function JsonImportModal({
           groupName: values.groupName?.trim() || '默认号池'
         });
       } else {
-        await onSubmit(allowBrowserCookies ? parseJsonValue(values.raw) : parseJsonObject(values.raw));
+        await onSubmit(parseJsonObject(values.raw));
       }
     } catch (submitError) {
       setError((submitError as Error).message);
@@ -172,9 +145,7 @@ export function JsonImportModal({
             placeholder={
               mode === 'credential'
                 ? '粘贴包含 email、account_id、access_token 等字段的 Codex credential JSON'
-                : allowBrowserCookies
-                  ? '粘贴 chatgpt.com session JSON（建议包含 sessionToken），或 Cookie Editor 导出的 cookies 数组'
-                  : '粘贴 chatgpt.com session JSON（建议包含 sessionToken）'
+                : '粘贴 chatgpt.com session JSON（建议包含 sessionToken）'
             }
           />
         </Form.Item>
@@ -194,13 +165,10 @@ export function JsonImportModal({
           </div>
         )}
 
-        <Descriptions size="small" column={mode === 'credential' || allowBrowserCookies ? 3 : 2} bordered>
+        <Descriptions size="small" column={mode === 'credential' ? 3 : 2} bordered>
           <Descriptions.Item label="识别邮箱">{preview.email || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="workspace account_id">{preview.accountId || '暂无'}</Descriptions.Item>
           {mode === 'credential' && <Descriptions.Item label="plan_type">{preview.planType || '暂无'}</Descriptions.Item>}
-          {mode === 'session' && allowBrowserCookies && (
-            <Descriptions.Item label="cookies">{preview.cookieCount ? `${preview.cookieCount} 个` : '暂无'}</Descriptions.Item>
-          )}
         </Descriptions>
       </Form>
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}

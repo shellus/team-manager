@@ -31,7 +31,7 @@ corepack pnpm docs:build
 
 ## 安全边界
 
-- 源码可以公开；运行时持有的 access token、refresh token、cookie、Codex credential、管理员口令、代理和部署入口不得进入 git。
+- 源码可以公开；运行时持有的 access token、refresh token、sessionToken、Codex credential、管理员口令、代理和部署入口不得进入 git。
 - 运行时数据放在部署环境挂载的 `data/`，环境变量放 `.env` 或部署系统配置。
 - git 管理文件不得写真实域名、IP、端口、账号、token、代理地址或本机部署路径；本机事实记录到 `.codex/AGENTS.md`。
 - GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 连接信息属于运行环境配置；业务代码只检查脱敏可用状态，不在源码或公开文档中保存真实连接参数。
@@ -41,7 +41,7 @@ corepack pnpm docs:build
 ## 功能范围
 
 - **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
-- **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号可按 `groupName` 分组，用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可替换 session JSON 或录入浏览器导出的 cookies；不会修改远端 Team 名称。
+- **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号可按 `groupName` 分组，用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可替换 chatgpt.com session JSON；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **席位位置**：用 `seatSlots` 记录母号下售出的 ChatGPT 固定席位位置，`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
@@ -96,7 +96,7 @@ corepack pnpm docs:build
 
 ## 录入格式
 
-母号和子号的 Web 登录态录入支持两种互斥输入类型：
+母号和子号的 Web 登录态只支持 chatgpt.com `/api/auth/session` 输出的 session JSON：
 
 ```json
 {
@@ -111,10 +111,11 @@ corepack pnpm docs:build
 }
 ```
 
-1. chatgpt.com session JSON。必需字段是 `user.email`、`account.id` 和 `accessToken`；如果包含 `sessionToken`，系统会保存为 ChatGPT session-token cookie 材料，后续可按目标 workspace 换取 Web access token。
-2. Cookie Editor 等浏览器扩展导出的 cookies 数组。该输入必须包含 `__Secure-next-auth.session-token.*`，系统会先用 cookies 请求 ChatGPT `/api/auth/session` 读取当前邮箱、workspace 和 access token，再保存浏览器会话 cookies。
+必需字段是 `user.email`、`account.id` 和 `accessToken`；建议同时包含 `sessionToken`。系统直接保存 `sessionToken`，后续可按目标 workspace 调用 `/api/auth/session` 换取新的 Web access token。数组输入和浏览器导出状态不再支持。
 
-后续需要目标 workspace Web access token 时，系统会通过 `_account=<target workspace>` 向 `/api/auth/session` 换取。多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON 或浏览器 cookies，不需要为每个 workspace 分别录入 session。
+录入或替换母号 session 时，系统不会直接信任输入中的 `account.id`。后端会先调用 `accounts/check`，只把当前 session 可访问且角色为 owner/admin 的 Team workspace 保存为母号 `accountId`；如果输入是个人 session 但包含 `sessionToken`，系统会再通过 `/api/auth/session` 换取目标 Team workspace 的 Web access token。后续母号 backend-api 请求遇到 `token_invalidated` 时，也会用已保存的 `sessionToken` 换取新 Web access token 并重试一次。
+
+多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。若当前 ChatGPT session 可见多个可管理 Team workspace 且无法从当前/已有 workspace 判断目标，系统会拒绝自动选择，避免把母号绑定到错误 Team。
 
 GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType` 和 `nextRenewalOn`。替换 session 时，旧 session 明文不会回填到前端。
 

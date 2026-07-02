@@ -3,7 +3,6 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
-  normalizeChatGptSessionCookies,
   type Account,
   type AccountLimitType,
   type AccountSeatSlot,
@@ -252,7 +251,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     accountId: readTrimmedString(input.accountId),
     email,
     accessToken: readTrimmedString(input.accessToken),
-    webSessionCookies: normalizeChatGptSessionCookies(input.webSessionCookies),
+    ...(readTrimmedString(input.sessionToken) ? { sessionToken: readTrimmedString(input.sessionToken) } : {}),
     ...(readTrimmedString(input.refreshToken) ? { refreshToken: readTrimmedString(input.refreshToken) } : {}),
     fp: input.fp,
     ...(readTrimmedString(input.proxy) ? { proxy: readTrimmedString(input.proxy) } : {}),

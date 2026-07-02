@@ -25,6 +25,7 @@ export interface ChatGptAccountContext {
   accountId: string;
   accessToken: string;
   fp?: AccountFingerprint;
+  refreshWebAccessToken?: () => Promise<string>;
 }
 
 export interface ChatGptAccountCheckEntry {
@@ -77,22 +78,38 @@ export class ChatGptApi {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    let res = await this.fetchOnce(method, path, body);
+    if (this.canRefreshAfterAuthFailure(res)) {
+      const refreshed = await this.account.refreshWebAccessToken?.();
+      if (refreshed) {
+        this.account.accessToken = refreshed;
+        res = await this.fetchOnce(method, path, body);
+      }
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new ChatGptApiError(res.status, res.body, `${method} ${path}`);
+    }
+    return (res.body ? JSON.parse(res.body) : {}) as T;
+  }
+
+  private async fetchOnce(method: string, path: string, body?: unknown) {
     const extra: Record<string, string> = {};
     let payload: string | undefined;
     if (body !== undefined) {
       extra['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
-    const res = await this.transport.fetch({
+    return this.transport.fetch({
       method,
       path,
       headers: this.headers(path, extra),
       body: payload
     });
-    if (res.status < 200 || res.status >= 300) {
-      throw new ChatGptApiError(res.status, res.body, `${method} ${path}`);
-    }
-    return (res.body ? JSON.parse(res.body) : {}) as T;
+  }
+
+  private canRefreshAfterAuthFailure(res: { status: number; body: string }): boolean {
+    if (!this.account.refreshWebAccessToken || res.status !== 401) return false;
+    return isTokenInvalidatedResponse(res.body);
   }
 
   /** 当前 ChatGPT session 可见的账号 / workspace 列表。 */
@@ -356,6 +373,17 @@ export class ChatGptApiError extends Error {
   ) {
     super(`backend-api ${status} @ ${context}: ${body.slice(0, 200)}`);
     this.name = 'ChatGptApiError';
+  }
+}
+
+function isTokenInvalidatedResponse(body: string): boolean {
+  try {
+    const data = JSON.parse(body) as { error?: { code?: unknown; message?: unknown } };
+    const code = typeof data.error?.code === 'string' ? data.error.code : '';
+    const message = typeof data.error?.message === 'string' ? data.error.message : '';
+    return code === 'token_invalidated' || /authentication token has been invalidated/i.test(message);
+  } catch {
+    return /authentication token has been invalidated|token_invalidated/i.test(body);
   }
 }
 

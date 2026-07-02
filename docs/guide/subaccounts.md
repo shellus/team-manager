@@ -10,11 +10,9 @@
 
 自动注册会继续尝试完成 Codex 授权；成功后页面显示对应 Team workspace 的 Codex 凭证。注册阶段遇到 sentinel、人机校验或短信问题时，子号会进入待验证或异常状态；账号锁定会进入单独的账号锁定状态。日志只展示脱敏阶段信息。对这类已落库账号再次点击“自动授权”时，后端会复用私有保存的注册密码继续登录，但页面和日志仍不会展示密码。
 
-### 录入子号 session 或浏览器 cookies
+### 录入子号 session
 
-子号 Web 登录态支持两种互斥输入类型。输入框会即时识别类型并显示提示。
-
-第一种是 chatgpt.com session JSON：
+子号 Web 登录态只支持 chatgpt.com `/api/auth/session` 输出的 session JSON。输入框会即时识别类型并显示提示。
 
 ```json
 {
@@ -29,11 +27,11 @@
 }
 ```
 
-该输入中的 `accessToken` 绑定 `account.id` 对应的当前 workspace；如果同时包含 `sessionToken`，系统会保存为 session-token cookie 材料。页面会提示“识别到含 sessionToken 的 session JSON，将允许跨 workspace 操作”。
+该输入中的 `accessToken` 绑定 `account.id` 对应的当前 workspace；如果同时包含 `sessionToken`，系统会保存 `sessionToken`。页面会提示“识别到含 sessionToken 的 session JSON，将允许跨 workspace 操作”。
 
-第二种是 Cookie Editor 等浏览器扩展从 `chatgpt.com` 导出的 cookies 数组。该数组必须包含 `__Secure-next-auth.session-token.*`。系统会用 cookies 请求 ChatGPT `/api/auth/session`，读取当前邮箱、workspace 和 access token 后创建或更新子号。页面会提示“识别到浏览器导出 cookies，将允许跨 workspace 操作”。
+创建 Codex 个人访问令牌时，若子号保存了 session JSON 的 `sessionToken`，系统会向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。
 
-创建 Codex 个人访问令牌时，若子号保存了 session JSON 的 `sessionToken` 或浏览器 cookies，系统会设置 `_account=<目标 workspace>` 并向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次带 `sessionToken` 的 session JSON 或浏览器 cookies，不需要为每个 workspace 分别录入 session。
+子号侧 ChatGPT Web 请求也会复用 `sessionToken`。同步 Team 关联时，如果 `accounts/check` 或目标 workspace 的 users 查询返回 401 `token_invalidated`，系统会按当前请求的 workspace 换取新的 Web access token，回写子号本地记录并重试一次。
 
 录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。旧 session 明文不会回填到前端。
 
@@ -48,6 +46,7 @@
 子号页的“Team 关联”优先使用子号自己的 ChatGPT Web session 调用 `accounts/check`，读取该子号当前可见的 workspace 列表，再和已录入母号的 workspace `account_id` 做匹配：
 
 - 子号可见且本地已录入对应母号时，会继续用子号自己的 Web session 查询目标 workspace 的 users 列表，并按该子号成员记录里的 `seat_type` 更新席位，状态为 `已在 Team`。
+- 若同步过程中子号 Web access token 已被远端失效，且本地保存了 `sessionToken`，系统会自动换取目标 workspace 的新 Web access token 后重试一次。
 - 曾经有记录但本次查不到时，状态为 `未找到`。
 - 没有 Web session 的 credential-only 子号不能从子号侧刷新 Team 关联；同步接口会返回错误，不使用母号凭证兜底读取。
 - 单个目标 workspace 查询失败时，状态为 `未确认`。
@@ -67,7 +66,7 @@ Team 关联是本地缓存，不是唯一事实来源。邀请子号进入 Team 
 子号页的“凭证与 Codex Auth”按 Team workspace 展示操作行。操作行会显示 Team、凭证文件名、CPA 号池、授权时间和额度缓存；如果凭证已导入但 Team 关联还没同步，也会先按凭证里的 workspace `account_id` 显示。
 
 - 自动授权：使用运行环境已配置的 worker、授权页面 clearance、GongXi-Mail 和可选短信 OTP 能力完成授权。短信 OTP 能力可处理首次手机号绑定、已绑定手机号二次验证，以及验证码被拒后的候选码重试。
-- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若录入的 session JSON 含 `sessionToken` 或录入了浏览器 cookie，系统会先按目标 workspace 换取 workspace-scoped Web access token，再调用 `wham/auth-credentials`。远端响应里的 `workspace_id` 必须和目标一致，否则系统返回错误并拒绝保存。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
+- 创建令牌：使用已录入的子号 Web Session 在目标 Team workspace 下创建 Codex 个人访问令牌，并保存为该 workspace 的凭证。若录入的 session JSON 含 `sessionToken`，系统会先按目标 workspace 换取 workspace-scoped Web access token，再调用 `wham/auth-credentials`。远端响应里的 `workspace_id` 必须和目标一致，否则系统返回错误并拒绝保存。该操作不会修改母号的个人访问令牌权限开关；如果目标 Team 未允许用户创建个人访问令牌，页面会显示远端错误。
 - 若个人访问令牌能创建但 Codex CLI 或 CPA 调用仍返回 access enforcement 401，应先检查母号设置里的 Codex Local、个人访问令牌、设备代码身份验证和远程控制状态，再结合 OpenAI 远端返回判断是否为 workspace/成员授权规则问题。
 - 登录 URL：生成手动授权 URL。授权完成后，把 callback URL 粘贴回系统。
 - 刷新额度：使用该 Team workspace 对应凭证查询 `/backend-api/wham/usage`。

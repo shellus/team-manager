@@ -155,7 +155,7 @@ code_verifier=<pkce-verifier>
 
 ## ChatGPT Web session JSON 的边界
 
-team-manager 保存子号 session JSON 的 Web access token，并在输入含 `sessionToken` 时保存为 ChatGPT session-token cookie 材料：
+team-manager 保存子号 session JSON 的 Web access token，并在输入含 `sessionToken` 时保存该字段：
 
 ```json
 {

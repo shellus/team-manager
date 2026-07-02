@@ -7,6 +7,7 @@ import type {
   AccountSeatSlot,
   AccountSeatSlotStatus,
   AccountView,
+  ChatGptSessionInput,
   Member,
   PendingInvite,
   PublicSeatSlotView,
@@ -26,12 +27,24 @@ import {
   tokenNeedsRefresh,
   type ChatGptAccountCheckEntry
 } from './chatgptApi.js';
-import { ChatGptWebSessionError, resolveChatGptSessionImportInput } from './chatgptWebSession.js';
+import {
+  ChatGptWebSessionError,
+  fetchWorkspaceWebAccessTokenFromSessionToken,
+  resolveChatGptSessionImportInput
+} from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+interface ChatGptSessionClientInput {
+  accountId: string;
+  accessToken: string;
+  fp?: AccountFingerprint;
+  sessionToken?: string;
+  onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
+}
 
 /** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
 export class TeamService {
@@ -57,14 +70,34 @@ export class TeamService {
           lastRefreshAt: Date.now(),
           lastError: undefined
         });
-        if (updated) return { account: updated, api: new ChatGptApi(updated, this.transport) };
+        if (updated) return { account: updated, api: this.apiForAccount(updated) };
       } catch (e) {
         await this.store.update(id, { lastError: `刷新失败: ${(e as Error).message}` });
         // 刷新失败仍用旧 token 尝试（可能尚未真正过期）
       }
     }
     const fresh = this.store.get(id)!;
-    return { account: fresh, api: new ChatGptApi(fresh, this.transport) };
+    return { account: fresh, api: this.apiForAccount(fresh) };
+  }
+
+  private apiForAccount(account: Account): ChatGptApi {
+    return new ChatGptApi(
+      {
+        ...account,
+        refreshWebAccessToken: account.sessionToken
+          ? async () => {
+              const accessToken = await this.fetchWorkspaceTokenFromSessionToken(account.sessionToken!, account.accountId);
+              await this.store.update(account.id, {
+                accessToken,
+                lastRefreshAt: Date.now(),
+                lastError: undefined
+              });
+              return accessToken;
+            }
+          : undefined
+      },
+      this.transport
+    );
   }
 
   private viewFromAccount(account: Account): AccountView {
@@ -368,8 +401,10 @@ export class TeamService {
     accountId: string;
     accessToken: string;
     fp?: AccountFingerprint;
+    sessionToken?: string;
+    onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
   }): Promise<ChatGptAccountCheckEntry[]> {
-    return new ChatGptApi(session, this.transport).checkAccounts();
+    return this.apiForSession(session).checkAccounts();
   }
 
   async findSessionEmailRelation(
@@ -377,12 +412,32 @@ export class TeamService {
       accountId: string;
       accessToken: string;
       fp?: AccountFingerprint;
+      sessionToken?: string;
+      onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
     },
     email: string
   ): Promise<{ status: 'member' | 'unknown'; seat?: SeatType }> {
-    const member = await new ChatGptApi(session, this.transport).findMemberByEmail(email);
+    const member = await this.apiForSession(session).findMemberByEmail(email);
     if (!member) return { status: 'unknown' };
     return { status: 'member', seat: member.seat };
+  }
+
+  private apiForSession(session: ChatGptSessionClientInput): ChatGptApi {
+    return new ChatGptApi(
+      {
+        accountId: session.accountId,
+        accessToken: session.accessToken,
+        fp: session.fp,
+        refreshWebAccessToken: session.sessionToken
+          ? async () => {
+              const accessToken = await this.fetchWorkspaceTokenFromSessionToken(session.sessionToken!, session.accountId);
+              await session.onAccessTokenRefreshed?.(accessToken);
+              return accessToken;
+            }
+          : undefined
+      },
+      this.transport
+    );
   }
 
   /** 慢速状态同步：显式调用，避免阻塞主页面列表。 */
@@ -423,14 +478,19 @@ export class TeamService {
   }
 
   async addAccountFromSessionInput(raw: unknown): Promise<AccountView> {
-    const input = await this.resolveAccountSessionInput(raw);
+    const input = await this.resolveParentWorkspaceSession(raw);
     return this.addAccount({
       groupName: '默认分组',
       limitType: 'unknown',
       accountId: input.session.account.id,
       email: input.session.user.email,
       accessToken: input.session.accessToken,
-      webSessionCookies: input.session.cookies
+      sessionToken: input.session.sessionToken,
+      planType: input.workspace.planType,
+      role: input.workspace.role,
+      workspaceName: input.workspace.workspaceName,
+      nextRenewalOn: input.workspace.nextRenewalOn,
+      status: 'unknown'
     });
   }
 
@@ -463,11 +523,15 @@ export class TeamService {
     }
 
     if (input.session !== undefined) {
-      const { session } = await this.resolveAccountSessionInput(input.session);
+      const { session, workspace } = await this.resolveParentWorkspaceSession(input.session, existing.accountId);
       patch.email = session.user.email;
       patch.accountId = session.account.id;
       patch.accessToken = session.accessToken;
-      patch.webSessionCookies = session.cookies;
+      patch.sessionToken = session.sessionToken;
+      patch.planType = workspace.planType;
+      patch.role = workspace.role;
+      patch.workspaceName = workspace.workspaceName;
+      patch.nextRenewalOn = workspace.nextRenewalOn;
       patch.status = 'unknown';
     }
 
@@ -634,6 +698,83 @@ export class TeamService {
   ): Promise<Awaited<ReturnType<typeof resolveChatGptSessionImportInput>>> {
     try {
       return await resolveChatGptSessionImportInput(raw, this.transport);
+    } catch (e) {
+      if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
+      throw e;
+    }
+  }
+
+  private async resolveParentWorkspaceSession(
+    raw: unknown,
+    preferredAccountId?: string
+  ): Promise<{ type: 'workspace_session'; session: ChatGptSessionInput; workspace: ChatGptAccountCheckEntry }> {
+    const input = await this.resolveAccountSessionInput(raw);
+    const sessionToken = input.session.sessionToken;
+    const sessionContext = {
+      accountId: input.session.account.id,
+      accessToken: input.session.accessToken,
+      refreshWebAccessToken: sessionToken
+        ? () => this.fetchWorkspaceTokenFromSessionToken(sessionToken, input.session.account.id)
+        : undefined
+    };
+    const workspaces = await new ChatGptApi(sessionContext, this.transport).checkAccounts();
+    const currentSession = { ...input.session, accessToken: sessionContext.accessToken };
+    const workspace = this.selectParentWorkspace(workspaces, input.session.account.id, preferredAccountId);
+    const accessToken = await this.resolveWebAccessTokenForWorkspace(currentSession, workspace.accountId);
+    return {
+      type: input.type,
+      workspace,
+      session: {
+        ...input.session,
+        account: { id: workspace.accountId },
+        accessToken
+      }
+    };
+  }
+
+  private selectParentWorkspace(
+    workspaces: ChatGptAccountCheckEntry[],
+    sessionAccountId: string,
+    preferredAccountId?: string
+  ): ChatGptAccountCheckEntry {
+    const candidates = workspaces.filter((workspace) => this.isParentWorkspaceCandidate(workspace));
+    const preferred = preferredAccountId
+      ? candidates.find((workspace) => workspace.accountId === preferredAccountId.trim())
+      : undefined;
+    if (preferred) return preferred;
+
+    const current = candidates.find((workspace) => workspace.accountId === sessionAccountId);
+    if (current) return current;
+    if (candidates.length === 1) return candidates[0]!;
+    if (candidates.length === 0) {
+      throw new ServiceError(400, '当前 ChatGPT session 未发现可管理的 Team workspace，请确认录入的是母号 owner/admin session');
+    }
+    throw new ServiceError(409, '当前 ChatGPT session 可见多个 Team workspace，无法自动判断要录入的母号 Team');
+  }
+
+  private isParentWorkspaceCandidate(workspace: ChatGptAccountCheckEntry): boolean {
+    if (workspace.canAccessWithSession === false) return false;
+    if (workspace.structure !== 'workspace') return false;
+    return workspace.role === 'account-owner' || workspace.role === 'account-admin';
+  }
+
+  private async resolveWebAccessTokenForWorkspace(
+    session: ChatGptSessionInput,
+    targetAccountId: string
+  ): Promise<string> {
+    if (session.account.id === targetAccountId) return session.accessToken;
+    if (!session.sessionToken) {
+      throw new ServiceError(400, 'session JSON 缺少 sessionToken，无法切换到目标 Team workspace');
+    }
+    return this.fetchWorkspaceTokenFromSessionToken(session.sessionToken, targetAccountId);
+  }
+
+  private async fetchWorkspaceTokenFromSessionToken(
+    sessionToken: string,
+    targetAccountId: string
+  ): Promise<string> {
+    try {
+      return await fetchWorkspaceWebAccessTokenFromSessionToken(this.transport, sessionToken, targetAccountId);
     } catch (e) {
       if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
       throw e;
