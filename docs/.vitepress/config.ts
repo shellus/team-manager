@@ -20,6 +20,7 @@ export default defineConfig({
           { text: '母号与 Team 管理', link: '/guide/mother-accounts' },
           { text: '子号与 Codex 凭证', link: '/guide/subaccounts' },
           { text: '额度与席位轮转', link: '/guide/quota-and-seats' },
+          { text: '新号填充凭证号池', link: '/guide/fill-credential-pool' },
           { text: '状态与排错', link: '/guide/status-and-errors' }
         ]
       },

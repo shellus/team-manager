@@ -148,6 +148,7 @@ corepack pnpm docs:build
 ## 文档索引
 
 - [`docs/guide/`](./docs/guide/)：使用手册，面向日常业务操作，说明母号、子号、席位、凭证、额度和排错流程。
+- [`docs/guide/fill-credential-pool.md`](./docs/guide/fill-credential-pool.md)：使用新子号加入多个 Team、生成 PAT 凭证并填充 CPA/Codex 号池的 SOP。
 - [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：Team、母号、子号、席位类型、Codex 凭证维度和账单红线。涉及这些对象的任务应先读本文件。
 - [`docs/dev-spec/data-model.md`](./docs/dev-spec/data-model.md)：母号、子号、缓存、派生字段和本地资料编辑的数据模型规则。
 - [`docs/dev-spec/subaccount-management.md`](./docs/dev-spec/subaccount-management.md)：子号池、Codex 授权、额度查询、Team 关联同步的实现边界。

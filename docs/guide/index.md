@@ -13,6 +13,8 @@ team-manager 的业务流程围绕四个对象展开：母号、Team workspace�
 7. 对每个目标 Team 生成或导入对应 Codex 凭证。
 8. 刷新额度，查看该凭证在对应 Team workspace 下的额度窗口。
 
+需要用新号批量填充 CPA/Codex 号池时，按[新号填充凭证号池 SOP](./fill-credential-pool)执行。该流程要求先确认可用母号和席位边界，再让新子号加入目标 Team，并按“子号 × Team workspace”生成 PAT 凭证。
+
 ## 页面入口
 
 | 页面 | 主要用途 | 常见动作 |

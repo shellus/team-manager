@@ -4,6 +4,7 @@
 
 - 新会话先阅读 `README.md` 和本文件，并明确说明已理解的主要内容。
 - 任务涉及母号、子号、Team workspace、席位类型、Codex 凭证、额度或 Team 关联时，必须先阅读 [`docs/core/seat-and-credential-model.md`](docs/core/seat-and-credential-model.md)。
+- 任务涉及用新子号填充 CPA/Codex 凭证号池、批量加入多个 Team、PAT 凭证生成或清理无用 Codex 席位成员时，必须先阅读 [`docs/guide/fill-credential-pool.md`](docs/guide/fill-credential-pool.md)。
 - 如果 `README.local.md` 存在，也要阅读它获取本机私有运行说明。`README.local.md` 应由本机 git ignore 规则忽略，不要提交。
 
 ## Git Rules
