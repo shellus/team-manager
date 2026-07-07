@@ -61,6 +61,37 @@ describe('SubaccountStore', () => {
     });
   });
 
+  it('deduplicates Team links by workspace id when the local parent id changes', async () => {
+    await withStore(async (store) => {
+      const saved = await store.importSession({
+        user: { email: 'child@example.com' },
+        account: { id: 'chatgpt-account-id' },
+        accessToken: 'web-access-token'
+      });
+
+      await store.saveTeamLink(saved.id, {
+        accountId: 'external-workspace-id',
+        workspaceId: 'workspace-id',
+        workspaceName: 'External Team',
+        seat: 'usage_based',
+        status: 'unknown'
+      });
+      const updated = await store.saveTeamLink(saved.id, {
+        accountId: 'parent-record-id',
+        workspaceId: 'workspace-id',
+        workspaceName: 'External Team',
+        seat: 'default',
+        status: 'member'
+      });
+
+      assert.equal(updated!.teamLinks.length, 1);
+      assert.equal(updated!.teamLinks[0]!.accountId, 'parent-record-id');
+      assert.equal(updated!.teamLinks[0]!.workspaceId, 'workspace-id');
+      assert.equal(updated!.teamLinks[0]!.seat, 'default');
+      assert.equal(updated!.teamLinks[0]!.status, 'member');
+    });
+  });
+
   it('imports an existing Codex credential without requiring a ChatGPT web session', async () => {
     await withStore(async (store) => {
       const saved = await store.importCodexCredential({

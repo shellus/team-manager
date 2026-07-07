@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AccountView } from '@team-manager/shared';
 import { Alert } from 'antd';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, ApiError, clearToken, getToken, setToken } from '../api.js';
 import { Login } from '../Login.js';
+import { useActionBusy } from '../components/useActionBusy.js';
 import { ParentRoutes } from '../features/parents/ParentRoutes.js';
 import { PublicSeatPage } from '../features/public-seat/PublicSeatPage.js';
 import { SubaccountRoutes } from '../features/subaccounts/SubaccountRoutes.js';
+import { accountRefreshActionKey, syncingAccountIdsFromBusy } from './accountRefreshBusy.js';
 import { AppShell } from './AppShell.js';
 
 export function AppRoot() {
@@ -15,8 +17,12 @@ export function AppRoot() {
   const [authed, setAuthed] = useState(() => Boolean(getToken()));
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [syncingIds, setSyncingIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState('');
+  const accountRefreshBusy = useActionBusy();
+  const syncingIds = useMemo(
+    () => syncingAccountIdsFromBusy(accounts, accountRefreshBusy.busyState),
+    [accounts, accountRefreshBusy.busyState]
+  );
 
   const handleError = useCallback((errorValue: unknown) => {
     const message = (errorValue as Error).message;
@@ -59,21 +65,16 @@ export function AppRoot() {
 
   const refreshAccount = useCallback(
     async (account: AccountView) => {
-      setSyncingIds((current) => new Set(current).add(account.id));
       setError('');
       try {
-        mergeAccount(await apiClient.refreshAccount(account.id));
+        await accountRefreshBusy.run(accountRefreshActionKey(account.id), async () => {
+          mergeAccount(await apiClient.refreshAccount(account.id));
+        });
       } catch (refreshError) {
         handleError(refreshError);
-      } finally {
-        setSyncingIds((current) => {
-          const next = new Set(current);
-          next.delete(account.id);
-          return next;
-        });
       }
     },
-    [handleError, mergeAccount]
+    [accountRefreshBusy.run, handleError, mergeAccount]
   );
 
   const logout = () => {

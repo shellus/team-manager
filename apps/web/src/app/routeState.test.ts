@@ -10,14 +10,14 @@ import {
 describe('routeState', () => {
   test('parses parent group tab modal and target from search params', () => {
     const state = parseParentSearchState(
-      new URLSearchParams('group=A&tab=invites&modal=remove-member&target=user-1')
+      new URLSearchParams('group=A&tab=invites&modal=invite-member&target=account-1')
     );
 
     expect(state).toEqual({
       group: 'A',
       tab: 'invites',
-      modal: 'remove-member',
-      target: 'user-1'
+      modal: 'invite-member',
+      target: 'account-1'
     });
   });
 
@@ -42,6 +42,28 @@ describe('routeState', () => {
       modal: 'delete-codex-credential',
       target: 'acct-1',
       credential: 'acct-2'
+    });
+  });
+
+  test('does not persist the child Team leave action as a blocking route modal', () => {
+    const state = parseSubaccountSearchState(new URLSearchParams('tab=teams&modal=leave-team&target=workspace-1'));
+
+    expect(state).toEqual({
+      tab: 'teams',
+      modal: '',
+      target: '',
+      credential: ''
+    });
+  });
+
+  test('does not keep removed parent row actions as route modals', () => {
+    const state = parseParentSearchState(new URLSearchParams('tab=members&modal=remove-member&target=user-1'));
+
+    expect(state).toEqual({
+      group: '',
+      tab: 'members',
+      modal: '',
+      target: ''
     });
   });
 

@@ -4,7 +4,7 @@
 
 ## 总原则
 
-- 后端 store 中的对象是本地事实源；前端只消费后端返回的脱敏 view。
+- 后端 store 中的对象是本地事实源；前端消费后端返回的 view。管理后台 view 可回填账号 Web session JSON 和代理地址；Codex credential JSON、注册密码和运行环境密钥仍不得进入普通 view。
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
@@ -14,7 +14,7 @@
 
 ## 母号模型
 
-母号持久化对象为 `Account`，只在后端保存敏感字段。前端使用 `AccountView`，不包含 access token、refresh token、sessionToken 或指纹明文。
+母号持久化对象为 `Account`，前端使用 `AccountView`。管理后台可信，`AccountView.session` 会回填本地保存的 Web session JSON；`refreshToken` 和指纹明文不下发。
 
 ### Canonical fields
 
@@ -26,8 +26,9 @@
 | `limitType` | 本地输入 | 本地记录的额度窗口类型：`unknown`、`weekly`、`monthly` |
 | `accountId` | `accounts/check` 解析结果 | ChatGPT Team workspace account id，用于 `chatgpt-account-id` 上下文；母号录入和替换 session 时不得直接信任输入 JSON 的 `account.id` |
 | `email` | session JSON | 母号 owner 邮箱 |
-| `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用，不下发前端 |
-| `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token，不下发前端 |
+| `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用；`accessToken` 通过 `AccountView.session` 回填给管理后台，`refreshToken` 不下发 |
+| `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `AccountView.session` 回填给管理后台 |
+| `proxy` | 本地输入 | 母号独立代理地址，用于该母号 ChatGPT Web 请求和 workspace token 换取 |
 | `workspaceName` | accounts/check 或远端改名结果 | 远端 Team workspace 名称 |
 | `nextRenewalOn` | accounts/check 自动识别或本地输入 | Team 下次续费日期，格式为 `yyyy-mm-dd` |
 | `planType` / `role` / `status` / `lastError` | refresh 结果 | 远端状态与错误摘要 |
@@ -108,7 +109,7 @@
 | 改 Codex 设备代码身份验证开关 | 远端修改成功后更新 `codexDeviceCodeAuthEnabled` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 远程控制开关 | 远端修改成功后更新 `codexRemoteControlEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
-| 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn`；提供 session JSON 时先按母号 session 录入规则解析 Team workspace，再更新 `email`、`accountId`、`accessToken`、workspace 元数据和可用的 `sessionToken`，并清空 `lastError` | 合并返回的母号 view，旧 session 明文不回填 |
+| 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn` 和 `proxy`；提供 session JSON 时先按母号 session 录入规则解析 Team workspace，再更新 `email`、`accountId`、`accessToken`、workspace 元数据和可用的 `sessionToken`，并清空 `lastError` | 合并返回的母号 view，已保存 session 明文回填到 `session` 字段 |
 
 邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。`default` 邀请成功后，service 会为目标邮箱 upsert 一个 `seatSlots[]` 条目。`usage_based` 邀请不创建 slot。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
 
@@ -132,7 +133,7 @@
 
 ## 子号模型
 
-子号持久化对象为 `Subaccount`，前端使用 `SubaccountView`。子号的 ChatGPT Web session 和 Codex 凭证明文只在后端持久化。
+子号持久化对象为 `Subaccount`，前端使用 `SubaccountView`。管理后台可信，`SubaccountView.session` 会回填本地保存的 Web session JSON；Codex 凭证明文只在独立凭证文件和显式导出接口中出现。
 
 ### Canonical fields
 
@@ -142,8 +143,9 @@
 | `email` | session JSON、注册结果或 Codex credential | 子号邮箱 |
 | `remark` | 本地输入 | 子号本地备注 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
-| `webAccessToken` | session JSON | 子号 ChatGPT Web access token，不下发前端 |
-| `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token，不下发前端 |
+| `webAccessToken` | session JSON | 子号 ChatGPT Web access token；通过 `SubaccountView.session` 回填给管理后台 |
+| `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `SubaccountView.session` 回填给管理后台 |
+| `proxy` | 本地输入 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT/K12 凭证创建和额度请求 |
 | `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证元数据 |
 | `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据，仅后端持久化，不下发前端 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
@@ -182,7 +184,7 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 
 ### Derived view fields
 
-- `SubaccountView.hasWebSession` 是允许下发的脱敏能力位，因为前端不能接收 `webAccessToken`。
+- `SubaccountView.hasWebSession` 是列表和详情展示用能力位；可编辑的 Web session 明文放在 `SubaccountView.session`。
 - `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
 - `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
 - 顶层 `hasCodexCredential`、`lastQuota`、`lastQuotaAt`、`lastAuthAt` 是冗余字段，不应出现在 view 或持久化数据中。
@@ -194,7 +196,7 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 | 导入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加脱敏日志 | 合并返回的子号 view |
 | 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 自动注册子号 | 通过 worker 申请邮箱并注册 OpenAI 账号；写入 `email`、`registrationPassword`、`registeredAt`、`registrationSource`；如授权成功则写入独立凭证文件并 upsert `codexCredentials[]` 元数据 | 合并返回的子号 view，密码不下发 |
-| 编辑本地资料 | 更新 `remark`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
+| 编辑本地资料 | 更新 `remark` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
 | 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
@@ -214,6 +216,7 @@ Content-Type: application/json
   "groupName": "自用",
   "limitType": "monthly",
   "nextRenewalOn": "2026-07-16",
+  "proxy": "<proxy-url>",
   "session": {
     "user": { "email": "owner@example.com" },
     "account": { "id": "<workspace-account-id>" },
@@ -231,6 +234,7 @@ Content-Type: application/json
 
 {
   "remark": "本地备注",
+  "proxy": "<proxy-url>",
   "session": {
     "user": { "email": "child@example.com" },
     "account": { "id": "<chatgpt-account-id>" },
@@ -240,7 +244,7 @@ Content-Type: application/json
 }
 ```
 
-母号 `session` 可省略。`groupName` 为空时归入 `默认分组`，`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应返回脱敏 view，不返回旧 session 或新 session 明文。
+母号和子号的 `session`、`proxy` 都可省略。`groupName` 为空时归入 `默认分组`，`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应 view 会返回已保存的 `session` 和 `proxy`，用于管理后台本地资料编辑回填；Codex credential JSON 仍只通过显式导出接口返回。
 
 ## Codex 凭证导入 API
 

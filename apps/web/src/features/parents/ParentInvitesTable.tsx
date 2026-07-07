@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import type { AccountMemberProfileInput, AccountView, PendingInvite } from '@team-manager/shared';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Popconfirm, Space, Table, Typography } from 'antd';
+import { Alert, Button, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { apiClient } from '../../api.js';
+import { ActionPopconfirm } from '../../components/ActionPopconfirm.js';
+import { actionKey } from '../../components/actionBusy.js';
 import { formatDateTime, formatRelativeTime } from '../../components/format.js';
 import { SeatTag } from '../../components/StatusTag.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 import { roleLabel } from '../../labels.js';
 import {
   MemberProfileModal,
@@ -22,46 +25,45 @@ export function ParentInvitesTable({
   account: AccountView;
   onAccountChanged: (account: AccountView) => void;
 }) {
-  const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
+  const actionBusy = useActionBusy();
   const invites = account.pendingInvitesCache ?? [];
 
   const refreshInvites = async () => {
-    setBusy('refresh');
     setError('');
     try {
-      onAccountChanged(await apiClient.refreshPendingInvites(account.id));
+      await actionBusy.run('invites-refresh', async () => {
+        onAccountChanged(await apiClient.refreshPendingInvites(account.id));
+      });
     } catch (refreshError) {
       setError((refreshError as Error).message);
-    } finally {
-      setBusy('');
     }
   };
 
   const revokeInvite = async (invite: PendingInvite) => {
-    setBusy(`revoke-${invite.email}`);
+    const key = actionKey('invite-revoke', invite.email);
     setError('');
     try {
-      onAccountChanged(await apiClient.revokePendingInvite(account.id, invite.email));
+      await actionBusy.run(key, async () => {
+        onAccountChanged(await apiClient.revokePendingInvite(account.id, invite.email));
+      });
     } catch (revokeError) {
       setError((revokeError as Error).message);
-    } finally {
-      setBusy('');
     }
   };
 
   const saveProfile = async (email: string, input: AccountMemberProfileInput) => {
     const key = normalizeMemberProfileEmail(email);
-    setBusy(`profile-${key}`);
     setError('');
     try {
-      onAccountChanged(await apiClient.updateMemberProfile(account.id, { email, ...input }));
-      setEditingEmail('');
+      await actionBusy.run(actionKey('invite-profile', key), async () => {
+        onAccountChanged(await apiClient.updateMemberProfile(account.id, { email, ...input }));
+        setEditingEmail('');
+      });
     } catch (profileError) {
       setError((profileError as Error).message);
-    } finally {
-      setBusy('');
+      throw profileError;
     }
   };
 
@@ -115,18 +117,19 @@ export function ParentInvitesTable({
       key: 'actions',
       width: 110,
       render: (_, invite) => (
-        <Popconfirm
+        <ActionPopconfirm
           title="撤销邀请"
           description={`撤销发给 ${invite.email} 的 pending invite。`}
           okText="撤销邀请"
           cancelText="取消"
-          okButtonProps={{ danger: true, loading: busy === `revoke-${invite.email}` }}
-          onConfirm={() => void revokeInvite(invite)}
+          loading={actionBusy.isBusy(actionKey('invite-revoke', invite.email))}
+          okButtonProps={{ danger: true }}
+          onConfirm={() => revokeInvite(invite)}
         >
           <Button danger icon={<DeleteOutlined />} size="small">
             撤销
           </Button>
-        </Popconfirm>
+        </ActionPopconfirm>
       )
     }
   ];
@@ -136,7 +139,7 @@ export function ParentInvitesTable({
       <div className="panel-toolbar">
         <Typography.Text type="secondary">邀请缓存 {formatRelativeTime(account.pendingInvitesCachedAt)}</Typography.Text>
         <Space>
-          <Button icon={<ReloadOutlined />} loading={busy === 'refresh'} onClick={() => void refreshInvites()}>
+          <Button icon={<ReloadOutlined />} loading={actionBusy.isBusy('invites-refresh')} onClick={() => void refreshInvites()}>
             刷新邀请
           </Button>
         </Space>
@@ -154,7 +157,7 @@ export function ParentInvitesTable({
         email={editingEmail}
         sourceLabel="待处理邀请"
         account={account}
-        confirmLoading={busy === `profile-${normalizeMemberProfileEmail(editingEmail)}`}
+        confirmLoading={actionBusy.isBusy(actionKey('invite-profile', normalizeMemberProfileEmail(editingEmail)))}
         onCancel={() => setEditingEmail('')}
         onSubmit={saveProfile}
       />

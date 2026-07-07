@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AccountLimitType, AccountMemberProfileInput, AccountView, SeatType } from '@team-manager/shared';
-import { Alert, Button, Form, Input, Modal, Select, Space, Switch } from 'antd';
+import { Alert, Button, Form, Input, Modal, Select, Space } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
 import {
@@ -13,10 +13,11 @@ import {
 } from '../../app/routeState.js';
 import { BillingRiskModal } from '../../components/BillingRiskModal.js';
 import { isBillingRiskError } from '../../components/format.js';
-import { JsonImportModal } from '../../components/JsonImportModal.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
+import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
-import { defaultMemberProfileExpiresOn } from './MemberProfileModal.js';
+import { defaultMemberProfileExpiresOn, MemberProfileFields } from './MemberProfileModal.js';
 import { ParentDetail } from './ParentDetail.js';
 import { ParentList } from './ParentList.js';
 import type { MemberSeatRisk } from './ParentMembersTable.js';
@@ -131,9 +132,9 @@ export function ParentRoutes({
   const [searchParams, setSearchParams] = useSearchParams();
   const searchState = parseParentSearchState(searchParams);
   const [inviteForm] = Form.useForm<InviteValues>();
-  const [busy, setBusy] = useState('');
   const [localError, setLocalError] = useState('');
   const [billingRisk, setBillingRisk] = useState<ParentBillingRisk | null>(null);
+  const actionBusy = useActionBusy();
   const searchQuery = searchParams.get('q')?.trim() ?? '';
   const filteredAccounts = useMemo(
     () => accounts.filter((account) => accountMatchesQuery(account, searchQuery)).sort(compareAccountSortName),
@@ -185,10 +186,12 @@ export function ParentRoutes({
   };
 
   const openModal = (modal: ParentModal, target = '') => {
+    setLocalError('');
     setSearchParams(setModalState(searchParams, modal, target));
   };
 
   const openBillingRisk = (risk: ParentBillingRisk) => {
+    setLocalError('');
     const next = setModalState(
       searchParams,
       'billing-risk',
@@ -206,35 +209,33 @@ export function ParentRoutes({
   };
 
   const importParent = async (payload: unknown) => {
-    setBusy('import-parent');
     setLocalError('');
     try {
-      const account = await apiClient.addAccount(payload as Record<string, unknown>);
-      onAccountChanged(account);
-      const next = new URLSearchParams();
-      next.set('group', parentGroupName(account));
-      next.set('tab', 'members');
-      navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
+      await actionBusy.run('import-parent', async () => {
+        const account = await apiClient.addAccount(payload as Record<string, unknown>);
+        onAccountChanged(account);
+        const next = new URLSearchParams();
+        next.set('group', parentGroupName(account));
+        next.set('tab', 'members');
+        navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
+      });
     } catch (error) {
       reportLocalError(error);
       throw error;
-    } finally {
-      setBusy('');
     }
   };
 
   const deleteParent = async () => {
     if (!selected) return;
-    setBusy('delete-parent');
     setLocalError('');
     try {
-      await apiClient.removeAccount(selected.id);
-      onAccountRemoved(selected.id);
-      closeModal();
+      await actionBusy.run('delete-parent', async () => {
+        await apiClient.removeAccount(selected.id);
+        onAccountRemoved(selected.id);
+        closeModal();
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
@@ -243,29 +244,30 @@ export function ParentRoutes({
     groupName?: string;
     limitType?: AccountLimitType;
     nextRenewalOn?: string;
+    proxy?: string;
     session?: unknown;
   }) => {
     if (!selected) return;
-    setBusy('edit-parent-profile');
     setLocalError('');
     try {
-      const updated = await apiClient.updateAccountLocalProfile(selected.id, payload as {
-        remark?: string;
-        groupName?: string;
-        limitType?: AccountLimitType;
-        nextRenewalOn?: string;
-        session?: unknown;
+      await actionBusy.run('edit-parent-profile', async () => {
+        const updated = await apiClient.updateAccountLocalProfile(selected.id, payload as {
+          remark?: string;
+          groupName?: string;
+          limitType?: AccountLimitType;
+          nextRenewalOn?: string;
+          proxy?: string;
+          session?: unknown;
+        });
+        onAccountChanged(updated);
+        const next = setSearchValue(clearModalState(searchParams), 'group', parentGroupName(updated));
+        navigate({ pathname: `/parents/${updated.id}`, search: toSearch(next) }, { replace: true });
+        setBillingRisk(null);
+        setLocalError('');
       });
-      onAccountChanged(updated);
-      const next = setSearchValue(clearModalState(searchParams), 'group', parentGroupName(updated));
-      navigate({ pathname: `/parents/${updated.id}`, search: toSearch(next) }, { replace: true });
-      setBillingRisk(null);
-      setLocalError('');
     } catch (error) {
       reportLocalError(error);
       throw error;
-    } finally {
-      setBusy('');
     }
   };
 
@@ -273,7 +275,7 @@ export function ParentRoutes({
     if (!selected) return;
     const email = values.email.trim();
     const memberProfile = profileFromInviteValues(values);
-    setBusy('invite-member');
+    actionBusy.start('invite-member');
     setLocalError('');
     try {
       const updated = await apiClient.invite(selected.id, email, values.seat, memberProfile, confirmBillingRisk);
@@ -287,7 +289,7 @@ export function ParentRoutes({
         reportLocalError(error);
       }
     } finally {
-      setBusy('');
+      actionBusy.finish('invite-member');
     }
   };
 
@@ -296,7 +298,7 @@ export function ParentRoutes({
       closeModal();
       return;
     }
-    setBusy('billing-risk');
+    actionBusy.start('billing-risk');
     setLocalError('');
     try {
       const updated =
@@ -314,7 +316,7 @@ export function ParentRoutes({
     } catch (error) {
       reportLocalError(error);
     } finally {
-      setBusy('');
+      actionBusy.finish('billing-risk');
     }
   };
 
@@ -382,13 +384,21 @@ export function ParentRoutes({
         />
       </Space>
 
-      <JsonImportModal
+      <LocalProfileModal
         open={searchState.modal === 'import-parent'}
-        mode="session"
+        mode="parent"
         title="录入母号 Session"
         description="保存后先创建本地记录。粘贴 chatgpt.com session JSON，建议包含 sessionToken。ChatGPT 状态在母号详情中手动同步。"
         submitLabel="保存母号"
-        confirmLoading={busy === 'import-parent'}
+        requireSession
+        initialValues={{
+          remark: '',
+          groupName: activeGroup === ALL_PARENT_GROUP ? '默认分组' : activeGroup,
+          limitType: 'unknown',
+          nextRenewalOn: '',
+          proxy: ''
+        }}
+        confirmLoading={actionBusy.isBusy('import-parent')}
         onCancel={closeModal}
         onSubmit={importParent}
       />
@@ -402,9 +412,11 @@ export function ParentRoutes({
           remark: selected?.remark ?? '',
           groupName: selected?.groupName || '默认分组',
           limitType: selected?.limitType ?? 'unknown',
-          nextRenewalOn: selected?.nextRenewalOn ?? ''
+          nextRenewalOn: selected?.nextRenewalOn ?? '',
+          proxy: selected?.proxy ?? '',
+          session: selected?.session
         }}
-        confirmLoading={busy === 'edit-parent-profile'}
+        confirmLoading={actionBusy.isBusy('edit-parent-profile')}
         onCancel={closeModal}
         onSubmit={updateLocalProfile}
       />
@@ -414,11 +426,14 @@ export function ParentRoutes({
         title="删除母号"
         okText="删除母号"
         cancelText="取消"
-        okButtonProps={{ danger: true, loading: busy === 'delete-parent' }}
+        okButtonProps={{ danger: true, loading: actionBusy.isBusy('delete-parent') }}
         onOk={() => void deleteParent()}
         onCancel={closeModal}
       >
-        确认删除 {selected?.email} 的本地记录？远端 Team 不会被删除。
+        <Space direction="vertical" size={12} className="panel-stack">
+          <span>确认删除 {selected?.email} 的本地记录？远端 Team 不会被删除。</span>
+          <ModalErrorAlert message={searchState.modal === 'delete-parent' ? localError : ''} />
+        </Space>
       </Modal>
 
       <Modal
@@ -426,7 +441,7 @@ export function ParentRoutes({
         title="邀请成员"
         okText="发送邀请"
         cancelText="取消"
-        confirmLoading={busy === 'invite-member'}
+        confirmLoading={actionBusy.isBusy('invite-member')}
         onOk={() => inviteForm.submit()}
         onCancel={closeModal}
         destroyOnClose
@@ -434,6 +449,7 @@ export function ParentRoutes({
         <Form<InviteValues>
           form={inviteForm}
           layout="vertical"
+          disabled={actionBusy.isBusy('invite-member')}
           initialValues={defaultInviteValues(selected?.defaultSeat)}
           onFinish={(values) => void submitInvite(values)}
         >
@@ -448,26 +464,15 @@ export function ParentRoutes({
               ]}
             />
           </Form.Item>
-          <Form.Item name="remark" label="备注文本">
-            <Input placeholder="例如客户名、用途或订单备注" />
-          </Form.Item>
-          <Form.Item name="expiresOn" label="到期时间" rules={[{ required: true, message: '请选择到期时间' }]}>
-            <Input type="date" />
-          </Form.Item>
-          <div className="form-grid two">
-            <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked">
-              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-            </Form.Item>
-            <Form.Item name="expireRemove" label="到期移除" valuePropName="checked">
-              <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-            </Form.Item>
-          </div>
+          <MemberProfileFields />
         </Form>
+        <ModalErrorAlert message={searchState.modal === 'invite-member' ? localError : ''} />
       </Modal>
 
       <BillingRiskModal
         open={searchState.modal === 'billing-risk'}
-        confirmLoading={busy === 'billing-risk'}
+        confirmLoading={actionBusy.isBusy('billing-risk')}
+        error={searchState.modal === 'billing-risk' ? localError : ''}
         onCancel={closeModal}
         onConfirm={() => void confirmBillingRisk()}
       />

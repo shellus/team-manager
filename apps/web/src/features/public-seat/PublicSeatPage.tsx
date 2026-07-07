@@ -4,6 +4,7 @@ import { Alert, Button, Collapse, Descriptions, Form, Input, Result, Space, Spin
 import { SwapOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 
 const STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
   empty: '空位',
@@ -42,13 +43,19 @@ export interface SeatSwapHistoryItem {
   steps: StepItem[];
 }
 
+export function nextPublicSeatLoadError(currentError: string, loadError: unknown, preserveError: boolean): string {
+  if (loadError) return (loadError as Error).message;
+  return preserveError ? currentError : '';
+}
+
 export function PublicSeatPage() {
   const { seatKey = '' } = useParams();
   const [slot, setSlot] = useState<PublicSeatSlotView | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [form] = Form.useForm<{ email: string }>();
+  const actionBusy = useActionBusy();
+  const submitting = actionBusy.isBusy('public-seat-swap');
 
   const steps = useMemo(() => buildStepItems(slot?.swap?.steps), [slot?.swap?.steps]);
   const historyItems = useMemo(
@@ -56,14 +63,14 @@ export function PublicSeatPage() {
     [slot?.swapHistory, slot?.swap]
   );
 
-  const load = async () => {
+  const load = async (options: { preserveError?: boolean } = {}) => {
     if (!seatKey) return;
     setLoading(true);
-    setError('');
+    if (!options.preserveError) setError('');
     try {
       setSlot(await apiClient.getPublicSeatSlot(seatKey));
     } catch (loadError) {
-      setError((loadError as Error).message);
+      setError((current) => nextPublicSeatLoadError(current, loadError, Boolean(options.preserveError)));
       setSlot(null);
     } finally {
       setLoading(false);
@@ -75,29 +82,28 @@ export function PublicSeatPage() {
   }, [seatKey]);
 
   const submit = async ({ email }: { email: string }) => {
-    setSubmitting(true);
     setError('');
     try {
-      setSlot({
-        ...(slot ?? { seatKey, expiresOn: '', status: 'unknown' as const }),
-        swap: {
-          id: 'local-submitting',
-          status: 'running',
-          ...(slot?.email ? { fromEmail: slot.email } : {}),
-          toEmail: email.trim(),
-          startedAt: Date.now(),
-          updatedAt: Date.now(),
-          steps: [{ key: 'refreshing_parent', label: '正在提交换号请求', status: 'running', at: Date.now() }]
-        }
+      await actionBusy.run('public-seat-swap', async () => {
+        setSlot({
+          ...(slot ?? { seatKey, expiresOn: '', status: 'unknown' as const }),
+          swap: {
+            id: 'local-submitting',
+            status: 'running',
+            ...(slot?.email ? { fromEmail: slot.email } : {}),
+            toEmail: email.trim(),
+            startedAt: Date.now(),
+            updatedAt: Date.now(),
+            steps: [{ key: 'refreshing_parent', label: '正在提交换号请求', status: 'running', at: Date.now() }]
+          }
+        });
+        const updated = await apiClient.swapPublicSeatSlotEmail(seatKey, email);
+        setSlot(updated);
+        form.resetFields();
       });
-      const updated = await apiClient.swapPublicSeatSlotEmail(seatKey, email);
-      setSlot(updated);
-      form.resetFields();
     } catch (swapError) {
       setError((swapError as Error).message);
-      await load();
-    } finally {
-      setSubmitting(false);
+      await load({ preserveError: true });
     }
   };
 
@@ -143,7 +149,7 @@ export function PublicSeatPage() {
             <Descriptions.Item label="当前邮箱">{slot.email || '未绑定'}</Descriptions.Item>
           </Descriptions>
 
-          <Form form={form} layout="vertical" onFinish={(values) => void submit(values)}>
+          <Form form={form} layout="vertical" disabled={submitting} onFinish={(values) => void submit(values)}>
             <Form.Item
               name="email"
               label="新邮箱"

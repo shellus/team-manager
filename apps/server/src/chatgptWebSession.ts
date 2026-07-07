@@ -17,6 +17,17 @@ export class ChatGptWebSessionError extends Error {
   }
 }
 
+export interface ChatGptWorkspaceSession {
+  accessToken: string;
+  accountId: string;
+  email?: string;
+  userId?: string;
+  planType?: string;
+  expiresAt?: number;
+  idToken?: string;
+  refreshToken?: string;
+}
+
 export async function resolveChatGptSessionImportInput(
   raw: unknown,
   _transport: Transport
@@ -29,7 +40,8 @@ export async function resolveChatGptSessionImportInput(
 export async function fetchWorkspaceWebAccessTokenFromSessionToken(
   transport: Transport,
   sessionToken: string,
-  targetChatgptAccountId: string
+  targetChatgptAccountId: string,
+  proxy?: string
 ): Promise<string> {
   const response = await transport.fetch({
     method: 'GET',
@@ -38,7 +50,8 @@ export async function fetchWorkspaceWebAccessTokenFromSessionToken(
       accept: 'application/json',
       cookie: buildSessionTokenHeader(sessionToken, targetChatgptAccountId),
       'user-agent': CHATGPT_WEB_USER_AGENT
-    }
+    },
+    proxy: proxy?.trim() || undefined
   });
   if (response.status < 200 || response.status >= 300) {
     throw new ChatGptWebSessionError(
@@ -57,6 +70,73 @@ export async function fetchWorkspaceWebAccessTokenFromSessionToken(
     );
   }
   return accessToken;
+}
+
+export async function fetchWorkspaceExchangeSessionFromSessionToken(
+  transport: Transport,
+  sessionToken: string,
+  targetChatgptAccountId: string,
+  proxy?: string
+): Promise<ChatGptWorkspaceSession> {
+  const response = await transport.fetch({
+    method: 'GET',
+    path:
+      `/api/auth/session?exchange_workspace_token=true&workspace_id=${encodeURIComponent(targetChatgptAccountId)}` +
+      '&reason=setCurrentAccount',
+    headers: {
+      accept: '*/*',
+      cookie: buildSessionTokenHeader(sessionToken, targetChatgptAccountId),
+      'user-agent': CHATGPT_WEB_USER_AGENT
+    },
+    proxy: proxy?.trim() || undefined
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new ChatGptWebSessionError(
+      response.status >= 400 && response.status < 500 ? response.status : 502,
+      `获取目标 workspace Web session 失败: HTTP ${response.status} ${trimForLog(response.body)}`
+    );
+  }
+  const data = parseJsonObject(response.body, '获取目标 workspace Web session 返回不是 JSON');
+  const accessToken =
+    readOptionalString(data, 'accessToken') ??
+    readOptionalString(data, 'access_token') ??
+    readNestedOptionalString(data, ['tokens', 'access_token']);
+  if (!accessToken) throw new ChatGptWebSessionError(502, '目标 workspace Web session 响应缺少 accessToken');
+
+  const claims = chatGptAuthClaimsFromAccessToken(accessToken);
+  if (claims.chatgptAccountId !== targetChatgptAccountId) {
+    throw new ChatGptWebSessionError(
+      409,
+      `目标 workspace Web session 与目标不一致：目标 ${targetChatgptAccountId}，实际 ${claims.chatgptAccountId || '空'}`
+    );
+  }
+
+  const user = data.user && typeof data.user === 'object' ? (data.user as Record<string, unknown>) : {};
+  return {
+    accessToken,
+    accountId: targetChatgptAccountId,
+    email: readOptionalString(user, 'email') ?? readOptionalString(data, 'email') ?? claims.email,
+    userId:
+      readOptionalString(user, 'id') ??
+      readOptionalString(data, 'chatgpt_user_id') ??
+      readOptionalString(data, 'userId') ??
+      claims.userId,
+    planType:
+      readOptionalString(data, 'plan_type') ??
+      readNestedOptionalString(data, ['account', 'plan_type']) ??
+      readNestedOptionalString(data, ['account', 'planType']) ??
+      claims.planType,
+    expiresAt: readEpochSeconds(data, 'expiresAt') ?? readEpochSeconds(data, 'expires') ?? claims.expiresAt,
+    idToken:
+      readOptionalString(data, 'idToken') ??
+      readOptionalString(data, 'id_token') ??
+      readNestedOptionalString(data, ['tokens', 'id_token']) ??
+      readNestedOptionalString(data, ['tokens', 'idToken']),
+    refreshToken:
+      readOptionalString(data, 'refreshToken') ??
+      readOptionalString(data, 'refresh_token') ??
+      readNestedOptionalString(data, ['tokens', 'refresh_token'])
+  };
 }
 
 function buildSessionTokenHeader(sessionToken: string, targetChatgptAccountId: string): string {
@@ -80,7 +160,13 @@ function parseJsonObject(body: string, message: string): Record<string, unknown>
   }
 }
 
-function chatGptAuthClaimsFromAccessToken(accessToken: string): { chatgptAccountId?: string; planType?: string } {
+function chatGptAuthClaimsFromAccessToken(accessToken: string): {
+  chatgptAccountId?: string;
+  planType?: string;
+  userId?: string;
+  email?: string;
+  expiresAt?: number;
+} {
   const parts = accessToken.split('.');
   if (parts.length < 2) return {};
   try {
@@ -90,11 +176,37 @@ function chatGptAuthClaimsFromAccessToken(accessToken: string): { chatgptAccount
     const record = auth as Record<string, unknown>;
     return {
       chatgptAccountId: readOptionalString(record, 'chatgpt_account_id'),
-      planType: readOptionalString(record, 'chatgpt_plan_type')
+      planType: readOptionalString(record, 'chatgpt_plan_type'),
+      userId: readOptionalString(record, 'chatgpt_user_id') ?? readOptionalString(record, 'user_id'),
+      email: readOptionalString(payload, 'email'),
+      expiresAt: typeof payload.exp === 'number' && Number.isFinite(payload.exp) ? Math.trunc(payload.exp) : undefined
     };
   } catch {
     return {};
   }
+}
+
+function readNestedOptionalString(record: Record<string, unknown>, path: string[]): string | undefined {
+  let current: unknown = record;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === 'string' && current.trim() ? current.trim() : undefined;
+}
+
+function readEpochSeconds(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value > 1e11 ? value / 1000 : value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsedNumber = Number(value);
+    if (Number.isFinite(parsedNumber)) return Math.trunc(parsedNumber > 1e11 ? parsedNumber / 1000 : parsedNumber);
+    const parsedDate = Date.parse(value);
+    if (Number.isFinite(parsedDate)) return Math.trunc(parsedDate / 1000);
+  }
+  return undefined;
 }
 
 function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {

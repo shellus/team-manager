@@ -25,6 +25,7 @@ export interface ChatGptAccountContext {
   accountId: string;
   accessToken: string;
   fp?: AccountFingerprint;
+  proxy?: string;
   refreshWebAccessToken?: () => Promise<string>;
 }
 
@@ -103,7 +104,8 @@ export class ChatGptApi {
       method,
       path,
       headers: this.headers(path, extra),
-      body: payload
+      body: payload,
+      proxy: this.account.proxy?.trim() || undefined
     });
   }
 
@@ -205,6 +207,14 @@ export class ChatGptApi {
       seat_type: seat,
       resend_emails: true
     });
+  }
+
+  /** 当前登录用户向目标 workspace 发起自助加入请求。 */
+  async requestWorkspaceInvite(workspaceId: string): Promise<unknown> {
+    const target = workspaceId.trim();
+    if (!target) throw new Error('缺少 workspace ID');
+    const path = `/backend-api/accounts/${target}/invites/request`;
+    return this.request('POST', path, {});
   }
 
   /** 列待处理邀请（分页 ≤25，自动翻页聚合） */

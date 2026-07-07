@@ -6,9 +6,6 @@ export type ParentModal =
   | 'edit-parent-profile'
   | 'delete-parent'
   | 'invite-member'
-  | 'remove-member'
-  | 'revoke-invite'
-  | 'rename-team'
   | 'billing-risk';
 
 export type SubaccountTab = 'teams' | 'credential' | 'auth' | 'quota' | 'logs';
@@ -49,9 +46,6 @@ const parentModalSet = new Set<ParentModal>([
   'edit-parent-profile',
   'delete-parent',
   'invite-member',
-  'remove-member',
-  'revoke-invite',
-  'rename-team',
   'billing-risk'
 ]);
 

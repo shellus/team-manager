@@ -33,7 +33,9 @@
 
 子号侧 ChatGPT Web 请求也会复用 `sessionToken`。同步 Team 关联时，如果 `accounts/check` 或目标 workspace 的 users 查询返回 401 `token_invalidated`，系统会按当前请求的 workspace 换取新的 Web access token，回写子号本地记录并重试一次。
 
-录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。旧 session 明文不会回填到前端。
+录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。本地资料弹窗会回填已保存的 session JSON，便于直接检查或替换。
+
+子号本地资料可配置独立代理地址 `proxy`。子号代理会用于子号侧 Team 关联同步、退出 Team、请求加入 K12 workspace、按 `sessionToken` 换取目标 workspace Web access token、创建 Team PAT/K12 凭证，以及刷新该子号 Codex 额度；未配置子号代理时，curl_cffi worker 才回退到运行环境全局代理。
 
 ### 导入已有 Codex 凭证
 

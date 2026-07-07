@@ -5,8 +5,9 @@ import type {
   SubaccountAuthLog,
   SubaccountView
 } from '@team-manager/shared';
+import type { ActionBusyState } from '../../components/actionBusy.js';
 import { Button, Card, Empty, Space, Table, Tabs, Typography } from 'antd';
-import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import type { SubaccountTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { formatDateTime } from '../../components/format.js';
@@ -21,7 +22,7 @@ export function SubaccountDetail({
   activeTab,
   runtimeStatus,
   logs,
-  busy,
+  busyState,
   quota,
   runningTarget,
   onTabChange,
@@ -29,7 +30,6 @@ export function SubaccountDetail({
   onOpenEdit,
   onOpenDelete,
   onOpenInvite,
-  onRefreshRuntime,
   onStartAuth,
   onAutoAuth,
   onCreatePersonalAccessToken,
@@ -43,7 +43,7 @@ export function SubaccountDetail({
   activeTab: SubaccountTab;
   runtimeStatus: CodexAuthRuntimeStatus | null;
   logs: SubaccountAuthLog[];
-  busy: string;
+  busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
   runningTarget: string;
   onTabChange: (tab: SubaccountTab) => void;
@@ -51,7 +51,6 @@ export function SubaccountDetail({
   onOpenEdit: () => void;
   onOpenDelete: () => void;
   onOpenInvite: () => void;
-  onRefreshRuntime: () => void;
   onStartAuth: (workspaceId: string, teamTitle: string) => void;
   onAutoAuth: (workspaceId: string) => void;
   onCreatePersonalAccessToken: (workspaceId: string) => void;
@@ -92,9 +91,6 @@ export function SubaccountDetail({
           <Button icon={<EditOutlined />} onClick={onOpenEdit}>
             本地资料
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={onRefreshRuntime}>
-            检查配置
-          </Button>
           <Button danger icon={<DeleteOutlined />} onClick={onOpenDelete}>
             删除子号
           </Button>
@@ -125,7 +121,7 @@ export function SubaccountDetail({
                 subaccount={subaccount}
                 accounts={accounts}
                 runtimeStatus={runtimeStatus}
-                busy={busy}
+                busyState={busyState}
                 quota={quota}
                 onStartAuth={onStartAuth}
                 onAutoAuth={onAutoAuth}
@@ -145,7 +141,6 @@ export function SubaccountDetail({
                 runtimeStatus={runtimeStatus}
                 logs={logs}
                 runningTarget={runningTarget}
-                onRefreshRuntime={onRefreshRuntime}
               />
             )
           },
@@ -183,7 +178,6 @@ export function SubaccountDetail({
                 runtimeStatus={runtimeStatus}
                 logs={logs}
                 runningTarget={runningTarget}
-                onRefreshRuntime={onRefreshRuntime}
               />
             )
           }

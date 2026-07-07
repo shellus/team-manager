@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { AccountMemberProfileInput, AccountView, Member, SeatType } from '@team-manager/shared';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Popconfirm, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { apiClient } from '../../api.js';
+import { ActionPopconfirm } from '../../components/ActionPopconfirm.js';
+import { actionKey } from '../../components/actionBusy.js';
 import { formatRelativeTime, isBillingRiskError } from '../../components/format.js';
 import { SeatTag } from '../../components/StatusTag.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 import { roleLabel, SEAT_LABEL } from '../../labels.js';
 import {
   MemberProfileModal,
@@ -36,8 +39,8 @@ export function ParentMembersTable({
   onBillingRisk: (risk: MemberSeatRisk) => void;
 }) {
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
+  const actionBusy = useActionBusy();
   const members = useMemo(
     () => (account.membersCache ?? []).map((member, index) => ({ member, index }))
       .sort((a, b) => memberRoleRank(a.member) - memberRoleRank(b.member) || a.index - b.index)
@@ -46,19 +49,19 @@ export function ParentMembersTable({
   );
 
   const refreshMembers = async () => {
-    setBusy('refresh');
     setError('');
     try {
-      onAccountChanged(await apiClient.refreshMembers(account.id));
+      await actionBusy.run('members-refresh', async () => {
+        onAccountChanged(await apiClient.refreshMembers(account.id));
+      });
     } catch (refreshError) {
       setError((refreshError as Error).message);
-    } finally {
-      setBusy('');
     }
   };
 
   const changeSeat = async (member: Member, seat: SeatType, confirmBillingRisk = false) => {
-    setBusy(`seat-${member.userId}`);
+    const key = actionKey('member-seat', member.userId);
+    actionBusy.start(key);
     setError('');
     try {
       onAccountChanged(await apiClient.setMemberSeat(account.id, member.userId, seat, confirmBillingRisk));
@@ -69,33 +72,32 @@ export function ParentMembersTable({
         setError((seatError as Error).message);
       }
     } finally {
-      setBusy('');
+      actionBusy.finish(key);
     }
   };
 
   const removeMember = async (member: Member) => {
-    setBusy(`remove-${member.userId}`);
     setError('');
     try {
-      onAccountChanged(await apiClient.removeMember(account.id, member.userId));
+      await actionBusy.run(actionKey('member-remove', member.userId), async () => {
+        onAccountChanged(await apiClient.removeMember(account.id, member.userId));
+      });
     } catch (removeError) {
       setError((removeError as Error).message);
-    } finally {
-      setBusy('');
     }
   };
 
   const saveProfile = async (email: string, input: AccountMemberProfileInput) => {
     const key = normalizeMemberProfileEmail(email);
-    setBusy(`profile-${key}`);
     setError('');
     try {
-      onAccountChanged(await apiClient.updateMemberProfile(account.id, { email, ...input }));
-      setEditingEmail('');
+      await actionBusy.run(actionKey('member-profile', key), async () => {
+        onAccountChanged(await apiClient.updateMemberProfile(account.id, { email, ...input }));
+        setEditingEmail('');
+      });
     } catch (profileError) {
       setError((profileError as Error).message);
-    } finally {
-      setBusy('');
+      throw profileError;
     }
   };
 
@@ -148,7 +150,8 @@ export function ParentMembersTable({
             { value: 'usage_based', label: SEAT_LABEL.usage_based },
             { value: 'default', label: SEAT_LABEL.default }
           ]}
-          disabled={busy === `seat-${member.userId}`}
+          loading={actionBusy.isBusy(actionKey('member-seat', member.userId))}
+          disabled={actionBusy.isBusy(actionKey('member-seat', member.userId))}
           onChange={(seat) => void changeSeat(member, seat)}
         />
       )
@@ -164,18 +167,19 @@ export function ParentMembersTable({
       key: 'actions',
       width: 110,
       render: (_, member) => (
-        <Popconfirm
+        <ActionPopconfirm
           title="移除成员"
           description="移除成员可能导致该 Team 下的凭证不可用。"
           okText="移除成员"
           cancelText="取消"
-          okButtonProps={{ danger: true, loading: busy === `remove-${member.userId}` }}
-          onConfirm={() => void removeMember(member)}
+          loading={actionBusy.isBusy(actionKey('member-remove', member.userId))}
+          okButtonProps={{ danger: true }}
+          onConfirm={() => removeMember(member)}
         >
           <Button danger icon={<DeleteOutlined />} size="small">
             移除
           </Button>
-        </Popconfirm>
+        </ActionPopconfirm>
       )
     }
   ];
@@ -184,7 +188,7 @@ export function ParentMembersTable({
     <Space direction="vertical" size={12} className="panel-stack">
       <div className="panel-toolbar">
         <Typography.Text type="secondary">成员缓存 {formatRelativeTime(account.membersCachedAt)}</Typography.Text>
-        <Button icon={<ReloadOutlined />} loading={busy === 'refresh'} onClick={() => void refreshMembers()}>
+        <Button icon={<ReloadOutlined />} loading={actionBusy.isBusy('members-refresh')} onClick={() => void refreshMembers()}>
           刷新成员
         </Button>
       </div>
@@ -201,7 +205,7 @@ export function ParentMembersTable({
         email={editingEmail}
         sourceLabel="成员列表"
         account={account}
-        confirmLoading={busy === `profile-${normalizeMemberProfileEmail(editingEmail)}`}
+        confirmLoading={actionBusy.isBusy(actionKey('member-profile', normalizeMemberProfileEmail(editingEmail)))}
         onCancel={() => setEditingEmail('')}
         onSubmit={saveProfile}
       />

@@ -117,6 +117,8 @@ pending invite 与正式 member 需要区分。子号处于 pending invite 时�
 
 Team 改名修改远端 workspace 名称。GPT 账号显示名统一来自 `email`，备注使用 `remark`，两者都不修改 ChatGPT 远端 Team 名称。
 
-编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn`，也可同时替换 session。替换 session 只支持 chatgpt.com session JSON；session JSON 中的 `sessionToken` 会被保存，用于后续换取 workspace Web access token。系统会优先保留当前母号绑定的 Team workspace：新 session 仍可访问该 Team 时，只更新该 Team 的 Web access token；否则按可管理 Team workspace 规则重新识别目标。系统会用新 session 的 `user.email` 更新 `email`，旧 session 明文不会回填到前端。
+编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn` 和独立代理地址 `proxy`，也可同时替换 session。替换 session 只支持 chatgpt.com session JSON；session JSON 中的 `sessionToken` 会被保存，用于后续换取 workspace Web access token。系统会优先保留当前母号绑定的 Team workspace：新 session 仍可访问该 Team 时，只更新该 Team 的 Web access token；否则按可管理 Team workspace 规则重新识别目标。系统会用新 session 的 `user.email` 更新 `email`。本地资料弹窗会回填已保存的 session JSON 和代理地址。
 
 分组用于区分自用、已出租车位等运营集合。分组只是本地展示和筛选字段，不影响远端 Team workspace。
+
+母号代理只影响该母号发起的 ChatGPT Web backend-api 请求，以及使用该母号 `sessionToken` 换取 workspace Web access token 的请求。账号未配置代理时，curl_cffi worker 才回退到运行环境全局代理。

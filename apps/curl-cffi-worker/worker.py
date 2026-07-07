@@ -202,14 +202,26 @@ def parse_fetch_payload(payload: Any) -> dict[str, Any]:
     if body is not None and not isinstance(body, str):
         raise ValueError("body must be a string when present")
 
-    return {"method": method, "path": path, "headers": normalized_headers, "body": body}
+    proxy = payload.get("proxy")
+    if proxy is not None and not isinstance(proxy, str):
+        raise ValueError("proxy must be a string when present")
+    normalized_proxy = proxy.strip() if isinstance(proxy, str) else ""
+
+    return {
+        "method": method,
+        "path": path,
+        "headers": normalized_headers,
+        "body": body,
+        "proxy": normalized_proxy or None,
+    }
 
 
 def fetch_chatgpt(request: dict[str, Any]) -> tuple[int, str]:
     url = urljoin(BASE_URL, request["path"].lstrip("/"))
     session_kwargs: dict[str, Any] = {"impersonate": IMPERSONATE, "verify": True}
-    if PROXY_URL:
-        session_kwargs["proxy"] = PROXY_URL
+    proxy_url = str(request.get("proxy") or "").strip() or PROXY_URL
+    if proxy_url:
+        session_kwargs["proxy"] = proxy_url
 
     with requests.Session(**session_kwargs) as session:
         response = session.request(

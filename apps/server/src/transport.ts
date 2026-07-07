@@ -3,6 +3,7 @@ export interface HttpRequest {
   path: string; // backend-api 相对路径，如 /backend-api/accounts/.../users
   headers: Record<string, string>;
   body?: string;
+  proxy?: string;
 }
 
 export interface HttpResponse {

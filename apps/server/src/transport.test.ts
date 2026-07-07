@@ -44,14 +44,16 @@ describe('CurlCffiTransport', () => {
       method: 'PATCH',
       path: '/backend-api/accounts/workspace/settings',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
-      body: '{"name":"New Team"}'
+      body: '{"name":"New Team"}',
+      proxy: 'http://request-proxy.example:8080'
     });
 
     assert.deepEqual(received, {
       method: 'PATCH',
       path: '/backend-api/accounts/workspace/settings',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
-      body: '{"name":"New Team"}'
+      body: '{"name":"New Team"}',
+      proxy: 'http://request-proxy.example:8080'
     });
     assert.deepEqual(response, { status: 401, body: '{"detail":"Unauthorized"}' });
   });

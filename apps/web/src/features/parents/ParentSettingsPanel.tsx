@@ -6,7 +6,9 @@ import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Switch, 
 import { apiClient } from '../../api.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { DefaultSeatTag, LimitTypeTag } from '../../components/StatusTag.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 import { planLabel, roleLabel, SEAT_LABEL } from '../../labels.js';
+import { parentChatGptSeatUsageCount } from './parentListItem.js';
 
 interface TeamNameValues {
   teamName: string;
@@ -22,22 +24,21 @@ export function ParentSettingsPanel({
   onOpenLocalProfile: () => void;
 }) {
   const [form] = Form.useForm<TeamNameValues>();
-  const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const actionBusy = useActionBusy();
 
   useEffect(() => {
     form.setFieldsValue({ teamName: account.workspaceName ?? '' });
   }, [account.workspaceName, form]);
 
   const run = async (key: string, fn: () => Promise<AccountView>) => {
-    setBusy(key);
     setError('');
     try {
-      onAccountChanged(await fn());
+      await actionBusy.run(key, async () => {
+        onAccountChanged(await fn());
+      });
     } catch (runError) {
       setError((runError as Error).message);
-    } finally {
-      setBusy('');
     }
   };
 
@@ -59,8 +60,8 @@ export function ParentSettingsPanel({
             </Button>
             <Button
               icon={<ReloadOutlined />}
-              loading={busy === 'refresh'}
-              onClick={() => void run('refresh', () => apiClient.refreshSettings(account.id))}
+              loading={actionBusy.isBusy('settings-refresh')}
+              onClick={() => void run('settings-refresh', () => apiClient.refreshSettings(account.id))}
             >
               刷新设置
             </Button>
@@ -77,7 +78,7 @@ export function ParentSettingsPanel({
           <Descriptions.Item label="套餐">{planLabel(account.planType)}</Descriptions.Item>
           <Descriptions.Item label="角色">{roleLabel(account.role)}</Descriptions.Item>
           <Descriptions.Item label="ChatGPT 席位">
-            {(account.membersCache?.filter((member) => member.seat === 'default').length ?? '暂无')}{' '}
+            {(parentChatGptSeatUsageCount(account) ?? '暂无')}{' '}
             / {MAX_CHATGPT_SEATS}
           </Descriptions.Item>
           <Descriptions.Item label="默认席位">
@@ -87,11 +88,17 @@ export function ParentSettingsPanel({
       </Card>
 
       <Card title="Team 名称">
-        <Form<TeamNameValues> form={form} layout="inline" onFinish={saveTeamName} className="inline-form">
+        <Form<TeamNameValues>
+          form={form}
+          layout="inline"
+          disabled={actionBusy.isBusy('team-name')}
+          onFinish={saveTeamName}
+          className="inline-form"
+        >
           <Form.Item name="teamName" rules={[{ required: true, message: '请输入 Team 名称' }]} className="wide-form-item">
             <Input placeholder="新的 Team 名称" />
           </Form.Item>
-          <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={busy === 'team-name'}>
+          <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={actionBusy.isBusy('team-name')}>
             保存名称
           </Button>
         </Form>
@@ -109,7 +116,8 @@ export function ParentSettingsPanel({
             <Select<SeatType>
               value={account.defaultSeat}
               placeholder="未设置"
-              loading={busy === 'default-seat'}
+              loading={actionBusy.isBusy('default-seat')}
+              disabled={actionBusy.isBusy('default-seat')}
               options={[
                 { value: 'usage_based', label: SEAT_LABEL.usage_based },
                 { value: 'default', label: SEAT_LABEL.default }
@@ -127,10 +135,10 @@ export function ParentSettingsPanel({
             </div>
             <Switch
               checked={Boolean(account.workspaceReferralsEnabled)}
-              disabled={account.workspaceReferralsEnabledVisible === false}
+              disabled={account.workspaceReferralsEnabledVisible === false || actionBusy.isBusy('workspace-referrals')}
               checkedChildren="允许"
               unCheckedChildren="关闭"
-              loading={busy === 'workspace-referrals'}
+              loading={actionBusy.isBusy('workspace-referrals')}
               onChange={(checked) =>
                 void run('workspace-referrals', () => apiClient.setWorkspaceReferralsEnabled(account.id, checked))
               }
@@ -148,7 +156,8 @@ export function ParentSettingsPanel({
               checked={Boolean(account.personalAccessTokensEnabled)}
               checkedChildren="允许"
               unCheckedChildren="关闭"
-              loading={busy === 'personal-access-token'}
+              disabled={actionBusy.isBusy('personal-access-token')}
+              loading={actionBusy.isBusy('personal-access-token')}
               onChange={(checked) =>
                 void run('personal-access-token', () => apiClient.setPersonalAccessTokensEnabled(account.id, checked))
               }
@@ -181,7 +190,8 @@ export function ParentSettingsPanel({
               checked={Boolean(account.codexDeviceCodeAuthEnabled)}
               checkedChildren="允许"
               unCheckedChildren="关闭"
-              loading={busy === 'codex-device-code-auth'}
+              disabled={actionBusy.isBusy('codex-device-code-auth')}
+              loading={actionBusy.isBusy('codex-device-code-auth')}
               onChange={(checked) =>
                 void run('codex-device-code-auth', () => apiClient.setCodexDeviceCodeAuthEnabled(account.id, checked))
               }
@@ -199,7 +209,8 @@ export function ParentSettingsPanel({
               checked={Boolean(account.codexRemoteControlEnabled)}
               checkedChildren="允许"
               unCheckedChildren="关闭"
-              loading={busy === 'codex-remote-control'}
+              disabled={actionBusy.isBusy('codex-remote-control')}
+              loading={actionBusy.isBusy('codex-remote-control')}
               onChange={(checked) =>
                 void run('codex-remote-control', () => apiClient.setCodexRemoteControlEnabled(account.id, checked))
               }

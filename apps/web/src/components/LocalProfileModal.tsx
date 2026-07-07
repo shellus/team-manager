@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { inspectChatGptSessionImportInput, type AccountLimitType } from '@team-manager/shared';
+import { inspectChatGptSessionImportInput, type AccountLimitType, type ChatGptSessionInput } from '@team-manager/shared';
 import { Alert, Descriptions, Form, Input, Modal, Select } from 'antd';
 import { parseJsonObject } from './format.js';
+import { formatLocalProfileSessionJson, shouldSubmitLocalProfileSession } from './localProfileSession.js';
 import { LIMIT_TYPE_LABEL } from '../labels.js';
 
 type LocalProfileMode = 'parent' | 'subaccount';
@@ -11,6 +12,7 @@ interface LocalProfileFormValues {
   groupName?: string;
   limitType?: AccountLimitType;
   nextRenewalOn?: string;
+  proxy?: string;
   rawSession?: string;
 }
 
@@ -20,6 +22,8 @@ export function LocalProfileModal({
   title,
   description,
   initialValues,
+  submitLabel = '保存',
+  requireSession = false,
   confirmLoading = false,
   onCancel,
   onSubmit
@@ -33,7 +37,11 @@ export function LocalProfileModal({
     groupName?: string;
     limitType?: AccountLimitType;
     nextRenewalOn?: string;
+    proxy?: string;
+    session?: ChatGptSessionInput;
   };
+  submitLabel?: string;
+  requireSession?: boolean;
   confirmLoading?: boolean;
   onCancel: () => void;
   onSubmit: (payload: {
@@ -41,12 +49,17 @@ export function LocalProfileModal({
     groupName?: string;
     limitType?: AccountLimitType;
     nextRenewalOn?: string;
+    proxy?: string;
     session?: unknown;
   }) => Promise<void>;
 }) {
   const [form] = Form.useForm<LocalProfileFormValues>();
   const [rawSession, setRawSession] = useState('');
   const [error, setError] = useState('');
+  const initialSessionJson = useMemo(
+    () => formatLocalProfileSessionJson(initialValues.session),
+    [initialValues.session]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -55,16 +68,19 @@ export function LocalProfileModal({
       groupName: initialValues.groupName || '默认分组',
       limitType: initialValues.limitType ?? 'unknown',
       nextRenewalOn: initialValues.nextRenewalOn ?? '',
-      rawSession: ''
+      proxy: initialValues.proxy ?? '',
+      rawSession: initialSessionJson
     });
-    setRawSession('');
+    setRawSession(initialSessionJson);
     setError('');
   }, [
     form,
     initialValues.groupName,
     initialValues.limitType,
     initialValues.nextRenewalOn,
+    initialValues.proxy,
     initialValues.remark,
+    initialSessionJson,
     open
   ]);
 
@@ -108,11 +124,12 @@ export function LocalProfileModal({
     setError('');
     try {
       let session: unknown;
-      if (values.rawSession?.trim()) {
-        session = parseJsonObject(values.rawSession);
+      if (shouldSubmitLocalProfileSession(values.rawSession, initialSessionJson)) {
+        session = parseJsonObject(values.rawSession ?? '');
       }
       await onSubmit({
         remark: values.remark?.trim() ?? '',
+        proxy: values.proxy?.trim() ?? '',
         ...(mode === 'parent' ? {
           groupName: values.groupName?.trim() || '默认分组',
           limitType: values.limitType ?? 'unknown',
@@ -130,7 +147,7 @@ export function LocalProfileModal({
     <Modal
       open={open}
       title={title}
-      okText="保存"
+      okText={submitLabel}
       cancelText="取消"
       width={720}
       confirmLoading={confirmLoading}
@@ -146,9 +163,14 @@ export function LocalProfileModal({
         onValuesChange={(_, values) => setRawSession(values.rawSession ?? '')}
       >
         {mode === 'subaccount' ? (
-          <Form.Item name="remark" label="备注">
-            <Input placeholder="例如用途、客户或订单备注" />
-          </Form.Item>
+          <div className="form-grid two">
+            <Form.Item name="remark" label="备注">
+              <Input placeholder="例如用途、客户或订单备注" />
+            </Form.Item>
+            <Form.Item name="proxy" label="代理地址">
+              <Input placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" />
+            </Form.Item>
+          </div>
         ) : (
           <div className="form-grid two">
             <Form.Item name="remark" label="备注">
@@ -178,13 +200,20 @@ export function LocalProfileModal({
             >
               <Input type="date" />
             </Form.Item>
+            <Form.Item name="proxy" label="代理地址">
+              <Input placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" />
+            </Form.Item>
           </div>
         )}
-        <Form.Item name="rawSession" label="新的 Session JSON">
+        <Form.Item
+          name="rawSession"
+          label="Session JSON"
+          rules={requireSession ? [{ required: true, message: '请粘贴 Session JSON' }] : undefined}
+        >
           <Input.TextArea
             rows={8}
             spellCheck={false}
-            placeholder="可留空。粘贴 chatgpt.com session JSON（建议包含 sessionToken）"
+            placeholder="粘贴 chatgpt.com session JSON（建议包含 sessionToken）"
           />
         </Form.Item>
         {sessionPreview.inputMessage && (

@@ -15,7 +15,7 @@ export function SubaccountList({
   subaccounts,
   selectedId,
   runtimeStatus,
-  busy,
+  isBusy,
   onSelect,
   onOpenImportSession,
   onOpenImportCredential,
@@ -26,7 +26,7 @@ export function SubaccountList({
   subaccounts: SubaccountView[];
   selectedId: string;
   runtimeStatus: CodexAuthRuntimeStatus | null;
-  busy: string;
+  isBusy: (key: string) => boolean;
   onSelect: (subaccount: SubaccountView) => void;
   onOpenImportSession: () => void;
   onOpenImportCredential: () => void;
@@ -40,7 +40,7 @@ export function SubaccountList({
         <Button
           type="primary"
           icon={<RobotOutlined />}
-          loading={busy === 'register-subaccount'}
+          loading={isBusy('register-subaccount')}
           disabled={runtimeStatus?.subaccountRegistration === false}
           onClick={onOpenRegister}
         >

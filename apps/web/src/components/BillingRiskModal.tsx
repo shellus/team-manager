@@ -1,11 +1,13 @@
 import { BILLING_RISK_CONFIRM_MESSAGE } from '@team-manager/shared';
-import { Alert, Modal } from 'antd';
+import { Alert, Modal, Space } from 'antd';
+import { ModalErrorAlert } from './ModalErrorAlert.js';
 
 export function BillingRiskModal({
   open,
   title = '确认账单风险',
   confirmLabel = '确认继续',
   confirmLoading = false,
+  error,
   onCancel,
   onConfirm
 }: {
@@ -13,6 +15,7 @@ export function BillingRiskModal({
   title?: string;
   confirmLabel?: string;
   confirmLoading?: boolean;
+  error?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -28,7 +31,10 @@ export function BillingRiskModal({
       onOk={onConfirm}
       destroyOnClose
     >
-      <Alert type="warning" showIcon message={BILLING_RISK_CONFIRM_MESSAGE} />
+      <Space direction="vertical" size={12} className="panel-stack">
+        <Alert type="warning" showIcon message={BILLING_RISK_CONFIRM_MESSAGE} />
+        <ModalErrorAlert message={error} />
+      </Space>
     </Modal>
   );
 }

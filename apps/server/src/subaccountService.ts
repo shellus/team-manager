@@ -24,8 +24,10 @@ import { ServiceError } from './teamService.js';
 import { ChatGptApi, ChatGptApiError, type CodexPersonalAccessTokenResponse } from './chatgptApi.js';
 import {
   ChatGptWebSessionError,
+  fetchWorkspaceExchangeSessionFromSessionToken,
   fetchWorkspaceWebAccessTokenFromSessionToken,
-  resolveChatGptSessionImportInput
+  resolveChatGptSessionImportInput,
+  type ChatGptWorkspaceSession
 } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 import { SubaccountStore } from './subaccountStore.js';
@@ -122,8 +124,12 @@ export class SubaccountService {
   }
 
   async importSession(raw: unknown): Promise<SubaccountView> {
-    const input = await this.resolveSubaccountSessionInput(raw);
-    const view = await this.store.importSession(input.session);
+    const payload = parseSubaccountSessionImportPayload(raw);
+    const input = await this.resolveSubaccountSessionInput(payload.session);
+    const view = await this.store.importSession(input.session, {
+      ...(payload.hasRemark ? { remark: payload.remark } : {}),
+      ...(payload.hasProxy ? { proxy: payload.proxy } : {})
+    });
     await this.store.appendLog(view.id, {
       phase: 'session_import',
       status: 'session_ready',
@@ -131,6 +137,8 @@ export class SubaccountService {
       data: {
         email: view.email,
         accountIdPresent: Boolean(view.chatgptAccountId),
+        localProfilePresent: payload.hasRemark || payload.hasProxy,
+        proxyPresent: Boolean(view.proxy),
         inputType: input.type
       }
     });
@@ -181,13 +189,18 @@ export class SubaccountService {
     return updated;
   }
 
-  async updateLocalProfile(id: string, input: { remark?: unknown; session?: unknown }): Promise<SubaccountView> {
+  async updateLocalProfile(id: string, input: { remark?: unknown; proxy?: unknown; session?: unknown }): Promise<SubaccountView> {
     this.requireSubaccount(id);
     const hasRemark = Object.prototype.hasOwnProperty.call(input, 'remark');
+    const hasProxy = Object.prototype.hasOwnProperty.call(input, 'proxy');
     if (hasRemark && input.remark !== undefined && typeof input.remark !== 'string') {
       throw new ServiceError(400, '备注必须是字符串');
     }
+    if (hasProxy && input.proxy !== undefined && typeof input.proxy !== 'string') {
+      throw new ServiceError(400, '代理地址必须是字符串');
+    }
     const remark = typeof input.remark === 'string' ? input.remark.trim() || undefined : undefined;
+    const proxy = typeof input.proxy === 'string' ? input.proxy.trim() || undefined : undefined;
 
     const sessionInput =
       input.session === undefined
@@ -196,6 +209,7 @@ export class SubaccountService {
 
     const updated = await this.store.updateLocalProfile(id, {
       ...(hasRemark ? { remark } : {}),
+      ...(hasProxy ? { proxy } : {}),
       session: sessionInput?.session
     });
     if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
@@ -208,6 +222,7 @@ export class SubaccountService {
         email: updated.email,
         accountIdPresent: Boolean(updated.chatgptAccountId),
         sessionUpdated: input.session !== undefined,
+        proxyUpdated: hasProxy,
         inputType: sessionInput?.type
       }
     });
@@ -366,7 +381,8 @@ export class SubaccountService {
       const api = new ChatGptApi(
         {
           accountId: target,
-          accessToken: webAccessToken
+          accessToken: webAccessToken,
+          proxy: subaccount.proxy
         },
         this.webTransport
       );
@@ -409,10 +425,76 @@ export class SubaccountService {
     }
   }
 
+  async createK12WorkspaceCredential(id: string, targetChatgptAccountId?: string): Promise<SubaccountView> {
+    const subaccount = this.requireSubaccount(id);
+    const target = cleanTargetAccountId(targetChatgptAccountId);
+    if (!target) throw new ServiceError(400, '缺少 chatgptAccountId');
+    if (!subaccount.sessionToken?.trim() && !subaccount.webAccessToken?.trim()) {
+      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法创建 K12 凭证');
+    }
+
+    await this.store.update(id, { status: 'codex_auth_pending', lastError: undefined });
+    await this.store.appendLog(id, {
+      phase: 'k12_credential_create_start',
+      status: 'codex_auth_pending',
+      message: '已开始通过子号 workspace session 创建 K12 Codex 凭证',
+      data: { targetChatgptAccountId: target }
+    });
+
+    try {
+      const session = subaccount.sessionToken?.trim()
+        ? await fetchWorkspaceExchangeSessionFromSessionToken(
+            this.webTransport,
+            subaccount.sessionToken,
+            target,
+            subaccount.proxy
+          )
+        : workspaceSessionFromAccessToken(subaccount.webAccessToken!, target, subaccount.email);
+      const credential = codexCredentialFromWorkspaceSession(session, {
+        fallbackEmail: subaccount.email,
+        planType: 'k12'
+      });
+      const updated = await this.store.saveCodexCredential(id, credential);
+      if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      await this.store.appendLog(id, {
+        phase: 'k12_credential_create_complete',
+        status: 'codex_ready',
+        message: '已通过 K12 workspace session 保存 Codex 凭证 JSON',
+        data: {
+          email: credential.email,
+          accountId: credential.account_id,
+          planType: credential.plan_type,
+          authMode: credential.auth_mode
+        }
+      });
+      return updated;
+    } catch (e) {
+      const message =
+        e instanceof ChatGptWebSessionError
+          ? `创建 K12 Codex 凭证失败: ${e.message}`
+          : (e as Error).message;
+      await this.store.update(id, { status: 'error', lastError: message });
+      await this.store.appendLog(id, {
+        phase: 'k12_credential_create_complete',
+        status: 'error',
+        message,
+        data: { targetChatgptAccountId: target }
+      });
+      if (e instanceof ServiceError) throw e;
+      if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, message);
+      throw e;
+    }
+  }
+
   private async resolveWorkspaceWebAccessToken(subaccount: Subaccount, target: string): Promise<string> {
     if (subaccount.sessionToken?.trim()) {
       try {
-        return await fetchWorkspaceWebAccessTokenFromSessionToken(this.webTransport, subaccount.sessionToken, target);
+        return await fetchWorkspaceWebAccessTokenFromSessionToken(
+          this.webTransport,
+          subaccount.sessionToken,
+          target,
+          subaccount.proxy
+        );
       } catch (e) {
         if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
         throw e;
@@ -520,7 +602,8 @@ export class SubaccountService {
 
   async refreshQuota(id: string, targetChatgptAccountId?: string): Promise<CodexQuotaSnapshot> {
     const credential = this.getCodexCredential(id, targetChatgptAccountId);
-    const snapshot = await fetchCodexQuota(credential, this.quotaTransport);
+    const subaccount = this.requireSubaccount(id);
+    const snapshot = await fetchCodexQuota(credential, this.quotaTransport, subaccount.proxy);
     await this.store.saveQuotaSnapshot(id, credential.account_id, snapshot);
     await this.store.appendLog(id, {
       phase: 'quota_refresh',
@@ -609,6 +692,41 @@ function cleanTargetAccountId(value?: string): string | undefined {
   return target || undefined;
 }
 
+function parseSubaccountSessionImportPayload(raw: unknown): {
+  session: unknown;
+  remark?: string;
+  proxy?: string;
+  hasRemark: boolean;
+  hasProxy: boolean;
+} {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { session: raw, hasRemark: false, hasProxy: false };
+  }
+
+  const record = raw as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(record, 'session')) {
+    return { session: raw, hasRemark: false, hasProxy: false };
+  }
+
+  const hasRemark = Object.prototype.hasOwnProperty.call(record, 'remark');
+  const hasProxy = Object.prototype.hasOwnProperty.call(record, 'proxy');
+  if (hasRemark && record.remark !== undefined && typeof record.remark !== 'string') {
+    throw new ServiceError(400, '备注必须是字符串');
+  }
+  if (hasProxy && record.proxy !== undefined && typeof record.proxy !== 'string') {
+    throw new ServiceError(400, '代理地址必须是字符串');
+  }
+  if (record.session === undefined) throw new ServiceError(400, '缺少 session JSON');
+
+  return {
+    session: record.session,
+    ...(hasRemark ? { remark: (record.remark as string | undefined)?.trim() || undefined } : {}),
+    ...(hasProxy ? { proxy: (record.proxy as string | undefined)?.trim() || undefined } : {}),
+    hasRemark,
+    hasProxy
+  };
+}
+
 function parseCodexCredentialImportInput(raw: unknown): {
   credential: CodexCredentialJson;
   fileName?: string;
@@ -693,6 +811,119 @@ function assertCredentialMatchesTarget(credential: CodexCredentialJson, target?:
       `Codex 授权选择的 workspace 与目标不一致：目标 ${target}，实际 ${credential.account_id || '空'}`
     );
   }
+}
+
+function workspaceSessionFromAccessToken(
+  accessToken: string,
+  targetAccountId: string,
+  fallbackEmail: string
+): ChatGptWorkspaceSession {
+  const claims = chatGptSessionClaimsFromAccessToken(accessToken);
+  if (claims.accountId !== targetAccountId) {
+    throw new ServiceError(
+      409,
+      `当前子号 Web session 与目标 workspace 不一致：目标 ${targetAccountId}，实际 ${claims.accountId || '空'}`
+    );
+  }
+  return {
+    accessToken,
+    accountId: targetAccountId,
+    email: claims.email || fallbackEmail,
+    userId: claims.userId,
+    planType: claims.planType,
+    expiresAt: claims.expiresAt
+  };
+}
+
+function codexCredentialFromWorkspaceSession(
+  session: ChatGptWorkspaceSession,
+  options: { fallbackEmail: string; planType: string },
+  now: Date = new Date()
+): CodexCredentialJson {
+  const expiresAt = session.expiresAt ?? Math.trunc(now.getTime() / 1000) + 10 * 24 * 60 * 60;
+  const expired = epochSecondsToIso(expiresAt);
+  if (!expired) throw new ServiceError(502, '目标 workspace session 缺少有效过期时间');
+  const planType = session.planType?.trim() || options.planType;
+  return {
+    id_token:
+      session.idToken ||
+      syntheticChatGptIdToken({
+        accountId: session.accountId,
+        userId: session.userId,
+        email: session.email || options.fallbackEmail,
+        planType,
+        expiresAt
+      }),
+    access_token: session.accessToken,
+    ...(session.refreshToken ? { refresh_token: session.refreshToken } : {}),
+    account_id: session.accountId,
+    last_refresh: now.toISOString(),
+    email: session.email || options.fallbackEmail,
+    type: 'codex',
+    expired,
+    plan_type: planType,
+    auth_mode: 'chatgpt',
+    credential_source: 'oauth',
+    chatgpt_user_id: session.userId
+  };
+}
+
+function syntheticChatGptIdToken(input: {
+  accountId: string;
+  userId?: string;
+  email: string;
+  planType: string;
+  expiresAt: number;
+}): string {
+  const issuedAt = Math.trunc(Date.now() / 1000);
+  const auth: Record<string, unknown> = {
+    account_id: input.accountId,
+    chatgpt_account_id: input.accountId,
+    chatgpt_plan_type: input.planType
+  };
+  if (input.userId) {
+    auth.chatgpt_user_id = input.userId;
+    auth.user_id = input.userId;
+  }
+  return [
+    base64UrlJson({ alg: 'none', typ: 'JWT', cpa_synthetic: true }),
+    base64UrlJson({
+      iat: issuedAt,
+      exp: input.expiresAt,
+      email: input.email,
+      'https://api.openai.com/auth': auth
+    }),
+    'synthetic'
+  ].join('.');
+}
+
+function chatGptSessionClaimsFromAccessToken(accessToken: string): {
+  accountId?: string;
+  userId?: string;
+  email?: string;
+  planType?: string;
+  expiresAt?: number;
+} {
+  const payloadPart = accessToken.split('.')[1];
+  if (!payloadPart) return {};
+  try {
+    const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const auth = payload['https://api.openai.com/auth'];
+    const record = auth && typeof auth === 'object' ? (auth as Record<string, unknown>) : {};
+    return {
+      accountId: readOptionalString(record, 'chatgpt_account_id') ?? readOptionalString(record, 'account_id'),
+      userId: readOptionalString(record, 'chatgpt_user_id') ?? readOptionalString(record, 'user_id'),
+      email: readOptionalString(payload, 'email'),
+      planType: readOptionalString(record, 'chatgpt_plan_type') ?? readOptionalString(record, 'plan_type'),
+      expiresAt: typeof payload.exp === 'number' && Number.isFinite(payload.exp) ? Math.trunc(payload.exp) : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
 function codexCredentialFromPersonalAccessTokenResponse(

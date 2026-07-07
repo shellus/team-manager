@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { SeatSlotSwapState } from '@team-manager/shared';
-import { buildSwapHistoryItems } from './PublicSeatPage.js';
+import { buildSwapHistoryItems, nextPublicSeatLoadError } from './PublicSeatPage.js';
 
 describe('PublicSeatPage swap history', () => {
   test('shows every swap in newest-first order', () => {
@@ -14,6 +14,14 @@ describe('PublicSeatPage swap history', () => {
     expect(items[0]?.statusText).toBe('成功');
     expect(items[1]?.title).toBe('old@example.com -> new@example.com');
     expect(items[1]?.steps[0]?.status).toBe('finish');
+  });
+});
+
+describe('PublicSeatPage load error state', () => {
+  test('keeps the swap failure visible when a follow-up reload succeeds', () => {
+    expect(nextPublicSeatLoadError('换号失败', undefined, true)).toBe('换号失败');
+    expect(nextPublicSeatLoadError('换号失败', new Error('重新加载失败'), true)).toBe('重新加载失败');
+    expect(nextPublicSeatLoadError('旧错误', undefined, false)).toBe('');
   });
 });
 

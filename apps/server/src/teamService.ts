@@ -42,6 +42,7 @@ interface ChatGptSessionClientInput {
   accountId: string;
   accessToken: string;
   fp?: AccountFingerprint;
+  proxy?: string;
   sessionToken?: string;
   onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
 }
@@ -86,7 +87,11 @@ export class TeamService {
         ...account,
         refreshWebAccessToken: account.sessionToken
           ? async () => {
-              const accessToken = await this.fetchWorkspaceTokenFromSessionToken(account.sessionToken!, account.accountId);
+              const accessToken = await this.fetchWorkspaceTokenFromSessionToken(
+                account.sessionToken!,
+                account.accountId,
+                account.proxy
+              );
               await this.store.update(account.id, {
                 accessToken,
                 lastRefreshAt: Date.now(),
@@ -108,6 +113,13 @@ export class TeamService {
       limitType: account.limitType ?? 'unknown',
       accountId: account.accountId,
       email: account.email,
+      proxy: account.proxy,
+      session: {
+        user: { email: account.email },
+        account: { id: account.accountId },
+        accessToken: account.accessToken,
+        ...(account.sessionToken ? { sessionToken: account.sessionToken } : {})
+      },
       planType: account.planType,
       role: account.role,
       workspaceName: account.workspaceName,
@@ -401,6 +413,7 @@ export class TeamService {
     accountId: string;
     accessToken: string;
     fp?: AccountFingerprint;
+    proxy?: string;
     sessionToken?: string;
     onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
   }): Promise<ChatGptAccountCheckEntry[]> {
@@ -412,6 +425,7 @@ export class TeamService {
       accountId: string;
       accessToken: string;
       fp?: AccountFingerprint;
+      proxy?: string;
       sessionToken?: string;
       onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
     },
@@ -422,15 +436,52 @@ export class TeamService {
     return { status: 'member', seat: member.seat };
   }
 
+  async removeSessionMember(
+    session: {
+      accountId: string;
+      accessToken: string;
+      fp?: AccountFingerprint;
+      proxy?: string;
+      sessionToken?: string;
+      onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
+    },
+    userId: string
+  ): Promise<void> {
+    const target = userId.trim();
+    if (!target) throw new ServiceError(400, '缺少用户 ID');
+    await this.apiForSession(session).removeMember(target);
+  }
+
+  async requestSessionWorkspaceInvite(
+    session: {
+      accountId: string;
+      accessToken: string;
+      fp?: AccountFingerprint;
+      proxy?: string;
+      sessionToken?: string;
+      onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
+    },
+    workspaceId: string
+  ): Promise<void> {
+    const target = workspaceId.trim();
+    if (!target) throw new ServiceError(400, '缺少 workspace ID');
+    await this.apiForSession(session).requestWorkspaceInvite(target);
+  }
+
   private apiForSession(session: ChatGptSessionClientInput): ChatGptApi {
     return new ChatGptApi(
       {
         accountId: session.accountId,
         accessToken: session.accessToken,
         fp: session.fp,
+        proxy: session.proxy,
         refreshWebAccessToken: session.sessionToken
           ? async () => {
-              const accessToken = await this.fetchWorkspaceTokenFromSessionToken(session.sessionToken!, session.accountId);
+              const accessToken = await this.fetchWorkspaceTokenFromSessionToken(
+                session.sessionToken!,
+                session.accountId,
+                session.proxy
+              );
               await session.onAccessTokenRefreshed?.(accessToken);
               return accessToken;
             }
@@ -478,36 +529,56 @@ export class TeamService {
   }
 
   async addAccountFromSessionInput(raw: unknown): Promise<AccountView> {
-    const input = await this.resolveParentWorkspaceSession(raw);
+    const createInput = this.parseParentAccountCreateInput(raw);
+    const localFields = this.normalizeParentLocalProfileFields(createInput);
+    const input = await this.resolveParentWorkspaceSession(createInput.session, undefined, localFields.proxy);
     return this.addAccount({
-      groupName: '默认分组',
-      limitType: 'unknown',
+      remark: localFields.remark,
+      groupName: localFields.groupName ?? '默认分组',
+      limitType: localFields.limitType ?? 'unknown',
       accountId: input.session.account.id,
       email: input.session.user.email,
       accessToken: input.session.accessToken,
       sessionToken: input.session.sessionToken,
+      proxy: localFields.proxy,
       planType: input.workspace.planType,
       role: input.workspace.role,
       workspaceName: input.workspace.workspaceName,
-      nextRenewalOn: input.workspace.nextRenewalOn,
+      nextRenewalOn: input.workspace.nextRenewalOn ?? localFields.nextRenewalOn,
       status: 'unknown'
     });
   }
 
-  async updateLocalProfile(
-    id: string,
-    input: {
-      remark?: unknown;
-      groupName?: unknown;
-      limitType?: unknown;
-      nextRenewalOn?: unknown;
-      session?: unknown;
+  private parseParentAccountCreateInput(raw: unknown): {
+    remark?: unknown;
+    groupName?: unknown;
+    limitType?: unknown;
+    nextRenewalOn?: unknown;
+    proxy?: unknown;
+    session: unknown;
+  } {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.prototype.hasOwnProperty.call(raw, 'session')) {
+      const record = raw as Record<string, unknown>;
+      return {
+        remark: record.remark,
+        groupName: record.groupName,
+        limitType: record.limitType,
+        nextRenewalOn: record.nextRenewalOn,
+        proxy: record.proxy,
+        session: record.session
+      };
     }
-  ): Promise<AccountView> {
-    const existing = this.store.get(id);
-    if (!existing) throw new ServiceError(404, `母号不存在: ${id}`);
+    return { session: raw };
+  }
 
-    const patch: Partial<Account> = { lastError: undefined };
+  private normalizeParentLocalProfileFields(input: {
+    remark?: unknown;
+    groupName?: unknown;
+    limitType?: unknown;
+    nextRenewalOn?: unknown;
+    proxy?: unknown;
+  }): Partial<Account> {
+    const patch: Partial<Account> = {};
     if (typeof input.remark === 'string') patch.remark = input.remark.trim() || undefined;
     if (typeof input.groupName === 'string') {
       patch.groupName = input.groupName.trim() || '默认分组';
@@ -521,9 +592,35 @@ export class TeamService {
     if (input.nextRenewalOn !== undefined) {
       patch.nextRenewalOn = this.normalizeOptionalDate(input.nextRenewalOn, '下次续费时间');
     }
+    if (input.proxy !== undefined) {
+      if (typeof input.proxy !== 'string') throw new ServiceError(400, '代理地址必须是字符串');
+      patch.proxy = input.proxy.trim() || undefined;
+    }
+    return patch;
+  }
+
+  async updateLocalProfile(
+    id: string,
+    input: {
+      remark?: unknown;
+      groupName?: unknown;
+      limitType?: unknown;
+      nextRenewalOn?: unknown;
+      proxy?: unknown;
+      session?: unknown;
+    }
+  ): Promise<AccountView> {
+    const existing = this.store.get(id);
+    if (!existing) throw new ServiceError(404, `母号不存在: ${id}`);
+
+    const patch: Partial<Account> = {
+      ...this.normalizeParentLocalProfileFields(input),
+      lastError: undefined
+    };
 
     if (input.session !== undefined) {
-      const { session, workspace } = await this.resolveParentWorkspaceSession(input.session, existing.accountId);
+      const proxy = Object.prototype.hasOwnProperty.call(patch, 'proxy') ? patch.proxy : existing.proxy;
+      const { session, workspace } = await this.resolveParentWorkspaceSession(input.session, existing.accountId, proxy);
       patch.email = session.user.email;
       patch.accountId = session.account.id;
       patch.accessToken = session.accessToken;
@@ -706,21 +803,23 @@ export class TeamService {
 
   private async resolveParentWorkspaceSession(
     raw: unknown,
-    preferredAccountId?: string
+    preferredAccountId?: string,
+    proxy?: string
   ): Promise<{ type: 'workspace_session'; session: ChatGptSessionInput; workspace: ChatGptAccountCheckEntry }> {
     const input = await this.resolveAccountSessionInput(raw);
     const sessionToken = input.session.sessionToken;
     const sessionContext = {
       accountId: input.session.account.id,
       accessToken: input.session.accessToken,
+      proxy,
       refreshWebAccessToken: sessionToken
-        ? () => this.fetchWorkspaceTokenFromSessionToken(sessionToken, input.session.account.id)
+        ? () => this.fetchWorkspaceTokenFromSessionToken(sessionToken, input.session.account.id, proxy)
         : undefined
     };
     const workspaces = await new ChatGptApi(sessionContext, this.transport).checkAccounts();
     const currentSession = { ...input.session, accessToken: sessionContext.accessToken };
     const workspace = this.selectParentWorkspace(workspaces, input.session.account.id, preferredAccountId);
-    const accessToken = await this.resolveWebAccessTokenForWorkspace(currentSession, workspace.accountId);
+    const accessToken = await this.resolveWebAccessTokenForWorkspace(currentSession, workspace.accountId, proxy);
     return {
       type: input.type,
       workspace,
@@ -760,21 +859,23 @@ export class TeamService {
 
   private async resolveWebAccessTokenForWorkspace(
     session: ChatGptSessionInput,
-    targetAccountId: string
+    targetAccountId: string,
+    proxy?: string
   ): Promise<string> {
     if (session.account.id === targetAccountId) return session.accessToken;
     if (!session.sessionToken) {
       throw new ServiceError(400, 'session JSON 缺少 sessionToken，无法切换到目标 Team workspace');
     }
-    return this.fetchWorkspaceTokenFromSessionToken(session.sessionToken, targetAccountId);
+    return this.fetchWorkspaceTokenFromSessionToken(session.sessionToken, targetAccountId, proxy);
   }
 
   private async fetchWorkspaceTokenFromSessionToken(
     sessionToken: string,
-    targetAccountId: string
+    targetAccountId: string,
+    proxy?: string
   ): Promise<string> {
     try {
-      return await fetchWorkspaceWebAccessTokenFromSessionToken(this.transport, sessionToken, targetAccountId);
+      return await fetchWorkspaceWebAccessTokenFromSessionToken(this.transport, sessionToken, targetAccountId, proxy);
     } catch (e) {
       if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
       throw e;

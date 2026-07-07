@@ -39,6 +39,27 @@ function timingSafeEqualStr(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+function chatGptUserIdFromAccessToken(accessToken: string): string {
+  const payloadPart = accessToken.split('.')[1];
+  if (!payloadPart) return '';
+  try {
+    const payload = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const auth = payload['https://api.openai.com/auth'];
+    if (auth && typeof auth === 'object') {
+      const authRecord = auth as Record<string, unknown>;
+      const authUserId = readTrimmedString(authRecord.chatgpt_user_id) || readTrimmedString(authRecord.user_id);
+      if (authUserId) return authUserId;
+    }
+    return readTrimmedString(payload.chatgpt_user_id) || readTrimmedString(payload.user_id) || '';
+  } catch {
+    return '';
+  }
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 export async function buildApp({
   config,
   store,
@@ -88,6 +109,7 @@ export async function buildApp({
       childAccounts = await service.checkSessionAccounts({
         accountId: subaccount.chatgptAccountId,
         accessToken: childWebAccessToken,
+        proxy: subaccount.proxy,
         sessionToken: subaccount.sessionToken,
         onAccessTokenRefreshed: updateChildWebAccessToken
       });
@@ -103,7 +125,13 @@ export async function buildApp({
 
     const parentByWorkspaceId = new Map((await service.listAccounts()).map((account) => [account.accountId, account]));
     const existingLinks = new Map((subaccount.teamLinks ?? []).map((link) => [link.accountId, link]));
-    const matchedParentIds = new Set<string>();
+    const existingLinksByWorkspaceId = new Map(
+      (subaccount.teamLinks ?? [])
+        .filter((link) => link.workspaceId?.trim())
+        .map((link) => [link.workspaceId!.trim(), link])
+    );
+    const matchedLinkIds = new Set<string>();
+    const matchedWorkspaceIds = new Set<string>();
     const errors: Array<{ accountId: string; message: string }> = [];
     let updated = subaccountStore.list().find((item) => item.id === id);
     let found = 0;
@@ -113,14 +141,17 @@ export async function buildApp({
     for (const childAccount of childAccounts) {
       if (!isTeamWorkspaceAccount(childAccount)) continue;
       const parent = parentByWorkspaceId.get(childAccount.accountId);
-      if (!parent) continue;
-      const existing = existingLinks.get(parent.id);
-      matchedParentIds.add(parent.id);
+      const linkAccountId = parent?.id ?? childAccount.accountId;
+      const existing = existingLinks.get(linkAccountId) ?? existingLinksByWorkspaceId.get(childAccount.accountId);
+      matchedLinkIds.add(linkAccountId);
+      if (existing) matchedLinkIds.add(existing.accountId);
+      matchedWorkspaceIds.add(childAccount.accountId);
       try {
         const relation = await service.findSessionEmailRelation(
           {
             accountId: childAccount.accountId,
             accessToken: childWebAccessToken,
+            proxy: subaccount.proxy,
             sessionToken: subaccount.sessionToken,
             onAccessTokenRefreshed: updateChildWebAccessToken
           },
@@ -128,7 +159,11 @@ export async function buildApp({
         );
         if (relation.status !== 'member') {
           updated = await subaccountStore.saveTeamLink(id, {
-            accountId: parent.id,
+            accountId: linkAccountId,
+            workspaceId: childAccount.accountId,
+            workspaceName: childAccount.workspaceName,
+            planType: childAccount.planType,
+            role: childAccount.role,
             seat: existing?.seat ?? 'usage_based',
             status: 'unknown'
           });
@@ -136,15 +171,23 @@ export async function buildApp({
           continue;
         }
         updated = await subaccountStore.saveTeamLink(id, {
-          accountId: parent.id,
+          accountId: linkAccountId,
+          workspaceId: childAccount.accountId,
+          workspaceName: childAccount.workspaceName,
+          planType: childAccount.planType,
+          role: childAccount.role,
           seat: relation.seat ?? existing?.seat ?? 'usage_based',
           status: 'member'
         });
         found += 1;
       } catch (e) {
-        errors.push({ accountId: parent.id, message: (e as Error).message });
+        errors.push({ accountId: linkAccountId, message: (e as Error).message });
         updated = await subaccountStore.saveTeamLink(id, {
-          accountId: parent.id,
+          accountId: linkAccountId,
+          workspaceId: childAccount.accountId,
+          workspaceName: childAccount.workspaceName,
+          planType: childAccount.planType,
+          role: childAccount.role,
           seat: existing?.seat ?? 'usage_based',
           status: 'unknown'
         });
@@ -153,12 +196,9 @@ export async function buildApp({
     }
 
     for (const existing of existingLinks.values()) {
-      if (matchedParentIds.has(existing.accountId)) continue;
-      updated = await subaccountStore.saveTeamLink(id, {
-        accountId: existing.accountId,
-        seat: existing.seat,
-        status: 'removed'
-      });
+      if (matchedLinkIds.has(existing.accountId)) continue;
+      if (existing.workspaceId && matchedWorkspaceIds.has(existing.workspaceId)) continue;
+      updated = await subaccountStore.removeTeamLink(id, existing.workspaceId || existing.accountId);
       removed += 1;
     }
 
@@ -177,6 +217,143 @@ export async function buildApp({
       }
     });
 
+    return updated ?? subaccountStore.list().find((item) => item.id === id);
+  };
+
+  const leaveTeamLinkByChild = async (id: string, targetAccountId: string) => {
+    const requested = targetAccountId.trim();
+    if (!requested) throw new ServiceError(400, '缺少 Team workspace ID');
+    const subaccount = subaccountStore.get(id);
+    if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
+    if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
+      await subaccountStore.appendLog(id, {
+        phase: 'team_link_leave',
+        status: 'error',
+        message: '子号缺少 ChatGPT Web session，无法从子号侧退出 Team',
+        data: { targetAccountId: requested }
+      });
+      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法从子号侧退出 Team');
+    }
+
+    const childUserId = chatGptUserIdFromAccessToken(subaccount.webAccessToken);
+    if (!childUserId) {
+      await subaccountStore.appendLog(id, {
+        phase: 'team_link_leave',
+        status: 'error',
+        message: '子号 Web accessToken 缺少 ChatGPT 用户 ID，无法从子号侧退出 Team',
+        data: { targetAccountId: requested }
+      });
+      throw new ServiceError(400, '子号 Web accessToken 缺少 ChatGPT 用户 ID，无法从子号侧退出 Team');
+    }
+
+    const parents = await service.listAccounts();
+    const parentByInternalId = new Map(parents.map((account) => [account.id, account]));
+    const parentByWorkspaceId = new Map(parents.map((account) => [account.accountId, account]));
+    const link = (subaccount.teamLinks ?? []).find((item) => {
+      const parent = parentByInternalId.get(item.accountId);
+      return item.accountId === requested || item.workspaceId === requested || parent?.accountId === requested;
+    });
+    if (!link) throw new ServiceError(404, `子号 Team 关联不存在: ${requested}`);
+
+    const parent = parentByInternalId.get(link.accountId) ?? parentByWorkspaceId.get(requested);
+    const workspaceId = (link.workspaceId || parent?.accountId || requested).trim();
+    if (!workspaceId) throw new ServiceError(400, '缺少 Team workspace ID');
+
+    let childWebAccessToken = subaccount.webAccessToken;
+    const updateChildWebAccessToken = async (accessToken: string) => {
+      childWebAccessToken = accessToken;
+      await subaccountStore.update(id, { webAccessToken: accessToken, lastError: undefined });
+    };
+
+    try {
+      await service.removeSessionMember(
+        {
+          accountId: workspaceId,
+          accessToken: childWebAccessToken,
+          proxy: subaccount.proxy,
+          sessionToken: subaccount.sessionToken,
+          onAccessTokenRefreshed: updateChildWebAccessToken
+        },
+        childUserId
+      );
+    } catch (e) {
+      await subaccountStore.appendLog(id, {
+        phase: 'team_link_leave',
+        status: 'error',
+        message: `子号退出 Team 失败: ${(e as Error).message}`,
+        data: { accountId: link.accountId, workspaceId, userId: childUserId }
+      });
+      throw new ServiceError(502, `子号退出 Team 失败: ${(e as Error).message}`);
+    }
+
+    const updated = await subaccountStore.removeTeamLink(id, workspaceId);
+    await subaccountStore.appendLog(id, {
+      phase: 'team_link_leave',
+      status: 'success',
+      message: '子号已从 Team workspace 自行退出',
+      data: { accountId: link.accountId, workspaceId, userId: childUserId }
+    });
+    return updated ?? subaccountStore.list().find((item) => item.id === id);
+  };
+
+  const joinK12WorkspaceByChild = async (id: string, workspaceId: string) => {
+    const target = workspaceId.trim();
+    if (!target) throw new ServiceError(400, '缺少 K12 workspace ID');
+    const subaccount = subaccountStore.get(id);
+    if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
+    if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
+      await subaccountStore.appendLog(id, {
+        phase: 'k12_workspace_join',
+        status: 'error',
+        message: '子号缺少 ChatGPT Web session，无法从子号侧加入 K12 workspace',
+        data: { workspaceId: target }
+      });
+      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法从子号侧加入 K12 workspace');
+    }
+
+    let childWebAccessToken = subaccount.webAccessToken;
+    const updateChildWebAccessToken = async (accessToken: string) => {
+      childWebAccessToken = accessToken;
+      await subaccountStore.update(id, { webAccessToken: accessToken, lastError: undefined });
+    };
+
+    try {
+      await service.requestSessionWorkspaceInvite(
+        {
+          accountId: subaccount.chatgptAccountId,
+          accessToken: childWebAccessToken,
+          proxy: subaccount.proxy,
+          sessionToken: subaccount.sessionToken,
+          onAccessTokenRefreshed: updateChildWebAccessToken
+        },
+        target
+      );
+    } catch (e) {
+      await subaccountStore.appendLog(id, {
+        phase: 'k12_workspace_join',
+        status: 'error',
+        message: `K12 workspace 加入请求失败: ${(e as Error).message}`,
+        data: { workspaceId: target }
+      });
+      throw new ServiceError(502, `K12 workspace 加入请求失败: ${(e as Error).message}`);
+    }
+
+    const parent = (await service.listAccounts()).find((account) => account.accountId === target);
+    const updated = await subaccountStore.saveTeamLink(id, {
+      accountId: parent?.id ?? target,
+      workspaceId: target,
+      workspaceName: parent?.workspaceName,
+      planType: parent?.planType ?? 'k12',
+      role: 'standard-user',
+      seat: 'default',
+      status: 'unknown'
+    });
+    await subaccountStore.appendLog(id, {
+      phase: 'k12_workspace_join',
+      status: 'success',
+      message: '已用子号向 K12 workspace 发起加入请求',
+      data: { workspaceId: target }
+    });
     return updated ?? subaccountStore.list().find((item) => item.id === id);
   };
 
@@ -297,6 +474,7 @@ export async function buildApp({
       groupName?: unknown;
       limitType?: unknown;
       nextRenewalOn?: unknown;
+      proxy?: unknown;
       session?: unknown;
     };
     return wrap(c, () => service.updateLocalProfile(c.req.param('id'), body));
@@ -455,7 +633,7 @@ export async function buildApp({
   });
 
   api.patch('/subaccounts/:id/local-profile', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { remark?: unknown; session?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { remark?: unknown; proxy?: unknown; session?: unknown };
     return wrap(c, () => subaccountService.updateLocalProfile(c.req.param('id'), body));
   });
 
@@ -482,6 +660,11 @@ export async function buildApp({
     return wrap(c, () =>
       subaccountService.createPersonalAccessTokenCredential(c.req.param('id'), body.chatgptAccountId)
     );
+  });
+
+  api.post('/subaccounts/:id/codex-auth/k12-credential', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
+    return wrap(c, () => subaccountService.createK12WorkspaceCredential(c.req.param('id'), body.chatgptAccountId));
   });
 
   api.post('/subaccounts/:id/codex-auth/callback', async (c) => {
@@ -540,6 +723,16 @@ export async function buildApp({
       return syncTeamLinksByChildWorkspaces(id, subaccount);
     })
   );
+
+  api.delete('/subaccounts/:id/team-links/:accountId', (c) =>
+    wrap(c, () => leaveTeamLinkByChild(c.req.param('id'), c.req.param('accountId')))
+  );
+
+  api.post('/subaccounts/:id/k12-joins', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { workspaceId?: string };
+    if (!body.workspaceId?.trim()) return c.json({ ok: false, error: '缺少 K12 workspace ID' }, 400);
+    return wrap(c, () => joinK12WorkspaceByChild(c.req.param('id'), body.workspaceId!));
+  });
 
   api.get('/subaccounts/:id/logs', (c) =>
     wrap(c, () => Promise.resolve(subaccountService.listLogs(c.req.param('id'))))

@@ -25,19 +25,17 @@ function stepStatus(status: ReturnType<typeof authStepStatus>): 'wait' | 'proces
 export function SubaccountAuthPanel({
   runtimeStatus,
   logs,
-  runningTarget,
-  onRefreshRuntime
+  runningTarget
 }: {
   runtimeStatus: CodexAuthRuntimeStatus | null;
   logs: SubaccountAuthLog[];
   runningTarget: string;
-  onRefreshRuntime: () => void;
 }) {
   const progress = buildAuthProgress(logs, runningTarget);
 
   return (
     <Space direction="vertical" size={16} className="panel-stack">
-      <Card title="自动授权运行能力" extra={<Typography.Link onClick={onRefreshRuntime}>检查配置</Typography.Link>}>
+      <Card title="自动授权运行能力">
         <Descriptions column={{ xs: 1, md: 3 }} bordered size="small">
           <Descriptions.Item label="worker">{capabilityText(runtimeStatus?.workerReachable)}</Descriptions.Item>
           <Descriptions.Item label="自动授权">{capabilityText(runtimeStatus?.codexAutoAuth)}</Descriptions.Item>

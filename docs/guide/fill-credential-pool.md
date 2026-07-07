@@ -22,6 +22,24 @@
 
 已出租固定席位以 `seatSlots` 和成员本地资料为准。`usage_based` 成员不占固定 ChatGPT 席位，但如果该账号仍需要保留 Team membership 或凭证，不应移除。
 
+## 查询 CPA 状态和账单额度
+
+开始替换前，先通过 `../newapi` 的号池状态服务确认 CPA 实例和凭证状态。状态页后端接口是 `credential-status`：
+
+1. 对目标 CPA 实例执行实例级刷新：`POST /credential-status/api/refresh`，body 为 `{"scope":"instance","instanceId":"cpa-vip"}` 这类实例 ID。
+2. 刷新响应中的 `snapshot.instances[]` 是当前号池快照；按 `instance.id` 找到目标实例。
+3. 先看 `summary.active`、`summary.error`、`summary.unavailable`，确认需要替换的凭证数量。
+4. 再看 `credentials[]` 的 `displayName`、`accountId`、`status`、`statusMessage`、`quota.status`、`quota.planType` 和 `quota.windows[]`。
+5. `status=active` 且 `quota.status=success` 才算该凭证可用；`quota.windows[].usedPercent` 和 `resetAt` 用于判断该凭证对应 Team workspace 的上游额度窗口。
+
+账单面板查询的是 NewAPI 网关消费和本地预算，不等同于 ChatGPT 上游 quota。按 pool 查询：
+
+- `GET /carpool-cost/api/<pool>/daily`
+- `GET /carpool-cost/api/<pool>/weekly`
+- `GET /carpool-cost/api/<pool>/monthly`
+
+其中 `<pool>` 是 `../newapi/config/carpool-cost/pools.yaml` 里的 pool id，例如 `vip`。响应中的 `totalUsd` 是当前窗口已消费金额，`poolBudget` 是本地预算线，`poolBudget - totalUsd` 可作为账单面板口径的剩余额度。上游 Team 凭证剩余额度仍以 `credential-status` 返回的 `quota.windows[]` 为准。
+
 ## 创建新子号
 
 新子号优先使用子号页“自动注册”入口：
@@ -66,10 +84,14 @@
 3. 系统会按目标 workspace 换取 Web access token，并调用 ChatGPT Web 的 `wham/auth-credentials`。
 4. 远端返回的 workspace 必须和目标 Team 一致；不一致时应拒绝保存。
 5. 生成后刷新该凭证额度，确认 `wham/usage` 返回 Team 额度窗口。
-6. 将导出的凭证通过 CPA 管理 API 导入目标号池。
+6. 对 CPA 热重载文件号池，将导出的凭证 JSON 按目标号池文件名原子替换到 `auths/<实例名>/`；不调用 CPA 管理 API，不重启实例。
 7. 通过号池状态 API 刷新目标实例，确认凭证状态为可用且额度窗口未用尽。
 
 不要通过修改凭证 JSON 的 `account_id`、请求头或文件名来复用其他 Team 的凭证。跨 Team 使用必须重新生成绑定目标 workspace 的新凭证。
+
+替换 CPA 文件前应把旧文件备份到活动 `auths/<实例名>/` 之外，避免 CPA 把备份 JSON 当成新凭证加载。替换后如果 `status` 仍显示 `auth_unavailable`，但 `quota.status=success`，通常表示 CPA 实例中仍有旧运行态标记；再次确认文件已热重载后，以 `credential-status` 刷新结果为准。
+
+如果创建 PAT 返回“目标 workspace Web session 与目标不一致”，说明子号当前 Web session 无法换取目标 Team workspace 的 Web access token。处理顺序是重新录入该子号的当前 ChatGPT session、改用仍可登录的子号，或重新创建新子号；不要降低 workspace 校验，也不要用改 JSON 字段的方式跨 Team 复用凭证。若 `credential-status` 中只有 CPA 运行态报错而 `quota.status=success`，可先用 team-manager 保存的同 workspace 规范凭证文件覆盖 CPA auth 文件，清除 CPA 热重载前遗留的错误态；这不等同于生成新凭证。
 
 ## 子号数量估算
 
@@ -94,6 +116,7 @@
 - 新子号在每个目标 Team 下的 Team 关联已同步。
 - 每个目标 Team 都有目标数量的 PAT 凭证。
 - 号池状态 API 显示目标凭证可用，额度窗口未用尽。
+- 账单面板 API 能返回目标 pool 的 daily、weekly 和 monthly 消费窗口；需要看本地预算剩余时，按 `poolBudget - totalUsd` 计算。
 - 运行时数据变更来自页面、API 或 service/store 方法，不来自手工编辑 JSON。
 
 ## 相关文档

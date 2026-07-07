@@ -19,9 +19,12 @@ import {
   type SubaccountTab
 } from '../../app/routeState.js';
 import { BillingRiskModal } from '../../components/BillingRiskModal.js';
+import { actionKey, actionTargetByPrefix } from '../../components/actionBusy.js';
 import { isBillingRiskError } from '../../components/format.js';
 import { JsonImportModal } from '../../components/JsonImportModal.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
+import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
 import { credentialAccessToken } from './credentialAccessToken.js';
 import { buildCredentialDownload, downloadTextFile } from './credentialDownload.js';
@@ -51,10 +54,6 @@ interface SubaccountBillingRisk {
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
   return value ? `?${value}` : '';
-}
-
-function targetKey(prefix: string, accountId?: string): string {
-  return `${prefix}-${accountId || 'default'}`;
 }
 
 function accountDisplayName(account: AccountView): string {
@@ -88,8 +87,8 @@ export function SubaccountRoutes({
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
   const [billingRisk, setBillingRisk] = useState<SubaccountBillingRisk | null>(null);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState('');
   const [localError, setLocalError] = useState('');
+  const actionBusy = useActionBusy();
 
   const selected = subaccounts.find((subaccount) => subaccount.id === subaccountId) ?? subaccounts[0] ?? null;
   const accountOptions = useMemo(
@@ -188,7 +187,7 @@ export function SubaccountRoutes({
     else setLogs([]);
   }, [loadLogs, selected?.id]);
 
-  const runningTarget = busy.startsWith('codex-auto-') ? busy.slice('codex-auto-'.length) : '';
+  const runningTarget = actionTargetByPrefix(actionBusy.busyState, 'codex-auto-');
 
   useEffect(() => {
     if (!selected?.id || !runningTarget) return undefined;
@@ -221,6 +220,7 @@ export function SubaccountRoutes({
   };
 
   const openModal = (modal: SubaccountModal, target = '') => {
+    setLocalError('');
     setSearchParams(setModalState(searchParams, modal, target));
   };
 
@@ -233,90 +233,93 @@ export function SubaccountRoutes({
   };
 
   const importSession = async (payload: unknown) => {
-    setBusy('import-session');
     setLocalError('');
     try {
-      const added = await apiClient.importSubaccountSession(payload);
-      mergeSubaccount(added);
-      closeModal();
-      navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=teams' });
+      await actionBusy.run('import-session', async () => {
+        const record = payload && typeof payload === 'object' ? payload as { remark?: string; proxy?: string; session?: unknown } : {};
+        if (!record.session) throw new Error('请粘贴 Session JSON');
+        const added = await apiClient.importSubaccountSession({
+          remark: record.remark ?? '',
+          proxy: record.proxy ?? '',
+          session: record.session
+        });
+        mergeSubaccount(added);
+        closeModal();
+        navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=teams' });
+      });
     } catch (error) {
       reportLocalError(error);
       throw error;
-    } finally {
-      setBusy('');
     }
   };
 
   const importCredential = async (payload: unknown) => {
-    setBusy('import-credential');
     setLocalError('');
     try {
-      const added = await apiClient.importSubaccountCodexCredential(
-        payload as { credential: Record<string, unknown>; fileName?: string; groupName?: string }
-      );
-      mergeSubaccount(added);
-      closeModal();
-      navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=credential' });
+      await actionBusy.run('import-credential', async () => {
+        const added = await apiClient.importSubaccountCodexCredential(
+          payload as { credential: Record<string, unknown>; fileName?: string; groupName?: string }
+        );
+        mergeSubaccount(added);
+        closeModal();
+        navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=credential' });
+      });
     } catch (error) {
       reportLocalError(error);
       throw error;
-    } finally {
-      setBusy('');
     }
   };
 
   const registerSubaccount = async () => {
-    setBusy('register-subaccount');
     setLocalError('');
     try {
-      const registered = await apiClient.registerSubaccount();
-      mergeSubaccount(registered);
-      closeModal();
-      navigate({ pathname: `/subaccounts/${registered.id}`, search: '?tab=credential' });
-      void loadRuntimeStatus();
+      await actionBusy.run('register-subaccount', async () => {
+        const registered = await apiClient.registerSubaccount();
+        mergeSubaccount(registered);
+        closeModal();
+        navigate({ pathname: `/subaccounts/${registered.id}`, search: '?tab=credential' });
+        void loadRuntimeStatus();
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
-  const updateLocalProfile = async (payload: { remark?: string; session?: unknown }) => {
+  const updateLocalProfile = async (payload: { remark?: string; proxy?: string; session?: unknown }) => {
     if (!selected) return;
-    setBusy('edit-subaccount-profile');
     setLocalError('');
     try {
-      const updated = await apiClient.updateSubaccountLocalProfile(selected.id, {
-        remark: payload.remark ?? '',
-        ...(payload.session ? { session: payload.session } : {})
+      await actionBusy.run('edit-subaccount-profile', async () => {
+        const updated = await apiClient.updateSubaccountLocalProfile(selected.id, {
+          remark: payload.remark ?? '',
+          proxy: payload.proxy ?? '',
+          ...(payload.session ? { session: payload.session } : {})
+        });
+        mergeSubaccount(updated);
+        closeModal();
       });
-      mergeSubaccount(updated);
-      closeModal();
     } catch (error) {
       reportLocalError(error);
       throw error;
-    } finally {
-      setBusy('');
     }
   };
 
   const deleteSubaccount = async () => {
     if (!selected) return;
-    setBusy('delete-subaccount');
     setLocalError('');
     try {
-      await apiClient.removeSubaccount(selected.id);
-      setSubaccounts((current) => current.filter((item) => item.id !== selected.id));
-      closeModal();
+      await actionBusy.run('delete-subaccount', async () => {
+        await apiClient.removeSubaccount(selected.id);
+        setSubaccounts((current) => current.filter((item) => item.id !== selected.id));
+        closeModal();
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const openBillingRisk = (risk: SubaccountBillingRisk) => {
+    setLocalError('');
     const next = setModalState(searchParams, 'billing-risk', risk.accountId);
     next.set('risk', risk.kind);
     next.set('seat', risk.seat);
@@ -326,7 +329,7 @@ export function SubaccountRoutes({
 
   const inviteToTeam = async (values: TeamInviteValues, confirmBillingRisk = false) => {
     if (!selected) return;
-    setBusy('invite-to-team');
+    actionBusy.start('invite-to-team');
     setLocalError('');
     try {
       mergeSubaccount(await apiClient.inviteSubaccountToTeam(selected.id, values.accountId, values.seat, confirmBillingRisk));
@@ -338,7 +341,7 @@ export function SubaccountRoutes({
         reportLocalError(error);
       }
     } finally {
-      setBusy('');
+      actionBusy.finish('invite-to-team');
     }
   };
 
@@ -347,7 +350,7 @@ export function SubaccountRoutes({
       closeModal();
       return;
     }
-    setBusy('billing-risk');
+    actionBusy.start('billing-risk');
     setLocalError('');
     try {
       mergeSubaccount(await apiClient.inviteSubaccountToTeam(selected.id, billingRisk.accountId, billingRisk.seat, true));
@@ -355,139 +358,136 @@ export function SubaccountRoutes({
     } catch (error) {
       reportLocalError(error);
     } finally {
-      setBusy('');
+      actionBusy.finish('billing-risk');
     }
   };
 
   const startAuth = async (workspaceId: string, teamTitle: string) => {
     if (!selected || !workspaceId) return;
-    const key = targetKey('codex-start', workspaceId);
-    setBusy(key);
+    const key = actionKey('codex-start', workspaceId);
     setLocalError('');
     try {
-      setAuthSession({
-        ...(await apiClient.startSubaccountCodexAuth(selected.id, workspaceId)),
-        targetTeamTitle: teamTitle
+      await actionBusy.run(key, async () => {
+        setAuthSession({
+          ...(await apiClient.startSubaccountCodexAuth(selected.id, workspaceId)),
+          targetTeamTitle: teamTitle
+        });
+        openModal('manual-codex-callback', workspaceId);
       });
-      openModal('manual-codex-callback', workspaceId);
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const autoAuth = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = targetKey('codex-auto', workspaceId);
-    setBusy(key);
+    const key = actionKey('codex-auto', workspaceId);
     setLocalError('');
     try {
-      mergeSubaccount(await apiClient.autoSubaccountCodexAuth(selected.id, workspaceId));
-      setAuthSession(null);
-      setCallbackUrl('');
-      void loadRuntimeStatus();
-      await loadLogs(selected.id);
+      await actionBusy.run(key, async () => {
+        mergeSubaccount(await apiClient.autoSubaccountCodexAuth(selected.id, workspaceId));
+        setAuthSession(null);
+        setCallbackUrl('');
+        void loadRuntimeStatus();
+        await loadLogs(selected.id);
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const createPersonalAccessToken = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = targetKey('codex-pat', workspaceId);
-    setBusy(key);
+    const key = actionKey('codex-pat', workspaceId);
     setLocalError('');
     try {
-      mergeSubaccount(await apiClient.createSubaccountPersonalAccessTokenCredential(selected.id, workspaceId));
-      await loadLogs(selected.id);
+      await actionBusy.run(key, async () => {
+        const link = selected.teamLinks.find((item) => item.workspaceId === workspaceId || item.accountId === workspaceId);
+        const updated =
+          link?.planType === 'k12'
+            ? await apiClient.createSubaccountK12Credential(selected.id, workspaceId)
+            : await apiClient.createSubaccountPersonalAccessTokenCredential(selected.id, workspaceId);
+        mergeSubaccount(updated);
+        await loadLogs(selected.id);
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const completeManualAuth = async () => {
     if (!selected || !authSession) return;
-    setBusy('codex-callback');
     setLocalError('');
     try {
-      mergeSubaccount(await apiClient.completeSubaccountCodexAuth(selected.id, authSession.sessionId, callbackUrl.trim()));
-      setAuthSession(null);
-      setCallbackUrl('');
-      closeModal();
-      await loadLogs(selected.id);
+      await actionBusy.run('codex-callback', async () => {
+        mergeSubaccount(await apiClient.completeSubaccountCodexAuth(selected.id, authSession.sessionId, callbackUrl.trim()));
+        setAuthSession(null);
+        setCallbackUrl('');
+        closeModal();
+        await loadLogs(selected.id);
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const refreshQuota = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = targetKey('quota-refresh', workspaceId);
-    setBusy(key);
+    const key = actionKey('quota-refresh', workspaceId);
     setLocalError('');
     try {
-      setQuota(await apiClient.refreshSubaccountQuota(selected.id, workspaceId));
-      setSubaccounts(await apiClient.listSubaccounts());
+      await actionBusy.run(key, async () => {
+        setQuota(await apiClient.refreshSubaccountQuota(selected.id, workspaceId));
+        setSubaccounts(await apiClient.listSubaccounts());
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const exportCredential = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = targetKey('credential-export', workspaceId);
-    setBusy(key);
+    const key = actionKey('credential-export', workspaceId);
     setLocalError('');
     try {
-      const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
-      downloadTextFile(buildCredentialDownload(selected, workspaceId, credential));
+      await actionBusy.run(key, async () => {
+        const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
+        downloadTextFile(buildCredentialDownload(selected, workspaceId, credential));
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const copyCredentialAccessToken = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = targetKey('credential-copy-ak', workspaceId);
-    setBusy(key);
+    const key = actionKey('credential-copy-ak', workspaceId);
     setLocalError('');
     try {
-      const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
-      if (!navigator.clipboard?.writeText) throw new Error('当前浏览器不支持剪贴板写入');
-      await navigator.clipboard.writeText(credentialAccessToken(credential));
-      void message.success('AK 已复制');
+      await actionBusy.run(key, async () => {
+        const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
+        if (!navigator.clipboard?.writeText) throw new Error('当前浏览器不支持剪贴板写入');
+        await navigator.clipboard.writeText(credentialAccessToken(credential));
+        void message.success('AK 已复制');
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
   const deleteCredential = async () => {
     if (!selected || !searchState.target) return;
     const workspaceId = searchState.target;
-    const key = targetKey('credential-delete', workspaceId);
-    setBusy(key);
+    const key = actionKey('credential-delete', workspaceId);
     setLocalError('');
     try {
-      mergeSubaccount(await apiClient.removeSubaccountCodexCredential(selected.id, workspaceId));
-      setQuota(null);
-      closeModal();
+      await actionBusy.run(key, async () => {
+        mergeSubaccount(await apiClient.removeSubaccountCodexCredential(selected.id, workspaceId));
+        setQuota(null);
+        closeModal();
+      });
     } catch (error) {
       reportLocalError(error);
-    } finally {
-      setBusy('');
     }
   };
 
@@ -497,7 +497,7 @@ export function SubaccountRoutes({
         subaccounts={subaccounts}
         selectedId={selected?.id ?? ''}
         runtimeStatus={runtimeStatus}
-        busy={busy}
+        isBusy={actionBusy.isBusy}
         onSelect={selectSubaccount}
         onOpenImportSession={() => openModal('import-session')}
         onOpenImportCredential={() => openModal('import-credential')}
@@ -520,7 +520,7 @@ export function SubaccountRoutes({
           activeTab={searchState.tab}
           runtimeStatus={runtimeStatus}
           logs={logs}
-          busy={busy}
+          busyState={actionBusy.busyState}
           quota={quota}
           runningTarget={runningTarget}
           onTabChange={changeTab}
@@ -528,7 +528,6 @@ export function SubaccountRoutes({
           onOpenEdit={() => selected && openModal('edit-subaccount-profile', selected.id)}
           onOpenDelete={() => selected && openModal('delete-subaccount', selected.id)}
           onOpenInvite={() => openModal('invite-to-team', selected?.id ?? '')}
-          onRefreshRuntime={() => void loadRuntimeStatus()}
           onStartAuth={(workspaceId, teamTitle) => void startAuth(workspaceId, teamTitle)}
           onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
           onCreatePersonalAccessToken={(workspaceId) => void createPersonalAccessToken(workspaceId)}
@@ -539,13 +538,15 @@ export function SubaccountRoutes({
         />
       </Space>
 
-      <JsonImportModal
+      <LocalProfileModal
         open={searchState.modal === 'import-session'}
-        mode="session"
+        mode="subaccount"
         title="录入子号 Session"
         description="保存子号本地记录后，可继续生成 Codex 凭证并查询额度。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         submitLabel="保存子号"
-        confirmLoading={busy === 'import-session'}
+        requireSession
+        initialValues={{ remark: '', proxy: '' }}
+        confirmLoading={actionBusy.isBusy('import-session')}
         onCancel={closeModal}
         onSubmit={importSession}
       />
@@ -556,7 +557,7 @@ export function SubaccountRoutes({
         title="导入 Codex 凭证"
         description="导入已有 CPA/Codex auth JSON，系统按 workspace 保存凭证，不会创建 Web session。"
         submitLabel="导入凭证"
-        confirmLoading={busy === 'import-credential'}
+        confirmLoading={actionBusy.isBusy('import-credential')}
         onCancel={closeModal}
         onSubmit={importCredential}
       />
@@ -566,8 +567,12 @@ export function SubaccountRoutes({
         mode="subaccount"
         title="编辑子号本地资料"
         description="只更新本系统保存的备注名和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
-        initialValues={{ remark: selected?.remark ?? '' }}
-        confirmLoading={busy === 'edit-subaccount-profile'}
+        initialValues={{
+          remark: selected?.remark ?? '',
+          proxy: selected?.proxy ?? '',
+          session: selected?.session
+        }}
+        confirmLoading={actionBusy.isBusy('edit-subaccount-profile')}
         onCancel={closeModal}
         onSubmit={updateLocalProfile}
       />
@@ -577,11 +582,14 @@ export function SubaccountRoutes({
         title="自动注册子号"
         okText="开始注册"
         cancelText="取消"
-        confirmLoading={busy === 'register-subaccount'}
+        confirmLoading={actionBusy.isBusy('register-subaccount')}
         onCancel={closeModal}
         onOk={() => void registerSubaccount()}
       >
-        系统会使用运行环境配置完成邮箱、短信和 Codex 授权流程。生成的密码只保存在后端运行时数据。
+        <Space direction="vertical" size={12} className="panel-stack">
+          <span>系统会使用运行环境配置完成邮箱、短信和 Codex 授权流程。生成的密码只保存在后端运行时数据。</span>
+          <ModalErrorAlert message={searchState.modal === 'register-subaccount' ? localError : ''} />
+        </Space>
       </Modal>
 
       <Modal
@@ -589,11 +597,14 @@ export function SubaccountRoutes({
         title="删除子号"
         okText="删除子号"
         cancelText="取消"
-        okButtonProps={{ danger: true, loading: busy === 'delete-subaccount' }}
+        okButtonProps={{ danger: true, loading: actionBusy.isBusy('delete-subaccount') }}
         onCancel={closeModal}
         onOk={() => void deleteSubaccount()}
       >
-        仅从本系统移除 {selected?.remark || selected?.email} 的本地记录，不会移除 ChatGPT Team 成员。
+        <Space direction="vertical" size={12} className="panel-stack">
+          <span>仅从本系统移除 {selected?.remark || selected?.email} 的本地记录，不会移除 ChatGPT Team 成员。</span>
+          <ModalErrorAlert message={searchState.modal === 'delete-subaccount' ? localError : ''} />
+        </Space>
       </Modal>
 
       <Modal
@@ -601,7 +612,7 @@ export function SubaccountRoutes({
         title="邀请子号加入 Team"
         okText="发送邀请"
         cancelText="取消"
-        confirmLoading={busy === 'invite-to-team'}
+        confirmLoading={actionBusy.isBusy('invite-to-team')}
         onCancel={closeModal}
         onOk={() => inviteForm.submit()}
         destroyOnClose
@@ -609,6 +620,7 @@ export function SubaccountRoutes({
         <Form<TeamInviteValues>
           form={inviteForm}
           layout="vertical"
+          disabled={actionBusy.isBusy('invite-to-team')}
           initialValues={{ seat: 'usage_based' }}
           onFinish={(values) => void inviteToTeam(values)}
         >
@@ -624,6 +636,7 @@ export function SubaccountRoutes({
             />
           </Form.Item>
         </Form>
+        <ModalErrorAlert message={searchState.modal === 'invite-to-team' ? localError : ''} />
       </Modal>
 
       <Modal
@@ -631,7 +644,7 @@ export function SubaccountRoutes({
         title={`手动授权回调${authSession?.targetTeamTitle ? ` · ${authSession.targetTeamTitle}` : ''}`}
         okText="提交回调并生成凭证"
         cancelText="取消"
-        confirmLoading={busy === 'codex-callback'}
+        confirmLoading={actionBusy.isBusy('codex-callback')}
         onCancel={closeModal}
         onOk={() => void completeManualAuth()}
       >
@@ -640,10 +653,12 @@ export function SubaccountRoutes({
           <Input.TextArea
             rows={5}
             value={callbackUrl}
+            disabled={actionBusy.isBusy('codex-callback')}
             spellCheck={false}
             placeholder="粘贴授权回调 URL"
             onChange={(event) => setCallbackUrl(event.target.value)}
           />
+          <ModalErrorAlert message={searchState.modal === 'manual-codex-callback' ? localError : ''} />
         </Space>
       </Modal>
 
@@ -652,16 +667,20 @@ export function SubaccountRoutes({
         title="删除 Codex 凭证"
         okText="删除凭证"
         cancelText="取消"
-        okButtonProps={{ danger: true, loading: busy === targetKey('credential-delete', searchState.target) }}
+        okButtonProps={{ danger: true, loading: actionBusy.isBusy(actionKey('credential-delete', searchState.target)) }}
         onCancel={closeModal}
         onOk={() => void deleteCredential()}
       >
-        确认删除 workspace {searchState.target || '当前'} 的 Codex 凭证？这不会移除 Team 成员关系。
+        <Space direction="vertical" size={12} className="panel-stack">
+          <span>确认删除 workspace {searchState.target || '当前'} 的 Codex 凭证？这不会移除 Team 成员关系。</span>
+          <ModalErrorAlert message={searchState.modal === 'delete-codex-credential' ? localError : ''} />
+        </Space>
       </Modal>
 
       <BillingRiskModal
         open={searchState.modal === 'billing-risk'}
-        confirmLoading={busy === 'billing-risk'}
+        confirmLoading={actionBusy.isBusy('billing-risk')}
+        error={searchState.modal === 'billing-risk' ? localError : ''}
         onCancel={closeModal}
         onConfirm={() => void confirmBillingRisk()}
       />

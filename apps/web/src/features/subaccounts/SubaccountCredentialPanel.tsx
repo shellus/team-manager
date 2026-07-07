@@ -7,6 +7,7 @@ import type {
   SubaccountTeamLink,
   SubaccountView
 } from '@team-manager/shared';
+import { actionKey, isActionBusy, type ActionBusyState } from '../../components/actionBusy.js';
 import { Button, Card, Descriptions, Progress, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { formatDateTime } from '../../components/format.js';
@@ -16,6 +17,7 @@ interface CredentialTeamRow {
   key: string;
   workspaceId: string;
   teamTitle: string;
+  planType?: string;
   link?: SubaccountTeamLink;
   credential?: SubaccountCodexCredentialView;
   account?: AccountView;
@@ -24,6 +26,14 @@ interface CredentialTeamRow {
 function accountDisplayName(account: AccountView | undefined, fallback: string): string {
   if (!account) return fallback;
   return account.remark || account.workspaceName || account.email;
+}
+
+function teamLinkWorkspaceId(link: SubaccountTeamLink, account: AccountView | undefined): string {
+  return link.workspaceId || account?.accountId || '';
+}
+
+function teamLinkDisplayName(link: SubaccountTeamLink, account: AccountView | undefined): string {
+  return accountDisplayName(account, link.workspaceName || link.workspaceId || link.accountId);
 }
 
 function quotaLabel(credential?: SubaccountCodexCredentialView): string {
@@ -37,7 +47,7 @@ export function SubaccountCredentialPanel({
   subaccount,
   accounts,
   runtimeStatus,
-  busy,
+  busyState,
   quota,
   onStartAuth,
   onAutoAuth,
@@ -50,7 +60,7 @@ export function SubaccountCredentialPanel({
   subaccount: SubaccountView;
   accounts: AccountView[];
   runtimeStatus: CodexAuthRuntimeStatus | null;
-  busy: string;
+  busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
   onStartAuth: (workspaceId: string, teamTitle: string) => void;
   onAutoAuth: (workspaceId: string) => void;
@@ -69,11 +79,12 @@ export function SubaccountCredentialPanel({
   const rows = useMemo<CredentialTeamRow[]>(() => {
     const linkedRows = subaccount.teamLinks.map((link) => {
       const account = accountByInternalId.get(link.accountId);
-      const workspaceId = account?.accountId ?? '';
+      const workspaceId = teamLinkWorkspaceId(link, account);
       return {
         key: `link-${link.accountId}`,
         workspaceId,
-        teamTitle: accountDisplayName(account, link.accountId),
+        teamTitle: teamLinkDisplayName(link, account),
+        planType: link.planType,
         link,
         account,
         credential: workspaceId ? credentialByWorkspaceId.get(workspaceId) : undefined
@@ -88,6 +99,7 @@ export function SubaccountCredentialPanel({
           key: `credential-${credential.accountId}`,
           workspaceId: credential.accountId,
           teamTitle: accountDisplayName(account, credential.accountId),
+          planType: credential.planType,
           account,
           credential
         };
@@ -145,42 +157,42 @@ export function SubaccountCredentialPanel({
           <Button
             type="primary"
             disabled={!row.workspaceId || !subaccount.hasWebSession}
-            loading={busy === `codex-pat-${row.workspaceId || 'default'}`}
+            loading={isActionBusy(busyState, actionKey('codex-pat', row.workspaceId))}
             onClick={() => onCreatePersonalAccessToken(row.workspaceId)}
           >
-            创建令牌
+            {row.planType === 'k12' ? '创建 K12 凭证' : '创建令牌'}
           </Button>
           <Button
-            disabled={!row.workspaceId || runtimeStatus?.codexAutoAuth === false}
-            loading={busy === `codex-auto-${row.workspaceId || 'default'}`}
+            disabled={!row.workspaceId || row.planType === 'k12' || runtimeStatus?.codexAutoAuth === false}
+            loading={isActionBusy(busyState, actionKey('codex-auto', row.workspaceId))}
             onClick={() => onAutoAuth(row.workspaceId)}
           >
             自动授权
           </Button>
           <Button
-            disabled={!row.workspaceId}
-            loading={busy === `codex-start-${row.workspaceId || 'default'}`}
+            disabled={!row.workspaceId || row.planType === 'k12'}
+            loading={isActionBusy(busyState, actionKey('codex-start', row.workspaceId))}
             onClick={() => onStartAuth(row.workspaceId, row.teamTitle)}
           >
             登录 URL
           </Button>
           <Button
             disabled={!row.credential}
-            loading={busy === `quota-refresh-${row.workspaceId || 'default'}`}
+            loading={isActionBusy(busyState, actionKey('quota-refresh', row.workspaceId))}
             onClick={() => onRefreshQuota(row.workspaceId)}
           >
             刷新额度
           </Button>
           <Button
             disabled={!row.workspaceId || !row.credential}
-            loading={busy === `credential-copy-ak-${row.workspaceId || 'default'}`}
+            loading={isActionBusy(busyState, actionKey('credential-copy-ak', row.workspaceId))}
             onClick={() => onCopyCredentialAccessToken(row.workspaceId)}
           >
             复制 AK
           </Button>
           <Button
             disabled={!row.workspaceId || !row.credential}
-            loading={busy === `credential-export-${row.workspaceId || 'default'}`}
+            loading={isActionBusy(busyState, actionKey('credential-export', row.workspaceId))}
             onClick={() => onExportCredential(row.workspaceId)}
           >
             凭证 JSON

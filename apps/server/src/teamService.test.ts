@@ -265,7 +265,103 @@ describe('Parent account local-profile API', () => {
     assert.equal(transport.requests.length, 0);
   });
 
-  it('updates local session fields and keeps token material out of the response', async () => {
+  it('updates parent proxy, returns editable session JSON, and uses that proxy for ChatGPT requests', async () => {
+    const transport = recordingTransport();
+    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/local-profile`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ proxy: '  http://parent-proxy.example:8080  ' })
+    });
+    const json = (await response.json()) as ApiResult<AccountView>;
+    const view = json.data as unknown as Record<string, any>;
+
+    assert.equal(response.status, 200);
+    assert.equal(view.proxy, 'http://parent-proxy.example:8080');
+    assert.deepEqual(view.session, {
+      user: { email: 'owner-old@example.com' },
+      account: { id: 'workspace-old' },
+      accessToken: 'old-token'
+    });
+
+    const refreshed = await app.request(`/api/accounts/${account.id}/members/refresh`, {
+      method: 'POST',
+      headers: authHeaders
+    });
+
+    assert.equal(refreshed.status, 200);
+    assert.equal(transport.requests[0]?.proxy, 'http://parent-proxy.example:8080');
+  });
+
+  it('creates a parent account from local profile fields plus session JSON', async () => {
+    const transport: Transport & { requests: HttpRequest[] } = {
+      requests: [],
+      async fetch(req) {
+        this.requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'workspace-new': {
+                  account: {
+                    account_id: 'workspace-new',
+                    account_user_role: 'account-owner',
+                    name: 'New Team',
+                    plan_type: 'team',
+                    structure: 'workspace'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['workspace-new']
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+    const { app, store, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request('/api/accounts', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        remark: '  新母号备注  ',
+        groupName: '  已租车位  ',
+        limitType: 'weekly',
+        nextRenewalOn: '2026-07-16',
+        proxy: '  http://parent-proxy.example:8080  ',
+        session: {
+          user: { email: 'owner-new@example.com' },
+          account: { id: 'workspace-new' },
+          accessToken: 'new-parent-access-token',
+          sessionToken: 'parent-session-json-token'
+        }
+      })
+    });
+    const json = (await response.json()) as ApiResult<AccountView>;
+    const stored = store.get(json.data!.id);
+
+    assert.equal(response.status, 200);
+    assert.equal(json.data!.remark, '新母号备注');
+    assert.equal(json.data!.groupName, '已租车位');
+    assert.equal(json.data!.limitType, 'weekly');
+    assert.equal(json.data!.nextRenewalOn, '2026-07-16');
+    assert.equal(json.data!.proxy, 'http://parent-proxy.example:8080');
+    assert.equal(json.data!.email, 'owner-new@example.com');
+    assert.equal(json.data!.accountId, 'workspace-new');
+    assert.equal(stored?.remark, '新母号备注');
+    assert.equal(stored?.groupName, '已租车位');
+    assert.equal(stored?.limitType, 'weekly');
+    assert.equal(stored?.nextRenewalOn, '2026-07-16');
+    assert.equal(stored?.proxy, 'http://parent-proxy.example:8080');
+    assert.equal(stored?.sessionToken, 'parent-session-json-token');
+    assert.equal(transport.requests[0]?.proxy, 'http://parent-proxy.example:8080');
+  });
+
+  it('updates local session fields and returns editable session JSON', async () => {
     const transport: Transport & { requests: HttpRequest[] } = {
       requests: [],
       async fetch(req) {
@@ -328,8 +424,12 @@ describe('Parent account local-profile API', () => {
     assert.equal(stored?.accessToken, 'new-parent-access-token');
     assert.equal(stored?.sessionToken, 'parent-session-json-token');
     assert.equal(stored?.lastError, undefined);
-    assert.equal(body.includes('new-parent-access-token'), false);
-    assert.equal(body.includes('parent-session-json-token'), false);
+    assert.deepEqual(json.data!.session, {
+      user: { email: 'owner-new@example.com' },
+      account: { id: 'workspace-new' },
+      accessToken: 'new-parent-access-token',
+      sessionToken: 'parent-session-json-token'
+    });
   });
 
   it('resolves the parent workspace from accounts/check instead of trusting the session account id', async () => {

@@ -10,7 +10,8 @@ export const CODEX_USAGE_PATH = '/backend-api/wham/usage';
 
 export async function fetchCodexQuota(
   credential: CodexCredentialJson,
-  transport: Transport = createTransport()
+  transport: Transport = createTransport(),
+  proxy?: string
 ): Promise<CodexQuotaSnapshot> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${credential.access_token}`,
@@ -24,7 +25,8 @@ export async function fetchCodexQuota(
   const response = await transport.fetch({
     method: 'GET',
     path: CODEX_USAGE_PATH,
-    headers
+    headers,
+    proxy: proxy?.trim() || undefined
   });
 
   if (response.status < 200 || response.status >= 300) {

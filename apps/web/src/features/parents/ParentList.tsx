@@ -5,7 +5,12 @@ import { Button, Card, Dropdown, Input, List, Segmented, Typography } from 'antd
 import { formatRelativeTime, shortText } from '../../components/format.js';
 import { LimitTypeTag } from '../../components/StatusTag.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
-import { parentListIdentity, parentSeatUsageClass } from './parentListItem.js';
+import {
+  parentChatGptSeatUsageCount,
+  parentListIdentity,
+  parentMemberAndInviteCount,
+  parentSeatUsageClass
+} from './parentListItem.js';
 
 export function ParentList({
   groups,
@@ -65,8 +70,8 @@ export function ParentList({
         dataSource={accounts}
         locale={{ emptyText: searchQuery ? '没有匹配的母号' : '当前分组没有母号' }}
         renderItem={(account) => {
-          const memberCount = account.membersCache?.length;
-          const seatCount = account.membersCache?.filter((member) => member.seat === 'default').length;
+          const memberCount = parentMemberAndInviteCount(account);
+          const seatCount = parentChatGptSeatUsageCount(account);
           const selected = account.id === selectedId;
           const syncing = syncingIds.has(account.id);
           const title = parentListIdentity(account);
@@ -119,7 +124,7 @@ export function ParentList({
                   <span className={parentSeatUsageClass(seatCount, MAX_CHATGPT_SEATS)}>
                     ChatGPT {seatCount ?? '暂无'} / {MAX_CHATGPT_SEATS}
                   </span>
-                  <span>成员 {memberCount ?? '暂无'}</span>
+                  <span>成员/邀请 {memberCount ?? '暂无'}</span>
                   {account.nextRenewalOn && <span>续费 {account.nextRenewalOn}</span>}
                 </div>
                 <div className="record-meta muted">

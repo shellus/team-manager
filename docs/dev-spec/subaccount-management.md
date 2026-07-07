@@ -12,11 +12,11 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 凭证元数据包含 `accountId`、`fileName`、`groupName`、`planType`、授权时间和额度缓存。`groupName` 用于展示该凭证所在 CPA 号池。
   - 自动注册生成的 OpenAI 密码记录在后端持久化对象的私有字段中，普通 view 不下发。
   - `credential.account_id` 是凭证绑定的 Team workspace。OAuth 凭证来自 Codex `id_token` claim 中的 `chatgpt_account_id`；个人访问令牌凭证来自 `wham/auth-credentials` 响应的 `workspace_id`。
-  - API 默认只返回脱敏视图，不返回 `access_token` / `refresh_token` / `id_token`。
+  - API 普通 view 返回子号元数据、可编辑 Web session 和代理地址；Codex credential JSON 的 `access_token` / `refresh_token` / `id_token` 只通过显式凭证导出接口返回。
 - 子号 Web 登录态录入：
   - `POST /api/subaccounts/session` 只接受 chatgpt.com `/api/auth/session` 输出的 session JSON 对象。
   - session JSON 对象必需字段为 `user.email`、`account.id`、`accessToken`；可选字段 `sessionToken` 会被保存，用于后续按目标 workspace 换取 Web access token。
-  - `sessionToken` 属于敏感运行时数据，只写入后端 `data/subaccounts.json`，普通 view 不下发。
+  - `sessionToken` 写入后端 `data/subaccounts.json`，并通过 `SubaccountView.session` 回填给管理后台本地资料编辑框。
   - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用保存的 `sessionToken` 请求 ChatGPT `/api/auth/session`，换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
   - 子号侧 ChatGPT Web 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 时，如果保存了 `sessionToken`，后端会按当前请求 workspace 换取新的 Web access token，回写 `webAccessToken` 并重试一次原请求。
   - 不支持数组输入或扁平字段，不做回退兼容。
@@ -26,9 +26,9 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `fileName` 为独立凭证文件名，`groupName` 为 CPA 号池名；缺省文件名由邮箱和 workspace 派生，缺省号池为 `默认号池`。
   - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
-  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注 `remark`。
+  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注 `remark` 和独立代理地址 `proxy`。
   - 请求带新的 session JSON 对象时更新 `email`、`chatgptAccountId`、`webAccessToken`，并在存在 `sessionToken` 时更新 `sessionToken`。
-  - 保留已有 Codex 凭证、Team 关联和授权日志，响应仍为脱敏视图。
+  - 保留已有 Codex 凭证、Team 关联和授权日志，响应 view 回填已保存的 Web session 和代理地址；Codex credential JSON 仍不进入普通 view。
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
   - 固定 redirect URI：`http://localhost:1455/auth/callback`。
@@ -46,6 +46,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
 - Codex 个人访问令牌凭证：
   - `POST /api/subaccounts/:id/codex-auth/personal-access-token` 默认使用子号自己的 ChatGPT Web `accessToken` 调用 `POST /backend-api/wham/auth-credentials`。
   - 若子号保存了 session JSON `sessionToken`，后端先调用 `/api/auth/session` 换取目标 workspace Web access token，校验返回的 Web access token claim 属于目标 workspace 后，再调用 `wham/auth-credentials`。
+  - 子号配置了独立代理地址时，workspace token 换取和 `wham/auth-credentials` 请求都使用该子号代理；未配置时回退到 worker 全局代理。
   - 请求目标 workspace 由 `chatgpt-account-id` header 指定，scope 固定为 `chatgpt.workspace.feature.allow-codex-local-access.access`，TTL 为 30 天。
   - 返回的 `at-...` token 是官方 Codex CLI 支持的 personal access token。官方 Codex 将其保存为 `auth.json.personal_access_token`，不需要 `refresh_token` 或 `id_token`。
   - team-manager 保存为 `auth_mode:"personalAccessToken"` / `credential_source:"personal_access_token"` 的 Codex credential JSON，同时保留 `access_token` 和 `personal_access_token` 便于额度刷新和导出。
@@ -78,6 +79,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 有 ChatGPT Web session 的子号，点击同步时用子号自己的 access token 调用 `GET /backend-api/accounts/check/v4-2023-04-27`，从响应 `accounts[].account.account_id` 得到该子号可见的 workspace 列表，再和已录入母号的 workspace `accountId` 做交集。
   - 子号可见且本地已录入对应母号时，继续用子号自己的 access token 调用 `GET /backend-api/accounts/{account_id}/users?offset=0&limit=25&query=<子号邮箱>`，从返回成员记录读取该子号自己的 `seat_type` 并写入 `member` 状态。
   - `accounts/check` 和 users query 均走统一 ChatGPT Web 请求封装。若返回 `token_invalidated` 且子号保存了 `sessionToken`，后端会按当前请求 workspace 换取新 Web access token，保存到子号记录并重试一次。
+  - 子号配置了独立代理地址时，`accounts/check`、users query、退出 Team 和 K12 加入请求都使用该子号代理；未配置时回退到 worker 全局代理。
   - 曾经有本地记录但本次子号列表不可见时写入 `removed`。
   - `accounts/check` 不返回成员席位类型，只用于缩小需要查询的 workspace 范围；席位以子号 session 对目标 workspace 的 users query 返回的 `seat_type` 为准。
   - 没有 Web session 的 credential-only 子号无法从子号侧自列 workspace，同步接口返回 400，不使用母号凭证兜底读取。
@@ -87,6 +89,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 直接使用目标 Team workspace 对应的子号 Codex 凭证里的 `access_token`。
   - 同时使用凭证里的 `account_id` 作为 `Chatgpt-Account-Id` 请求头，保持和 CPA Codex executor 的账户上下文一致。
   - 请求 `GET /backend-api/wham/usage`。
+  - 子号配置了独立代理地址时，额度请求使用该子号代理；未配置时回退到 worker 全局代理。
   - 解析 `rate_limit.primary_window`、`secondary_window`、`additional_rate_limits`，输出 5 小时、7 天、月度和模型级窗口。
   - 刷新结果缓存到对应 `codexCredentials[].lastQuota` / `lastQuotaAt`，页面进入详情时先显示旧额度，再由用户按 Team 手动刷新。
   - 不对接外部 credential-status 服务。

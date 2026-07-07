@@ -35,13 +35,13 @@ corepack pnpm docs:build
 - 运行时数据放在部署环境挂载的 `data/`，环境变量放 `.env` 或部署系统配置。
 - git 管理文件不得写真实域名、IP、端口、账号、token、代理地址或本机部署路径；本机事实记录到 `.codex/AGENTS.md`。
 - GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 连接信息属于运行环境配置；业务代码只检查脱敏可用状态，不在源码或公开文档中保存真实连接参数。
-- 后端普通视图接口只返回脱敏 view；只有显式凭证导出接口才返回 Codex credential JSON。
+- 管理后台普通 view 可返回账号本地保存的 Web session JSON 和代理地址，供本地资料编辑回填；只有显式凭证导出接口才返回 Codex credential JSON。
 - 不要通过编辑 `data/*.json` 执行业务操作。业务变更走 API、UI 或 service/store 方法。
 
 ## 功能范围
 
 - **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
-- **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号可按 `groupName` 分组，用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可替换 chatgpt.com session JSON；不会修改远端 Team 名称。
+- **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号可按 `groupName` 分组，用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **席位位置**：用 `seatSlots` 记录母号下售出的 ChatGPT 固定席位位置，`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
@@ -117,7 +117,7 @@ corepack pnpm docs:build
 
 多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。若当前 ChatGPT session 可见多个可管理 Team workspace 且无法从当前/已有 workspace 判断目标，系统会拒绝自动选择，避免把母号绑定到错误 Team。
 
-GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType` 和 `nextRenewalOn`。替换 session 时，旧 session 明文不会回填到前端。
+GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType` 和 `nextRenewalOn`。母号和子号都可保存 `proxy`，ChatGPT Web 请求、workspace token 换取、子号 PAT/K12 凭证创建和子号额度刷新会优先使用对应账号的代理；未配置账号代理时才使用运行环境全局代理。本地资料弹窗会回填已保存的 session JSON 和代理地址。
 
 已有 CPA/Codex auth JSON 可以作为 credential-only 子号导入。导入时可指定自定义文件名和 CPA 号池；导入后该子号没有 Web session，但会进入子号池并按 workspace 保存 Codex 凭证元数据，真实 credential JSON 写入独立凭证文件。credential-only 子号不能从子号侧刷新 Team 关联；后续可通过额度刷新确认凭证状态。
 

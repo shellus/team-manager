@@ -89,7 +89,10 @@ class RecordingTeamTransport implements Transport {
     this.requests.push(req);
     if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
       const cookie = req.headers.cookie ?? req.headers.Cookie ?? '';
-      const accountId = cookie.match(/(?:^|;\s*)_account=([^;]+)/)?.[1] ?? this.currentSessionAccountId;
+      const requestedUrl = new URL(`https://chatgpt.com${req.path}`);
+      const requestedWorkspaceId =
+        requestedUrl.searchParams.get('workspace_id') ?? requestedUrl.searchParams.get('team_manager_workspace');
+      const accountId = requestedWorkspaceId ?? cookie.match(/(?:^|;\s*)_account=([^;]+)/)?.[1] ?? this.currentSessionAccountId;
       return {
         status: 200,
         body: JSON.stringify({
@@ -125,6 +128,9 @@ class RecordingTeamTransport implements Transport {
       return { status: 200, body: JSON.stringify({ items, total: items.length }) };
     }
     if (req.method === 'POST' && req.path.includes('/invites')) {
+      return { status: 200, body: JSON.stringify({ success: true }) };
+    }
+    if (req.method === 'DELETE' && req.path.includes('/users/')) {
       return { status: 200, body: JSON.stringify({ success: true }) };
     }
     if (req.method === 'POST' && req.path === '/backend-api/wham/auth-credentials') {
@@ -450,7 +456,7 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('imports child session JSON and returns only redacted views', async () => {
+  it('imports child session JSON and returns editable Web session views', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {
       const added = await app.request('/api/subaccounts/session', {
@@ -467,12 +473,125 @@ describe('Subaccount API', () => {
       assert.equal(added.status, 200);
       assert.equal(addedJson.data!.email, 'child@example.com');
       assert.equal(addedJson.data!.hasWebSession, true);
-      assert.equal(JSON.stringify(addedJson).includes('child-web-access-token'), false);
+      assert.deepEqual(addedJson.data!.session, {
+        user: { email: 'child@example.com' },
+        account: { id: 'child-chatgpt-account-id' },
+        accessToken: 'child-web-access-token'
+      });
 
       const listed = await app.request('/api/subaccounts', { headers: authHeaders });
       const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
       assert.equal(listedJson.data!.length, 1);
       assert.equal(listedJson.data![0]!.status, 'session_ready');
+      assert.equal(listedJson.data![0]!.session?.accessToken, 'child-web-access-token');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('imports child session with the same local profile fields used by child profile editing', async () => {
+    const { app, dir, authHeaders } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          remark: '  子号备注  ',
+          proxy: '  socks5://child-proxy.example:1080  ',
+          session: {
+            user: { email: 'child-profile@example.com' },
+            account: { id: 'child-chatgpt-account-id' },
+            accessToken: 'child-web-access-token',
+            sessionToken: 'child-session-token'
+          }
+        })
+      });
+      const body = await added.text();
+      const addedJson = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(added.status, 200, body);
+      assert.equal(addedJson.data!.email, 'child-profile@example.com');
+      assert.equal(addedJson.data!.remark, '子号备注');
+      assert.equal(addedJson.data!.proxy, 'socks5://child-proxy.example:1080');
+      assert.deepEqual(addedJson.data!.session, {
+        user: { email: 'child-profile@example.com' },
+        account: { id: 'child-chatgpt-account-id' },
+        accessToken: 'child-web-access-token',
+        sessionToken: 'child-session-token'
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('updates child proxy, returns editable session JSON, and uses that proxy for child Team requests', async () => {
+    const { app, dir, subaccountStore, authHeaders, mother, teamTransport } = await buildTestApp();
+    try {
+      teamTransport.accountsCheckByAccessToken.set('child-web-access-token', {
+        'workspace-account-id': {
+          account: {
+            account_id: 'workspace-account-id',
+            account_user_role: 'standard-user',
+            name: 'Team A',
+            plan_type: 'team',
+            structure: 'workspace'
+          },
+          can_access_with_session: true
+        }
+      });
+      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
+        {
+          id: 'member-child',
+          email: 'child@example.com',
+          name: 'Child',
+          role: 'standard-user',
+          seat_type: 'usage_based',
+          status: 'active'
+        }
+      ]);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token',
+          sessionToken: 'child-session-json-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const updated = await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ proxy: '  socks5://child-proxy.example:1080  ' })
+      });
+      const updatedJson = (await updated.json()) as ApiResult<SubaccountView>;
+      const view = updatedJson.data as unknown as Record<string, any>;
+
+      assert.equal(updated.status, 200);
+      assert.equal(view.proxy, 'socks5://child-proxy.example:1080');
+      assert.deepEqual(view.session, {
+        user: { email: 'child@example.com' },
+        account: { id: 'child-chatgpt-account-id' },
+        accessToken: 'child-web-access-token',
+        sessionToken: 'child-session-json-token'
+      });
+      assert.equal((subaccountStore.get(subaccount.id) as any)?.proxy, 'socks5://child-proxy.example:1080');
+
+      const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const syncedJson = (await synced.json()) as ApiResult<SubaccountView>;
+
+      assert.equal(synced.status, 200);
+      assert.equal(syncedJson.data!.teamLinks.find((link) => link.accountId === mother.id)?.status, 'member');
+      assert.equal(teamTransport.requests.length, 2);
+      assert.deepEqual(
+        teamTransport.requests.map((request) => (request as any).proxy),
+        ['socks5://child-proxy.example:1080', 'socks5://child-proxy.example:1080']
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -757,14 +876,14 @@ describe('Subaccount API', () => {
       assert.equal(updatedJson.data!.teamLinks.length, 1);
       assert.equal(updatedJson.data!.status, 'codex_ready');
       assert.equal(stored?.webAccessToken, 'child-web-access-token');
-      assert.equal(body.includes('child-web-access-token'), false);
+      assert.equal(updatedJson.data!.session?.accessToken, 'child-web-access-token');
       assert.equal(body.includes('codex-access-token'), false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('updates child local session fields and keeps token material out of the response', async () => {
+  it('updates child local session fields and returns editable session JSON', async () => {
     const { app, dir, subaccountStore, authHeaders } = await buildTestApp();
     try {
       const added = await app.request('/api/subaccounts/session', {
@@ -809,7 +928,11 @@ describe('Subaccount API', () => {
       assert.equal(stored?.webAccessToken, 'child-new-web-access-token');
       assert.equal(stored?.sessionToken, undefined);
       assert.equal(stored?.lastError, undefined);
-      assert.equal(body.includes('child-new-web-access-token'), false);
+      assert.deepEqual(updatedJson.data!.session, {
+        user: { email: 'child-new@example.com' },
+        account: { id: 'child-chatgpt-account-new' },
+        accessToken: 'child-new-web-access-token'
+      });
       assert.equal(body.includes('stale-session-token'), false);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -1123,7 +1246,7 @@ describe('Subaccount API', () => {
 
       assert.equal(added.status, 200, addBody);
       assert.equal(stored?.sessionToken, 'child-session-json-token');
-      assert.equal(addBody.includes('child-session-json-token'), false);
+      assert.equal(subaccount.session?.sessionToken, 'child-session-json-token');
 
       const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/personal-access-token`, {
         method: 'POST',
@@ -1149,7 +1272,7 @@ describe('Subaccount API', () => {
       const tokenRequest = teamTransport.requests.find((item) => item.path === '/backend-api/wham/auth-credentials');
       assert.equal(tokenRequest?.headers.Authorization, `Bearer ${workspaceWebAccessToken}`);
       assert.equal(tokenRequest?.headers['chatgpt-account-id'], 'workspace-account-id');
-      assert.equal(body.includes('child-session-json-token'), false);
+      assert.equal(createdJson.data!.session?.sessionToken, 'child-session-json-token');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1180,6 +1303,75 @@ describe('Subaccount API', () => {
 
       assert.equal(created.status, 409, createdText);
       assert.match(createdJson.error ?? '', /workspace 与目标不一致/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates a K12 Codex credential from the child workspace session instead of a personal access token', async () => {
+    const { app, dir, authHeaders, teamTransport, subaccountStore } = await buildTestApp();
+    try {
+      const k12Token = chatGptWebAccessToken('k12-workspace-id', 'k12');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('k12-workspace-id', k12Token);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'personal-account-id' },
+          accessToken: chatGptWebAccessToken('personal-account-id', 'free'),
+          sessionToken: 'child-session-json-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      await subaccountStore.saveTeamLink(subaccount.id, {
+        accountId: 'k12-workspace-id',
+        workspaceId: 'k12-workspace-id',
+        workspaceName: 'K12 Space',
+        planType: 'k12',
+        seat: 'default',
+        status: 'member'
+      });
+
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/k12-credential`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ chatgptAccountId: 'k12-workspace-id' })
+      });
+      const body = await created.text();
+      const createdJson = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(created.status, 200, body);
+      assert.equal(createdJson.data!.codexCredentials[0]!.accountId, 'k12-workspace-id');
+      assert.equal(createdJson.data!.codexCredentials[0]!.planType, 'k12');
+      assert.equal(
+        teamTransport.requests.some((request) => request.path === '/backend-api/wham/auth-credentials'),
+        false
+      );
+      const sessionRequest = teamTransport.requests.find(
+        (request) =>
+          request.method === 'GET' &&
+          request.path.startsWith('/api/auth/session') &&
+          request.path.includes('exchange_workspace_token=true') &&
+          request.path.includes('workspace_id=k12-workspace-id')
+      );
+      assert.equal(sessionRequest?.method, 'GET');
+
+      const exported = await app.request(
+        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=k12-workspace-id`,
+        { headers: authHeaders }
+      );
+      const exportedJson = (await exported.json()) as ApiResult<CodexCredentialJson>;
+      assert.equal(exported.status, 200);
+      assert.equal(exportedJson.data!.access_token, k12Token);
+      assert.equal(exportedJson.data!.account_id, 'k12-workspace-id');
+      assert.equal(exportedJson.data!.email, 'child@example.com');
+      assert.equal(exportedJson.data!.type, 'codex');
+      assert.equal(exportedJson.data!.plan_type, 'k12');
+      assert.equal(exportedJson.data!.auth_mode, 'chatgpt');
+      assert.equal(exportedJson.data!.credential_source, 'oauth');
+      assert.equal(typeof exportedJson.data!.id_token, 'string');
+      assert.equal('personal_access_token' in exportedJson.data!, false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1274,6 +1466,11 @@ describe('Subaccount API', () => {
         })
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ proxy: 'http://quota-proxy.example:8080' })
+      });
       const started = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/start`, {
         method: 'POST',
         headers: authHeaders
@@ -1304,6 +1501,7 @@ describe('Subaccount API', () => {
       assert.equal(quotaTransport.requests[0]!.path, '/backend-api/wham/usage');
       assert.equal(quotaTransport.requests[0]!.headers.Authorization, 'Bearer codex-access-token');
       assert.equal(quotaTransport.requests[0]!.headers['Chatgpt-Account-Id'], 'child-chatgpt-account-id');
+      assert.equal((quotaTransport.requests[0] as any).proxy, 'http://quota-proxy.example:8080');
 
       const listed = await app.request('/api/subaccounts', { headers: authHeaders });
       const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
@@ -1492,6 +1690,94 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('lets a child account leave a Team using the child Web session instead of mother credentials', async () => {
+    const { app, dir, store, subaccountStore, authHeaders, mother, teamTransport } = await buildTestApp();
+    try {
+      const childToken = chatGptWebAccessToken('child-chatgpt-account-id');
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: childToken
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      await subaccountStore.saveTeamLink(subaccount.id, {
+        accountId: mother.id,
+        workspaceId: 'workspace-account-id',
+        workspaceName: 'Team A',
+        seat: 'default',
+        status: 'member'
+      });
+
+      const left = await app.request(`/api/subaccounts/${subaccount.id}/team-links/workspace-account-id`, {
+        method: 'DELETE',
+        headers: authHeaders
+      });
+      const leftJson = (await left.json()) as ApiResult<SubaccountView>;
+      const deleteRequests = teamTransport.requests.filter((request) => request.method === 'DELETE');
+
+      assert.equal(left.status, 200);
+      assert.equal(leftJson.data!.teamLinks.length, 0);
+      assert.equal(deleteRequests.length, 1);
+      assert.equal(deleteRequests[0]!.path, '/backend-api/accounts/workspace-account-id/users/user-child');
+      assert.equal(deleteRequests[0]!.headers.Authorization, `Bearer ${childToken}`);
+      assert.equal(deleteRequests[0]!.headers['chatgpt-account-id'], 'workspace-account-id');
+      assert.equal(
+        deleteRequests.some((request) => request.headers.Authorization === 'Bearer mother-access-token'),
+        false
+      );
+      assert.equal(store.get(mother.id)?.accessToken, 'mother-access-token');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('lets a child account request joining a K12 workspace without mother credentials or billing confirmation', async () => {
+    const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
+    try {
+      const childToken = chatGptWebAccessToken('child-chatgpt-account-id');
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: childToken
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const joined = await app.request(`/api/subaccounts/${subaccount.id}/k12-joins`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ workspaceId: 'external-k12-workspace-id' })
+      });
+      const joinedJson = (await joined.json()) as ApiResult<SubaccountView>;
+      const joinRequest = teamTransport.requests.find((request) =>
+        request.path === '/backend-api/accounts/external-k12-workspace-id/invites/request'
+      );
+
+      assert.equal(joined.status, 200);
+      assert.equal(joinRequest?.method, 'POST');
+      assert.equal(joinRequest?.headers.Authorization, `Bearer ${childToken}`);
+      assert.equal(joinRequest?.body, '{}');
+      assert.equal(
+        teamTransport.requests.some((request) => request.headers.Authorization === 'Bearer mother-access-token'),
+        false
+      );
+      assert.equal(store.get(mother.id)?.accessToken, 'mother-access-token');
+      assert.equal(joinedJson.data!.teamLinks[0]!.accountId, 'external-k12-workspace-id');
+      assert.equal(joinedJson.data!.teamLinks[0]!.workspaceId, 'external-k12-workspace-id');
+      assert.equal(joinedJson.data!.teamLinks[0]!.planType, 'k12');
+      assert.equal(joinedJson.data!.teamLinks[0]!.status, 'unknown');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects Team link sync for credential-only child accounts instead of using mother credentials', async () => {
     const { app, dir, authHeaders, teamTransport } = await buildTestApp();
     try {
@@ -1634,6 +1920,80 @@ describe('Subaccount API', () => {
         userRequests.map((request) => request.headers['chatgpt-account-id']),
         ['workspace-account-id', 'workspace-account-b']
       );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps child-visible Team workspaces that are not saved as local mother accounts', async () => {
+    const { app, dir, authHeaders, mother, teamTransport } = await buildTestApp();
+    try {
+      teamTransport.accountsCheckByAccessToken.set('child-web-access-token', {
+        'workspace-account-id': {
+          account: {
+            account_id: 'workspace-account-id',
+            account_user_role: 'standard-user',
+            name: 'Team A',
+            plan_type: 'team'
+          }
+        },
+        'external-workspace-id': {
+          account: {
+            account_id: 'external-workspace-id',
+            account_user_role: 'standard-user',
+            name: 'External Team',
+            plan_type: 'k12'
+          }
+        }
+      });
+      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
+        {
+          id: 'member-child',
+          email: 'child@example.com',
+          name: 'Child',
+          role: 'standard-user',
+          seat_type: 'usage_based',
+          status: 'active'
+        }
+      ]);
+      teamTransport.membersByWorkspaceId.set('external-workspace-id', [
+        {
+          id: 'member-child-external',
+          email: 'child@example.com',
+          name: 'Child',
+          role: 'standard-user',
+          seat_type: 'default',
+          status: 'active'
+        }
+      ]);
+
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const syncedJson = (await synced.json()) as ApiResult<SubaccountView>;
+      const linksByWorkspaceId = new Map(syncedJson.data!.teamLinks.map((link) => [link.workspaceId, link]));
+
+      assert.equal(synced.status, 200);
+      assert.equal(linksByWorkspaceId.size, 2);
+      assert.equal(linksByWorkspaceId.get('workspace-account-id')!.accountId, mother.id);
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.accountId, 'external-workspace-id');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.workspaceName, 'External Team');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.planType, 'k12');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.role, 'standard-user');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.seat, 'default');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.status, 'member');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1790,7 +2150,7 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('marks an existing child Team link as removed when sync no longer finds it', async () => {
+  it('removes an existing child Team link when sync no longer finds it', async () => {
     const { app, dir, authHeaders, mother } = await buildTestApp();
     try {
       const added = await app.request('/api/subaccounts/session', {
@@ -1817,9 +2177,7 @@ describe('Subaccount API', () => {
       const syncedJson = (await synced.json()) as ApiResult<SubaccountView>;
 
       assert.equal(synced.status, 200);
-      assert.equal(syncedJson.data!.teamLinks.length, 1);
-      assert.equal(syncedJson.data!.teamLinks[0]!.accountId, mother.id);
-      assert.equal(syncedJson.data!.teamLinks[0]!.status, 'removed');
+      assert.equal(syncedJson.data!.teamLinks.length, 0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

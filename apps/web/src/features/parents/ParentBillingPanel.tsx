@@ -5,6 +5,7 @@ import { Alert, Button, Card, Descriptions, Empty, Space, Table, Tag, Typography
 import { apiClient } from '../../api.js';
 import { downloadTextFile } from '../../components/fileDownload.js';
 import { formatDateTime, formatRelativeTime } from '../../components/format.js';
+import { useActionBusy } from '../../components/useActionBusy.js';
 import { buildBillingSnapshotDownload } from './billingDownload.js';
 import {
   buildBillingSummary,
@@ -28,8 +29,8 @@ function statusTag(status: string, paid?: boolean) {
 export function ParentBillingPanel({ account }: { account: AccountView }) {
   const [snapshot, setSnapshot] = useState<AccountBillingSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const actionBusy = useActionBusy();
 
   useEffect(() => {
     let cancelled = false;
@@ -55,14 +56,13 @@ export function ParentBillingPanel({ account }: { account: AccountView }) {
   const summary = snapshot ? buildBillingSummary(snapshot.raw) : null;
 
   const refresh = async () => {
-    setRefreshing(true);
     setError('');
     try {
-      setSnapshot(await apiClient.refreshBillingSnapshot(account.id));
+      await actionBusy.run('billing-refresh', async () => {
+        setSnapshot(await apiClient.refreshBillingSnapshot(account.id));
+      });
     } catch (refreshError) {
       setError((refreshError as Error).message);
-    } finally {
-      setRefreshing(false);
     }
   };
 
@@ -90,7 +90,12 @@ export function ParentBillingPanel({ account }: { account: AccountView }) {
                 下载 JSON
               </Button>
             )}
-            <Button type="primary" icon={<ReloadOutlined />} loading={refreshing} onClick={() => void refresh()}>
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              loading={actionBusy.isBusy('billing-refresh')}
+              onClick={() => void refresh()}
+            >
               刷新账单
             </Button>
           </Space>
@@ -260,7 +265,12 @@ export function ParentBillingPanel({ account }: { account: AccountView }) {
           </Space>
         ) : (
           <Empty description="暂无账单快照">
-            <Button type="primary" icon={<ReloadOutlined />} loading={refreshing} onClick={() => void refresh()}>
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              loading={actionBusy.isBusy('billing-refresh')}
+              onClick={() => void refresh()}
+            >
               刷新账单
             </Button>
           </Empty>

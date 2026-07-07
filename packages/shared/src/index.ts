@@ -1,5 +1,7 @@
 // team-manager 前后端共享类型。基于阶段一对 chatgpt.com/backend-api 的实测结构。
 
+import type { ChatGptSessionInput } from './sessionInput.js';
+
 export {
   getChatGptSessionUserEmail,
   inspectChatGptSessionImportInput,
@@ -70,7 +72,7 @@ export interface AccountFingerprint {
   userAgent?: string;
 }
 
-/** 下发前端的母号视图（脱敏，不含 token） */
+/** 下发前端的母号视图。管理后台可信，允许编辑本地保存的 session JSON。 */
 export interface AccountView {
   id: string;
   remark?: string;
@@ -78,6 +80,8 @@ export interface AccountView {
   limitType: AccountLimitType;
   accountId: string;
   email: string;
+  proxy?: string;
+  session?: ChatGptSessionInput;
   planType?: string;
   role?: MemberRole;
   workspaceName?: string;
@@ -279,6 +283,7 @@ export interface Subaccount {
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
+  proxy?: string;              // 每子号独立代理
   registrationPassword?: string; // 自动注册生成的 OpenAI 密码，仅后端持久化，不下发前端
   registeredAt?: number;
   registrationSource?: string;
@@ -290,12 +295,14 @@ export interface Subaccount {
   lastError?: string;
 }
 
-/** 下发前端的子号视图（脱敏，不含 token） */
+/** 下发前端的子号视图。管理后台可信，允许编辑本地保存的 Web session JSON。 */
 export interface SubaccountView {
   id: string;
   email: string;
   remark?: string;
   chatgptAccountId?: string;
+  proxy?: string;
+  session?: ChatGptSessionInput;
   status: SubaccountStatus;
   hasWebSession: boolean;
   codexCredentials: SubaccountCodexCredentialView[];
@@ -306,7 +313,11 @@ export interface SubaccountView {
 }
 
 export interface SubaccountTeamLink {
-  accountId: string;             // team-manager 母号内部 id
+  accountId: string;             // team-manager 母号内部 id；未录入母号的远端 workspace 使用 workspaceId 作为稳定占位
+  workspaceId?: string;          // 远端 ChatGPT workspace account_id
+  workspaceName?: string;        // accounts/check 返回的 workspace 名称
+  planType?: string;             // accounts/check 返回的 plan_type，例如 team/k12
+  role?: MemberRole;             // 子号在该 workspace 的角色
   seat: SeatType;
   status: 'invited' | 'member' | 'removed' | 'unknown';
   updatedAt: number;

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { NotificationSettings } from '@team-manager/shared';
 import { Alert, Divider, Form, Input, InputNumber, Modal, Space, Switch, Typography } from 'antd';
 import { apiClient } from './api.js';
+import { useActionBusy } from './components/useActionBusy.js';
 
 const emptySettings: NotificationSettings = {
   advanceReminderDays: 3,
@@ -24,8 +25,8 @@ export function NotificationSettingsDialog({
   const [form] = Form.useForm<NotificationSettings>();
   const [settings, setSettings] = useState<NotificationSettings>(emptySettings);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const actionBusy = useActionBusy();
 
   useEffect(() => {
     if (!open) return;
@@ -51,29 +52,30 @@ export function NotificationSettingsDialog({
   }, [form, open]);
 
   const save = async () => {
-    setSaving(true);
     setError('');
     try {
-      const values = await form.validateFields();
-      setSettings(
-        await apiClient.updateNotificationSettings({
-          ...settings,
-          ...values,
-          channels: {
-            webhook: { ...settings.channels.webhook, ...values.channels.webhook },
-            feishu: { ...settings.channels.feishu, ...values.channels.feishu },
-            telegram: { ...settings.channels.telegram, ...values.channels.telegram },
-            wecom: { ...settings.channels.wecom, ...values.channels.wecom }
-          }
-        })
-      );
-      onClose();
+      await actionBusy.run('notification-settings-save', async () => {
+        const values = await form.validateFields();
+        setSettings(
+          await apiClient.updateNotificationSettings({
+            ...settings,
+            ...values,
+            channels: {
+              webhook: { ...settings.channels.webhook, ...values.channels.webhook },
+              feishu: { ...settings.channels.feishu, ...values.channels.feishu },
+              telegram: { ...settings.channels.telegram, ...values.channels.telegram },
+              wecom: { ...settings.channels.wecom, ...values.channels.wecom }
+            }
+          })
+        );
+        onClose();
+      });
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setSaving(false);
     }
   };
+
+  const saving = actionBusy.isBusy('notification-settings-save');
 
   return (
     <Modal

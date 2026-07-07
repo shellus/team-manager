@@ -73,6 +73,57 @@ not a phone line
         )
 
 
+class FetchProxyTests(unittest.TestCase):
+    def test_fetch_payload_accepts_request_proxy(self):
+        worker = load_worker()
+
+        request = worker.parse_fetch_payload(
+            {
+                "method": "GET",
+                "path": "/backend-api/accounts/check/v4-2023-04-27",
+                "headers": {"Authorization": "Bearer token"},
+                "proxy": "http://request-proxy.example:8080",
+            }
+        )
+
+        self.assertEqual(request["proxy"], "http://request-proxy.example:8080")
+
+    def test_fetch_chatgpt_uses_request_proxy_before_global_proxy(self):
+        worker = load_worker()
+        session_kwargs = []
+
+        class FakeSession:
+            def __init__(self, **kwargs):
+                session_kwargs.append(kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def request(self, method, url, headers, data, timeout):
+                return types.SimpleNamespace(status_code=200, text="ok")
+
+        with (
+            patch.object(worker.requests, "Session", side_effect=FakeSession, create=True),
+            patch.object(worker, "PROXY_URL", "http://global-proxy.example:8080"),
+        ):
+            status, body = worker.fetch_chatgpt(
+                {
+                    "method": "GET",
+                    "path": "/backend-api/accounts/check/v4-2023-04-27",
+                    "headers": {"Authorization": "Bearer token"},
+                    "body": None,
+                    "proxy": "http://request-proxy.example:8080",
+                }
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, "ok")
+        self.assertEqual(session_kwargs[0]["proxy"], "http://request-proxy.example:8080")
+
+
 class PhoneVerificationTests(unittest.TestCase):
     def test_registration_flow_allocates_gongxi_email_and_uses_signup_register_sequence(self):
         worker = load_worker()

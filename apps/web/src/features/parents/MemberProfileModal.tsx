@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { AccountMemberProfileInput, AccountSeatSlot, AccountView } from '@team-manager/shared';
 import { Form, Input, Modal, Switch, Typography } from 'antd';
+import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 
 interface MemberProfileValues {
   remark?: string;
@@ -47,6 +48,27 @@ function initialValues(account: AccountView, email: string): MemberProfileValues
   };
 }
 
+export function MemberProfileFields() {
+  return (
+    <>
+      <Form.Item name="remark" label="备注文本">
+        <Input placeholder="例如客户名、用途或订单备注" />
+      </Form.Item>
+      <Form.Item name="expiresOn" label="到期时间" rules={[{ required: true, message: '请选择到期时间' }]}>
+        <Input type="date" />
+      </Form.Item>
+      <div className="form-grid two">
+        <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked">
+          <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+        </Form.Item>
+        <Form.Item name="expireRemove" label="到期移除" valuePropName="checked">
+          <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+        </Form.Item>
+      </div>
+    </>
+  );
+}
+
 export function MemberProfileModal({
   open,
   email,
@@ -65,20 +87,27 @@ export function MemberProfileModal({
   onSubmit: (email: string, input: AccountMemberProfileInput) => Promise<void> | void;
 }) {
   const [form] = Form.useForm<MemberProfileValues>();
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open) return;
     form.setFieldsValue(initialValues(account, email));
+    setError('');
   }, [account, email, form, open]);
 
   const submit = async () => {
+    setError('');
     const values = await form.validateFields();
-    await onSubmit(email, {
-      remark: values.remark?.trim() ?? '',
-      expiresOn: values.expiresOn,
-      expireRemove: values.expireRemove,
-      expireReminder: values.expireReminder
-    });
+    try {
+      await onSubmit(email, {
+        remark: values.remark?.trim() ?? '',
+        expiresOn: values.expiresOn,
+        expireRemove: values.expireRemove,
+        expireReminder: values.expireReminder
+      });
+    } catch (submitError) {
+      setError((submitError as Error).message);
+    }
   };
 
   return (
@@ -101,21 +130,9 @@ export function MemberProfileModal({
         initialValues={initialValues(account, email)}
         disabled={confirmLoading}
       >
-        <Form.Item name="remark" label="备注文本">
-          <Input placeholder="例如客户名、用途或订单备注" />
-        </Form.Item>
-        <Form.Item name="expiresOn" label="到期时间" rules={[{ required: true, message: '请选择到期时间' }]}>
-          <Input type="date" />
-        </Form.Item>
-        <div className="form-grid two">
-          <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked">
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
-          <Form.Item name="expireRemove" label="到期移除" valuePropName="checked">
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
-        </div>
+        <MemberProfileFields />
       </Form>
+      <ModalErrorAlert message={error} />
     </Modal>
   );
 }

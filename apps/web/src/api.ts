@@ -90,6 +90,7 @@ export const apiClient = {
       groupName?: string;
       limitType?: AccountLimitType;
       nextRenewalOn?: string;
+      proxy?: string;
       session?: unknown;
     }
   ) =>
@@ -136,7 +137,7 @@ export const apiClient = {
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
-  importSubaccountSession: (payload: unknown) =>
+  importSubaccountSession: (payload: { session: unknown; remark?: string; proxy?: string } | unknown) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
   importSubaccountCodexCredential: (payload: {
     credential: Record<string, unknown>;
@@ -146,7 +147,7 @@ export const apiClient = {
     call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
   registerSubaccount: (payload: { mailGroup?: string; chatgptAccountId?: string } = {}) =>
     call<SubaccountView>('POST', '/subaccounts/registration/start', payload),
-  updateSubaccountLocalProfile: (id: string, payload: { remark?: string; session?: unknown }) =>
+  updateSubaccountLocalProfile: (id: string, payload: { remark?: string; proxy?: string; session?: unknown }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
   startSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>
@@ -160,6 +161,8 @@ export const apiClient = {
     call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/auto`, { chatgptAccountId }),
   createSubaccountPersonalAccessTokenCredential: (id: string, chatgptAccountId?: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/personal-access-token`, { chatgptAccountId }),
+  createSubaccountK12Credential: (id: string, chatgptAccountId: string) =>
+    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/k12-credential`, { chatgptAccountId }),
   completeSubaccountCodexAuth: (id: string, sessionId: string, callbackUrl: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/callback`, { sessionId, callbackUrl }),
   getSubaccountCodexCredential: (id: string, chatgptAccountId?: string) => {
@@ -177,5 +180,9 @@ export const apiClient = {
   listAllSubaccountLogs: () => call<SubaccountAuthLog[]>('GET', '/subaccounts/logs'),
   inviteSubaccountToTeam: (id: string, accountId: string, seat: SeatType, confirmBillingRisk = false) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/team-invites`, { accountId, seat, confirmBillingRisk }),
+  leaveSubaccountTeam: (id: string, chatgptAccountId: string) =>
+    call<SubaccountView>('DELETE', `/subaccounts/${id}/team-links/${encodeURIComponent(chatgptAccountId)}`),
+  joinSubaccountK12Workspace: (id: string, workspaceId: string) =>
+    call<SubaccountView>('POST', `/subaccounts/${id}/k12-joins`, { workspaceId }),
   syncSubaccountTeamLinks: (id: string) => call<SubaccountView>('POST', `/subaccounts/${id}/team-links/sync`)
 };

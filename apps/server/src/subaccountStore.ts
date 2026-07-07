@@ -50,6 +50,10 @@ function normalizeGroupName(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_CREDENTIAL_GROUP;
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 function slug(value: string): string {
   const normalized = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
   return normalized || 'credential';
@@ -149,20 +153,26 @@ export class SubaccountStore {
     return account && credential ? this.readCodexCredential(account, credential) : undefined;
   }
 
-  async importSession(raw: unknown): Promise<SubaccountView> {
+  async importSession(
+    raw: unknown,
+    options: { remark?: unknown; proxy?: unknown } = {}
+  ): Promise<SubaccountView> {
     this.ensureLoaded();
     const session = parseChatGptSessionInput(raw);
     if ('error' in session) throw new Error(session.error);
+    const hasRemark = Object.prototype.hasOwnProperty.call(options, 'remark');
+    const hasProxy = Object.prototype.hasOwnProperty.call(options, 'proxy');
 
     const now = Date.now();
     const existing = this.findByEmail(session.user.email);
     const next: Subaccount = {
       id: existing?.id ?? randomUUID(),
       email: session.user.email,
-      remark: existing?.remark,
+      remark: hasRemark ? normalizeOptionalString(options.remark) : existing?.remark,
       chatgptAccountId: session.account.id,
       webAccessToken: session.accessToken,
       sessionToken: session.sessionToken,
+      proxy: hasProxy ? normalizeOptionalString(options.proxy) : existing?.proxy,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,
       status: existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready',
@@ -205,6 +215,7 @@ export class SubaccountStore {
       chatgptAccountId: existing?.chatgptAccountId,
       webAccessToken: existing?.webAccessToken,
       sessionToken: existing?.sessionToken,
+      proxy: existing?.proxy,
       codexCredentials: credentials,
       teamLinks: existing?.teamLinks,
       status: 'codex_ready',
@@ -239,6 +250,7 @@ export class SubaccountStore {
       chatgptAccountId: existing?.chatgptAccountId,
       webAccessToken: existing?.webAccessToken,
       sessionToken: existing?.sessionToken,
+      proxy: existing?.proxy,
       registrationPassword: input.password,
       registeredAt: existing?.registeredAt ?? now,
       registrationSource: input.source,
@@ -257,7 +269,7 @@ export class SubaccountStore {
 
   async updateLocalProfile(
     id: string,
-    input: { remark?: string; session?: ChatGptSessionInput }
+    input: { remark?: string; proxy?: string; session?: ChatGptSessionInput }
   ): Promise<SubaccountView | undefined> {
     this.ensureLoaded();
     const existing = this.subaccounts.get(id);
@@ -270,6 +282,7 @@ export class SubaccountStore {
       chatgptAccountId: input.session?.account.id ?? existing.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing.webAccessToken,
       sessionToken: input.session === undefined ? existing.sessionToken : input.session.sessionToken,
+      proxy: Object.prototype.hasOwnProperty.call(input, 'proxy') ? input.proxy : existing.proxy,
       status: credentials.length ? 'codex_ready' : 'session_ready',
       updatedAt: Date.now(),
       lastError: undefined
@@ -353,10 +366,47 @@ export class SubaccountStore {
     const existing = this.subaccounts.get(id);
     if (!existing) return undefined;
     const now = Date.now();
+    const accountId = link.accountId.trim();
+    const workspaceId = link.workspaceId?.trim() || undefined;
     const links = [
-      ...(existing.teamLinks ?? []).filter((item) => item.accountId !== link.accountId),
-      { ...link, updatedAt: now }
+      ...(existing.teamLinks ?? []).filter((item) => {
+        const itemWorkspaceId = item.workspaceId?.trim();
+        if (item.accountId === accountId) return false;
+        if (workspaceId && (itemWorkspaceId === workspaceId || item.accountId === workspaceId)) return false;
+        if (itemWorkspaceId && itemWorkspaceId === accountId) return false;
+        return true;
+      }),
+      {
+        ...link,
+        accountId,
+        workspaceId,
+        workspaceName: link.workspaceName?.trim() || undefined,
+        planType: link.planType?.trim() || undefined,
+        role: link.role?.trim() || undefined,
+        updatedAt: now
+      }
     ];
+    const merged: Subaccount = {
+      ...existing,
+      teamLinks: links,
+      updatedAt: now,
+      lastError: undefined
+    };
+    this.subaccounts.set(id, merged);
+    await this.persist();
+    return this.toView(merged);
+  }
+
+  async removeTeamLink(id: string, targetAccountId: string): Promise<SubaccountView | undefined> {
+    this.ensureLoaded();
+    const existing = this.subaccounts.get(id);
+    if (!existing) return undefined;
+    const target = targetAccountId.trim();
+    if (!target) return this.toView(existing);
+    const links = (existing.teamLinks ?? []).filter(
+      (item) => item.accountId !== target && item.workspaceId !== target
+    );
+    const now = Date.now();
     const merged: Subaccount = {
       ...existing,
       teamLinks: links,
@@ -435,6 +485,16 @@ export class SubaccountStore {
       email: account.email,
       remark: account.remark,
       chatgptAccountId: account.chatgptAccountId,
+      proxy: account.proxy,
+      session:
+        account.webAccessToken && account.chatgptAccountId
+          ? {
+              user: { email: account.email },
+              account: { id: account.chatgptAccountId },
+              accessToken: account.webAccessToken,
+              ...(account.sessionToken ? { sessionToken: account.sessionToken } : {})
+            }
+          : undefined,
       status: account.status,
       hasWebSession: Boolean(account.webAccessToken),
       codexCredentials: credentials.map((item) => ({
@@ -551,6 +611,10 @@ async function normalizeStoredSubaccount(
   const teamLinks = (record.teamLinks ?? []).map((link) => {
     return {
       accountId: link.accountId,
+      workspaceId: typeof link.workspaceId === 'string' && link.workspaceId.trim() ? link.workspaceId.trim() : undefined,
+      workspaceName: typeof link.workspaceName === 'string' && link.workspaceName.trim() ? link.workspaceName.trim() : undefined,
+      planType: typeof link.planType === 'string' && link.planType.trim() ? link.planType.trim() : undefined,
+      role: typeof link.role === 'string' && link.role.trim() ? link.role.trim() : undefined,
       seat: link.seat,
       status: link.status,
       updatedAt: link.updatedAt
@@ -563,6 +627,7 @@ async function normalizeStoredSubaccount(
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
     sessionToken: record.sessionToken,
+    proxy: record.proxy,
     registrationPassword: record.registrationPassword,
     registeredAt: record.registeredAt,
     registrationSource: record.registrationSource,
@@ -584,12 +649,17 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     chatgptAccountId: input.chatgptAccountId,
     webAccessToken: input.webAccessToken,
     sessionToken: input.sessionToken,
+    proxy: input.proxy?.trim() || undefined,
     registrationPassword: input.registrationPassword,
     registeredAt: input.registeredAt,
     registrationSource: input.registrationSource,
     codexCredentials: dedupeCodexCredentials(input.codexCredentials ?? []),
     teamLinks: (input.teamLinks ?? []).map((link) => ({
       accountId: link.accountId,
+      workspaceId: link.workspaceId?.trim() || undefined,
+      workspaceName: link.workspaceName?.trim() || undefined,
+      planType: link.planType?.trim() || undefined,
+      role: link.role?.trim() || undefined,
       seat: link.seat,
       status: link.status,
       updatedAt: link.updatedAt
