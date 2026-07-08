@@ -7,7 +7,7 @@ import type {
   SubaccountAuthLog,
   SubaccountView
 } from '@team-manager/shared';
-import { Alert, Form, Input, message, Modal, Select, Space } from 'antd';
+import { Alert, Form, Input, Modal, Select, Space } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
 import {
@@ -26,8 +26,7 @@ import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
-import { credentialAccessToken } from './credentialAccessToken.js';
-import { buildCredentialDownload, downloadTextFile } from './credentialDownload.js';
+import { buildCredentialDownload, buildWorkspaceSessionDownload, downloadTextFile } from './credentialDownload.js';
 import { shouldForwardSubaccountErrorToGlobal } from './errorHandling.js';
 import { SubaccountDetail } from './SubaccountDetail.js';
 import { SubaccountList } from './SubaccountList.js';
@@ -459,16 +458,14 @@ export function SubaccountRoutes({
     }
   };
 
-  const copyCredentialAccessToken = async (workspaceId: string) => {
+  const exportWorkspaceSession = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = actionKey('credential-copy-ak', workspaceId);
+    const key = actionKey('workspace-session-export', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
-        const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
-        if (!navigator.clipboard?.writeText) throw new Error('当前浏览器不支持剪贴板写入');
-        await navigator.clipboard.writeText(credentialAccessToken(credential));
-        void message.success('AK 已复制');
+        const session = await apiClient.getSubaccountWorkspaceSession(selected.id, workspaceId);
+        downloadTextFile(buildWorkspaceSessionDownload(selected, workspaceId, session));
       });
     } catch (error) {
       reportLocalError(error);
@@ -532,7 +529,7 @@ export function SubaccountRoutes({
           onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
           onCreatePersonalAccessToken={(workspaceId) => void createPersonalAccessToken(workspaceId)}
           onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
-          onCopyCredentialAccessToken={(workspaceId) => void copyCredentialAccessToken(workspaceId)}
+          onExportWorkspaceSession={(workspaceId) => void exportWorkspaceSession(workspaceId)}
           onExportCredential={(workspaceId) => void exportCredential(workspaceId)}
           onOpenDeleteCredential={(workspaceId) => openModal('delete-codex-credential', workspaceId)}
         />

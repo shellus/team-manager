@@ -43,6 +43,18 @@ export async function fetchWorkspaceWebAccessTokenFromSessionToken(
   targetChatgptAccountId: string,
   proxy?: string
 ): Promise<string> {
+  const data = await fetchWorkspaceWebSessionFromSessionToken(transport, sessionToken, targetChatgptAccountId, proxy);
+  const accessToken = readWorkspaceSessionAccessToken(data);
+  if (!accessToken) throw new ChatGptWebSessionError(502, '目标 workspace Web session 响应缺少 accessToken');
+  return accessToken;
+}
+
+export async function fetchWorkspaceWebSessionFromSessionToken(
+  transport: Transport,
+  sessionToken: string,
+  targetChatgptAccountId: string,
+  proxy?: string
+): Promise<Record<string, unknown>> {
   const response = await transport.fetch({
     method: 'GET',
     path: `/api/auth/session?team_manager_workspace=${encodeURIComponent(targetChatgptAccountId)}&t=${Date.now()}`,
@@ -60,7 +72,7 @@ export async function fetchWorkspaceWebAccessTokenFromSessionToken(
     );
   }
   const data = parseJsonObject(response.body, '获取目标 workspace Web session 返回不是 JSON');
-  const accessToken = readOptionalString(data, 'accessToken') ?? readOptionalString(data, 'access_token');
+  const accessToken = readWorkspaceSessionAccessToken(data);
   if (!accessToken) throw new ChatGptWebSessionError(502, '目标 workspace Web session 响应缺少 accessToken');
   const claims = chatGptAuthClaimsFromAccessToken(accessToken);
   if (claims.chatgptAccountId !== targetChatgptAccountId) {
@@ -69,7 +81,7 @@ export async function fetchWorkspaceWebAccessTokenFromSessionToken(
       `目标 workspace Web session 与目标不一致：目标 ${targetChatgptAccountId}，实际 ${claims.chatgptAccountId || '空'}`
     );
   }
-  return accessToken;
+  return data;
 }
 
 export async function fetchWorkspaceExchangeSessionFromSessionToken(
@@ -212,6 +224,14 @@ function readEpochSeconds(record: Record<string, unknown>, key: string): number 
 function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readWorkspaceSessionAccessToken(data: Record<string, unknown>): string | undefined {
+  return (
+    readOptionalString(data, 'accessToken') ??
+    readOptionalString(data, 'access_token') ??
+    readNestedOptionalString(data, ['tokens', 'access_token'])
+  );
 }
 
 function trimForLog(value: string): string {

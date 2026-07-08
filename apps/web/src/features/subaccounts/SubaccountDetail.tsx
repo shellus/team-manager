@@ -34,7 +34,7 @@ export function SubaccountDetail({
   onAutoAuth,
   onCreatePersonalAccessToken,
   onRefreshQuota,
-  onCopyCredentialAccessToken,
+  onExportWorkspaceSession,
   onExportCredential,
   onOpenDeleteCredential
 }: {
@@ -55,7 +55,7 @@ export function SubaccountDetail({
   onAutoAuth: (workspaceId: string) => void;
   onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
-  onCopyCredentialAccessToken: (workspaceId: string) => void;
+  onExportWorkspaceSession: (workspaceId: string) => void;
   onExportCredential: (workspaceId: string) => void;
   onOpenDeleteCredential: (workspaceId: string) => void;
 }) {
@@ -127,7 +127,7 @@ export function SubaccountDetail({
                 onAutoAuth={onAutoAuth}
                 onCreatePersonalAccessToken={onCreatePersonalAccessToken}
                 onRefreshQuota={onRefreshQuota}
-                onCopyCredentialAccessToken={onCopyCredentialAccessToken}
+                onExportWorkspaceSession={onExportWorkspaceSession}
                 onExportCredential={onExportCredential}
                 onOpenDeleteCredential={onOpenDeleteCredential}
               />

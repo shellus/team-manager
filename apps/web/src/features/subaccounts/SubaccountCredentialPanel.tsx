@@ -53,7 +53,7 @@ export function SubaccountCredentialPanel({
   onAutoAuth,
   onCreatePersonalAccessToken,
   onRefreshQuota,
-  onCopyCredentialAccessToken,
+  onExportWorkspaceSession,
   onExportCredential,
   onOpenDeleteCredential
 }: {
@@ -66,7 +66,7 @@ export function SubaccountCredentialPanel({
   onAutoAuth: (workspaceId: string) => void;
   onCreatePersonalAccessToken: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
-  onCopyCredentialAccessToken: (workspaceId: string) => void;
+  onExportWorkspaceSession: (workspaceId: string) => void;
   onExportCredential: (workspaceId: string) => void;
   onOpenDeleteCredential: (workspaceId: string) => void;
 }) {
@@ -184,18 +184,18 @@ export function SubaccountCredentialPanel({
             刷新额度
           </Button>
           <Button
-            disabled={!row.workspaceId || !row.credential}
-            loading={isActionBusy(busyState, actionKey('credential-copy-ak', row.workspaceId))}
-            onClick={() => onCopyCredentialAccessToken(row.workspaceId)}
+            disabled={!row.workspaceId || !subaccount.session?.sessionToken}
+            loading={isActionBusy(busyState, actionKey('workspace-session-export', row.workspaceId))}
+            onClick={() => onExportWorkspaceSession(row.workspaceId)}
           >
-            复制 AK
+            下载SESSION
           </Button>
           <Button
             disabled={!row.workspaceId || !row.credential}
             loading={isActionBusy(busyState, actionKey('credential-export', row.workspaceId))}
             onClick={() => onExportCredential(row.workspaceId)}
           >
-            凭证 JSON
+            下载CPA
           </Button>
           {row.credential && (
             <Button danger onClick={() => onOpenDeleteCredential(row.credential!.accountId)}>

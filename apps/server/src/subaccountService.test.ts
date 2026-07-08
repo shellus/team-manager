@@ -1278,6 +1278,57 @@ describe('Subaccount API', () => {
     }
   });
 
+  it('downloads the full workspace-scoped ChatGPT session JSON from the child session token', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const workspaceWebAccessToken = chatGptWebAccessToken('workspace-account-id');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('workspace-account-id', workspaceWebAccessToken);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          proxy: '  socks5://child-proxy.example:1080  ',
+          session: {
+            user: { email: 'child@example.com' },
+            account: { id: 'personal-account-id' },
+            accessToken: chatGptWebAccessToken('personal-account-id', 'free'),
+            sessionToken: 'child-session-json-token'
+          }
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const downloaded = await app.request(
+        `/api/subaccounts/${subaccount.id}/workspace-session?chatgptAccountId=workspace-account-id`,
+        { headers: authHeaders }
+      );
+      const body = await downloaded.text();
+      const downloadedJson = JSON.parse(body) as ApiResult<Record<string, unknown>>;
+
+      assert.equal(downloaded.status, 200, body);
+      assert.deepEqual(downloadedJson.data, {
+        user: { email: 'child@example.com' },
+        account: { id: 'workspace-account-id' },
+        accessToken: workspaceWebAccessToken
+      });
+
+      const sessionRequest = teamTransport.requests.find(
+        (item) =>
+          item.path.startsWith('/api/auth/session') &&
+          item.path.includes('team_manager_workspace=workspace-account-id')
+      );
+      assert.equal(sessionRequest?.method, 'GET');
+      assert.match(
+        sessionRequest?.headers.cookie ?? '',
+        /__Secure-next-auth\.session-token=child-session-json-token/
+      );
+      assert.match(sessionRequest?.headers.cookie ?? '', /_account=workspace-account-id/);
+      assert.equal((sessionRequest as any)?.proxy, 'socks5://child-proxy.example:1080');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a generated personal access token when ChatGPT returns a different workspace', async () => {
     const { app, dir, authHeaders, teamTransport } = await buildTestApp();
     try {

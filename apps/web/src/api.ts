@@ -169,6 +169,11 @@ export const apiClient = {
     const suffix = chatgptAccountId ? `?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}` : '';
     return call<CodexCredentialJson>('GET', `/subaccounts/${id}/codex-credential${suffix}`);
   },
+  getSubaccountWorkspaceSession: (id: string, chatgptAccountId: string) =>
+    call<Record<string, unknown>>(
+      'GET',
+      `/subaccounts/${id}/workspace-session?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
+    ),
   removeSubaccountCodexCredential: (id: string, chatgptAccountId: string) =>
     call<SubaccountView>(
       'DELETE',

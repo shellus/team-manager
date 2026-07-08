@@ -18,3 +18,15 @@ export function buildCredentialDownload(
     mimeType: JSON_MIME_TYPE
   };
 }
+
+export function buildWorkspaceSessionDownload(
+  subaccount: SubaccountView,
+  workspaceId: string,
+  session: Record<string, unknown>
+): FileDownload {
+  return {
+    fileName: `${safeFileSegment(subaccount.email)}-${safeFileSegment(workspaceId)}-session.json`,
+    content: `${JSON.stringify(session, null, 2)}\n`,
+    mimeType: JSON_MIME_TYPE
+  };
+}

@@ -683,6 +683,10 @@ export async function buildApp({
     )
   );
 
+  api.get('/subaccounts/:id/workspace-session', (c) =>
+    wrap(c, () => subaccountService.getWorkspaceSession(c.req.param('id'), c.req.query('chatgptAccountId')))
+  );
+
   api.delete('/subaccounts/:id/codex-credential', (c) =>
     wrap(c, () => subaccountService.removeCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
   );

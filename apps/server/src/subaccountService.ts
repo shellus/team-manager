@@ -26,6 +26,7 @@ import {
   ChatGptWebSessionError,
   fetchWorkspaceExchangeSessionFromSessionToken,
   fetchWorkspaceWebAccessTokenFromSessionToken,
+  fetchWorkspaceWebSessionFromSessionToken,
   resolveChatGptSessionImportInput,
   type ChatGptWorkspaceSession
 } from './chatgptWebSession.js';
@@ -598,6 +599,27 @@ export class SubaccountService {
       throw new ServiceError(404, target ? '子号还没有该 Team 的 Codex 凭证 JSON' : '子号还没有 Codex 凭证 JSON');
     }
     return credential;
+  }
+
+  async getWorkspaceSession(id: string, targetChatgptAccountId?: string): Promise<Record<string, unknown>> {
+    const subaccount = this.requireSubaccount(id);
+    const target = cleanTargetAccountId(targetChatgptAccountId);
+    if (!target) throw new ServiceError(400, '缺少 chatgptAccountId');
+    if (!subaccount.sessionToken?.trim()) {
+      throw new ServiceError(400, '子号缺少 sessionToken，无法下载目标 workspace Session');
+    }
+
+    try {
+      return await fetchWorkspaceWebSessionFromSessionToken(
+        this.webTransport,
+        subaccount.sessionToken,
+        target,
+        subaccount.proxy
+      );
+    } catch (e) {
+      if (e instanceof ChatGptWebSessionError) throw new ServiceError(e.status, e.message);
+      throw e;
+    }
   }
 
   async refreshQuota(id: string, targetChatgptAccountId?: string): Promise<CodexQuotaSnapshot> {
