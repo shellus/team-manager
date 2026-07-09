@@ -15,6 +15,7 @@ import { BillingRiskModal } from '../../components/BillingRiskModal.js';
 import { isBillingRiskError } from '../../components/format.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
+import { compareRecordSortName } from '../../components/recordSort.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
 import { defaultMemberProfileExpiresOn, MemberProfileFields } from './MemberProfileModal.js';
@@ -45,15 +46,6 @@ interface InviteValues {
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
   return value ? `?${value}` : '';
-}
-
-const accountSortCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' });
-
-function compareAccountSortName(a: AccountView, b: AccountView): number {
-  return accountSortCollator.compare(
-    a.remark || a.email,
-    b.remark || b.email
-  );
 }
 
 function searchableAccountText(account: AccountView): string {
@@ -137,7 +129,7 @@ export function ParentRoutes({
   const actionBusy = useActionBusy();
   const searchQuery = searchParams.get('q')?.trim() ?? '';
   const filteredAccounts = useMemo(
-    () => accounts.filter((account) => accountMatchesQuery(account, searchQuery)).sort(compareAccountSortName),
+    () => accounts.filter((account) => accountMatchesQuery(account, searchQuery)).sort(compareRecordSortName),
     [accounts, searchQuery]
   );
 

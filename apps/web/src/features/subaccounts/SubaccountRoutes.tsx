@@ -30,6 +30,11 @@ import { buildCredentialDownload, buildWorkspaceSessionDownload, downloadTextFil
 import { shouldForwardSubaccountErrorToGlobal } from './errorHandling.js';
 import { SubaccountDetail } from './SubaccountDetail.js';
 import { SubaccountList } from './SubaccountList.js';
+import {
+  resolveSubaccountDeleteTarget,
+  sortSubaccountsForList,
+  subaccountAfterRemoval
+} from './subaccountListState.js';
 
 interface TeamInviteValues {
   accountId: string;
@@ -90,6 +95,10 @@ export function SubaccountRoutes({
   const actionBusy = useActionBusy();
 
   const selected = subaccounts.find((subaccount) => subaccount.id === subaccountId) ?? subaccounts[0] ?? null;
+  const deleteTarget =
+    searchState.modal === 'delete-subaccount'
+      ? resolveSubaccountDeleteTarget(subaccounts, selected, searchState.target)
+      : null;
   const accountOptions = useMemo(
     () =>
       accounts.map((account) => ({
@@ -105,7 +114,7 @@ export function SubaccountRoutes({
       const next = exists
         ? current.map((item) => (item.id === updated.id ? updated : item))
         : [updated, ...current];
-      return next.sort((a, b) => b.updatedAt - a.updatedAt);
+      return sortSubaccountsForList(next);
     });
   }, []);
 
@@ -121,7 +130,7 @@ export function SubaccountRoutes({
     setLoading(true);
     setLocalError('');
     try {
-      setSubaccounts(await apiClient.listSubaccounts());
+      setSubaccounts(sortSubaccountsForList(await apiClient.listSubaccounts()));
     } catch (error) {
       reportLocalError(error);
     } finally {
@@ -223,6 +232,14 @@ export function SubaccountRoutes({
     setSearchParams(setModalState(searchParams, modal, target));
   };
 
+  const openSubaccountRecordModal = (subaccount: SubaccountView, modal: SubaccountModal) => {
+    setLocalError('');
+    navigate({
+      pathname: `/subaccounts/${subaccount.id}`,
+      search: toSearch(setModalState(searchParams, modal, subaccount.id))
+    });
+  };
+
   const selectSubaccount = (subaccount: SubaccountView) => {
     navigate({ pathname: `/subaccounts/${subaccount.id}`, search: toSearch(searchParams) });
   };
@@ -304,13 +321,27 @@ export function SubaccountRoutes({
   };
 
   const deleteSubaccount = async () => {
-    if (!selected) return;
+    if (!deleteTarget) {
+      closeModal();
+      return;
+    }
+    const target = deleteTarget;
     setLocalError('');
     try {
       await actionBusy.run('delete-subaccount', async () => {
-        await apiClient.removeSubaccount(selected.id);
-        setSubaccounts((current) => current.filter((item) => item.id !== selected.id));
-        closeModal();
+        await apiClient.removeSubaccount(target.id);
+        const nextSelected = subaccountAfterRemoval(subaccounts, target.id);
+        const nextParams = clearModalState(searchParams);
+        nextParams.delete('seat');
+        nextParams.delete('risk');
+        setSubaccounts((current) => sortSubaccountsForList(current.filter((item) => item.id !== target.id)));
+        navigate(
+          {
+            pathname: nextSelected ? `/subaccounts/${nextSelected.id}` : '/subaccounts',
+            search: toSearch(nextParams)
+          },
+          { replace: true }
+        );
       });
     } catch (error) {
       reportLocalError(error);
@@ -437,7 +468,7 @@ export function SubaccountRoutes({
     try {
       await actionBusy.run(key, async () => {
         setQuota(await apiClient.refreshSubaccountQuota(selected.id, workspaceId));
-        setSubaccounts(await apiClient.listSubaccounts());
+        setSubaccounts(sortSubaccountsForList(await apiClient.listSubaccounts()));
       });
     } catch (error) {
       reportLocalError(error);
@@ -500,12 +531,10 @@ export function SubaccountRoutes({
         onOpenImportCredential={() => openModal('import-credential')}
         onOpenRegister={() => openModal('register-subaccount')}
         onOpenEdit={(subaccount) => {
-          selectSubaccount(subaccount);
-          openModal('edit-subaccount-profile', subaccount.id);
+          openSubaccountRecordModal(subaccount, 'edit-subaccount-profile');
         }}
         onOpenDelete={(subaccount) => {
-          selectSubaccount(subaccount);
-          openModal('delete-subaccount', subaccount.id);
+          openSubaccountRecordModal(subaccount, 'delete-subaccount');
         }}
       />
 
@@ -590,7 +619,7 @@ export function SubaccountRoutes({
       </Modal>
 
       <Modal
-        open={searchState.modal === 'delete-subaccount' && Boolean(selected)}
+        open={searchState.modal === 'delete-subaccount' && Boolean(deleteTarget)}
         title="删除子号"
         okText="删除子号"
         cancelText="取消"
@@ -599,7 +628,7 @@ export function SubaccountRoutes({
         onOk={() => void deleteSubaccount()}
       >
         <Space direction="vertical" size={12} className="panel-stack">
-          <span>仅从本系统移除 {selected?.remark || selected?.email} 的本地记录，不会移除 ChatGPT Team 成员。</span>
+          <span>仅从本系统移除 {deleteTarget?.remark || deleteTarget?.email} 的本地记录，不会移除 ChatGPT Team 成员。</span>
           <ModalErrorAlert message={searchState.modal === 'delete-subaccount' ? localError : ''} />
         </Space>
       </Modal>
