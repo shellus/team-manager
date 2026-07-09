@@ -926,6 +926,9 @@ describe('TeamService account listing', () => {
         if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
           return { status: 200, body: JSON.stringify({ items: [] }) };
         }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
+          return { status: 200, body: JSON.stringify({ items: [] }) };
+        }
         return { status: 404, body: '{"error":"not found"}' };
       }
     };
@@ -945,7 +948,8 @@ describe('TeamService account listing', () => {
     assert.equal(view.workspaceName, 'Workspace');
     assert.equal(view.nextRenewalOn, '2026-07-16');
     assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-16');
-    assert.equal(requests.length, 2);
+    assert.deepEqual(view.pendingInvitesCache, []);
+    assert.equal(requests.length, 3);
   });
 });
 
@@ -1336,6 +1340,107 @@ describe('TeamService member cache', () => {
     assert.equal(hasOwn(view, 'chatgptSeatCount'), false);
     assert.equal(typeof stored?.membersCachedAt, 'number');
   });
+
+  it('refreshes members and reconciles ChatGPT seat slots against current members and cached invites', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            items: [
+              { id: 'user-current', email: 'current@example.com', name: 'Current', role: 'standard-user', seat_type: 'default' },
+              { id: 'user-usage', email: 'usage@example.com', name: 'Usage', role: 'standard-user', seat_type: 'usage_based' }
+            ]
+          })
+        };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      pendingInvitesCache: [
+        {
+          inviteId: 'invite-current',
+          email: 'pending@example.com',
+          role: 'standard-user',
+          status: 1,
+          seat: 'default',
+          createdTime: '2026-06-18T00:00:00Z',
+          isScimManaged: false
+        }
+      ],
+      seatSlots: [
+        {
+          seatKey: 'curr1234efgh5678',
+          email: 'current@example.com',
+          remark: '保留资料',
+          expiresOn: '2026-08-01',
+          seat: 'default',
+          status: 'invited',
+          currentInviteId: 'invite-old',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'pend1234efgh5678',
+          email: 'pending@example.com',
+          expiresOn: '2026-08-02',
+          seat: 'default',
+          status: 'unknown',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'gone1234efgh5678',
+          email: 'gone@example.com',
+          expiresOn: '2026-08-03',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-gone',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'usag1234efgh5678',
+          email: 'usage@example.com',
+          expiresOn: '2026-08-04',
+          seat: 'default',
+          status: 'member',
+          currentUserId: 'user-usage',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+
+    const service = new TeamService(store, transport);
+    const view = await service.refreshMembers(account.id);
+    const slots = view.seatSlots ?? [];
+    const currentSlot = slots.find((slot) => slot.email === 'current@example.com');
+    const pendingSlot = slots.find((slot) => slot.email === 'pending@example.com');
+
+    assert.deepEqual(slots.map((slot) => slot.seatKey), ['curr1234efgh5678', 'pend1234efgh5678']);
+    assert.equal(currentSlot?.remark, '保留资料');
+    assert.equal(currentSlot?.status, 'member');
+    assert.equal(currentSlot?.currentUserId, 'user-current');
+    assert.equal(hasOwn(currentSlot, 'currentInviteId'), false);
+    assert.equal(pendingSlot?.status, 'invited');
+    assert.equal(pendingSlot?.currentInviteId, 'invite-current');
+    assert.equal(hasOwn(pendingSlot, 'currentUserId'), false);
+    assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
+  });
 });
 
 describe('TeamService pending invite cache', () => {
@@ -1422,6 +1527,92 @@ describe('TeamService pending invite cache', () => {
     assert.equal(hasOwn(stored, 'pendingInviteCount'), false);
     assert.equal(hasOwn(view, 'pendingInviteCount'), false);
     assert.equal(typeof stored?.pendingInvitesCachedAt, 'number');
+  });
+
+  it('refreshes pending invites and removes invite slots that no longer exist remotely', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            items: [
+              {
+                id: 'invite-current',
+                email_address: 'pending@example.com',
+                role: 'standard-user',
+                status: 1,
+                seat_type: 'default',
+                created_time: '2026-06-18T00:00:00Z',
+                is_scim_managed: false
+              }
+            ]
+          })
+        };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      membersCache: [
+        {
+          userId: 'user-current',
+          email: 'current@example.com',
+          role: 'standard-user',
+          seat: 'default'
+        }
+      ],
+      seatSlots: [
+        {
+          seatKey: 'curr1234efgh5678',
+          email: 'current@example.com',
+          expiresOn: '2026-08-01',
+          seat: 'default',
+          status: 'unknown',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'pend1234efgh5678',
+          email: 'pending@example.com',
+          expiresOn: '2026-08-02',
+          seat: 'default',
+          status: 'unknown',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        },
+        {
+          seatKey: 'oldi1234efgh5678',
+          email: 'old-invite@example.com',
+          expiresOn: '2026-08-03',
+          seat: 'default',
+          status: 'invited',
+          currentInviteId: 'invite-old',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+
+    const service = new TeamService(store, transport);
+    const view = await service.refreshPendingInvites(account.id);
+    const slots = view.seatSlots ?? [];
+
+    assert.deepEqual(slots.map((slot) => slot.seatKey), ['curr1234efgh5678', 'pend1234efgh5678']);
+    assert.equal(slots.find((slot) => slot.email === 'current@example.com')?.status, 'member');
+    assert.equal(slots.find((slot) => slot.email === 'pending@example.com')?.status, 'invited');
+    assert.equal(slots.find((slot) => slot.email === 'pending@example.com')?.currentInviteId, 'invite-current');
+    assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
   });
 });
 

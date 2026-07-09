@@ -1,6 +1,13 @@
 import type { ReactNode } from 'react';
 import { Button, Layout, Menu, Space, Switch, Typography } from 'antd';
-import { BellOutlined, LogoutOutlined, MoonOutlined, TeamOutlined, UserSwitchOutlined } from '@ant-design/icons';
+import {
+  AppstoreOutlined,
+  BellOutlined,
+  LogoutOutlined,
+  MoonOutlined,
+  TeamOutlined,
+  UserSwitchOutlined
+} from '@ant-design/icons';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { NotificationSettingsDialog } from '../NotificationSettingsDialog.js';
 import { useThemeMode } from '../theme/ThemeProvider.js';
@@ -18,7 +25,11 @@ export function AppShell({
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { mode, toggleMode } = useThemeMode();
-  const selectedKey = location.pathname.startsWith('/subaccounts') ? 'subaccounts' : 'parents';
+  const selectedKey = location.pathname.startsWith('/overview')
+    ? 'overview'
+    : location.pathname.startsWith('/subaccounts')
+      ? 'subaccounts'
+      : 'parents';
   const notificationOpen = searchParams.get('globalModal') === 'notifications';
 
   const openNotificationSettings = () => {
@@ -44,8 +55,12 @@ export function AppShell({
           className="app-nav"
           mode="horizontal"
           selectedKeys={[selectedKey]}
-          onClick={(event) => navigate(event.key === 'subaccounts' ? '/subaccounts' : '/parents')}
+          onClick={(event) => {
+            if (event.key === 'overview') navigate('/overview');
+            else navigate(event.key === 'subaccounts' ? '/subaccounts' : '/parents');
+          }}
           items={[
+            { key: 'overview', icon: <AppstoreOutlined />, label: '概览' },
             { key: 'parents', icon: <TeamOutlined />, label: '母号' },
             { key: 'subaccounts', icon: <UserSwitchOutlined />, label: '子号' }
           ]}

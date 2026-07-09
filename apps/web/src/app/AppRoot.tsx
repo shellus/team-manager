@@ -7,6 +7,7 @@ import { Login } from '../Login.js';
 import { useActionBusy } from '../components/useActionBusy.js';
 import { ParentRoutes } from '../features/parents/ParentRoutes.js';
 import { PublicSeatPage } from '../features/public-seat/PublicSeatPage.js';
+import { OverviewPage } from '../features/overview/OverviewPage.js';
 import { SubaccountRoutes } from '../features/subaccounts/SubaccountRoutes.js';
 import { accountRefreshActionKey, syncingAccountIdsFromBusy } from './accountRefreshBusy.js';
 import { AppShell } from './AppShell.js';
@@ -113,6 +114,10 @@ export function AppRoot() {
     <AppShell onLogout={logout}>
       {error && <Alert className="global-alert" type="error" showIcon message={error} closable onClose={() => setError('')} />}
       <Routes>
+        <Route
+          path="/overview"
+          element={<OverviewPage accounts={accounts} loading={loadingAccounts} />}
+        />
         <Route
           path="/parents/:accountId?"
           element={

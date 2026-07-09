@@ -186,8 +186,8 @@ export class TeamService {
       await this.persistSeatSlotSwap(accountId, seatKey, swap);
       let members = await api.listMembers();
       let invites = await api.listPendingInvites();
-      await this.saveMemberCache(accountId, members);
-      await this.savePendingInviteCache(accountId, invites);
+      await this.saveMemberCache(accountId, members, { reconcileSeatSlots: false });
+      await this.savePendingInviteCache(accountId, invites, { reconcileSeatSlots: false });
       await this.refreshSeatSlotRelation(accountId, seatKey, members, invites);
       this.markSeatSlotSwapStep(swap, 'refreshing_parent', 'done');
 
@@ -246,8 +246,8 @@ export class TeamService {
       await this.persistSeatSlotSwap(accountId, seatKey, swap);
       members = await api.listMembers();
       invites = await api.listPendingInvites();
-      await this.saveMemberCache(accountId, members);
-      await this.savePendingInviteCache(accountId, invites);
+      await this.saveMemberCache(accountId, members, { reconcileSeatSlots: false });
+      await this.savePendingInviteCache(accountId, invites, { reconcileSeatSlots: false });
       await this.refreshSeatSlotRelation(accountId, seatKey, members, invites);
       this.markSeatSlotSwapStep(swap, 'refreshing_final_state', 'done');
 
@@ -409,6 +409,58 @@ export class TeamService {
     return { status: 'unknown' };
   }
 
+  private reconcileSeatSlots(
+    account: Account,
+    members: Member[] | undefined,
+    invites: PendingInvite[] | undefined
+  ): Account['seatSlots'] {
+    if (!account.seatSlots || !members || !invites) return account.seatSlots;
+
+    const relationByEmail = new Map<
+      string,
+      { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string }
+    >();
+    for (const member of members) {
+      if (member.seat !== 'default') continue;
+      relationByEmail.set(member.email.toLowerCase(), { status: 'member', currentUserId: member.userId });
+    }
+    for (const invite of invites) {
+      if (invite.seat !== 'default') continue;
+      const email = invite.email.toLowerCase();
+      if (!relationByEmail.has(email)) {
+        relationByEmail.set(email, { status: 'invited', currentInviteId: invite.inviteId });
+      }
+    }
+
+    const now = Date.now();
+    const nextSlots: AccountSeatSlot[] = [];
+    for (const slot of account.seatSlots) {
+      const email = slot.email?.toLowerCase();
+      const relation = email ? relationByEmail.get(email) : undefined;
+      if (!relation) continue;
+      nextSlots.push({
+        ...slot,
+        status: relation.status,
+        currentUserId: relation.currentUserId,
+        currentInviteId: relation.currentInviteId,
+        updatedAt: this.seatSlotRelationChanged(slot, relation) ? now : slot.updatedAt
+      });
+    }
+
+    return nextSlots.length > 0 ? nextSlots : undefined;
+  }
+
+  private seatSlotRelationChanged(
+    slot: AccountSeatSlot,
+    relation: { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string }
+  ): boolean {
+    return (
+      slot.status !== relation.status ||
+      slot.currentUserId !== relation.currentUserId ||
+      slot.currentInviteId !== relation.currentInviteId
+    );
+  }
+
   async checkSessionAccounts(session: {
     accountId: string;
     accessToken: string;
@@ -500,6 +552,7 @@ export class TeamService {
       const { api } = await this.clientFor(id);
       const check = await api.checkAccount();
       const members = await api.listMembers();
+      const pendingInvites = await api.listPendingInvites();
       const now = Date.now();
       const updated = await this.store.update(id, {
         planType: check.planType ?? account.planType,
@@ -508,6 +561,9 @@ export class TeamService {
         nextRenewalOn: check.nextRenewalOn ?? account.nextRenewalOn,
         membersCache: members,
         membersCachedAt: now,
+        pendingInvitesCache: pendingInvites,
+        pendingInvitesCachedAt: now,
+        seatSlots: this.reconcileSeatSlots(account, members, pendingInvites),
         status: 'active',
         lastRefreshAt: now,
         lastError: undefined
@@ -648,14 +704,24 @@ export class TeamService {
     return account.membersCache ?? [];
   }
 
-  private async saveMemberCache(id: string, members: Member[]): Promise<Account> {
+  private async saveMemberCache(
+    id: string,
+    members: Member[],
+    options: { reconcileSeatSlots?: boolean } = {}
+  ): Promise<Account> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
     const now = Date.now();
-    const updated = await this.store.update(id, {
+    const patch: Partial<Account> = {
       membersCache: members,
       membersCachedAt: now,
       lastRefreshAt: now,
       lastError: undefined
-    });
+    };
+    if (options.reconcileSeatSlots !== false) {
+      patch.seatSlots = this.reconcileSeatSlots(account, members, account.pendingInvitesCache);
+    }
+    const updated = await this.store.update(id, patch);
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return updated;
   }
@@ -894,14 +960,24 @@ export class TeamService {
     return account.pendingInvitesCache?.length ?? 0;
   }
 
-  private async savePendingInviteCache(id: string, invites: PendingInvite[]): Promise<Account> {
+  private async savePendingInviteCache(
+    id: string,
+    invites: PendingInvite[],
+    options: { reconcileSeatSlots?: boolean } = {}
+  ): Promise<Account> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
     const now = Date.now();
-    const updated = await this.store.update(id, {
+    const patch: Partial<Account> = {
       pendingInvitesCache: invites,
       pendingInvitesCachedAt: now,
       lastRefreshAt: now,
       lastError: undefined
-    });
+    };
+    if (options.reconcileSeatSlots !== false) {
+      patch.seatSlots = this.reconcileSeatSlots(account, account.membersCache, invites);
+    }
+    const updated = await this.store.update(id, patch);
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return updated;
   }
