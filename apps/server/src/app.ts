@@ -402,7 +402,6 @@ export async function buildApp({
       subject: username,
       issuer: config.jwtIssuer,
       tokenType: 'access',
-      ttl: '12h',
       secret: config.jwtSecret
     });
     return c.json({ ok: true, data: { token } });

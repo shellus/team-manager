@@ -6,7 +6,7 @@ export type SignTokenInput = {
   subject: string;
   issuer: string;
   tokenType: TokenType;
-  ttl: string;
+  ttl?: string;
   secret: string;
 };
 
@@ -22,7 +22,7 @@ export type JwtPayload = {
   iss: string;
   typ: TokenType;
   iat: number;
-  exp: number;
+  exp?: number;
 };
 
 export function signJwt({ subject, issuer, tokenType, ttl, secret }: SignTokenInput) {
@@ -31,12 +31,12 @@ export function signJwt({ subject, issuer, tokenType, ttl, secret }: SignTokenIn
     alg: 'HS256',
     typ: 'JWT'
   };
-  const payload = {
+  const payload: JwtPayload = {
     sub: subject,
     iss: issuer,
     typ: tokenType,
     iat: now,
-    exp: now + parseTtlSeconds(ttl)
+    ...(ttl === undefined ? {} : { exp: now + parseTtlSeconds(ttl) })
   };
 
   const encodedHeader = encodeJson(header);
@@ -68,7 +68,7 @@ export function verifyJwt({ token, issuer, tokenType, secret }: VerifyTokenInput
   if (payload.iss !== issuer || payload.typ !== tokenType) {
     return null;
   }
-  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+  if (payload.exp !== undefined && payload.exp <= Math.floor(Date.now() / 1000)) {
     return null;
   }
 
@@ -113,7 +113,7 @@ function isJwtPayload(value: unknown): value is JwtPayload {
     typeof record.iss === 'string' &&
     (record.typ === 'access' || record.typ === 'refresh') &&
     typeof record.iat === 'number' &&
-    typeof record.exp === 'number'
+    (record.exp === undefined || typeof record.exp === 'number')
   );
 }
 
