@@ -8,6 +8,7 @@ import type {
   AccountSeatSlotStatus,
   AccountView,
   ChatGptSessionInput,
+  EditableMemberRole,
   Member,
   PendingInvite,
   PublicSeatSlotView,
@@ -17,12 +18,17 @@ import type {
   SeatSlotSwapStep,
   SeatSlotSwapStepKey
 } from '@team-manager/shared';
-import { BILLING_RISK_CONFIRM_MESSAGE, MAX_CHATGPT_SEATS } from '@team-manager/shared';
+import {
+  BILLING_RISK_CONFIRM_MESSAGE,
+  MAX_CHATGPT_SEATS,
+  MEMBER_OWNER_RISK_CONFIRM_MESSAGE
+} from '@team-manager/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AccountStore } from './accountStore.js';
 import { AccountBillingStore } from './accountBillingStore.js';
 import {
   ChatGptApi,
+  ChatGptApiError,
   refreshAccessToken,
   tokenNeedsRefresh,
   type ChatGptAccountCheckEntry
@@ -37,6 +43,22 @@ import { createTransport, type Transport } from './transport.js';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+function readableChatGptApiError(error: ChatGptApiError): string {
+  try {
+    const body = JSON.parse(error.body) as {
+      detail?: unknown;
+      error?: { message?: unknown };
+    };
+    if (typeof body.detail === 'string' && body.detail.trim()) return body.detail.trim();
+    if (typeof body.error?.message === 'string' && body.error.message.trim()) {
+      return body.error.message.trim();
+    }
+  } catch {
+    // Fall through to the sanitized ChatGptApiError message.
+  }
+  return error.message;
+}
 
 interface ChatGptSessionClientInput {
   accountId: string;
@@ -1054,6 +1076,37 @@ export class TeamService {
       }
     }
     await api.setMemberSeat(userId, seat);
+    return this.viewFromAccount(await this.refreshMemberCache(id, api));
+  }
+
+  async setMemberRole(
+    id: string,
+    userId: string,
+    role: EditableMemberRole,
+    confirmOwnerRisk = false
+  ): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const members = await api.listMembers();
+    const target = members.find((member) => member.userId === userId);
+    if (!target) throw new ServiceError(404, `成员不存在: ${userId}`);
+    if (target.role === role) {
+      return this.viewFromAccount(await this.saveMemberCache(id, members));
+    }
+
+    const ownerTransition = target.role === 'account-owner' || role === 'account-owner';
+    if (ownerTransition && !confirmOwnerRisk) {
+      throw new ServiceError(409, MEMBER_OWNER_RISK_CONFIRM_MESSAGE);
+    }
+
+    try {
+      await api.setMemberRole(userId, role);
+    } catch (error) {
+      if (error instanceof ChatGptApiError) {
+        const status = error.status >= 400 && error.status < 500 ? error.status : 502;
+        throw new ServiceError(status, readableChatGptApiError(error));
+      }
+      throw error;
+    }
     return this.viewFromAccount(await this.refreshMemberCache(id, api));
   }
 

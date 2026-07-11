@@ -18,6 +18,7 @@
 | 改 Team 名称 | [rename-team.json](./rename-team.json) | 使用 `PATCH /backend-api/accounts/{account_id}`，不是 `/settings` |
 | 成员席位切到 ChatGPT | [member-seat-change-to-chatgpt.json](./member-seat-change-to-chatgpt.json) | 使用 `PATCH /backend-api/accounts/{account_id}/users/{user_id}`，body `{"seat_type":"default"}` |
 | 成员席位切到 Codex | [member-seat-change-to-codex.json](./member-seat-change-to-codex.json) | 同一端点，body `{"seat_type":"usage_based"}` |
+| 修改成员角色 | [member-role-change.json](./member-role-change.json) | 使用 `PATCH /backend-api/accounts/{account_id}/users/{user_id}`，body 为 `{"role":"analytics-viewer|standard-user|account-admin|account-owner"}` |
 | 邀请成员 | [invite-member.json](./invite-member.json) | 使用 `POST /backend-api/accounts/{account_id}/invites`，body 包含 `email_addresses`、`role`、`seat_type`、`resend_emails` |
 | 待处理邀请列表 | [pending-invites-page.json](./pending-invites-page.json) | 使用 `GET /backend-api/accounts/{account_id}/invites?offset=0&limit=25&query=` |
 | 撤销邀请 | [revoke-invite.json](./revoke-invite.json) | 使用 `DELETE /backend-api/accounts/{account_id}/invites`，body `{email_address}` |

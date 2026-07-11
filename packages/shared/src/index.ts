@@ -21,8 +21,24 @@ export type SeatType = 'default' | 'usage_based';
 /** 母号本地额度窗口类型。 */
 export type AccountLimitType = 'unknown' | 'weekly' | 'monthly';
 
+export const EDITABLE_MEMBER_ROLES = [
+  'analytics-viewer',
+  'standard-user',
+  'account-admin',
+  'account-owner'
+] as const;
+
+export type EditableMemberRole = (typeof EDITABLE_MEMBER_ROLES)[number];
+
+export const MEMBER_OWNER_RISK_CONFIRM_MESSAGE =
+  '修改所有者角色可能导致母号失去 workspace 管理权限；ChatGPT 也可能因 workspace 创建时间限制拒绝操作。';
+
+export function isEditableMemberRole(value: unknown): value is EditableMemberRole {
+  return typeof value === 'string' && (EDITABLE_MEMBER_ROLES as readonly string[]).includes(value);
+}
+
 /** 成员角色（backend-api account_user_role / users[].role） */
-export type MemberRole = 'account-owner' | 'account-admin' | 'standard-user' | string;
+export type MemberRole = EditableMemberRole | string;
 
 /** 录入的母号（含凭证，仅存后端 data/，绝不下发前端明文） */
 export interface Account {

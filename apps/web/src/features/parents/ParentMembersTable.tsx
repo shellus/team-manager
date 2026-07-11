@@ -1,5 +1,11 @@
 import { useMemo, useState } from 'react';
-import type { AccountMemberProfileInput, AccountView, Member, SeatType } from '@team-manager/shared';
+import type {
+  AccountMemberProfileInput,
+  AccountView,
+  EditableMemberRole,
+  Member,
+  SeatType
+} from '@team-manager/shared';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -9,7 +15,7 @@ import { actionKey } from '../../components/actionBusy.js';
 import { formatRelativeTime, isBillingRiskError } from '../../components/format.js';
 import { SeatTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
-import { roleLabel, SEAT_LABEL } from '../../labels.js';
+import { SEAT_LABEL } from '../../labels.js';
 import {
   MemberProfileModal,
   memberProfileForEmail,
@@ -17,6 +23,7 @@ import {
   normalizeMemberProfileEmail
 } from './MemberProfileModal.js';
 import { buildSeatManagementUrl } from './seatSlotUrl.js';
+import { MemberRoleSelect } from './MemberRoleSelect.js';
 
 function memberRoleRank(member: Member): number {
   return member.role === 'account-owner' ? 0 : 1;
@@ -73,6 +80,24 @@ export function ParentMembersTable({
       }
     } finally {
       actionBusy.finish(key);
+    }
+  };
+
+  const changeRole = async (
+    member: Member,
+    role: EditableMemberRole,
+    confirmOwnerRisk: boolean
+  ) => {
+    const key = actionKey('member-role', member.userId);
+    setError('');
+    try {
+      await actionBusy.run(key, async () => {
+        onAccountChanged(
+          await apiClient.setMemberRole(account.id, member.userId, role, confirmOwnerRisk)
+        );
+      });
+    } catch (roleError) {
+      setError((roleError as Error).message);
     }
   };
 
@@ -136,8 +161,15 @@ export function ParentMembersTable({
     {
       title: '角色',
       dataIndex: 'role',
-      width: 130,
-      render: (role) => roleLabel(role)
+      width: 180,
+      render: (_, member) => (
+        <MemberRoleSelect
+          userId={member.userId}
+          currentRole={member.role}
+          loading={actionBusy.isBusy(actionKey('member-role', member.userId))}
+          onConfirm={(role, confirmOwnerRisk) => changeRole(member, role, confirmOwnerRisk)}
+        />
+      )
     },
     {
       title: '席位',

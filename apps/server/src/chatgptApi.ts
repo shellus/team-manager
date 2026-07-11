@@ -3,6 +3,7 @@ import type {
   Account,
   AccountBillingSnapshot,
   AccountFingerprint,
+  EditableMemberRole,
   Member,
   PendingInvite,
   SeatType,
@@ -264,6 +265,12 @@ export class ChatGptApi {
   async setMemberSeat(userId: string, seat: SeatType): Promise<unknown> {
     const path = `/backend-api/accounts/${this.account.accountId}/users/${userId}`;
     return this.request('PATCH', path, { seat_type: seat });
+  }
+
+  /** 修改 workspace 成员角色。 */
+  async setMemberRole(userId: string, role: EditableMemberRole): Promise<unknown> {
+    const path = `/backend-api/accounts/${this.account.accountId}/users/${userId}`;
+    return this.request('PATCH', path, { role });
   }
 
   /** 读 workspace 设置（含 default_seat_type、workspace_referrals_enabled、permissions） */

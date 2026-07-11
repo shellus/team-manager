@@ -8,7 +8,7 @@ import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
 import { SubaccountStore } from './subaccountStore.js';
-import { TeamService } from './teamService.js';
+import { ServiceError, TeamService } from './teamService.js';
 import type { HttpRequest, Transport } from './transport.js';
 
 let tempDir: string | undefined;
@@ -637,6 +637,105 @@ describe('Parent account local-profile API', () => {
     assert.equal(response.status, 400);
     assert.equal(json.ok, false);
     assert.equal(json.error, '缺少 user.email');
+  });
+});
+
+describe('Parent member role API', () => {
+  it('validates the role and forwards a supported role to TeamService', async () => {
+    const requests: HttpRequest[] = [];
+    let currentRole = 'standard-user';
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-old/users')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'user-b',
+                  email: 'b@example.com',
+                  role: currentRole,
+                  seat_type: 'usage_based'
+                }
+              ]
+            })
+          };
+        }
+        currentRole = (JSON.parse(req.body ?? '{}') as { role: string }).role;
+        return { status: 200, body: '{"success":true}' };
+      }
+    };
+    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/members/user-b/role`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ role: 'account-admin' })
+    });
+
+    assert.equal(response.status, 200);
+    const result = (await response.json()) as ApiResult<AccountView>;
+    assert.equal(result.ok, true);
+    assert.equal(result.data?.membersCache?.[0]?.role, 'account-admin');
+    assert.deepEqual(JSON.parse(requests.find((request) => request.method === 'PATCH')?.body ?? '{}'), {
+      role: 'account-admin'
+    });
+
+    const invalid = await app.request(`/api/accounts/${account.id}/members/user-b/role`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ role: 'super-admin' })
+    });
+    assert.equal(invalid.status, 400);
+  });
+
+  it('requires the role field', async () => {
+    const { app, account, authHeaders } = await buildParentApiTestApp();
+
+    const response = await app.request(`/api/accounts/${account.id}/members/user-b/role`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: '{}'
+    });
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { ok: false, error: '缺少 role' });
+  });
+
+  it('does not accept a truthy non-boolean owner-risk confirmation', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'user-b',
+                  email: 'b@example.com',
+                  role: 'standard-user',
+                  seat_type: 'default'
+                }
+              ]
+            })
+          };
+        }
+        return { status: 200, body: '{"success":true}' };
+      }
+    };
+    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/members/user-b/role`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ role: 'account-owner', confirmOwnerRisk: 'true' })
+    });
+
+    assert.equal(response.status, 409);
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
   });
 });
 
@@ -1934,6 +2033,227 @@ describe('TeamService member seat changes', () => {
     assert.equal(requests[1].path, '/backend-api/accounts/workspace-id/users/user-b');
     assert.deepEqual(JSON.parse(requests[1].body ?? '{}'), { seat_type: 'default' });
     assert.equal(view.membersCache?.find((member) => member.userId === 'user-b')?.seat, 'default');
+  });
+});
+
+describe('TeamService member role changes', () => {
+  async function createRoleService(transport: Transport) {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-role-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active'
+    });
+    return { account, store, service: new TeamService(store, transport) };
+  }
+
+  it('writes all supported ChatGPT member roles and refreshes the canonical member cache', async () => {
+    const requests: HttpRequest[] = [];
+    let currentRole = 'account-admin';
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'user-b',
+                  email: 'b@example.com',
+                  name: 'B',
+                  role: currentRole,
+                  seat_type: 'default'
+                }
+              ]
+            })
+          };
+        }
+        if (req.method === 'PATCH') {
+          currentRole = (JSON.parse(req.body ?? '{}') as { role: string }).role;
+        }
+        return { status: 200, body: '{"success":true}' };
+      }
+    };
+    const { account, store, service } = await createRoleService(transport);
+    const roles = ['analytics-viewer', 'standard-user', 'account-admin', 'account-owner'] as const;
+
+    for (const role of roles) {
+      await service.setMemberRole(account.id, 'user-b', role, role === 'account-owner');
+    }
+
+    const patches = requests.filter((request) => request.method === 'PATCH');
+    assert.deepEqual(
+      patches.map((request) => JSON.parse(request.body ?? '{}')),
+      roles.map((role) => ({ role }))
+    );
+    assert.ok(
+      patches.every((request) => request.path === '/backend-api/accounts/workspace-id/users/user-b')
+    );
+    assert.equal(store.get(account.id)?.membersCache?.[0]?.role, 'account-owner');
+  });
+
+  it('does not PATCH when the requested role is already current', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            items: [
+              {
+                id: 'user-b',
+                email: 'b@example.com',
+                name: 'B',
+                role: 'standard-user',
+                seat_type: 'usage_based'
+              }
+            ]
+          })
+        };
+      }
+    };
+    const { account, store, service } = await createRoleService(transport);
+
+    const view = await service.setMemberRole(account.id, 'user-b', 'standard-user');
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'GET');
+    assert.equal(view.membersCache?.[0]?.role, 'standard-user');
+    assert.equal(store.get(account.id)?.membersCache?.[0]?.role, 'standard-user');
+  });
+
+  it('requires confirmation when promoting a member to owner', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            items: [
+              {
+                id: 'user-b',
+                email: 'b@example.com',
+                role: 'standard-user',
+                seat_type: 'default'
+              }
+            ]
+          })
+        };
+      }
+    };
+    const { account, service } = await createRoleService(transport);
+
+    await assert.rejects(
+      () => service.setMemberRole(account.id, 'user-b', 'account-owner'),
+      (error: unknown) => error instanceof ServiceError && error.status === 409
+    );
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
+  });
+
+  it('requires confirmation when demoting an owner', async () => {
+    const requests: HttpRequest[] = [];
+    let currentRole = 'account-owner';
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'PATCH') {
+          currentRole = (JSON.parse(req.body ?? '{}') as { role: string }).role;
+          return { status: 200, body: '{"success":true}' };
+        }
+        return {
+          status: 200,
+          body: JSON.stringify({
+            items: [
+              {
+                id: 'user-owner',
+                email: 'owner@example.com',
+                role: currentRole,
+                seat_type: 'default'
+              }
+            ]
+          })
+        };
+      }
+    };
+    const { account, service } = await createRoleService(transport);
+
+    await assert.rejects(
+      () => service.setMemberRole(account.id, 'user-owner', 'account-admin'),
+      (error: unknown) => error instanceof ServiceError && error.status === 409
+    );
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
+
+    const view = await service.setMemberRole(account.id, 'user-owner', 'account-admin', true);
+
+    assert.deepEqual(
+      JSON.parse(requests.find((request) => request.method === 'PATCH')?.body ?? '{}'),
+      { role: 'account-admin' }
+    );
+    assert.equal(view.membersCache?.[0]?.role, 'account-admin');
+  });
+
+  it('returns 404 without PATCH when the member does not exist', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return { status: 200, body: '{"items":[]}' };
+      }
+    };
+    const { account, service } = await createRoleService(transport);
+
+    await assert.rejects(
+      () => service.setMemberRole(account.id, 'missing-user', 'account-admin'),
+      (error: unknown) => error instanceof ServiceError && error.status === 404
+    );
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
+  });
+
+  it('returns the remote owner policy detail without changing the cached role', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'user-b',
+                  email: 'b@example.com',
+                  role: 'account-admin',
+                  seat_type: 'default'
+                }
+              ]
+            })
+          };
+        }
+        return {
+          status: 400,
+          body: JSON.stringify({
+            detail: 'Workspace owners for Business plans can only be changed 30 days after creation.'
+          })
+        };
+      }
+    };
+    const { account, store, service } = await createRoleService(transport);
+
+    await assert.rejects(
+      () => service.setMemberRole(account.id, 'user-b', 'account-owner', true),
+      (error: unknown) =>
+        error instanceof ServiceError &&
+        error.status === 400 &&
+        error.message === 'Workspace owners for Business plans can only be changed 30 days after creation.'
+    );
+    assert.equal(store.get(account.id)?.membersCache, undefined);
+    assert.equal(requests.filter((request) => request.method === 'GET').length, 1);
   });
 });
 

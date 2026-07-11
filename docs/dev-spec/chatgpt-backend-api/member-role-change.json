@@ -1,0 +1,44 @@
+{
+  "captured_at": "2026-07-10",
+  "source": "sanitized browser request capture",
+  "page": "https://chatgpt.com/admin/members",
+  "operation": "change_workspace_member_role",
+  "request": {
+    "method": "PATCH",
+    "url": "https://chatgpt.com/backend-api/accounts/{account_id}/users/{user_id}",
+    "target_path": "/backend-api/accounts/{account_id}/users/{user_id}",
+    "target_route": "/backend-api/accounts/{account_id}/users/{user_id}",
+    "headers": {
+      "authorization": "<redacted>",
+      "chatgpt-account-id": "{account_id}",
+      "content-type": "application/json",
+      "oai-device-id": "<redacted>",
+      "oai-session-id": "<redacted>",
+      "x-openai-target-path": "/backend-api/accounts/{account_id}/users/{user_id}",
+      "x-openai-target-route": "/backend-api/accounts/{account_id}/users/{user_id}"
+    },
+    "observed_bodies": [
+      { "role": "analytics-viewer" },
+      { "role": "standard-user" },
+      { "role": "account-admin" },
+      { "role": "account-owner" }
+    ]
+  },
+  "observed_response_examples": [
+    {
+      "operation": "change_to_analytics_viewer",
+      "body": { "success": true }
+    },
+    {
+      "operation": "change_to_owner_before_allowed_date",
+      "body": {
+        "detail": "Workspace owners for Business plans can only be changed 30 days after creation."
+      }
+    }
+  ],
+  "notes": [
+    "Member role and seat type use the same member resource but different JSON fields.",
+    "Owner changes are controlled by remote Business workspace policy and may be rejected.",
+    "The capture does not establish permission rules for every caller role; team-manager preserves remote authorization errors."
+  ]
+}

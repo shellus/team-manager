@@ -1,6 +1,11 @@
-import type { AccountLimitType, SeatType, SubaccountStatus } from '@team-manager/shared';
+import type {
+  AccountLimitType,
+  MemberRole,
+  SeatType,
+  SubaccountStatus
+} from '@team-manager/shared';
 import { Tag } from 'antd';
-import { limitTypeLabel, seatLabel } from '../labels.js';
+import { limitTypeLabel, roleLabel, seatLabel } from '../labels.js';
 
 const SUBACCOUNT_STATUS_LABEL: Record<SubaccountStatus, string> = {
   empty: '未录入',
@@ -10,6 +15,15 @@ const SUBACCOUNT_STATUS_LABEL: Record<SubaccountStatus, string> = {
   verification_required: '待验证',
   account_locked: '账号锁定',
   error: '异常'
+};
+
+const MEMBER_ROLE_TAG_COLOR: Record<string, string | undefined> = {
+  'analytics-viewer': 'cyan',
+  analyst: 'cyan',
+  'account-analyst': 'cyan',
+  'standard-user': 'green',
+  'account-admin': 'gold',
+  'account-owner': 'magenta'
 };
 
 export function AccountStatusTag({ status }: { status?: 'active' | 'invalid' | 'unknown' }) {
@@ -33,6 +47,11 @@ export function SubaccountStatusTag({ status }: { status: SubaccountStatus }) {
 export function SeatTag({ seat }: { seat?: SeatType }) {
   if (!seat) return <Tag>未设置</Tag>;
   return <Tag color={seat === 'default' ? 'blue' : 'purple'}>{seatLabel(seat)}</Tag>;
+}
+
+export function MemberRoleTag({ role }: { role?: MemberRole }) {
+  if (!role) return <Tag>待分配</Tag>;
+  return <Tag color={MEMBER_ROLE_TAG_COLOR[role]}>{roleLabel(role)}</Tag>;
 }
 
 export function DefaultSeatTag({ seat }: { seat?: SeatType }) {

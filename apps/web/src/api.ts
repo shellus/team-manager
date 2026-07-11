@@ -3,6 +3,7 @@ import type {
   AccountBillingSnapshot,
   AccountLimitType,
   AccountView,
+  EditableMemberRole,
   Member,
   NotificationSettings,
   PublicSeatSlotView,
@@ -118,6 +119,16 @@ export const apiClient = {
   removeMember: (id: string, userId: string) => call<AccountView>('DELETE', `/accounts/${id}/members/${userId}`),
   setMemberSeat: (id: string, userId: string, seat: SeatType, confirmBillingRisk = false) =>
     call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),
+  setMemberRole: (
+    id: string,
+    userId: string,
+    role: EditableMemberRole,
+    confirmOwnerRisk = false
+  ) =>
+    call<AccountView>('PATCH', `/accounts/${id}/members/${userId}/role`, {
+      role,
+      confirmOwnerRisk
+    }),
   getSettings: (id: string) => call<Record<string, unknown>>('GET', `/accounts/${id}/settings`),
   refreshSettings: (id: string) => call<AccountView>('POST', `/accounts/${id}/settings/refresh`),
   getBillingSnapshot: (id: string) => call<AccountBillingSnapshot | null>('GET', `/accounts/${id}/billing`),

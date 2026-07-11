@@ -2,8 +2,7 @@ import { Card, Empty, Space, Switch, Tag, Typography } from 'antd';
 import type { AccountSeatSlotStatus, AccountView } from '@team-manager/shared';
 import { useMemo, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { SeatTag } from '../../components/StatusTag.js';
-import { roleLabel } from '../../labels.js';
+import { MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
 import {
   buildSeatOverviewItems,
   filterSeatOverviewItems,
@@ -102,7 +101,9 @@ function SeatOverviewCard({ item }: { item: SeatOverviewItem }) {
         </Typography.Text>
         <PositionOrSeatTag item={item} />
       </div>
-      <SeatPositionField label="角色">{item.role ? roleLabel(item.role) : '待分配'}</SeatPositionField>
+      <SeatPositionField label="角色">
+        <MemberRoleTag role={item.role} />
+      </SeatPositionField>
       <SeatPositionField label="Team">
         <Typography.Text ellipsis={{ tooltip: identity.secondary }}>{identity.secondary}</Typography.Text>
       </SeatPositionField>
