@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { AccountMemberProfileInput, AccountView, PendingInvite } from '@team-manager/shared';
+import type { AccountSeatSlotProfileInput, AccountView, PendingInvite } from '@team-manager/shared';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -11,11 +11,11 @@ import { SeatTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { roleLabel } from '../../labels.js';
 import {
-  MemberProfileModal,
-  memberProfileForEmail,
-  memberProfileSummary,
-  normalizeMemberProfileEmail
-} from './MemberProfileModal.js';
+  SeatSlotProfileModal,
+  normalizeSeatSlotEmail,
+  seatSlotForEmail,
+  seatSlotProfileSummary
+} from './SeatSlotProfileModal.js';
 import { buildSeatManagementUrl } from './seatSlotUrl.js';
 
 export function ParentInvitesTable({
@@ -53,12 +53,12 @@ export function ParentInvitesTable({
     }
   };
 
-  const saveProfile = async (email: string, input: AccountMemberProfileInput) => {
-    const key = normalizeMemberProfileEmail(email);
+  const saveSeatSlotProfile = async (email: string, input: AccountSeatSlotProfileInput) => {
+    const key = normalizeSeatSlotEmail(email);
     setError('');
     try {
-      await actionBusy.run(actionKey('invite-profile', key), async () => {
-        onAccountChanged(await apiClient.updateMemberProfile(account.id, { email, ...input }));
+      await actionBusy.run(actionKey('seat-slot-profile', key), async () => {
+        onAccountChanged(await apiClient.updateSeatSlotProfile(account.id, { email, ...input }));
         setEditingEmail('');
       });
     } catch (profileError) {
@@ -74,21 +74,24 @@ export function ParentInvitesTable({
       render: (email) => <Typography.Text strong>{email}</Typography.Text>
     },
     {
-      title: '本地资料',
+      title: '客户席位资料',
       key: 'profile',
       render: (_, invite) => {
-        const profile = memberProfileForEmail(account, invite.email);
+        if (invite.seat !== 'default') {
+          return <Typography.Text type="secondary">Codex 席位不使用客户席位资料</Typography.Text>;
+        }
+        const slot = seatSlotForEmail(account, invite.email);
         return (
           <div className="profile-cell">
-            <Typography.Text>{memberProfileSummary(profile)}</Typography.Text>
-            {profile?.remark && <Typography.Text type="secondary">{profile.remark}</Typography.Text>}
-            {profile?.seatKey && (
-              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(profile.seatKey) }}>
+            <Typography.Text>{seatSlotProfileSummary(slot)}</Typography.Text>
+            {slot?.remark && <Typography.Text type="secondary">{slot.remark}</Typography.Text>}
+            {slot?.seatKey && (
+              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(slot.seatKey) }}>
                 席位管理 URL
               </Typography.Text>
             )}
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(invite.email)}>
-              编辑资料
+              编辑席位
             </Button>
           </div>
         );
@@ -152,14 +155,14 @@ export function ParentInvitesTable({
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
         locale={{ emptyText: '暂无 pending invite' }}
       />
-      <MemberProfileModal
+      <SeatSlotProfileModal
         open={Boolean(editingEmail)}
         email={editingEmail}
         sourceLabel="待处理邀请"
         account={account}
-        confirmLoading={actionBusy.isBusy(actionKey('invite-profile', normalizeMemberProfileEmail(editingEmail)))}
+        confirmLoading={actionBusy.isBusy(actionKey('seat-slot-profile', normalizeSeatSlotEmail(editingEmail)))}
         onCancel={() => setEditingEmail('')}
-        onSubmit={saveProfile}
+        onSubmit={saveSeatSlotProfile}
       />
     </Space>
   );

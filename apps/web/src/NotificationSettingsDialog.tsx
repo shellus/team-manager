@@ -90,7 +90,7 @@ export function NotificationSettingsDialog({
       destroyOnClose
     >
       <Typography.Paragraph type="secondary">
-        配置全局到期提醒时间和通知渠道。
+        统一设置 Team 续费和客户席位到期提醒。任一分类有到期项时发送，通知始终显示两类数量。
       </Typography.Paragraph>
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}
       <Form<NotificationSettings>

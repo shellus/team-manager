@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type {
-  AccountMemberProfileInput,
+  AccountSeatSlotProfileInput,
   AccountView,
   EditableMemberRole,
   Member,
@@ -17,11 +17,11 @@ import { SeatTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
 import {
-  MemberProfileModal,
-  memberProfileForEmail,
-  memberProfileSummary,
-  normalizeMemberProfileEmail
-} from './MemberProfileModal.js';
+  SeatSlotProfileModal,
+  normalizeSeatSlotEmail,
+  seatSlotForEmail,
+  seatSlotProfileSummary
+} from './SeatSlotProfileModal.js';
 import { buildSeatManagementUrl } from './seatSlotUrl.js';
 import { MemberRoleSelect } from './MemberRoleSelect.js';
 
@@ -112,12 +112,12 @@ export function ParentMembersTable({
     }
   };
 
-  const saveProfile = async (email: string, input: AccountMemberProfileInput) => {
-    const key = normalizeMemberProfileEmail(email);
+  const saveSeatSlotProfile = async (email: string, input: AccountSeatSlotProfileInput) => {
+    const key = normalizeSeatSlotEmail(email);
     setError('');
     try {
-      await actionBusy.run(actionKey('member-profile', key), async () => {
-        onAccountChanged(await apiClient.updateMemberProfile(account.id, { email, ...input }));
+      await actionBusy.run(actionKey('seat-slot-profile', key), async () => {
+        onAccountChanged(await apiClient.updateSeatSlotProfile(account.id, { email, ...input }));
         setEditingEmail('');
       });
     } catch (profileError) {
@@ -138,21 +138,24 @@ export function ParentMembersTable({
       )
     },
     {
-      title: '本地资料',
+      title: '客户席位资料',
       key: 'profile',
       render: (_, member) => {
-        const profile = memberProfileForEmail(account, member.email);
+        if (member.seat !== 'default') {
+          return <Typography.Text type="secondary">Codex 席位不使用客户席位资料</Typography.Text>;
+        }
+        const slot = seatSlotForEmail(account, member.email);
         return (
           <div className="profile-cell">
-            <Typography.Text>{memberProfileSummary(profile)}</Typography.Text>
-            {profile?.remark && <Typography.Text type="secondary">{profile.remark}</Typography.Text>}
-            {profile?.seatKey && (
-              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(profile.seatKey) }}>
+            <Typography.Text>{seatSlotProfileSummary(slot)}</Typography.Text>
+            {slot?.remark && <Typography.Text type="secondary">{slot.remark}</Typography.Text>}
+            {slot?.seatKey && (
+              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(slot.seatKey) }}>
                 席位管理 URL
               </Typography.Text>
             )}
             <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(member.email)}>
-              编辑资料
+              编辑席位
             </Button>
           </div>
         );
@@ -232,14 +235,14 @@ export function ParentMembersTable({
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
         locale={{ emptyText: '暂无成员缓存，点击刷新成员获取最新列表' }}
       />
-      <MemberProfileModal
+      <SeatSlotProfileModal
         open={Boolean(editingEmail)}
         email={editingEmail}
         sourceLabel="成员列表"
         account={account}
-        confirmLoading={actionBusy.isBusy(actionKey('member-profile', normalizeMemberProfileEmail(editingEmail)))}
+        confirmLoading={actionBusy.isBusy(actionKey('seat-slot-profile', normalizeSeatSlotEmail(editingEmail)))}
         onCancel={() => setEditingEmail('')}
-        onSubmit={saveProfile}
+        onSubmit={saveSeatSlotProfile}
       />
     </Space>
   );

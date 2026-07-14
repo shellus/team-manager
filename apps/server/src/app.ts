@@ -507,12 +507,12 @@ export async function buildApp({
         seat: body.seat!,
         role: body.role,
         confirmBillingRisk: body.confirmBillingRisk,
-        memberProfile: body.memberProfile
+        seatSlotProfile: body.seatSlotProfile
       })
     );
   });
 
-  api.patch('/accounts/:id/member-profiles', async (c) => {
+  api.patch('/accounts/:id/seat-slots/profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       email?: string;
       remark?: string;
@@ -522,7 +522,7 @@ export async function buildApp({
     };
     if (!body.email?.trim()) return c.json({ ok: false, error: '缺少 email' }, 400);
     return wrap(c, () =>
-      service.updateMemberProfile(c.req.param('id'), body.email!, {
+      service.updateSeatSlotProfile(c.req.param('id'), body.email!, {
         remark: body.remark,
         expiresOn: body.expiresOn,
         expireRemove: body.expireRemove,

@@ -76,7 +76,6 @@ export interface Account {
   codexRemoteControlCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
-  memberProfiles?: Record<string, AccountMemberProfile>; // 母号下的邮箱维度本地资料，key 为小写邮箱
   seatSlots?: AccountSeatSlot[]; // 母号下的固定 ChatGPT 席位位置，本地运营主模型
   lastRefreshAt?: number;
   lastError?: string;
@@ -120,7 +119,6 @@ export interface AccountView {
   codexRemoteControlCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
-  memberProfiles?: Record<string, AccountMemberProfile>;
   seatSlots?: AccountSeatSlot[];
   lastRefreshAt?: number;
   lastError?: string;
@@ -147,17 +145,8 @@ export interface PendingInvite {
   isScimManaged: boolean;     // invites[].is_scim_managed
 }
 
-/** 母号下某个成员/邀请邮箱的本地资料，跟随邮箱从 pending invite 过渡到 member。 */
-export interface AccountMemberProfile {
-  email: string;
-  remark?: string;
-  expiresOn: string;           // yyyy-mm-dd
-  expireRemove: boolean;
-  expireReminder: boolean;
-  updatedAt: number;
-}
-
-export interface AccountMemberProfileInput {
+/** 客户席位的本地运营资料。 */
+export interface AccountSeatSlotProfileInput {
   remark?: string;
   expiresOn?: string;
   expireRemove?: boolean;
@@ -249,7 +238,7 @@ export interface InviteRequest {
   seat: SeatType;
   role?: MemberRole;          // 默认 standard-user
   confirmBillingRisk?: boolean;
-  memberProfile?: AccountMemberProfileInput;
+  seatSlotProfile?: AccountSeatSlotProfileInput;
 }
 
 export interface NotificationSettings {

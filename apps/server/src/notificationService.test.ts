@@ -1,7 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account, NotificationSettings } from '@team-manager/shared';
-import { collectExpirationReminderItems, startNotificationScheduler } from './notificationService.js';
+import {
+  collectExpirationReminderItems,
+  formatExpirationReminderText,
+  sendExpirationReminders,
+  startNotificationScheduler
+} from './notificationService.js';
 
 const notificationSettings: NotificationSettings = {
   advanceReminderDays: 3,
@@ -15,7 +20,7 @@ const notificationSettings: NotificationSettings = {
 };
 
 describe('expiration reminder collection', () => {
-  it('selects enabled email profiles expiring within the global reminder window', () => {
+  it('selects Team renewals and enabled customer seats within the global reminder window', () => {
     const accounts: Account[] = [
       {
         id: 'account-a',
@@ -31,7 +36,7 @@ describe('expiration reminder collection', () => {
             email: 'pending@example.com',
             role: 'standard-user',
             status: 1,
-            seat: 'usage_based',
+            seat: 'default',
             createdTime: '2026-06-18T00:00:00Z',
             isScimManaged: false
           }
@@ -86,26 +91,36 @@ describe('expiration reminder collection', () => {
     );
 
     assert.deepEqual(
-      items.map((item) => ({
-        accountId: item.accountId,
-        workspaceName: item.workspaceName,
-        email: item.email,
-        status: item.status,
-        expiresOn: item.expiresOn,
-        daysUntilExpiry: item.daysUntilExpiry,
-        expireRemove: item.expireRemove
-      })),
+      items.map((item) => item.type === 'team_renewal'
+        ? {
+            type: item.type,
+            accountId: item.accountId,
+            workspaceName: item.workspaceName,
+            ownerEmail: item.ownerEmail,
+            expiresOn: item.expiresOn,
+            daysUntilExpiry: item.daysUntilExpiry
+          }
+        : {
+            type: item.type,
+            accountId: item.accountId,
+            workspaceName: item.workspaceName,
+            email: item.email,
+            status: item.status,
+            expiresOn: item.expiresOn,
+            daysUntilExpiry: item.daysUntilExpiry,
+            expireRemove: item.expireRemove
+          }),
       [
         {
+          type: 'team_renewal',
           accountId: 'account-a',
           workspaceName: 'Team A',
-          email: 'owner@example.com',
-          status: 'team_renewal',
+          ownerEmail: 'owner@example.com',
           expiresOn: '2026-07-02',
-          daysUntilExpiry: 2,
-          expireRemove: false
+          daysUntilExpiry: 2
         },
         {
+          type: 'seat_expiration',
           accountId: 'account-a',
           workspaceName: 'Team A',
           email: 'pending@example.com',
@@ -115,6 +130,136 @@ describe('expiration reminder collection', () => {
           expireRemove: false
         }
       ]
+    );
+  });
+});
+
+describe('expiration reminder text', () => {
+  it('always renders both reminder sections when only Team renewals exist', () => {
+    const text = formatExpirationReminderText(notificationSettings, [
+      {
+        type: 'team_renewal',
+        accountId: 'account-a',
+        workspaceName: 'Team A',
+        ownerEmail: 'owner@example.com',
+        remark: '母号备注',
+        expiresOn: '2026-07-02',
+        daysUntilExpiry: 2
+      }
+    ]);
+
+    assert.equal(
+      text,
+      [
+        'Team 到期提醒：未来 3 天内共 1 项',
+        '',
+        'Team 续费（1）',
+        '- 备注：母号备注｜邮箱：owner@example.com｜到期：2026-07-02（剩余 2 天）',
+        '',
+        '客户席位到期（0）',
+        '- 无'
+      ].join('\n')
+    );
+  });
+
+  it('uses the same remark, email and expiry layout for customer seats', () => {
+    const text = formatExpirationReminderText(notificationSettings, [
+      {
+        type: 'seat_expiration',
+        accountId: 'account-a',
+        workspaceName: 'Team A',
+        email: 'pending@example.com',
+        remark: '客户备注',
+        expiresOn: '2026-07-03',
+        daysUntilExpiry: 3,
+        expireRemove: true,
+        status: 'invited'
+      }
+    ]);
+
+    assert.equal(
+      text,
+      [
+        'Team 到期提醒：未来 3 天内共 1 项',
+        '',
+        'Team 续费（0）',
+        '- 无',
+        '',
+        '客户席位到期（1）',
+        '- 备注：客户备注｜邮箱：pending@example.com｜到期：2026-07-03（剩余 3 天）'
+      ].join('\n')
+    );
+  });
+
+  it('does not send when both reminder sections are empty', async () => {
+    assert.equal(
+      formatExpirationReminderText(notificationSettings, []),
+      [
+        'Team 到期提醒：未来 3 天内共 0 项',
+        '',
+        'Team 续费（0）',
+        '- 无',
+        '',
+        '客户席位到期（0）',
+        '- 无'
+      ].join('\n')
+    );
+
+    let fetchCalls = 0;
+    const result = await sendExpirationReminders(notificationSettings, [], async () => {
+      fetchCalls += 1;
+      return new Response(null, { status: 200 });
+    });
+
+    assert.equal(fetchCalls, 0);
+    assert.deepEqual(result, { itemCount: 0, sentChannels: [], errors: [] });
+  });
+
+  it('sends canonical reminder types and per-section counts to generic webhooks', async () => {
+    let payload: Record<string, unknown> | undefined;
+    const settings: NotificationSettings = {
+      ...notificationSettings,
+      channels: {
+        ...notificationSettings.channels,
+        webhook: { enabled: true, url: 'https://example.invalid/reminders' }
+      }
+    };
+    const result = await sendExpirationReminders(
+      settings,
+      [
+        {
+          type: 'team_renewal',
+          accountId: 'account-a',
+          workspaceName: 'Team A',
+          ownerEmail: 'owner@example.com',
+          expiresOn: '2026-07-02',
+          daysUntilExpiry: 2
+        },
+        {
+          type: 'seat_expiration',
+          accountId: 'account-a',
+          workspaceName: 'Team A',
+          email: 'member@example.com',
+          expiresOn: '2026-07-03',
+          daysUntilExpiry: 3,
+          expireRemove: false,
+          status: 'member'
+        }
+      ],
+      async (_url, init) => {
+        payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(null, { status: 200 });
+      }
+    );
+
+    assert.deepEqual(result, { itemCount: 2, sentChannels: ['webhook'], errors: [] });
+    assert.equal(payload?.type, 'expiration_reminder');
+    assert.equal(payload?.itemCount, 2);
+    assert.equal(payload?.teamRenewalCount, 1);
+    assert.equal(payload?.seatExpirationCount, 1);
+    assert.deepEqual(
+      (payload?.items as Array<{ type: string }>).map((item) => item.type),
+      ['team_renewal', 'seat_expiration']
     );
   });
 });

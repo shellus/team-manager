@@ -1,7 +1,7 @@
 import type {
-  AccountMemberProfileInput,
   AccountBillingSnapshot,
   AccountLimitType,
+  AccountSeatSlotProfileInput,
   AccountView,
   EditableMemberRole,
   Member,
@@ -104,18 +104,18 @@ export const apiClient = {
     id: string,
     email: string,
     seat: SeatType,
-    memberProfile: AccountMemberProfileInput,
+    seatSlotProfile: AccountSeatSlotProfileInput | undefined,
     confirmBillingRisk = false
   ) =>
-    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, memberProfile, confirmBillingRisk }),
+    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, seatSlotProfile, confirmBillingRisk }),
   listPendingInvites: (id: string) => call<PendingInvite[]>('GET', `/accounts/${id}/invites`),
   refreshPendingInvites: (id: string) => call<AccountView>('POST', `/accounts/${id}/invites/refresh`),
   revokePendingInvite: (id: string, email: string) =>
     call<AccountView>('DELETE', `/accounts/${id}/invites`, { email }),
-  updateMemberProfile: (
+  updateSeatSlotProfile: (
     id: string,
-    payload: { email: string } & AccountMemberProfileInput
-  ) => call<AccountView>('PATCH', `/accounts/${id}/member-profiles`, payload),
+    payload: { email: string } & AccountSeatSlotProfileInput
+  ) => call<AccountView>('PATCH', `/accounts/${id}/seat-slots/profile`, payload),
   removeMember: (id: string, userId: string) => call<AccountView>('DELETE', `/accounts/${id}/members/${userId}`),
   setMemberSeat: (id: string, userId: string, seat: SeatType, confirmBillingRisk = false) =>
     call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),

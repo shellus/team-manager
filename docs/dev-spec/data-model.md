@@ -67,6 +67,8 @@
 
 `seatSlots` 不表示 `usage_based` / Codex 席位。`usage_based` 邀请不会创建 slot。
 
+旧版 `memberProfiles` 不是 canonical 字段。store 加载旧数据时会把其中尚未对应现有 slot 的资料迁移为 `seatSlots`，随后删除 `memberProfiles`；前后端类型、API 和 view 不再暴露该旧模型。
+
 免登录换号使用 `seatKey` 定位固定席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条历史记录。`lastSwap` 只保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号历史。store 初始化清洗时，旧数据中的 `lastSwap` 会并入 `swapHistory`。
 
 ### Derived values
@@ -129,7 +131,14 @@
 | `channels.wecom` | 企业微信机器人 webhook |
 | `lastRunDate` / `lastRunAt` | 提醒任务最近一次运行标记 |
 
-通知任务按 `triggerTime` 每天最多运行一次，扫描所有母号 `seatSlots` 中 `expireReminder=true` 且到期日在提醒窗口内的席位，并扫描母号 `nextRenewalOn` 是否进入同一提醒窗口。通知内容会包含当前邮箱或 Team workspace、当前行状态（`invited`、`member`、仅本地记录或 Team 续费）、到期/续费日期、剩余天数、到期移除标记和备注。
+通知任务按 `triggerTime` 每天最多运行一次，分别收集以下两类项目：
+
+- `team_renewal`：母号 `nextRenewalOn` 进入提醒窗口的 Team 续费项目。
+- `seat_expiration`：`seatSlots` 中 `expireReminder=true` 且 `expiresOn` 进入提醒窗口的客户席位到期项目。
+
+任一分类数量大于 `0` 时发送通知；两类都为 `0` 时不发送。通知文本固定展示“Team 续费”和“客户席位到期”两个分区及各自数量，零数量分区显示“无”。两类明细统一按“备注、邮箱、到期时间（剩余天数）”输出：Team 续费使用母号备注和母号邮箱，客户席位到期使用席位备注和当前绑定邮箱。关系状态和 `expireRemove` 保留在结构化明细中，不进入文本行。
+
+通用 webhook payload 使用 `type=expiration_reminder`，同时返回 `itemCount`、`teamRenewalCount`、`seatExpirationCount`、格式化文本和明细数组。明细类型只使用 `team_renewal` 与 `seat_expiration`，不再使用旧的 member expiration 命名。
 
 ## 子号模型
 

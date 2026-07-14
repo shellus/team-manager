@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   type Account,
   type AccountLimitType,
@@ -18,6 +18,7 @@ type StoredAccount = Account & Record<string, unknown>;
 const DEFAULT_ACCOUNT_GROUP = '默认分组';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SEAT_KEY_PATTERN = /^[A-Za-z0-9]{16}$/;
+const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_SLOT_STATUSES = new Set<AccountSeatSlotStatus>(['empty', 'invited', 'member', 'unknown']);
 const SWAP_STATUSES = new Set<SeatSlotSwapState['status']>(['running', 'succeeded', 'failed']);
@@ -78,10 +79,19 @@ function normalizeMembersCache(input: Account['membersCache']): Account['members
   return members.length ? members : undefined;
 }
 
-function normalizeMemberProfiles(input: Account['memberProfiles']): Account['memberProfiles'] | undefined {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+interface LegacyMemberProfile {
+  email: string;
+  remark?: string;
+  expiresOn: string;
+  expireRemove: boolean;
+  expireReminder: boolean;
+  updatedAt: number;
+}
 
-  const profiles: NonNullable<Account['memberProfiles']> = {};
+function normalizeLegacyMemberProfiles(input: unknown): LegacyMemberProfile[] {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
+
+  const profiles: LegacyMemberProfile[] = [];
   for (const [key, rawProfile] of Object.entries(input)) {
     if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile)) continue;
     const profile = rawProfile as unknown as Record<string, unknown>;
@@ -98,17 +108,73 @@ function normalizeMemberProfiles(input: Account['memberProfiles']): Account['mem
       ? profile.updatedAt
       : Date.now();
 
-    profiles[email] = {
+    profiles.push({
       email,
       ...(remark ? { remark } : {}),
       expiresOn,
       expireRemove: typeof profile.expireRemove === 'boolean' ? profile.expireRemove : false,
       expireReminder: typeof profile.expireReminder === 'boolean' ? profile.expireReminder : true,
       updatedAt
-    };
+    });
   }
 
-  return Object.keys(profiles).length > 0 ? profiles : undefined;
+  return profiles;
+}
+
+function migrateLegacyMemberProfiles(
+  slots: AccountSeatSlot[] | undefined,
+  profiles: LegacyMemberProfile[],
+  members: Account['membersCache'],
+  invites: Account['pendingInvitesCache']
+): AccountSeatSlot[] | undefined {
+  if (profiles.length === 0) return slots;
+
+  const nextSlots = [...(slots ?? [])];
+  const usedKeys = new Set(nextSlots.map((slot) => slot.seatKey));
+  const occupiedEmails = new Set(nextSlots.flatMap((slot) => slot.email ? [slot.email.toLowerCase()] : []));
+  for (const profile of profiles) {
+    if (occupiedEmails.has(profile.email)) continue;
+    const relation = legacySeatSlotRelation(profile.email, members, invites);
+    nextSlots.push({
+      seatKey: generateSeatKey(usedKeys),
+      email: profile.email,
+      ...(profile.remark ? { remark: profile.remark } : {}),
+      expiresOn: profile.expiresOn,
+      seat: 'default',
+      status: relation.status,
+      ...(relation.currentUserId ? { currentUserId: relation.currentUserId } : {}),
+      ...(relation.currentInviteId ? { currentInviteId: relation.currentInviteId } : {}),
+      expireRemove: profile.expireRemove,
+      expireReminder: profile.expireReminder,
+      updatedAt: profile.updatedAt
+    });
+    occupiedEmails.add(profile.email);
+  }
+  return nextSlots.length > 0 ? nextSlots : undefined;
+}
+
+function legacySeatSlotRelation(
+  email: string,
+  members: Account['membersCache'],
+  invites: Account['pendingInvitesCache']
+): { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string } {
+  const member = members?.find((item) => item.seat === 'default' && item.email.toLowerCase() === email);
+  if (member) return { status: 'member', currentUserId: member.userId };
+  const invite = invites?.find((item) => item.seat === 'default' && item.email.toLowerCase() === email);
+  if (invite) return { status: 'invited', currentInviteId: invite.inviteId };
+  return { status: 'unknown' };
+}
+
+function generateSeatKey(usedKeys: Set<string>): string {
+  for (;;) {
+    const bytes = randomBytes(16);
+    let key = '';
+    for (const byte of bytes) key += SEAT_KEY_ALPHABET[byte % SEAT_KEY_ALPHABET.length];
+    if (!usedKeys.has(key)) {
+      usedKeys.add(key);
+      return key;
+    }
+  }
 }
 
 function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] | undefined {
@@ -243,6 +309,14 @@ function readNumber(value: unknown): number | undefined {
 function sanitizeAccount(input: StoredAccount): { account: Account; changed: boolean } {
   const email = readTrimmedString(input.email);
   const remark = readTrimmedString(input.remark);
+  const membersCache = normalizeMembersCache(input.membersCache);
+  const pendingInvitesCache = input.pendingInvitesCache;
+  const seatSlots = migrateLegacyMemberProfiles(
+    normalizeSeatSlots(input.seatSlots),
+    normalizeLegacyMemberProfiles(input.memberProfiles),
+    membersCache,
+    pendingInvitesCache
+  );
   const normalized: Account = {
     id: input.id,
     ...(remark ? { remark } : {}),
@@ -260,7 +334,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     ...(readTrimmedString(input.workspaceName) ? { workspaceName: readTrimmedString(input.workspaceName) } : {}),
     ...(normalizeDateOnly(input.nextRenewalOn) ? { nextRenewalOn: normalizeDateOnly(input.nextRenewalOn) } : {}),
     status: input.status,
-    membersCache: normalizeMembersCache(input.membersCache),
+    membersCache,
     membersCachedAt: input.membersCachedAt,
     defaultSeat: input.defaultSeat,
     defaultSeatCachedAt: input.defaultSeatCachedAt,
@@ -275,10 +349,9 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     codexDeviceCodeAuthCachedAt: input.codexDeviceCodeAuthCachedAt,
     codexRemoteControlEnabled: input.codexRemoteControlEnabled,
     codexRemoteControlCachedAt: input.codexRemoteControlCachedAt,
-    pendingInvitesCache: input.pendingInvitesCache,
+    pendingInvitesCache,
     pendingInvitesCachedAt: input.pendingInvitesCachedAt,
-    memberProfiles: normalizeMemberProfiles(input.memberProfiles),
-    seatSlots: normalizeSeatSlots(input.seatSlots),
+    seatSlots,
     lastRefreshAt: input.lastRefreshAt,
     ...(readTrimmedString(input.lastError) ? { lastError: readTrimmedString(input.lastError) } : {})
   };

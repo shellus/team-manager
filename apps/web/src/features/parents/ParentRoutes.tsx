@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AccountLimitType, AccountMemberProfileInput, AccountView, SeatType } from '@team-manager/shared';
+import type { AccountLimitType, AccountSeatSlotProfileInput, AccountView, SeatType } from '@team-manager/shared';
 import { Alert, Button, Form, Input, Modal, Select, Space } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
@@ -18,7 +18,7 @@ import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
-import { defaultMemberProfileExpiresOn, MemberProfileFields } from './MemberProfileModal.js';
+import { defaultSeatSlotExpiresOn, SeatSlotProfileFields } from './SeatSlotProfileModal.js';
 import { ParentDetail } from './ParentDetail.js';
 import { ParentList } from './ParentList.js';
 import type { MemberSeatRisk } from './ParentMembersTable.js';
@@ -32,7 +32,7 @@ import {
 
 type ParentBillingRisk =
   | MemberSeatRisk
-  | { kind: 'invite'; email: string; seat: SeatType; memberProfile: AccountMemberProfileInput };
+  | { kind: 'invite'; email: string; seat: SeatType; seatSlotProfile?: AccountSeatSlotProfileInput };
 
 interface InviteValues {
   email: string;
@@ -84,13 +84,14 @@ function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
     email: '',
     seat: defaultSeat ?? 'usage_based',
     remark: '',
-    expiresOn: defaultMemberProfileExpiresOn(),
+    expiresOn: defaultSeatSlotExpiresOn(),
     expireRemove: false,
     expireReminder: true
   };
 }
 
-function profileFromInviteValues(values: InviteValues): AccountMemberProfileInput {
+function seatSlotProfileFromInviteValues(values: InviteValues): AccountSeatSlotProfileInput | undefined {
+  if (values.seat !== 'default') return undefined;
   return {
     remark: values.remark?.trim() ?? '',
     expiresOn: values.expiresOn,
@@ -266,17 +267,17 @@ export function ParentRoutes({
   const submitInvite = async (values: InviteValues, confirmBillingRisk = false) => {
     if (!selected) return;
     const email = values.email.trim();
-    const memberProfile = profileFromInviteValues(values);
+    const seatSlotProfile = seatSlotProfileFromInviteValues(values);
     actionBusy.start('invite-member');
     setLocalError('');
     try {
-      const updated = await apiClient.invite(selected.id, email, values.seat, memberProfile, confirmBillingRisk);
+      const updated = await apiClient.invite(selected.id, email, values.seat, seatSlotProfile, confirmBillingRisk);
       onAccountChanged(updated);
       inviteForm.resetFields();
       closeModal();
     } catch (error) {
       if (isBillingRiskError(error)) {
-        openBillingRisk({ kind: 'invite', email, seat: values.seat, memberProfile });
+        openBillingRisk({ kind: 'invite', email, seat: values.seat, seatSlotProfile });
       } else {
         reportLocalError(error);
       }
@@ -299,7 +300,7 @@ export function ParentRoutes({
               selected.id,
               billingRisk.email,
               billingRisk.seat,
-              billingRisk.memberProfile,
+              billingRisk.seatSlotProfile,
               true
             )
           : await apiClient.setMemberSeat(selected.id, billingRisk.userId, billingRisk.seat, true);
@@ -456,7 +457,9 @@ export function ParentRoutes({
               ]}
             />
           </Form.Item>
-          <MemberProfileFields />
+          <Form.Item noStyle shouldUpdate={(previous, current) => previous.seat !== current.seat}>
+            {({ getFieldValue }) => getFieldValue('seat') === 'default' ? <SeatSlotProfileFields /> : null}
+          </Form.Item>
         </Form>
         <ModalErrorAlert message={searchState.modal === 'invite-member' ? localError : ''} />
       </Modal>

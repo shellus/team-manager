@@ -4,18 +4,27 @@ import { AppSettingsStore } from './appSettingsStore.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface ExpirationReminderItem {
-  type: 'member_expiration' | 'team_renewal';
+interface ExpirationReminderItemBase {
   accountId: string;
-  accountDisplayName: string;
   workspaceName: string;
-  email: string;
   remark?: string;
   expiresOn: string;
   daysUntilExpiry: number;
-  expireRemove: boolean;
-  status: 'invited' | 'member' | 'tracked' | 'team_renewal';
 }
+
+export interface TeamRenewalReminderItem extends ExpirationReminderItemBase {
+  type: 'team_renewal';
+  ownerEmail: string;
+}
+
+export interface SeatExpirationReminderItem extends ExpirationReminderItemBase {
+  type: 'seat_expiration';
+  email: string;
+  expireRemove: boolean;
+  status: 'invited' | 'member' | 'tracked';
+}
+
+export type ExpirationReminderItem = TeamRenewalReminderItem | SeatExpirationReminderItem;
 
 export interface NotificationRunResult {
   itemCount: number;
@@ -41,14 +50,11 @@ export function collectExpirationReminderItems(
         items.push({
           type: 'team_renewal',
           accountId: account.id,
-          accountDisplayName: account.remark || account.email,
           workspaceName: account.workspaceName ?? account.accountId,
-          email: account.email,
+          ownerEmail: account.email,
           ...(account.remark ? { remark: account.remark } : {}),
           expiresOn: account.nextRenewalOn!,
-          daysUntilExpiry,
-          expireRemove: false,
-          status: 'team_renewal'
+          daysUntilExpiry
         });
       }
     }
@@ -62,9 +68,8 @@ export function collectExpirationReminderItems(
       if (daysUntilExpiry < 0 || daysUntilExpiry > settings.advanceReminderDays) continue;
 
       items.push({
-        type: 'member_expiration',
+        type: 'seat_expiration',
         accountId: account.id,
-        accountDisplayName: account.remark || account.email,
         workspaceName: account.workspaceName ?? account.accountId,
         email: slot.email ?? '未绑定邮箱',
         ...(slot.remark ? { remark: slot.remark } : {}),
@@ -76,7 +81,9 @@ export function collectExpirationReminderItems(
     }
   }
 
-  return items.sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry || a.email.localeCompare(b.email));
+  return items.sort(
+    (a, b) => a.daysUntilExpiry - b.daysUntilExpiry || reminderSortLabel(a).localeCompare(reminderSortLabel(b))
+  );
 }
 
 export function shouldRunExpirationReminder(settings: NotificationSettings, now = new Date()): boolean {
@@ -94,11 +101,15 @@ export async function sendExpirationReminders(
   const errors: string[] = [];
   if (items.length === 0) return { itemCount: 0, sentChannels, errors };
 
-  const text = formatReminderText(settings, items);
+  const text = formatExpirationReminderText(settings, items);
+  const teamRenewalCount = items.filter((item) => item.type === 'team_renewal').length;
+  const seatExpirationCount = items.length - teamRenewalCount;
   const payload = {
-    type: 'member_expiration_reminder',
+    type: 'expiration_reminder',
     advanceReminderDays: settings.advanceReminderDays,
     itemCount: items.length,
+    teamRenewalCount,
+    seatExpirationCount,
     text,
     items
   };
@@ -165,11 +176,19 @@ function shouldMarkNotificationRun(result: NotificationRunResult): boolean {
   return result.itemCount === 0 || result.errors.length === 0 || result.sentChannels.length > 0;
 }
 
-function relationStatus(account: Account, email: string): ExpirationReminderItem['status'] {
+function relationStatus(account: Account, email: string): SeatExpirationReminderItem['status'] {
   const target = email.toLowerCase();
-  if (account.membersCache?.some((member) => member.email.toLowerCase() === target)) return 'member';
-  if (account.pendingInvitesCache?.some((invite) => invite.email.toLowerCase() === target)) return 'invited';
+  if (account.membersCache?.some((member) => member.seat === 'default' && member.email.toLowerCase() === target)) {
+    return 'member';
+  }
+  if (account.pendingInvitesCache?.some((invite) => invite.seat === 'default' && invite.email.toLowerCase() === target)) {
+    return 'invited';
+  }
   return 'tracked';
+}
+
+function reminderSortLabel(item: ExpirationReminderItem): string {
+  return item.type === 'team_renewal' ? item.workspaceName : item.email;
 }
 
 function slotDateTime(slot: AccountSeatSlot): number | undefined {
@@ -199,24 +218,41 @@ function localTimeString(date: Date): string {
   return `${hour}:${minute}`;
 }
 
-function formatReminderText(settings: NotificationSettings, items: ExpirationReminderItem[]): string {
-  const lines = [`Team 成员到期提醒：${items.length} 个邮箱将在 ${settings.advanceReminderDays} 天内到期`];
-  for (const item of items) {
-    if (item.type === 'team_renewal') {
-      const remark = item.remark ? `，备注：${item.remark}` : '';
-      lines.push(
-        `- ${item.workspaceName}，Team 续费，${item.expiresOn} 续费，剩余 ${item.daysUntilExpiry} 天${remark}`
-      );
-      continue;
+export function formatExpirationReminderText(
+  settings: Pick<NotificationSettings, 'advanceReminderDays'>,
+  items: ExpirationReminderItem[]
+): string {
+  const teamRenewals = items.filter((item) => item.type === 'team_renewal');
+  const seatExpirations = items.filter((item) => item.type === 'seat_expiration');
+  const lines = [`Team 到期提醒：未来 ${settings.advanceReminderDays} 天内共 ${items.length} 项`, ''];
+
+  lines.push(`Team 续费（${teamRenewals.length}）`);
+  if (teamRenewals.length === 0) {
+    lines.push('- 无');
+  } else {
+    for (const item of teamRenewals) {
+      lines.push(formatReminderLine(item.remark, item.ownerEmail, item.expiresOn, item.daysUntilExpiry));
     }
-    const statusLabel = item.status === 'member' ? '成员' : item.status === 'invited' ? '待邀请' : '仅记录';
-    const removeLabel = item.expireRemove ? '到期移除' : '仅提醒';
-    const remark = item.remark ? `，备注：${item.remark}` : '';
-    lines.push(
-      `- ${item.email}，${item.workspaceName}，${statusLabel}，${item.expiresOn} 到期，剩余 ${item.daysUntilExpiry} 天，${removeLabel}${remark}`
-    );
+  }
+
+  lines.push('', `客户席位到期（${seatExpirations.length}）`);
+  if (seatExpirations.length === 0) {
+    lines.push('- 无');
+  } else {
+    for (const item of seatExpirations) {
+      lines.push(formatReminderLine(item.remark, item.email, item.expiresOn, item.daysUntilExpiry));
+    }
   }
   return lines.join('\n');
+}
+
+function formatReminderLine(
+  remark: string | undefined,
+  email: string,
+  expiresOn: string,
+  daysUntilExpiry: number
+): string {
+  return `- 备注：${remark?.trim() || '无'}｜邮箱：${email}｜到期：${expiresOn}（剩余 ${daysUntilExpiry} 天）`;
 }
 
 async function sendChannel(

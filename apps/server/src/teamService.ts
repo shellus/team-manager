@@ -3,8 +3,8 @@ import type {
   AccountBillingSnapshot,
   AccountFingerprint,
   AccountLimitType,
-  AccountMemberProfileInput,
   AccountSeatSlot,
+  AccountSeatSlotProfileInput,
   AccountSeatSlotStatus,
   AccountView,
   ChatGptSessionInput,
@@ -164,7 +164,6 @@ export class TeamService {
       codexRemoteControlCachedAt: account.codexRemoteControlCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
-      memberProfiles: account.memberProfiles,
       seatSlots: account.seatSlots,
       lastRefreshAt: account.lastRefreshAt,
       lastError: account.lastError
@@ -182,7 +181,7 @@ export class TeamService {
   }
 
   async swapPublicSeatSlotEmail(seatKey: string, email: string): Promise<PublicSeatSlotView> {
-    const normalizedEmail = this.normalizeProfileEmail(email);
+    const normalizedEmail = this.normalizeSeatSlotEmail(email);
     const found = this.findSeatSlotByKey(seatKey);
     if (found.account.seatSlots?.some((slot) => slot.seatKey !== seatKey && slot.email?.toLowerCase() === normalizedEmail)) {
       throw new ServiceError(409, '该邮箱已绑定到同一母号的其他席位');
@@ -332,7 +331,7 @@ export class TeamService {
         this.createSeatSlotSwapStep('removing_current_member', '正在移除当前成员'),
         this.createSeatSlotSwapStep('revoking_current_invite', '正在撤销当前邀请'),
         this.createSeatSlotSwapStep('inviting_new_email', '正在添加新成员'),
-        this.createSeatSlotSwapStep('saving_new_profile', '正在设置新成员资料'),
+        this.createSeatSlotSwapStep('saving_new_profile', '正在设置新席位资料'),
         this.createSeatSlotSwapStep('refreshing_final_state', '正在刷新最终状态')
       ]
     };
@@ -424,9 +423,9 @@ export class TeamService {
   ): { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string } {
     const target = email?.trim().toLowerCase();
     if (!target) return { status: 'empty' };
-    const member = members.find((item) => item.email.toLowerCase() === target);
+    const member = members.find((item) => item.seat === 'default' && item.email.toLowerCase() === target);
     if (member) return { status: 'member', currentUserId: member.userId };
-    const invite = invites.find((item) => item.email.toLowerCase() === target);
+    const invite = invites.find((item) => item.seat === 'default' && item.email.toLowerCase() === target);
     if (invite) return { status: 'invited', currentInviteId: invite.inviteId };
     return { status: 'unknown' };
   }
@@ -785,28 +784,30 @@ export class TeamService {
     await api.invite(email, req.seat, req.role);
     const updated = await this.refreshPendingInviteCache(id, api);
     if (req.seat !== 'default') return this.viewFromAccount(updated);
-    return this.updateMemberProfile(id, email, req.memberProfile ?? {});
+    return this.updateSeatSlotProfile(id, email, req.seatSlotProfile ?? {});
   }
 
-  async updateMemberProfile(
+  async updateSeatSlotProfile(
     id: string,
     email: string,
-    input: AccountMemberProfileInput
+    input: AccountSeatSlotProfileInput
   ): Promise<AccountView> {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
 
-    const normalizedEmail = this.normalizeProfileEmail(email);
+    const normalizedEmail = this.normalizeSeatSlotEmail(email);
     const existingSlots = account.seatSlots ?? [];
     const existingSlot = existingSlots.find((slot) => slot.email?.toLowerCase() === normalizedEmail);
     const usedKeys = new Set(existingSlots.map((slot) => slot.seatKey));
     const relation = this.seatSlotRelation(normalizedEmail, account.membersCache ?? [], account.pendingInvitesCache ?? []);
+    if (!existingSlot && relation.status === 'unknown') {
+      throw new ServiceError(409, '无法保存席位资料：该邮箱不是当前 Team 的 ChatGPT 固定席位');
+    }
     const nextSlot = this.buildSeatSlotProfile(normalizedEmail, existingSlot, input, relation, usedKeys);
     const nextSlots = existingSlot
       ? existingSlots.map((slot) => (slot.seatKey === existingSlot.seatKey ? nextSlot : slot))
       : [...existingSlots, nextSlot];
     const updated = await this.store.update(id, {
-      memberProfiles: undefined,
       seatSlots: nextSlots,
       lastError: undefined
     });
@@ -814,7 +815,7 @@ export class TeamService {
     return this.viewFromAccount(updated);
   }
 
-  private normalizeProfileEmail(email: string): string {
+  private normalizeSeatSlotEmail(email: string): string {
     const normalized = email.trim().toLowerCase();
     if (!normalized) throw new ServiceError(400, '缺少邮箱');
     return normalized;
@@ -823,7 +824,7 @@ export class TeamService {
   private buildSeatSlotProfile(
     email: string,
     existing: AccountSeatSlot | undefined,
-    input: AccountMemberProfileInput,
+    input: AccountSeatSlotProfileInput,
     relation: { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string },
     usedKeys: Set<string>
   ): AccountSeatSlot {

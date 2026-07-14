@@ -855,6 +855,16 @@ describe('AccountStore account sanitation', () => {
                 isScimManaged: false
               }
             ],
+            memberProfiles: {
+              'legacy@example.com': {
+                email: 'Legacy@Example.com',
+                remark: '旧邮箱资料',
+                expiresOn: '2026-08-01',
+                expireRemove: true,
+                expireReminder: false,
+                updatedAt: 80
+              }
+            },
             seatSlots: [
               {
                 seatKey: 'abcd1234efgh5678',
@@ -920,12 +930,14 @@ describe('AccountStore account sanitation', () => {
     assert.equal(hasOwn(stored, 'memberCount'), false);
     assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
     assert.equal(hasOwn(stored, 'pendingInviteCount'), false);
+    assert.equal(hasOwn(stored, 'memberProfiles'), false);
     assert.equal(stored?.remark, '母号备注');
     assert.equal(stored?.groupName, '默认分组');
     assert.equal(stored?.limitType, 'weekly');
     assert.equal(hasOwn(persisted[0], 'memberCount'), false);
     assert.equal(hasOwn(persisted[0], 'chatgptSeatCount'), false);
     assert.equal(hasOwn(persisted[0], 'pendingInviteCount'), false);
+    assert.equal(hasOwn(persisted[0], 'memberProfiles'), false);
     assert.equal(persisted[0]!.remark, '母号备注');
     assert.equal(persisted[0]!.groupName, '默认分组');
     assert.equal(persisted[0]!.limitType, 'weekly');
@@ -934,8 +946,8 @@ describe('AccountStore account sanitation', () => {
     assert.equal(storedMember?.remoteName, '当前远端显示名');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
-    assert.equal(storedSlots?.length, 1);
-    assert.equal(persistedSlots?.length, 1);
+    assert.equal(storedSlots?.length, 2);
+    assert.equal(persistedSlots?.length, 2);
     assert.equal(storedSlots?.[0]?.seatKey, 'abcd1234efgh5678');
     assert.equal(storedSlots?.[0]?.email, 'a@example.com');
     assert.equal(storedSlots?.[0]?.seat, 'default');
@@ -943,6 +955,13 @@ describe('AccountStore account sanitation', () => {
     assert.equal((storedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal((persistedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal(((storedSlots?.[0]?.swapHistory as Record<string, unknown>[] | undefined)?.[0])?.id, 'swap-legacy');
+    const migratedSlot = storedSlots?.find((slot) => slot.email === 'legacy@example.com');
+    assert.match(String(migratedSlot?.seatKey), /^[A-Za-z0-9]{16}$/);
+    assert.equal(migratedSlot?.remark, '旧邮箱资料');
+    assert.equal(migratedSlot?.expiresOn, '2026-08-01');
+    assert.equal(migratedSlot?.status, 'unknown');
+    assert.equal(migratedSlot?.expireRemove, true);
+    assert.equal(migratedSlot?.expireReminder, false);
   });
 });
 
@@ -2692,7 +2711,7 @@ describe('TeamService invites', () => {
     const view = await service.invite(account.id, {
       email: 'New@Example.COM',
       seat: 'default',
-      memberProfile: {
+      seatSlotProfile: {
         remark: '租给 Shellus',
         expiresOn: '2026-07-23',
         expireRemove: true,
@@ -2717,7 +2736,6 @@ describe('TeamService invites', () => {
     assert.equal(slot?.currentInviteId, 'invite-new');
     assert.match(slot?.seatKey ?? '', /^[A-Za-z0-9]{16}$/);
     assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
-    assert.equal(store.get(account.id)?.memberProfiles, undefined);
   });
 
   it('creates a 30-day expiring seat slot when a default invite omits metadata', async () => {
@@ -2759,7 +2777,7 @@ describe('TeamService invites', () => {
   });
 });
 
-describe('TeamService member email profiles', () => {
+describe('TeamService customer seat slot profiles', () => {
   it('edits the seat slot metadata for a parent email without calling ChatGPT', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
@@ -2813,7 +2831,7 @@ describe('TeamService member email profiles', () => {
     });
     const service = new TeamService(store, transport);
 
-    const view = await service.updateMemberProfile(account.id, ' Child@Example.com ', {
+    const view = await service.updateSeatSlotProfile(account.id, ' Child@Example.com ', {
       remark: '新备注',
       expiresOn: '2026-08-01',
       expireRemove: true,
@@ -2829,7 +2847,34 @@ describe('TeamService member email profiles', () => {
     assert.equal(slot?.expireReminder, false);
     assert.equal(store.get(account.id)?.seatSlots?.[0]?.remark, '新备注');
     assert.equal(typeof store.get(account.id)?.seatSlots?.[0]?.updatedAt, 'number');
-    assert.equal(store.get(account.id)?.memberProfiles, undefined);
+  });
+
+  it('does not create customer seat data for a Codex-only member', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      membersCache: [
+        {
+          userId: 'user-a',
+          email: 'codex@example.com',
+          role: 'standard-user',
+          seat: 'usage_based'
+        }
+      ],
+      pendingInvitesCache: []
+    });
+    const service = new TeamService(store);
+
+    await assert.rejects(
+      () => service.updateSeatSlotProfile(account.id, 'codex@example.com', { expiresOn: '2026-08-01' }),
+      /该邮箱不是当前 Team 的 ChatGPT 固定席位/
+    );
+    assert.equal(store.get(account.id)?.seatSlots, undefined);
   });
 });
 

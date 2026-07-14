@@ -10,8 +10,9 @@ ChatGPT Team 母号与子号管理后台。系统录入 Team 母号和子号的 
 
 1. [`AGENTS.md`](./AGENTS.md)：项目协作、git、安全、数据文件操作规则。
 2. 本 README：项目定位、架构地图、验证命令和文档索引。
-3. [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：母号、子号、Team、席位、Codex 凭证和账单红线的基本规则。
-4. `.codex/AGENTS.md`：如果本机存在该文件，读取当前运行实例、nginx 入口、tmux/docker 状态。该文件是本机私有说明，不进入 git。
+3. [`CONTEXT.md`](./CONTEXT.md)：Team、客户席位、成员、邀请和到期提醒的统一业务术语。
+4. [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：母号、子号、Team、席位、Codex 凭证和账单红线的基本规则。
+5. `.codex/AGENTS.md`：如果本机存在该文件，读取当前运行实例、nginx 入口、tmux/docker 状态。该文件是本机私有说明，不进入 git。
 
 开始改代码前先执行：
 
