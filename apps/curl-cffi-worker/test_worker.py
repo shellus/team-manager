@@ -125,6 +125,7 @@ class FetchProxyTests(unittest.TestCase):
 
 
 class PhoneVerificationTests(unittest.TestCase):
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_flow_allocates_gongxi_email_and_uses_signup_register_sequence(self):
         worker = load_worker()
 
@@ -199,6 +200,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertIn("tokenResponse", result)
         self.assertIn("email_otp_send", [event["phase"] for event in result["events"]])
 
+    @unittest.skip("registration no longer performs Codex phone verification")
     def test_registration_reports_verification_required_when_add_phone_has_no_pool(self):
         worker = load_worker()
 
@@ -255,6 +257,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertEqual(result["password"], "generated-child-password")
         self.assertIn("phone_pool_empty", [event["phase"] for event in result["events"]])
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_signup_challenge_uses_solver_and_continues_to_password_creation(self):
         worker = load_worker()
 
@@ -334,6 +337,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertIn("human_verification_solver_continue", [event["phase"] for event in result["events"]])
         self.assertEqual([call["path"] for call in post_calls if call["path"] == "/api/accounts/user/register"], ["/api/accounts/user/register"])
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_signup_challenge_reports_account_locked_with_allocated_credentials(self):
         worker = load_worker()
 
@@ -385,6 +389,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertEqual(result["password"], "generated-child-password")
         self.assertIn("account_locked", [event["phase"] for event in result["events"]])
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_user_register_challenge_continues_to_email_otp_after_solver(self):
         worker = load_worker()
 
@@ -772,6 +777,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertEqual(result["challenge"], "account_locked")
         self.assertIn("account_locked", [event["phase"] for event in events])
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_retries_another_gongxi_email_when_allocated_email_already_exists(self):
         worker = load_worker()
 
@@ -858,6 +864,7 @@ class PhoneVerificationTests(unittest.TestCase):
         )
         self.assertIn("registration_email_rejected", [event["phase"] for event in result["events"]])
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_retries_another_gongxi_email_when_signup_returns_email_otp_verification(self):
         worker = load_worker()
 
@@ -944,6 +951,7 @@ class PhoneVerificationTests(unittest.TestCase):
         )
         self.assertIn("registration_email_rejected", [event["phase"] for event in result["events"]])
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_returns_email_unavailable_without_credentials_when_all_allocated_emails_are_registered(self):
         worker = load_worker()
 
@@ -992,6 +1000,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertNotIn("password", result)
         self.assertEqual([event["phase"] for event in result["events"]].count("registration_email_rejected"), 2)
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_returns_verification_required_when_user_register_sentinel_fails(self):
         worker = load_worker()
 
@@ -1037,6 +1046,7 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertEqual(result["email"], "registered-child@example.com")
         self.assertEqual(result["password"], "generated-child-password")
 
+    @unittest.skip("replaced by ChatGPT Web Session registration flow")
     def test_registration_returns_account_locked_when_user_register_reports_locked_account(self):
         worker = load_worker()
 
@@ -1081,6 +1091,432 @@ class PhoneVerificationTests(unittest.TestCase):
         self.assertEqual(result["challenge"], "account_locked")
         self.assertEqual(result["email"], "locked-child@example.com")
         self.assertEqual(result["password"], "generated-child-password")
+
+    def test_chatgpt_auth_prefers_csrf_cookie_token_when_response_body_differs(self):
+        worker = load_worker()
+        events = []
+
+        class FakeResponse:
+            def __init__(self, status_code, data, url, headers=None):
+                self.status_code = status_code
+                self.data = data
+                self.text = __import__("json").dumps(data)
+                self.url = url
+                self.headers = headers or {}
+
+            def json(self):
+                return self.data
+
+        class FakeSession:
+            class FakeCookies:
+                jar = []
+
+            cookies = FakeCookies()
+
+            def get(self, url, **_kwargs):
+                return FakeResponse(200, {"csrfToken": "body-token"}, url)
+
+            def post(self, url, data, **_kwargs):
+                self.signin_data = data
+                return FakeResponse(
+                    200,
+                    {"url": "https://auth.openai.com/api/accounts/authorize"},
+                    url,
+                )
+
+        session = FakeSession()
+        with patch.object(
+            worker,
+            "cookie_value",
+            side_effect=lambda _session, name: "cookie-token%7Csigned" if name == "__Host-next-auth.csrf-token" else "",
+        ):
+            auth_url = worker.start_chatgpt_web_auth(session, events)
+
+        self.assertEqual(auth_url, "https://auth.openai.com/api/accounts/authorize")
+        self.assertEqual(session.signin_data["csrfToken"], "cookie-token")
+        mismatch = next(event for event in events if event["phase"] == "chatgpt_auth_csrf_cookie_mismatch")
+        self.assertEqual(mismatch["responseBodyToken"], "body-token")
+        self.assertEqual(mismatch["cookieToken"], "cookie-token")
+
+    def test_requested_email_rejection_retries_as_existing_account_login(self):
+        worker = load_worker()
+
+        class FakeCookies:
+            def set(self, *_args, **_kwargs):
+                return None
+
+        class FakeSession:
+            headers = {}
+            cookies = FakeCookies()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        expected = {
+            "ok": True,
+            "status": "ok",
+            "email": "retry-child@example.com",
+            "password": "retry-child-password",
+            "session": {"user": {"email": "retry-child@example.com"}},
+            "events": [],
+        }
+        with (
+            patch.object(worker.requests, "Session", return_value=FakeSession(), create=True),
+            patch.object(worker, "probe_registration_proxy"),
+            patch.object(worker, "start_chatgpt_web_auth", return_value="https://auth.openai.com/api/accounts/authorize"),
+            patch.object(worker, "solve_auth_page", return_value="https://auth.openai.com/log-in/password"),
+            patch.object(worker, "cookie_value", return_value="device-id"),
+            patch.object(
+                worker,
+                "post_auth_json",
+                return_value=(
+                    200,
+                    {
+                        "continue_url": "https://auth.openai.com/log-in/password",
+                        "page": {"type": "login_password", "payload": {"description": "Account already exists"}},
+                    },
+                ),
+            ),
+            patch.object(worker, "retry_existing_registered_account", return_value=expected) as retry_login,
+            patch.object(worker, "create_flaresolverr_session", return_value="fs-session"),
+            patch.object(worker, "destroy_flaresolverr_session"),
+            patch.object(worker, "FLARESOLVERR_URL", "https://example.invalid/flaresolverr"),
+            patch.object(worker, "GONGXI_MAIL_BASE_URL", "https://example.invalid/gongxi"),
+            patch.object(worker, "GONGXI_MAIL_API_KEY", "gongxi-key"),
+        ):
+            result = worker.run_subaccount_registration(
+                {"email": "retry-child@example.com", "password": "retry-child-password"}
+            )
+
+        self.assertEqual(result, expected)
+        retry_login.assert_called_once()
+        args = retry_login.call_args.args
+        self.assertEqual(args[0], "retry-child@example.com")
+        self.assertEqual(args[1], "retry-child-password")
+        self.assertEqual(args[3], "fs-session")
+
+    def test_web_session_registration_creates_profile_and_returns_chatgpt_session(self):
+        worker = load_worker()
+
+        class FakeCookies:
+            jar = []
+
+            def set(self, *_args, **_kwargs):
+                return None
+
+        class FakeSession:
+            headers = {}
+            cookies = FakeCookies()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        post_calls = []
+
+        def post_auth_json(session, path, payload, referer, events, phase, device_id, **kwargs):
+            post_calls.append({"path": path, "payload": payload, "kwargs": kwargs})
+            if path == "/api/accounts/authorize/continue":
+                return 200, {
+                    "continue_url": "https://auth.openai.com/create-account/password",
+                    "page": {"type": "create_account_password"},
+                }
+            if path == "/api/accounts/user/register":
+                return 200, {
+                    "continue_url": "https://auth.openai.com/email-verification",
+                    "page": {"type": "email_otp_send"},
+                }
+            if path == "/api/accounts/create_account":
+                return 200, {
+                    "continue_url": "https://chatgpt.com/api/auth/callback/openai?code=web-code",
+                    "page": {"type": "external_url"},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        web_session = {
+            "user": {"email": "registered-child@example.com"},
+            "account": {"id": "personal-account-id"},
+            "accessToken": "web-access-token",
+            "sessionToken": "next-auth-session-token",
+        }
+        with (
+            patch.object(worker.requests, "Session", return_value=FakeSession(), create=True),
+            patch.object(worker, "probe_registration_proxy"),
+            patch.object(worker, "start_chatgpt_web_auth", return_value="https://auth.openai.com/api/accounts/authorize"),
+            patch.object(worker, "solve_auth_page", return_value="https://auth.openai.com/sign-up"),
+            patch.object(worker, "cookie_value", return_value="device-id"),
+            patch.object(worker, "allocate_gongxi_email", return_value="registered-child@example.com"),
+            patch.object(worker, "generate_registration_password", return_value="generated-child-password"),
+            patch.object(worker, "post_auth_json", side_effect=post_auth_json),
+            patch.object(
+                worker,
+                "complete_email_otp_steps",
+                return_value=({"continue_url": "https://auth.openai.com/about-you", "page": {"type": "about_you"}}, None),
+            ),
+            patch.object(worker, "generate_registration_profile", return_value=("Alex Miller", "1996-05-12")),
+            patch.object(worker, "follow_chatgpt_callback", return_value="https://chatgpt.com/"),
+            patch.object(worker, "fetch_chatgpt_web_session", return_value=web_session),
+            patch.object(worker, "create_flaresolverr_session", return_value="fs-session"),
+            patch.object(worker, "destroy_flaresolverr_session"),
+            patch.object(worker, "FLARESOLVERR_URL", "https://example.invalid/flaresolverr"),
+            patch.object(worker, "GONGXI_MAIL_BASE_URL", "https://example.invalid/gongxi"),
+            patch.object(worker, "GONGXI_MAIL_API_KEY", "gongxi-key"),
+        ):
+            result = worker.run_subaccount_registration({"mailGroup": "clean-outlook"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["session"], web_session)
+        self.assertEqual(result["name"], "Alex Miller")
+        self.assertEqual(result["birthdate"], "1996-05-12")
+        create_call = next(call for call in post_calls if call["path"] == "/api/accounts/create_account")
+        self.assertEqual(create_call["payload"], {"name": "Alex Miller", "birthdate": "1996-05-12"})
+        self.assertEqual(create_call["kwargs"]["sentinel_so_token"], True)
+        self.assertNotIn("tokenResponse", result)
+
+    def test_web_session_registration_switches_passwordless_signup_to_password_registration(self):
+        worker = load_worker()
+
+        class FakeCookies:
+            jar = []
+
+            def set(self, *_args, **_kwargs):
+                return None
+
+        class FakeSession:
+            headers = {}
+            cookies = FakeCookies()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        post_calls = []
+
+        def post_auth_json(session, path, payload, referer, events, phase, device_id, **kwargs):
+            post_calls.append({"path": path, "payload": payload, "referer": referer, "phase": phase, "kwargs": kwargs})
+            if path == "/api/accounts/authorize/continue":
+                return 200, {
+                    "continue_url": "https://auth.openai.com/email-verification",
+                    "page": {"type": "email_otp_verification"},
+                    "oai-client-auth-session": {"email_verification_mode": "passwordless_signup"},
+                }
+            if path == "/api/accounts/user/register":
+                return 200, {
+                    "continue_url": "https://auth.openai.com/email-verification",
+                    "page": {"type": "email_otp_send"},
+                }
+            if path == "/api/accounts/create_account":
+                return 200, {
+                    "continue_url": "https://chatgpt.com/api/auth/callback/openai?code=web-code",
+                    "page": {"type": "external_url"},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        web_session = {
+            "user": {"email": "password-child@example.com"},
+            "account": {"id": "personal-account-id"},
+            "accessToken": "web-access-token",
+            "sessionToken": "next-auth-session-token",
+        }
+        with (
+            patch.object(worker.requests, "Session", return_value=FakeSession(), create=True),
+            patch.object(worker, "probe_registration_proxy"),
+            patch.object(worker, "start_chatgpt_web_auth", return_value="https://auth.openai.com/api/accounts/authorize"),
+            patch.object(worker, "solve_auth_page", return_value="https://auth.openai.com/sign-up"),
+            patch.object(worker, "cookie_value", return_value="device-id"),
+            patch.object(worker, "allocate_gongxi_email", return_value="password-child@example.com"),
+            patch.object(worker, "generate_registration_password", return_value="generated-child-password"),
+            patch.object(worker, "post_auth_json", side_effect=post_auth_json),
+            patch.object(
+                worker,
+                "complete_email_otp_steps",
+                return_value=({"continue_url": "https://auth.openai.com/about-you", "page": {"type": "about_you"}}, None),
+            ),
+            patch.object(worker, "generate_registration_profile", return_value=("Alex Miller", "1996-05-12")),
+            patch.object(worker, "follow_chatgpt_callback", return_value="https://chatgpt.com/"),
+            patch.object(worker, "fetch_chatgpt_web_session", return_value=web_session),
+            patch.object(worker, "create_flaresolverr_session", return_value="fs-session"),
+            patch.object(worker, "destroy_flaresolverr_session"),
+            patch.object(worker, "FLARESOLVERR_URL", "https://example.invalid/flaresolverr"),
+            patch.object(worker, "GONGXI_MAIL_BASE_URL", "https://example.invalid/gongxi"),
+            patch.object(worker, "GONGXI_MAIL_API_KEY", "gongxi-key"),
+        ):
+            result = worker.run_subaccount_registration({"mailGroup": "clean-outlook"})
+
+        self.assertTrue(result["ok"])
+        register_call = next(call for call in post_calls if call["path"] == "/api/accounts/user/register")
+        self.assertEqual(
+            register_call["payload"],
+            {"username": "password-child@example.com", "password": "generated-child-password"},
+        )
+        self.assertEqual(register_call["referer"], "https://auth.openai.com/create-account/password")
+        self.assertEqual(register_call["phase"], "user_register_from_passwordless_signup")
+        self.assertEqual(register_call["kwargs"]["sentinel_flow"], "username_password_create")
+        self.assertIn("registration_passwordless_signup_password_branch", [event["phase"] for event in result["events"]])
+
+    def test_password_login_uses_password_method_from_default_passwordless_page(self):
+        worker = load_worker()
+
+        class FakeCookies:
+            jar = []
+
+            def set(self, *_args, **_kwargs):
+                return None
+
+        class FakeSession:
+            headers = {}
+            cookies = FakeCookies()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        post_calls = []
+
+        def post_auth_json(session, path, payload, referer, events, phase, device_id, **kwargs):
+            post_calls.append({"path": path, "payload": payload, "referer": referer, "kwargs": kwargs})
+            if path == "/api/accounts/authorize/continue":
+                return 200, {
+                    "continue_url": "https://auth.openai.com/email-verification",
+                    "page": {"type": "email_otp_verification"},
+                    "oai-client-auth-session": {"login_methods": [{"type": "password"}, {"type": "passwordless_otp"}]},
+                }
+            if path == "/api/accounts/password/verify":
+                return 200, {
+                    "continue_url": "https://chatgpt.com/api/auth/callback/openai?code=login-code",
+                    "page": {"type": "external_url"},
+                }
+            raise AssertionError(f"unexpected path {path}")
+
+        web_session = {
+            "user": {"email": "password-child@example.com"},
+            "account": {"id": "personal-account-id"},
+            "accessToken": "web-access-token",
+            "sessionToken": "next-auth-session-token",
+        }
+        with (
+            patch.object(worker.requests, "Session", return_value=FakeSession(), create=True),
+            patch.object(worker, "start_chatgpt_web_auth", return_value="https://auth.openai.com/api/accounts/authorize"),
+            patch.object(worker, "solve_auth_page", return_value="https://auth.openai.com/log-in"),
+            patch.object(worker, "cookie_value", return_value="device-id"),
+            patch.object(worker, "post_auth_json", side_effect=post_auth_json),
+            patch.object(worker, "complete_email_otp_steps", side_effect=lambda _s, step, *_a, **_k: (step, None)),
+            patch.object(worker, "follow_chatgpt_callback", return_value="https://chatgpt.com/"),
+            patch.object(worker, "fetch_chatgpt_web_session", return_value=web_session),
+            patch.object(worker, "create_flaresolverr_session", return_value="fs-session"),
+            patch.object(worker, "destroy_flaresolverr_session"),
+            patch.object(worker, "REGISTRATION_PROXY_URL", ""),
+        ):
+            session, callback_url = worker.login_registered_account_with_password(
+                "password-child@example.com",
+                "generated-child-password",
+                [],
+            )
+
+        self.assertEqual(session, web_session)
+        self.assertEqual(callback_url, "https://chatgpt.com/")
+        password_call = next(call for call in post_calls if call["path"] == "/api/accounts/password/verify")
+        self.assertEqual(password_call["payload"], {"password": "generated-child-password"})
+        self.assertEqual(password_call["referer"], "https://auth.openai.com/email-verification")
+        self.assertEqual(password_call["kwargs"]["sentinel_flow"], "password_verify")
+
+    def test_flaresolverr_session_is_reused_for_browser_requests_and_destroyed(self):
+        worker = load_worker()
+
+        class FakeResponse:
+            status_code = 200
+            url = "http://flaresolverr.example/v1"
+            headers = {"content-type": "application/json"}
+
+            def __init__(self, data):
+                self.data = data
+                self.text = __import__("json").dumps(data)
+
+            def json(self):
+                return self.data
+
+        class FakeCookies:
+            def set(self, *_args, **_kwargs):
+                return None
+
+        class FakeSession:
+            headers = {}
+            cookies = FakeCookies()
+
+        calls = []
+
+        def post(_url, json, timeout):
+            calls.append({"payload": json, "timeout": timeout})
+            if json["cmd"] == "sessions.create":
+                return FakeResponse({"status": "ok", "session": json["session"]})
+            if json["cmd"] == "request.get":
+                return FakeResponse(
+                    {
+                        "status": "ok",
+                        "solution": {
+                            "url": json["url"],
+                            "userAgent": "session-user-agent",
+                            "cookies": [{"name": "cf_clearance", "value": "clearance", "domain": ".openai.com"}],
+                        },
+                    }
+                )
+            if json["cmd"] == "sessions.destroy":
+                return FakeResponse({"status": "ok"})
+            raise AssertionError(f"unexpected command {json['cmd']}")
+
+        events = []
+        with (
+            patch.object(worker.requests, "post", side_effect=post, create=True),
+            patch.object(worker, "FLARESOLVERR_URL", "http://flaresolverr.example"),
+            patch.object(worker, "FLARESOLVERR_PROXY_URL", "http://proxy.example:8080"),
+        ):
+            session_id = worker.create_flaresolverr_session(events)
+            worker.solve_auth_page(
+                FakeSession(),
+                "https://auth.openai.com/api/accounts/authorize",
+                events,
+                raw_trace=True,
+                flaresolverr_session_id=session_id,
+            )
+            worker.destroy_flaresolverr_session(session_id, events)
+
+        self.assertEqual([call["payload"]["cmd"] for call in calls], ["sessions.create", "request.get", "sessions.destroy"])
+        self.assertEqual(calls[0]["payload"]["proxy"], {"url": "http://proxy.example:8080"})
+        self.assertEqual(calls[1]["payload"]["session"], session_id)
+        self.assertNotIn("proxy", calls[1]["payload"])
+        self.assertEqual(calls[2]["payload"]["session"], session_id)
+
+    def test_registration_mailbox_completion_moves_email_to_configured_group(self):
+        worker = load_worker()
+
+        class FakeResponse:
+            status_code = 200
+            url = "https://gongxi.example/api/move-email-group"
+            headers = {"content-type": "application/json"}
+            text = '{"success":true,"data":{"updatedCount":1}}'
+
+            def json(self):
+                return {"success": True, "data": {"updatedCount": 1}}
+
+        with (
+            patch.object(worker.requests, "post", return_value=FakeResponse(), create=True),
+            patch.object(worker, "GONGXI_MAIL_BASE_URL", "https://gongxi.example"),
+            patch.object(worker, "GONGXI_MAIL_API_KEY", "gongxi-key"),
+            patch.object(worker, "GONGXI_MAIL_REGISTERED_GROUP", "48team子号"),
+        ):
+            result = worker.complete_subaccount_registration_mailbox({"email": "child@example.com"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["group"], "48team子号")
 
     def test_auto_auth_retries_another_gongxi_code_when_email_otp_is_rejected(self):
         worker = load_worker()

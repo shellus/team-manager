@@ -4,7 +4,13 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { ApiResult, CodexAuthRuntimeStatus, CodexCredentialJson, SubaccountView } from '@team-manager/shared';
+import type {
+  ApiResult,
+  CodexAuthRuntimeStatus,
+  CodexCredentialJson,
+  SubaccountRegistrationJobView,
+  SubaccountView
+} from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -80,10 +86,42 @@ class RecordingTeamTransport implements Transport {
   membersByWorkspaceId = new Map<string, RawTeamMember[]>();
   invitesByWorkspaceId = new Map<string, RawTeamInvite[]>();
   accountsCheckByAccessToken = new Map<string, Record<string, unknown>>();
+  settingsByWorkspaceId = new Map<string, Record<string, unknown>>();
   sessionAccessTokensByWorkspaceId = new Map<string, string>();
   invalidatedAccessTokens = new Set<string>();
+  revokedAccessTokens = new Set<string>();
   currentSessionAccountId = 'browser-current-workspace-id';
   personalAccessTokenWorkspaceId = 'workspace-account-id';
+  personalProfile = {
+    user_id: 'user-child',
+    username: 'child-user',
+    display_name: 'Child User',
+    profile_picture_url: 'https://example.invalid/child.png'
+  };
+  marketingPushEnabled = true;
+  marketingEmailEnabled = false;
+  memoryEnabled = true;
+
+  private authFailure(req: { headers: Record<string, string> }) {
+    const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
+    if (this.invalidatedAccessTokens.has(token)) return tokenInvalidatedResponse();
+    if (this.revokedAccessTokens.has(token)) return tokenRevokedResponse();
+    return undefined;
+  }
+
+  private notificationSettings() {
+    return {
+      settings: [
+        {
+          category: 'marketing',
+          options: [
+            { channel: 'push', enabled: this.marketingPushEnabled },
+            { channel: 'email', enabled: this.marketingEmailEnabled }
+          ]
+        }
+      ]
+    };
+  }
 
   async fetch(req: { method: string; path: string; headers: Record<string, string>; body?: string }) {
     this.requests.push(req);
@@ -104,9 +142,73 @@ class RecordingTeamTransport implements Transport {
         })
       };
     }
+    if (req.method === 'GET' && req.path === '/backend-api/me') {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      return {
+        status: 200,
+        body: JSON.stringify({
+          object: 'user',
+          id: this.personalProfile.user_id,
+          email: 'child@example.com',
+          name: this.personalProfile.display_name,
+          picture: this.personalProfile.profile_picture_url
+        })
+      };
+    }
+    if (req.method === 'GET' && /^\/backend-api\/calpico\/chatgpt\/profile\/[^/]+$/.test(req.path)) {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      return { status: 200, body: JSON.stringify(this.personalProfile) };
+    }
+    if (req.method === 'POST' && /\/backend-api\/calpico\/chatgpt\/profile\/[^/]+\/username$/.test(req.path)) {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      const body = JSON.parse(req.body ?? '{}') as { username?: string };
+      this.personalProfile = { ...this.personalProfile, username: body.username ?? this.personalProfile.username };
+      return { status: 200, body: JSON.stringify(this.personalProfile) };
+    }
+    if (req.method === 'POST' && /^\/backend-api\/calpico\/chatgpt\/profile\/[^/]+$/.test(req.path)) {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      const body = JSON.parse(req.body ?? '{}') as { display_name?: string };
+      this.personalProfile = {
+        ...this.personalProfile,
+        display_name: body.display_name ?? this.personalProfile.display_name
+      };
+      return { status: 200, body: JSON.stringify(this.personalProfile) };
+    }
+    if (req.path === '/backend-api/notifications/settings') {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      if (req.method === 'PATCH') {
+        const body = JSON.parse(req.body ?? '{}') as {
+          updates?: { marketing?: { push?: boolean; email?: boolean } };
+        };
+        const marketing = body.updates?.marketing;
+        if (typeof marketing?.push === 'boolean') this.marketingPushEnabled = marketing.push;
+        if (typeof marketing?.email === 'boolean') this.marketingEmailEnabled = marketing.email;
+      }
+      return { status: 200, body: JSON.stringify(this.notificationSettings()) };
+    }
+    if (req.method === 'PATCH' && req.path.startsWith('/backend-api/settings/account_user_setting?')) {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      this.memoryEnabled = new URL(`https://chatgpt.com${req.path}`).searchParams.get('value') === 'true';
+      return { status: 200, body: JSON.stringify({ m3m: this.memoryEnabled }) };
+    }
+    if (req.method === 'GET' && req.path === '/backend-api/wham/rate-limit-reset-credits') {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      return {
+        status: 200,
+        body: JSON.stringify({ credits: [{ source: 'promotion', count: 2 }], available_count: 2, total_earned_count: 3 })
+      };
+    }
     if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
       const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
       if (this.invalidatedAccessTokens.has(token)) return tokenInvalidatedResponse();
+      if (this.revokedAccessTokens.has(token)) return tokenRevokedResponse();
       return {
         status: 200,
         body: JSON.stringify({
@@ -118,9 +220,30 @@ class RecordingTeamTransport implements Transport {
     if (req.method === 'GET' && req.path.includes('/users?')) {
       const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
       if (this.invalidatedAccessTokens.has(token)) return tokenInvalidatedResponse();
+      if (this.revokedAccessTokens.has(token)) return tokenRevokedResponse();
       const workspaceId = req.path.match(/\/backend-api\/accounts\/([^/]+)\/users/)?.[1] ?? '';
       const items = this.membersByWorkspaceId.get(workspaceId) ?? [];
       return { status: 200, body: JSON.stringify({ items, total: items.length }) };
+    }
+    if (req.method === 'GET' && /\/backend-api\/accounts\/[^/]+\/settings$/.test(req.path)) {
+      const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
+      if (this.invalidatedAccessTokens.has(token)) return tokenInvalidatedResponse();
+      if (this.revokedAccessTokens.has(token)) return tokenRevokedResponse();
+      const workspaceId = req.path.match(/\/backend-api\/accounts\/([^/]+)\/settings$/)?.[1] ?? '';
+      return { status: 200, body: JSON.stringify(this.settingsByWorkspaceId.get(workspaceId) ?? {}) };
+    }
+    if (req.method === 'POST' && req.path.includes('/settings/')) {
+      const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
+      if (this.invalidatedAccessTokens.has(token)) return tokenInvalidatedResponse();
+      if (this.revokedAccessTokens.has(token)) return tokenRevokedResponse();
+      const workspaceId = req.path.match(/\/backend-api\/accounts\/([^/]+)\/settings\//)?.[1] ?? '';
+      const setting = req.path.split('/').at(-1) ?? '';
+      const value = JSON.parse(req.body ?? '{}') as { value?: unknown };
+      const current = this.settingsByWorkspaceId.get(workspaceId) ?? {};
+      const key = setting === 'default_seat_type' ? 'default_seat_type' : setting;
+      const next = { ...current, [key]: value.value };
+      this.settingsByWorkspaceId.set(workspaceId, next);
+      return { status: 200, body: JSON.stringify(next) };
     }
     if (req.method === 'GET' && req.path.includes('/invites?')) {
       const workspaceId = req.path.match(/\/backend-api\/accounts\/([^/]+)\/invites/)?.[1] ?? '';
@@ -165,6 +288,21 @@ function tokenInvalidatedResponse() {
         code: 'token_invalidated',
         param: null
       }
+    })
+  };
+}
+
+function tokenRevokedResponse() {
+  return {
+    status: 401,
+    body: JSON.stringify({
+      error: {
+        message: 'Encountered invalidated oauth token for user, failing request',
+        type: null,
+        code: 'token_revoked',
+        param: null
+      },
+      status: 401
     })
   };
 }
@@ -235,53 +373,39 @@ class FakeAccountLockedAutoAuth implements CodexAutoAuthExecutor {
 }
 
 class FakeSubaccountRegistration {
-  requests: Array<{
-    authUrl: string;
-    state: string;
-    codeVerifier: string;
-    mailGroup?: string;
-    targetChatgptAccountId?: string;
-  }> = [];
+  requests: Array<{ mailGroup?: string }> = [];
+  completedMailboxes: string[] = [];
 
-  async register(options: {
-    session: { authUrl: string; state: string; codeVerifier: string };
-    mailGroup?: string;
-    targetChatgptAccountId?: string;
-  }) {
-    const accountId = options.targetChatgptAccountId ?? 'registered-child-chatgpt-account-id';
-    this.requests.push({
-      authUrl: options.session.authUrl,
-      state: options.session.state,
-      codeVerifier: options.session.codeVerifier,
-      mailGroup: options.mailGroup,
-      targetChatgptAccountId: options.targetChatgptAccountId
-    });
+  async register(options: { mailGroup?: string; onEvent?: (event: Record<string, unknown>) => void | Promise<void> }) {
+    this.requests.push({ mailGroup: options.mailGroup });
+    await options.onEvent?.({ phase: 'registration_identity_allocated', email: 'registered-child@example.com' });
+    await options.onEvent?.({ phase: 'chatgpt_auth_session' });
     return {
       email: 'registered-child@example.com',
       password: 'generated-child-password',
-      callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=registered-code&state=${options.session.state}`,
+      name: 'Alex Miller',
+      birthdate: '1996-05-12',
+      callbackUrl: 'https://chatgpt.com/',
+      session: {
+        user: { email: 'registered-child@example.com' },
+        account: { id: 'registered-child-chatgpt-account-id' },
+        accessToken: chatGptWebAccessToken('registered-child-chatgpt-account-id', 'free'),
+        sessionToken: 'registered-child-session-token'
+      },
       events: [
         { phase: 'gongxi_get_email', status: 200 },
         { phase: 'user_register', status: 200 },
-        { phase: 'oauth_token_exchange', status: 200 }
-      ],
-      credential: {
-        access_token: 'registered-codex-access-token',
-        refresh_token: 'registered-codex-refresh-token',
-        id_token: unsignedJwt({
-          email: 'registered-child@example.com',
-          'https://api.openai.com/auth': {
-            chatgpt_account_id: accountId,
-            chatgpt_plan_type: 'team'
-          }
-        }),
-        account_id: accountId,
-        email: 'registered-child@example.com',
-        type: 'codex' as const,
-        last_refresh: '2026-06-18T00:00:00.000Z',
-        expired: '2026-06-18T01:00:00.000Z',
-        plan_type: 'team'
-      }
+        { phase: 'chatgpt_auth_session', status: 200 }
+      ]
+    };
+  }
+
+  async completeMailbox(email: string) {
+    this.completedMailboxes.push(email);
+    return {
+      email,
+      group: '48team子号',
+      events: [{ phase: 'gongxi_move_email_group', status: 200 }]
     };
   }
 }
@@ -297,6 +421,56 @@ class FakeVerificationRequiredRegistration {
       'generated-child-password',
       [{ phase: 'user_register', status: 400 }]
     );
+  }
+}
+
+class FakeRetryableRegistration {
+  requests: Array<{ email?: string; password?: string; resumeExisting?: boolean }> = [];
+  completedMailboxes: string[] = [];
+
+  async register(options: {
+    email?: string;
+    password?: string;
+    resumeExisting?: boolean;
+    onEvent?: (event: Record<string, unknown>) => void | Promise<void>;
+  }) {
+    this.requests.push({
+      email: options.email,
+      password: options.password,
+      resumeExisting: options.resumeExisting
+    });
+    if (this.requests.length === 1) {
+      const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
+      throw new SubaccountRegistrationError(
+        'chatgpt_auth_signin_failed_200: {"url":"https://chatgpt.com/api/auth/signin?csrf=true"}',
+        'error',
+        'registration_failed',
+        'retry-child@example.com',
+        'retry-child-password',
+        [{ phase: 'chatgpt_auth_signin', status: 200 }]
+      );
+    }
+    await options.onEvent?.({ phase: 'registration_retry_existing_account', email: options.email });
+    await options.onEvent?.({ phase: 'chatgpt_auth_session', email: options.email });
+    return {
+      email: options.email!,
+      password: options.password!,
+      name: 'Retry Child',
+      birthdate: '1996-05-12',
+      callbackUrl: 'https://chatgpt.com/',
+      session: {
+        user: { email: options.email! },
+        account: { id: 'retry-child-chatgpt-account-id' },
+        accessToken: chatGptWebAccessToken('retry-child-chatgpt-account-id', 'free'),
+        sessionToken: 'retry-child-session-token'
+      },
+      events: [{ phase: 'registration_retry_existing_account', status: 200 }]
+    };
+  }
+
+  async completeMailbox(email: string) {
+    this.completedMailboxes.push(email);
+    return { email, group: '48team子号', events: [{ phase: 'gongxi_move_email_group', status: 200 }] };
   }
 }
 
@@ -393,6 +567,26 @@ async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor; re
   const token = loginJson.data!.token;
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   return { app, dir, store, subaccountStore, authHeaders, quotaTransport, teamTransport, mother };
+}
+
+async function waitForRegistrationJob(
+  app: Awaited<ReturnType<typeof buildApp>>,
+  authHeaders: Record<string, string>,
+  jobId: string
+): Promise<{ job: SubaccountRegistrationJobView; subaccount?: SubaccountView }> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const jobsResponse = await app.request('/api/subaccounts/registration/jobs', { headers: authHeaders });
+    const jobs = ((await jobsResponse.json()) as ApiResult<SubaccountRegistrationJobView[]>).data ?? [];
+    const job = jobs.find((item) => item.id === jobId);
+    if (job && !['queued', 'running'].includes(job.status)) {
+      const subaccountsResponse = await app.request('/api/subaccounts', { headers: authHeaders });
+      const subaccounts = ((await subaccountsResponse.json()) as ApiResult<SubaccountView[]>).data ?? [];
+      return { job, subaccount: job.subaccountId ? subaccounts.find((item) => item.id === job.subaccountId) : undefined };
+    }
+    if (Date.now() >= deadline) throw new Error(`等待自动注册任务超时: ${jobId}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 describe('Subaccount API', () => {
@@ -519,6 +713,183 @@ describe('Subaccount API', () => {
         accessToken: 'child-web-access-token',
         sessionToken: 'child-session-token'
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes a child Web Session and manages personal profile, common settings, and credits through local APIs', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const freshToken = chatGptWebAccessToken('child-chatgpt-account-id', 'free');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('child-chatgpt-account-id', freshToken);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'stale-child-web-access-token',
+          sessionToken: 'child-session-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/refresh`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const refreshedBody = await refreshed.text();
+      const refreshedJson = JSON.parse(refreshedBody) as ApiResult<SubaccountView>;
+
+      assert.equal(refreshed.status, 200, refreshedBody);
+      assert.equal(refreshedJson.data!.sessionTokenStatus, 'valid');
+      assert.equal(refreshedJson.data!.webAccessTokenStatus, 'valid');
+      assert.equal(refreshedJson.data!.session?.accessToken, freshToken);
+      assert.equal(refreshedJson.data!.chatgptUserId, 'user-child');
+      assert.equal(refreshedJson.data!.remoteUsername, 'child-user');
+      assert.equal(refreshedJson.data!.remoteDisplayName, 'Child User');
+      assert.equal(refreshedJson.data!.remotePictureUrl, 'https://example.invalid/child.png');
+      assert.equal(refreshedJson.data!.marketingPushEnabled, true);
+      assert.equal(refreshedJson.data!.marketingEmailEnabled, false);
+      assert.equal(refreshedJson.data!.rateLimitResetCredits?.availableCount, 2);
+      assert.equal(refreshedJson.data!.rateLimitResetCredits?.totalEarnedCount, 3);
+      assert.equal(refreshedJson.data!.lastError, undefined);
+
+      const meRequest = teamTransport.requests.find((request) => request.path === '/backend-api/me');
+      assert.equal(meRequest?.headers.Authorization, `Bearer ${freshToken}`);
+      assert.equal(meRequest?.headers['chatgpt-account-id'], 'child-chatgpt-account-id');
+      assert.equal(Boolean(meRequest?.headers['oai-device-id']), true);
+      assert.equal(Boolean(meRequest?.headers['oai-session-id']), true);
+
+      const marketingChanged = await app.request(`/api/subaccounts/${subaccount.id}/personal-settings`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ marketingPushEnabled: false, marketingEmailEnabled: true })
+      });
+      const marketingJson = (await marketingChanged.json()) as ApiResult<SubaccountView>;
+      assert.equal(marketingChanged.status, 200);
+      assert.equal(marketingJson.data!.marketingPushEnabled, false);
+      assert.equal(marketingJson.data!.marketingEmailEnabled, true);
+
+      const memoryChanged = await app.request(`/api/subaccounts/${subaccount.id}/personal-settings`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ memoryEnabled: false })
+      });
+      const memoryJson = (await memoryChanged.json()) as ApiResult<SubaccountView>;
+      assert.equal(memoryChanged.status, 200);
+      assert.equal(memoryJson.data!.memoryEnabled, false);
+
+      const profileChanged = await app.request(`/api/subaccounts/${subaccount.id}/personal-settings`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ username: 'new-child-user', displayName: 'New Child User' })
+      });
+      const profileJson = (await profileChanged.json()) as ApiResult<SubaccountView>;
+      assert.equal(profileChanged.status, 200);
+      assert.equal(profileJson.data!.remoteUsername, 'new-child-user');
+      assert.equal(profileJson.data!.remoteDisplayName, 'New Child User');
+
+      const marketingRequest = teamTransport.requests.find(
+        (request) => request.method === 'PATCH' && request.path === '/backend-api/notifications/settings'
+      );
+      assert.deepEqual(JSON.parse(marketingRequest?.body ?? '{}'), {
+        updates: { marketing: { push: false, email: true } }
+      });
+
+      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
+      const logsJson = (await logs.json()) as ApiResult<Array<{ phase: string; data?: Record<string, unknown> }>>;
+      const refreshLog = logsJson.data!.find((entry) => entry.phase === 'web_account_refresh');
+      assert.equal((refreshLog?.data?.session as Record<string, unknown>)?.accessToken, freshToken);
+      assert.equal(Boolean(refreshLog?.data?.me), true);
+      assert.equal(Boolean(refreshLog?.data?.profile), true);
+      assert.equal(Boolean(refreshLog?.data?.notifications), true);
+      assert.equal(Boolean(refreshLog?.data?.rateLimitResetCredits), true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists a valid Session Cookie and an invalid Web AT as separate child sync results', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const revokedToken = chatGptWebAccessToken('child-chatgpt-account-id', 'free');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('child-chatgpt-account-id', revokedToken);
+      teamTransport.invalidatedAccessTokens.add(revokedToken);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'stale-child-web-access-token',
+          sessionToken: 'child-session-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/refresh`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const body = await refreshed.text();
+      const json = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(refreshed.status, 200, body);
+      assert.equal(json.data!.sessionTokenStatus, 'valid');
+      assert.equal(json.data!.webAccessTokenStatus, 'invalid');
+      assert.match(json.data!.lastError ?? '', /token_invalidated/);
+      assert.equal(typeof json.data!.lastRefreshAt, 'number');
+
+      const listed = await app.request('/api/subaccounts', { headers: authHeaders });
+      const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
+      assert.equal(listedJson.data![0]!.sessionTokenStatus, 'valid');
+      assert.equal(listedJson.data![0]!.webAccessTokenStatus, 'invalid');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes and retries a child personal setting when the saved Web AT returns token_revoked', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const staleToken = 'revoked-child-web-access-token';
+      const freshToken = chatGptWebAccessToken('child-chatgpt-account-id', 'free');
+      teamTransport.revokedAccessTokens.add(staleToken);
+      teamTransport.sessionAccessTokensByWorkspaceId.set('child-chatgpt-account-id', freshToken);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: staleToken,
+          sessionToken: 'child-session-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/personal-settings`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ marketingPushEnabled: false })
+      });
+      const body = await refreshed.text();
+      const json = JSON.parse(body) as ApiResult<SubaccountView>;
+
+      assert.equal(refreshed.status, 200, body);
+      assert.equal(json.data!.session?.accessToken, freshToken);
+      assert.equal(json.data!.sessionTokenStatus, 'valid');
+      assert.equal(json.data!.webAccessTokenStatus, 'valid');
+      assert.equal(json.data!.marketingPushEnabled, false);
+      const notificationRequests = teamTransport.requests.filter(
+        (request) => request.path === '/backend-api/notifications/settings'
+      );
+      assert.deepEqual(
+        notificationRequests.map((request) => request.headers.Authorization),
+        [`Bearer ${staleToken}`, `Bearer ${freshToken}`]
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1563,32 +1934,39 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('registers a new child account through the worker without exposing the generated password', async () => {
+  it('registers a new child Web Session, stores the password, logs the raw trace, and moves the mailbox', async () => {
     const registration = new FakeSubaccountRegistration();
     const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ registration });
     try {
       const started = await app.request('/api/subaccounts/registration/start', {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({ mailGroup: 'clean-outlook', chatgptAccountId: 'workspace-account-id' })
+        body: JSON.stringify({ mailGroup: 'clean-outlook' })
       });
       assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
-      assert.equal(startedJson.data!.email, 'registered-child@example.com');
-      assert.equal(startedJson.data!.status, 'codex_ready');
-      assert.equal(startedJson.data!.hasWebSession, false);
-      assert.equal(startedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
-      assert.equal(JSON.stringify(startedJson).includes('generated-child-password'), false);
+      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
+      assert.equal(startedJson.data!.status, 'queued');
+      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
+      const registered = completed.subaccount!;
+      assert.equal(completed.job.status, 'succeeded');
+      assert.equal(registered.email, 'registered-child@example.com');
+      assert.equal(registered.status, 'session_ready');
+      assert.equal(registered.hasWebSession, true);
+      assert.equal(registered.session?.sessionToken, 'registered-child-session-token');
+      assert.equal(registered.registrationPassword, 'generated-child-password');
+      assert.equal(registered.codexCredentials.length, 0);
       assert.equal(registration.requests[0]!.mailGroup, 'clean-outlook');
-      assert.equal(registration.requests[0]!.targetChatgptAccountId, 'workspace-account-id');
+      assert.deepEqual(registration.completedMailboxes, ['registered-child@example.com']);
 
-      const stored = subaccountStore.get(startedJson.data!.id) as unknown as { registrationPassword?: string };
+      const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
       assert.equal(stored.registrationPassword, 'generated-child-password');
 
-      const allLogs = await app.request(`/api/subaccounts/${startedJson.data!.id}/logs`, { headers: authHeaders });
+      const allLogs = await app.request(`/api/subaccounts/${registered.id}/logs`, { headers: authHeaders });
       const allLogsJson = (await allLogs.json()) as ApiResult<Array<{ phase: string; message: string }>>;
       assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_complete'));
-      assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), false);
+      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_trace'));
+      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_mailbox_complete'));
+      assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1605,15 +1983,57 @@ describe('Subaccount API', () => {
         body: JSON.stringify({})
       });
       assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
+      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
+      const registered = completed.subaccount!;
 
-      assert.equal(startedJson.data!.email, 'pending-child@example.com');
-      assert.equal(startedJson.data!.status, 'verification_required');
-      assert.match(startedJson.data!.lastError ?? '', /account_creation_failed/);
-      assert.equal(JSON.stringify(startedJson).includes('generated-child-password'), false);
+      assert.equal(completed.job.status, 'failed');
+      assert.equal(registered.email, 'pending-child@example.com');
+      assert.equal(registered.status, 'verification_required');
+      assert.match(registered.lastError ?? '', /account_creation_failed/);
+      assert.equal(registered.registrationPassword, 'generated-child-password');
 
-      const stored = subaccountStore.get(startedJson.data!.id) as unknown as { registrationPassword?: string };
+      const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
       assert.equal(stored.registrationPassword, 'generated-child-password');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('retries a failed registration job with the same saved email and password', async () => {
+    const registration = new FakeRetryableRegistration();
+    const { app, dir, authHeaders } = await buildTestApp({ registration });
+    try {
+      const started = await app.request('/api/subaccounts/registration/start', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({})
+      });
+      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
+      const failed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
+      assert.equal(failed.job.status, 'failed');
+      assert.equal(failed.subaccount?.email, 'retry-child@example.com');
+      assert.equal(failed.subaccount?.registrationPassword, 'retry-child-password');
+
+      const retried = await app.request(`/api/subaccounts/registration/jobs/${failed.job.id}/retry`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const retriedBody = await retried.text();
+      const retriedJson = JSON.parse(retriedBody) as ApiResult<SubaccountRegistrationJobView>;
+      assert.equal(retried.status, 200, retriedBody);
+      assert.equal(retriedJson.data!.id, failed.job.id);
+      assert.equal(retriedJson.data!.status, 'queued');
+
+      const completed = await waitForRegistrationJob(app, authHeaders, failed.job.id);
+      assert.equal(completed.job.status, 'succeeded');
+      assert.equal(completed.subaccount?.email, 'retry-child@example.com');
+      assert.equal(completed.subaccount?.session?.sessionToken, 'retry-child-session-token');
+      assert.deepEqual(registration.requests, [
+        { email: undefined, password: undefined, resumeExisting: false },
+        { email: 'retry-child@example.com', password: 'retry-child-password', resumeExisting: false }
+      ]);
+      assert.deepEqual(registration.completedMailboxes, ['retry-child@example.com']);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1630,21 +2050,24 @@ describe('Subaccount API', () => {
         body: JSON.stringify({})
       });
       assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
+      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
+      const registered = completed.subaccount!;
 
-      assert.equal(startedJson.data!.email, 'locked-child@example.com');
-      assert.equal(startedJson.data!.status, 'account_locked');
-      assert.match(startedJson.data!.lastError ?? '', /account disabled/);
-      assert.equal(JSON.stringify(startedJson).includes('generated-child-password'), false);
+      assert.equal(completed.job.status, 'failed');
+      assert.equal(registered.email, 'locked-child@example.com');
+      assert.equal(registered.status, 'account_locked');
+      assert.match(registered.lastError ?? '', /account disabled/);
+      assert.equal(registered.registrationPassword, 'generated-child-password');
 
-      const stored = subaccountStore.get(startedJson.data!.id) as unknown as { registrationPassword?: string };
+      const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
       assert.equal(stored.registrationPassword, 'generated-child-password');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('returns 502 without creating a child when registration has no usable email', async () => {
+  it('keeps a failed background job without creating a child when registration has no usable email', async () => {
     const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
       registration: new FakeRegistrationEmailUnavailable()
     });
@@ -1654,18 +2077,20 @@ describe('Subaccount API', () => {
         headers: authHeaders,
         body: JSON.stringify({})
       });
-      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
+      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
 
-      assert.equal(started.status, 502);
-      assert.equal(startedJson.ok, false);
-      assert.match(startedJson.error ?? '', /No usable GongXi-Mail email/);
+      assert.equal(started.status, 200);
+      assert.equal(completed.job.status, 'failed');
+      assert.match(completed.job.error ?? '', /No usable GongXi-Mail email/);
+      assert.equal(completed.subaccount, undefined);
       assert.equal(subaccountStore.list().length, 0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('reuses the private registration password when retrying Codex auto auth for a registered account', async () => {
+  it('reuses the registration password for Codex auto auth and keeps it in the private raw logs', async () => {
     const codexAutoAuth = new FakeCodexAutoAuth();
     const { app, dir, authHeaders } = await buildTestApp({
       codexAutoAuth,
@@ -1678,9 +2103,11 @@ describe('Subaccount API', () => {
         body: JSON.stringify({})
       });
       assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountView>;
+      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
+      const registrationResult = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
+      const registered = registrationResult.subaccount!;
 
-      const completed = await app.request(`/api/subaccounts/${startedJson.data!.id}/codex-auth/auto`, {
+      const completed = await app.request(`/api/subaccounts/${registered.id}/codex-auth/auto`, {
         method: 'POST',
         headers: authHeaders
       });
@@ -1689,9 +2116,9 @@ describe('Subaccount API', () => {
       assert.equal(codexAutoAuth.requests[0]!.email, 'pending-child@example.com');
       assert.equal(codexAutoAuth.requests[0]!.password, 'generated-child-password');
 
-      const logs = await app.request(`/api/subaccounts/${startedJson.data!.id}/logs`, { headers: authHeaders });
+      const logs = await app.request(`/api/subaccounts/${registered.id}/logs`, { headers: authHeaders });
       const logsText = await logs.text();
-      assert.equal(logsText.includes('generated-child-password'), false);
+      assert.equal(logsText.includes('generated-child-password'), true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

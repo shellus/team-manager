@@ -6,9 +6,13 @@
 
 ### 自动注册子号
 
-子号页可通过“自动注册”调用运行环境 worker 申请 GongXi-Mail 邮箱并注册 OpenAI 账号。注册流程会生成随机密码，密码只保存在后端运行时数据，不在页面、普通 API view 或授权日志中展示。若分配到已存在、已注册或被占用的邮箱，worker 会自动重新取邮箱，不会把这类脏邮箱作为新子号落库。
+子号页可通过“自动注册”调用运行环境 worker 申请 GongXi-Mail 邮箱并注册 OpenAI 账号。完整顺序是：取邮箱、进入 ChatGPT 注册入口、设置密码、验证邮箱验证码、填写姓名和生日、完成 ChatGPT 回调、访问 `chatgpt.com/api/auth/session` 取得 Web Session、录入为子号，最后把邮箱转移到运行环境配置的已注册分组。若分配到已存在、已注册或被占用的邮箱，worker 会自动重新取邮箱，不会把这类脏邮箱作为新子号落库。
 
-自动注册会继续尝试完成 Codex 授权；成功后页面显示对应 Team workspace 的 Codex 凭证。注册阶段遇到 sentinel、人机校验或短信问题时，子号会进入待验证或异常状态；账号锁定会进入单独的账号锁定状态。日志只展示脱敏阶段信息。对这类已落库账号再次点击“自动授权”时，后端会复用私有保存的注册密码继续登录，但页面和日志仍不会展示密码。
+点击开始后，按钮只在创建后台任务期间短暂显示 loading。任务创建成功后，子号列表立即出现注册任务项，并显示邮箱分配、验证码、资料提交和 Web Session 获取进度；页面仍可继续操作。任务状态保存在运行数据中，刷新页面不会丢失。注册完成后任务项自动变为正常子号记录；自动注册密码、注册时间和来源集中显示在子号详情的“注册资料”页签，可直接复制。
+
+注册任务失败或服务重启中断后，任务项提供重试按钮。若任务已经分配并保存邮箱与密码，重试会继续使用同一邮箱和密码；如果远端提示该邮箱已注册，worker 会自动切换为密码登录，重新获取 `/api/auth/session`，不会再创建另一个邮箱。只有失败发生在邮箱分配前时，重试才重新申请邮箱。
+
+自动注册只负责账号注册和 Web Session 录入，不生成 Codex OAuth 或 PAT 凭证。注册阶段遇到 sentinel、人机校验、邮箱验证码或 ChatGPT Session 获取问题时，子号会进入待验证或异常状态；账号锁定会进入单独的账号锁定状态。该自托管实例的注册追踪日志会原样保存请求头、请求体、响应头、响应体、Cookie、邮箱、密码、验证码、Session 与错误堆栈，便于完整排障；这些日志属于高敏感运行数据，不应对外公开。
 
 ### 录入子号 session
 
@@ -31,11 +35,31 @@
 
 创建 Codex 个人访问令牌时，若子号保存了 session JSON 的 `sessionToken`，系统会向 ChatGPT `/api/auth/session` 换取目标 workspace 的 Web access token；多 workspace 子号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。
 
-子号侧 ChatGPT Web 请求也会复用 `sessionToken`。同步 Team 关联时，如果 `accounts/check` 或目标 workspace 的 users 查询返回 401 `token_invalidated`，系统会按当前请求的 workspace 换取新的 Web access token，回写子号本地记录并重试一次。
+子号侧 ChatGPT Web 请求也会复用 `sessionToken`。同步账号、同步 Team 关联或修改设置时，如果 backend-api 返回 401 `token_invalidated` 或 `token_revoked`，系统会按当前请求的 workspace 换取新的 Web access token，回写子号本地记录并重试一次。
 
 录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。本地资料弹窗会回填已保存的 session JSON，便于直接检查或替换。
 
 子号本地资料可配置独立代理地址 `proxy`。子号代理会用于子号侧 Team 关联同步、退出 Team、请求加入 K12 workspace、按 `sessionToken` 换取目标 workspace Web access token、创建 Team PAT/K12 凭证，以及刷新该子号 Codex 额度；未配置子号代理时，curl_cffi worker 才回退到运行环境全局代理。
+
+## 个人资料、常用设置与 Web 登录态
+
+子号详情页提供“同步账号”和“设置”页签。同步账号使用本系统后端完成以下步骤：
+
+1. 用已保存的 `sessionToken` 请求 ChatGPT `/api/auth/session`，验证 Session Cookie 并回写新 Web access token。
+2. 调用 `/backend-api/me` 验证 Web access token，并缓存个人 user id、显示名和头像。
+3. 按 user id 读取 Calpico 个人资料，缓存用户名和显示名。
+4. 读取营销通知设置与 `/backend-api/wham/rate-limit-reset-credits` 用量限制数据。
+
+Session Cookie 与 Web access token 分别保存最近验证状态和时间。Session Cookie 有效但新 Web access token 被远端返回 `token_revoked` 时，页面会分别显示“有效”和“无效”，不会把两者合并成一个模糊状态。同步结果、错误正文以及成功响应原样写入子号运行日志，刷新页面后仍可查看。
+
+设置页只管理子号个人空间中的常用项目，不复制母号 Team workspace 设置：
+
+- 修改个人用户名和显示名。
+- 开关营销 Push 与营销 Email 通知。
+- 开关记忆；远端没有提供已确认可用的读取接口，因此首次同步时显示“未知”，用户修改后再保存明确状态。
+- 只读展示 reset credits 的当前可用数、累计获得数和原始 credits 明细。
+
+登录态区域分别显示 Session Cookie 与 Web Access Token 的验证状态。未知值会明确标记为“未知”或“尚未同步”，不会伪装成关闭状态。
 
 ### 导入已有 Codex 凭证
 

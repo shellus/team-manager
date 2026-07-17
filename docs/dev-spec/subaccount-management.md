@@ -10,7 +10,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 记录邮箱、本地备注 `remark`、ChatGPT account id、web session 状态、按 Team workspace 保存的 Codex 凭证状态，以及该子号加入过的母号关系。
   - `codexCredentials[]` 按凭证里的 `credential.account_id` 保存多份凭证元数据；真实 CPA/Codex auth JSON 写入独立凭证文件。
   - 凭证元数据包含 `accountId`、`fileName`、`groupName`、`planType`、授权时间和额度缓存。`groupName` 用于展示该凭证所在 CPA 号池。
-  - 自动注册生成的 OpenAI 密码记录在后端持久化对象的私有字段中，普通 view 不下发。
+  - 自动注册生成的 OpenAI 密码记录在持久化对象中，并下发给可信自托管管理后台的“注册资料”页签；完整日志同样保留明文，便于排障。
   - `credential.account_id` 是凭证绑定的 Team workspace。OAuth 凭证来自 Codex `id_token` claim 中的 `chatgpt_account_id`；个人访问令牌凭证来自 `wham/auth-credentials` 响应的 `workspace_id`。
   - API 普通 view 返回子号元数据、可编辑 Web session 和代理地址；Codex credential JSON 的 `access_token` / `refresh_token` / `id_token` 只通过显式凭证导出接口返回。
 - 子号 Web 登录态录入：
@@ -18,7 +18,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - session JSON 对象必需字段为 `user.email`、`account.id`、`accessToken`；可选字段 `sessionToken` 会被保存，用于后续按目标 workspace 换取 Web access token。
   - `sessionToken` 写入后端 `data/subaccounts.json`，并通过 `SubaccountView.session` 回填给管理后台本地资料编辑框。
   - 对多 workspace 子号创建 Codex 个人访问令牌时，后端会用保存的 `sessionToken` 请求 ChatGPT `/api/auth/session`，换取目标 workspace 的 Web access token，不要求用户按 workspace 分别录入 session。
-  - 子号侧 ChatGPT Web 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 时，如果保存了 `sessionToken`，后端会按当前请求 workspace 换取新的 Web access token，回写 `webAccessToken` 并重试一次原请求。
+  - 子号侧 ChatGPT Web 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 或 `token_revoked` 时，如果保存了 `sessionToken`，后端会按当前请求 workspace 换取新的 Web access token，回写 `webAccessToken` 并重试一次原请求。
   - 不支持数组输入或扁平字段，不做回退兼容。
 - 已有 Codex credential 录入：
   - `POST /api/subaccounts/codex-credential` 接受 CPA/Codex 兼容 auth JSON，或 `{ credential, fileName, groupName }` 包装格式。
@@ -29,6 +29,12 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注 `remark` 和独立代理地址 `proxy`。
   - 请求带新的 session JSON 对象时更新 `email`、`chatgptAccountId`、`webAccessToken`，并在存在 `sessionToken` 时更新 `sessionToken`。
   - 保留已有 Codex 凭证、Team 关联和授权日志，响应 view 回填已保存的 Web session 和代理地址；Codex credential JSON 仍不进入普通 view。
+- Web 账号同步与个人设置：
+  - `POST /api/subaccounts/:id/refresh` 先用 `sessionToken` 调用 `/api/auth/session`，再用新 Web access token调用 `/backend-api/me`、Calpico 个人资料、营销通知设置和 reset credits。
+  - `sessionTokenStatus` 与 `webAccessTokenStatus` 分开持久化；前者表示 Session Cookie 是否可换取 Session，后者表示 backend-api 是否接受 Web access token。
+  - 同步采用部分成功语义。某项个人接口失败时仍返回最新子号 view，并把失败步骤写入 `lastError` 和完整运行日志。
+  - `PATCH /api/subaccounts/:id/personal-settings` 修改用户名、显示名、营销 Push、营销 Email 或记忆；子号不保存也不修改母号的默认席位、邀请权限、PAT 或 Codex Team 设置。
+  - 营销通知 PATCH 使用远端要求的 `{updates:{marketing:{push?,email?}}}` 结构；记忆通过 `account_user_setting?feature=m3m&value=...` 修改。
 - Codex Auth 授权：
   - 使用 OAuth authorization code + PKCE。
   - 固定 redirect URI：`http://localhost:1455/auth/callback`。
@@ -59,13 +65,15 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `codex-rs/login/src/auth/personal_access_token.rs` 会用 PAT 调 `GET /api/accounts/v1/user-auth-credential/whoami` 补齐 `email`、`chatgpt_user_id`、`chatgpt_account_id`、`chatgpt_plan_type` 和 FedRAMP 标记。
   - `codex-rs/model-provider-info/src/lib.rs` 将 `PersonalAccessToken` 视为使用 ChatGPT Codex backend 的认证模式。
 - 自动注册：
-  - `POST /api/subaccounts/registration/start` 创建不带 `login_hint` 的 Codex OAuth 会话，并调用 worker `/subaccounts/register`。
-  - worker 通过 GongXi-Mail `/api/get-email` 申请邮箱，生成随机强密码，执行 `screen_hint:"signup"`、`/api/accounts/user/register`、邮箱 OTP、必要手机号验证、workspace select 和 token exchange。
-  - 若 OpenAI 在 signup continue 或 register 阶段表明邮箱已存在、已注册或被占用，worker 会记录 `registration_email_rejected`，重新从 GongXi-Mail 取邮箱；`TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 控制最大取邮箱次数，默认 3 次。
-  - 若所有候选邮箱都被判定为已注册或被占用，worker 返回 `registration_email_unavailable`，不携带最后一个无效邮箱和密码；后端返回 502，不创建子号记录。
-  - 注册成功后，后端创建或更新子号记录，保存生成密码；如 token exchange 返回 Codex token，则按目标 Team workspace 写入独立凭证文件并保存凭证元数据。
-  - 注册阶段 sentinel 或 OpenAI 人机校验失败时，worker 返回 `verification_required` 和脱敏事件；如已经拿到邮箱和密码，后端仍会落库，便于后续恢复。
-  - 对已落库的自动注册账号再次执行 Codex 自动授权时，后端会把私有 `registrationPassword` 传给 worker 走密码登录；普通 view 和授权日志仍不下发密码。
+  - `POST /api/subaccounts/registration/start` 原子创建持久化后台任务并立即返回；服务端串行队列通过 worker `/subaccounts/register-events` 执行注册和接收阶段事件，只负责 ChatGPT 账号注册和 Web Session 录入，不创建 Codex OAuth 会话。
+  - worker 通过 GongXi-Mail `/api/get-email` 申请邮箱，生成随机强密码，执行 `screen_hint:"signup"`；若 OpenAI 默认进入 `passwordless_signup`，则显式切换到同一会话的密码注册分支，再调用 `/api/accounts/user/register`、邮箱 OTP、资料填写和 ChatGPT callback。
+  - 新任务若在 signup continue 或 register 阶段发现邮箱已存在、已注册或被占用，worker 会记录 `registration_email_rejected` 并重新从 GongXi-Mail 取邮箱；`TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 控制最大取邮箱次数，默认 3 次。
+  - 失败或中断任务可通过 `POST /api/subaccounts/registration/jobs/:jobId/retry` 原子复用原任务。已保存邮箱和密码时重试同一账号；若远端返回邮箱已存在，则改走密码登录并重新取得 Web Session。邮箱分配前失败的任务才重新取邮箱。
+  - 若所有候选邮箱都被判定为已注册或被占用，worker 返回 `registration_email_unavailable`，不携带最后一个无效邮箱和密码；后台任务进入失败状态，不创建子号记录。
+  - callback 回到 ChatGPT 后，worker 访问 `/api/auth/session` 获取 `accessToken`、`sessionToken` 和账号 ID；后端创建或更新子号记录、保存生成密码，再把邮箱转移到已注册分组。
+  - 自动注册按钮不选择 workspace、不执行 Codex OAuth、不生成 PAT，也不写入 Codex credential 文件。
+  - 注册阶段 sentinel 或 OpenAI 人机校验失败时，worker 返回 `verification_required` 和完整原始事件；如已经拿到邮箱和密码，后端仍会落库，便于后续恢复。
+  - 对已落库的自动注册账号再次执行 Codex 自动授权时，后端会把 `registrationPassword` 传给 worker 走密码登录；可信管理后台的“注册资料”页签显示该密码和注册来源，完整授权日志仍按运行环境规则保存。
 - 自动授权运行能力检查：
   - `GET /api/subaccounts/codex-auth/status` 返回 worker 是否配置、worker 是否可连接、GongXi-Mail 是否可用、短信 OTP 能力是否可用、授权页面 clearance 是否可用。
   - 响应只包含布尔状态、可用号码数量、已用尽号码数量和脱敏错误摘要，不返回真实 URL、key、手机号、文件路径或接码渠道配置。
@@ -95,7 +103,7 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - 不对接外部 credential-status 服务。
 - 验证与授权日志：
   - 追加写入 `data/subaccount-auth-logs.jsonl`。
-  - 日志只保存阶段、状态、短消息和脱敏结构化元数据。
+  - 自托管运行实例按排障要求保存完整结构化数据；Web 账号同步日志包含 `/api/auth/session`、`/backend-api/me`、个人资料、通知设置和用量限制的成功响应或完整错误正文，不做字段脱敏。
 
 ## 短信接码 YAML 池
 
@@ -142,8 +150,12 @@ phones:
 - `GET /api/subaccounts`
 - `POST /api/subaccounts/session`
 - `POST /api/subaccounts/codex-credential`
-- `POST /api/subaccounts/registration/start`，可传 `mailGroup` 和 `chatgptAccountId`
+- `POST /api/subaccounts/registration/start`，可传 `mailGroup`
+- `GET /api/subaccounts/registration/jobs`
+- `POST /api/subaccounts/registration/jobs/:jobId/retry`
 - `PATCH /api/subaccounts/:id/local-profile`
+- `POST /api/subaccounts/:id/refresh`
+- `PATCH /api/subaccounts/:id/personal-settings`
 - `DELETE /api/subaccounts/:id`
 - `POST /api/subaccounts/:id/codex-auth/start`，可传 `chatgptAccountId`
 - `GET /api/subaccounts/codex-auth/status`

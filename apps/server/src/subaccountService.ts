@@ -4,6 +4,7 @@ import type {
   CodexQuotaSnapshot,
   Subaccount,
   SubaccountAuthLog,
+  SubaccountRegistrationJobView,
   SubaccountStatus,
   SubaccountView
 } from '@team-manager/shared';
@@ -19,9 +20,14 @@ import {
   createSubaccountRegistrationExecutor,
   type SubaccountRegistrationExecutor
 } from './subaccountRegistration.js';
+import { SubaccountRegistrationJobStore } from './subaccountRegistrationJobStore.js';
 import { fetchCodexQuota } from './codexQuota.js';
 import { ServiceError } from './teamService.js';
-import { ChatGptApi, ChatGptApiError, type CodexPersonalAccessTokenResponse } from './chatgptApi.js';
+import {
+  ChatGptApi,
+  ChatGptApiError,
+  type CodexPersonalAccessTokenResponse
+} from './chatgptApi.js';
 import {
   ChatGptWebSessionError,
   fetchWorkspaceExchangeSessionFromSessionToken,
@@ -49,9 +55,11 @@ export class SubaccountService {
     string,
     { subaccountId: string; session: CodexAuthSession; targetChatgptAccountId?: string }
   >();
+  private registrationQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly store: SubaccountStore,
+    private readonly registrationJobs: SubaccountRegistrationJobStore,
     private readonly codexFetch: typeof fetch = fetch,
     private readonly quotaTransport: Transport = createTransport(),
     private readonly codexAutoAuth: CodexAutoAuthExecutor | undefined = createCodexAutoAuthExecutor(),
@@ -61,6 +69,99 @@ export class SubaccountService {
 
   list(): SubaccountView[] {
     return this.store.list();
+  }
+
+  listRegistrationJobs(): SubaccountRegistrationJobView[] {
+    return this.registrationJobs.list();
+  }
+
+  async startSubaccountRegistration(input: {
+    mailGroup?: string;
+    email?: string;
+    password?: string;
+    resumeExisting?: boolean;
+  }): Promise<SubaccountRegistrationJobView> {
+    if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
+    const job = await this.registrationJobs.create();
+    this.registrationQueue = this.registrationQueue
+      .then(() => this.runSubaccountRegistrationJob(job.id, input))
+      .catch((error) => {
+        console.error(`[team-manager] 自动注册任务 ${job.id} 后台执行失败:`, error);
+      });
+    return job;
+  }
+
+  async retrySubaccountRegistration(jobId: string): Promise<SubaccountRegistrationJobView> {
+    const job = this.registrationJobs.get(jobId);
+    if (!job) throw new ServiceError(404, `自动注册任务不存在: ${jobId}`);
+    if (job.status !== 'failed' && job.status !== 'interrupted') {
+      throw new ServiceError(409, '只有失败或中断的注册任务可以重试');
+    }
+    const subaccount = job.subaccountId ? this.store.get(job.subaccountId) : undefined;
+    const retryInput =
+      subaccount?.registrationPassword
+        ? {
+            email: subaccount.email,
+            password: subaccount.registrationPassword,
+            resumeExisting: false
+          }
+        : {};
+    const reset = await this.registrationJobs.update(jobId, {
+      status: 'queued',
+      phase: 'registration_queued',
+      message: retryInput.email ? `已重新加入队列，将重试邮箱 ${retryInput.email}` : '已重新加入自动注册队列',
+      progress: 0,
+      error: undefined,
+      completedAt: undefined
+    });
+    this.registrationQueue = this.registrationQueue
+      .then(() => this.runSubaccountRegistrationJob(jobId, retryInput))
+      .catch((error) => {
+        console.error(`[team-manager] 自动注册重试任务 ${jobId} 后台执行失败:`, error);
+      });
+    return reset;
+  }
+
+  private async runSubaccountRegistrationJob(
+    jobId: string,
+    input: { mailGroup?: string; email?: string; password?: string; resumeExisting?: boolean }
+  ): Promise<void> {
+    await this.registrationJobs.update(jobId, {
+      status: 'running',
+      phase: 'registration_starting',
+      message: '正在准备注册环境',
+      progress: 2
+    });
+    try {
+      const registered = await this.registerNewSubaccount({
+        ...input,
+        onEvent: async (event) => {
+          const progress = registrationProgressFromEvent(event);
+          if (!progress) return;
+          await this.registrationJobs.update(jobId, progress);
+        }
+      });
+      const failed = Boolean(registered.lastError) || !registered.hasWebSession;
+      await this.registrationJobs.update(jobId, {
+        status: failed ? 'failed' : 'succeeded',
+        phase: failed ? 'registration_failed' : 'registration_complete',
+        message: failed ? registered.lastError ?? '自动注册未取得有效 Web Session' : '自动注册完成',
+        progress: 100,
+        email: registered.email,
+        subaccountId: registered.id,
+        completedAt: Date.now(),
+        error: failed ? registered.lastError ?? 'registration_incomplete' : undefined
+      });
+    } catch (error) {
+      await this.registrationJobs.update(jobId, {
+        status: 'failed',
+        phase: 'registration_failed',
+        message: (error as Error).message,
+        progress: 100,
+        completedAt: Date.now(),
+        error: (error as Error).message
+      });
+    }
   }
 
   async getCodexAuthRuntimeStatus(): Promise<CodexAuthRuntimeStatus> {
@@ -228,6 +329,309 @@ export class SubaccountService {
       }
     });
     return updated;
+  }
+
+  async refreshWebAccount(id: string): Promise<SubaccountView> {
+    const initial = this.requireSubaccount(id);
+    const checkedAt = Date.now();
+    const errors: string[] = [];
+    let accessToken = initial.webAccessToken?.trim() ?? '';
+    let sessionResponse: Record<string, unknown> | undefined;
+    let meResponse: Record<string, unknown> | undefined;
+    let profileResponse: Record<string, unknown> | undefined;
+    let notificationsResponse: Record<string, unknown> | undefined;
+    let creditsResponse: Record<string, unknown> | undefined;
+    let patch: Partial<Subaccount> = { lastRefreshAt: checkedAt };
+
+    if (!initial.sessionToken?.trim()) {
+      errors.push('Session JSON 缺少 sessionToken，无法验证 Session Cookie');
+      patch.sessionTokenStatus = 'invalid';
+      patch.sessionTokenCheckedAt = checkedAt;
+    } else if (!initial.chatgptAccountId?.trim()) {
+      errors.push('Session JSON 缺少 account.id，无法刷新 Web Session');
+      patch.sessionTokenStatus = 'invalid';
+      patch.sessionTokenCheckedAt = checkedAt;
+    } else {
+      try {
+        sessionResponse = await fetchWorkspaceWebSessionFromSessionToken(
+          this.webTransport,
+          initial.sessionToken,
+          initial.chatgptAccountId,
+          initial.proxy
+        );
+        accessToken = readSessionAccessToken(sessionResponse);
+        patch = {
+          ...patch,
+          webAccessToken: accessToken,
+          sessionTokenStatus: 'valid',
+          sessionTokenCheckedAt: checkedAt
+        };
+      } catch (error) {
+        errors.push(`Session Cookie 验证失败: ${fullErrorMessage(error)}`);
+        patch.sessionTokenStatus = 'invalid';
+        patch.sessionTokenCheckedAt = checkedAt;
+      }
+    }
+
+    if (!accessToken || !initial.chatgptAccountId?.trim()) {
+      errors.push('缺少可用于 backend-api 的 Web Access Token 或 account.id');
+      patch.webAccessTokenStatus = 'invalid';
+      patch.webAccessTokenCheckedAt = checkedAt;
+    } else {
+      const api = this.webApiFor({ ...initial, ...patch, webAccessToken: accessToken }, async (response, token) => {
+        sessionResponse = response;
+        accessToken = token;
+        patch = {
+          ...patch,
+          webAccessToken: token,
+          sessionTokenStatus: 'valid',
+          sessionTokenCheckedAt: Date.now()
+        };
+      });
+
+      let userId = initial.chatgptUserId;
+      try {
+        meResponse = await api.getMe();
+        userId = readOptionalString(meResponse, 'id') ?? userId;
+        const remoteEmail = readOptionalString(meResponse, 'email');
+        patch = {
+          ...patch,
+          webAccessToken: accessToken,
+          webAccessTokenStatus: 'valid',
+          webAccessTokenCheckedAt: Date.now(),
+          chatgptUserId: userId,
+          remoteDisplayName: readOptionalString(meResponse, 'name') ?? initial.remoteDisplayName,
+          remotePictureUrl: readOptionalString(meResponse, 'picture') ?? initial.remotePictureUrl,
+          personalProfileCachedAt: Date.now()
+        };
+        if (remoteEmail && remoteEmail.toLowerCase() !== initial.email.toLowerCase()) {
+          errors.push(`个人资料邮箱与子号不一致: ${remoteEmail} != ${initial.email}`);
+        }
+      } catch (error) {
+        errors.push(`个人资料同步失败: ${fullErrorMessage(error)}`);
+        if (error instanceof ChatGptApiError && error.status === 401) patch.webAccessTokenStatus = 'invalid';
+        patch.webAccessTokenCheckedAt = Date.now();
+      }
+
+      if (userId) {
+        try {
+          profileResponse = await api.getPersonalProfile(userId);
+          patch = { ...patch, ...personalProfilePatch(profileResponse, Date.now()) };
+        } catch (error) {
+          errors.push(`用户名资料读取失败: ${fullErrorMessage(error)}`);
+        }
+      }
+
+      try {
+        notificationsResponse = await api.getNotificationSettings();
+        patch = { ...patch, ...marketingNotificationPatch(notificationsResponse, Date.now()) };
+      } catch (error) {
+        errors.push(`营销通知读取失败: ${fullErrorMessage(error)}`);
+      }
+
+      try {
+        creditsResponse = await api.getRateLimitResetCredits();
+        patch.rateLimitResetCredits = rateLimitResetCreditsFromResponse(creditsResponse, Date.now());
+      } catch (error) {
+        errors.push(`用量限制读取失败: ${fullErrorMessage(error)}`);
+      }
+    }
+
+    patch.lastRefreshAt = Date.now();
+    patch.lastError = errors.length ? errors.join('\n') : undefined;
+    const updated = await this.store.update(id, patch);
+    if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+    await this.store.appendLog(id, {
+      phase: 'web_account_refresh',
+      status: errors.length ? 'partial' : 'success',
+      message: errors.length ? '子号 Web 账号同步完成，但存在失败步骤' : '子号 Web 账号同步完成',
+      data: {
+        email: initial.email,
+        accountId: initial.chatgptAccountId,
+        session: sessionResponse,
+        me: meResponse,
+        profile: profileResponse,
+        notifications: notificationsResponse,
+        rateLimitResetCredits: creditsResponse,
+        errors
+      }
+    });
+    return updated;
+  }
+
+  async setMarketingNotifications(
+    id: string,
+    input: { push?: boolean; email?: boolean }
+  ): Promise<SubaccountView> {
+    const subaccount = this.requireSubaccount(id);
+    const api = this.webApiFor(subaccount);
+    try {
+      const response = await api.setMarketingNotifications(input);
+      const updated = await this.store.update(id, {
+        ...marketingNotificationPatch(response, Date.now()),
+        webAccessTokenStatus: 'valid',
+        webAccessTokenCheckedAt: Date.now(),
+        lastError: undefined
+      });
+      if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      await this.store.appendLog(id, {
+        phase: 'personal_settings_update',
+        status: 'success',
+        message: '已修改营销通知设置',
+        data: { input, response }
+      });
+      return updated;
+    } catch (error) {
+      await this.persistWebRequestError(id, 'personal_settings_update', '修改营销通知设置失败', error, { input });
+      throw asServiceError(error);
+    }
+  }
+
+  async setMemoryEnabled(id: string, enabled: boolean): Promise<SubaccountView> {
+    const subaccount = this.requireSubaccount(id);
+    const api = this.webApiFor(subaccount);
+    try {
+      const response = await api.setMemoryEnabled(enabled);
+      const remoteValue = response.m3m;
+      const updated = await this.store.update(id, {
+        memoryEnabled: typeof remoteValue === 'boolean' ? remoteValue : enabled,
+        memoryCachedAt: Date.now(),
+        webAccessTokenStatus: 'valid',
+        webAccessTokenCheckedAt: Date.now(),
+        lastError: undefined
+      });
+      if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      await this.store.appendLog(id, {
+        phase: 'personal_settings_update',
+        status: 'success',
+        message: `已${enabled ? '开启' : '关闭'}记忆`,
+        data: { enabled, response }
+      });
+      return updated;
+    } catch (error) {
+      await this.persistWebRequestError(id, 'personal_settings_update', '修改记忆设置失败', error, { enabled });
+      throw asServiceError(error);
+    }
+  }
+
+  async updatePersonalProfile(
+    id: string,
+    input: { username?: string; displayName?: string }
+  ): Promise<SubaccountView> {
+    let subaccount = this.requireSubaccount(id);
+    const api = this.webApiFor(subaccount);
+    let userId = subaccount.chatgptUserId?.trim();
+    const responses: Record<string, unknown> = {};
+    try {
+      if (!userId) {
+        const me = await api.getMe();
+        responses.me = me;
+        userId = readOptionalString(me, 'id');
+        if (!userId) throw new ServiceError(502, '个人资料响应缺少 user id');
+        const saved = await this.store.update(id, {
+          chatgptUserId: userId,
+          remoteDisplayName: readOptionalString(me, 'name'),
+          remotePictureUrl: readOptionalString(me, 'picture'),
+          personalProfileCachedAt: Date.now()
+        });
+        if (saved) subaccount = this.requireSubaccount(id);
+      }
+
+      let patch: Partial<Subaccount> = {};
+      if (input.username !== undefined) {
+        const response = await api.setPersonalUsername(userId, input.username);
+        responses.username = response;
+        patch = { ...patch, ...personalProfilePatch(response, Date.now()) };
+      }
+      if (input.displayName !== undefined) {
+        const response = await api.setPersonalDisplayName(userId, input.displayName);
+        responses.displayName = response;
+        patch = { ...patch, ...personalProfilePatch(response, Date.now()) };
+      }
+      const updated = await this.store.update(id, {
+        ...patch,
+        chatgptUserId: userId,
+        webAccessTokenStatus: 'valid',
+        webAccessTokenCheckedAt: Date.now(),
+        lastError: undefined
+      });
+      if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      await this.store.appendLog(id, {
+        phase: 'personal_profile_update',
+        status: 'success',
+        message: '已修改 ChatGPT 个人资料',
+        data: { input, responses }
+      });
+      return updated;
+    } catch (error) {
+      await this.persistWebRequestError(id, 'personal_profile_update', '修改 ChatGPT 个人资料失败', error, {
+        input,
+        responses
+      });
+      throw asServiceError(error);
+    }
+  }
+
+  private webApiFor(
+    subaccount: Subaccount,
+    onSessionRefreshed?: (session: Record<string, unknown>, accessToken: string) => Promise<void> | void
+  ): ChatGptApi {
+    if (!subaccount.chatgptAccountId?.trim()) throw new ServiceError(400, '子号缺少 ChatGPT account.id');
+    if (!subaccount.webAccessToken?.trim()) throw new ServiceError(400, '子号缺少 ChatGPT Web accessToken');
+    return new ChatGptApi(
+      {
+        accountId: subaccount.chatgptAccountId,
+        accessToken: subaccount.webAccessToken,
+        proxy: subaccount.proxy,
+        refreshWebAccessToken: subaccount.sessionToken?.trim()
+          ? async () => {
+              const session = await fetchWorkspaceWebSessionFromSessionToken(
+                this.webTransport,
+                subaccount.sessionToken!,
+                subaccount.chatgptAccountId!,
+                subaccount.proxy
+              );
+              const accessToken = readSessionAccessToken(session);
+              await this.store.update(subaccount.id, {
+                webAccessToken: accessToken,
+                sessionTokenStatus: 'valid',
+                sessionTokenCheckedAt: Date.now()
+              });
+              await onSessionRefreshed?.(session, accessToken);
+              return accessToken;
+            }
+          : undefined
+      },
+      this.webTransport
+    );
+  }
+
+  private async persistWebRequestError(
+    id: string,
+    phase: string,
+    message: string,
+    error: unknown,
+    data: Record<string, unknown> = {}
+  ): Promise<void> {
+    const checkedAt = Date.now();
+    const current = this.requireSubaccount(id);
+    await this.store.update(id, {
+      sessionTokenStatus:
+        error instanceof ChatGptWebSessionError ? 'invalid' : current.sessionTokenStatus,
+      sessionTokenCheckedAt:
+        error instanceof ChatGptWebSessionError ? checkedAt : current.sessionTokenCheckedAt,
+      webAccessTokenStatus:
+        error instanceof ChatGptApiError && error.status === 401 ? 'invalid' : current.webAccessTokenStatus,
+      webAccessTokenCheckedAt: checkedAt,
+      lastRefreshAt: checkedAt,
+      lastError: fullErrorMessage(error)
+    });
+    await this.store.appendLog(id, {
+      phase,
+      status: 'error',
+      message,
+      data: { ...data, error: fullErrorEvidence(error) }
+    });
   }
 
   async remove(id: string): Promise<boolean> {
@@ -518,46 +922,100 @@ export class SubaccountService {
     }
   }
 
-  async registerNewSubaccount(input: { targetChatgptAccountId?: string; mailGroup?: string }): Promise<SubaccountView> {
+  async registerNewSubaccount(input: {
+    mailGroup?: string;
+    email?: string;
+    password?: string;
+    resumeExisting?: boolean;
+    onEvent?: (event: Record<string, unknown> & { phase?: string }) => void | Promise<void>;
+  }): Promise<SubaccountView> {
     if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
-    const target = cleanTargetAccountId(input.targetChatgptAccountId);
     const mailGroup = cleanOptionalString(input.mailGroup);
-    const session = createCodexAuthSession();
+    const email = cleanOptionalString(input.email);
+    const password = cleanOptionalString(input.password);
 
     try {
       const result = await this.registration.register({
-        session,
-        targetChatgptAccountId: target,
-        mailGroup
+        mailGroup,
+        email,
+        password,
+        resumeExisting: input.resumeExisting === true,
+        onEvent: input.onEvent
       });
-      if (result.credential) assertCredentialMatchesTarget(result.credential, target);
 
       const registered = await this.store.saveRegisteredSubaccount({
         email: result.email,
         password: result.password,
+        session: result.session,
         source: mailGroup ? `gongxi:${mailGroup}` : 'gongxi',
-        status: result.credential ? 'codex_ready' : 'session_ready'
+        status: 'session_ready'
       });
-      const updated = result.credential
-        ? await this.store.saveCodexCredential(registered.id, result.credential)
-        : registered;
-      if (!updated) throw new ServiceError(404, `子号不存在: ${registered.id}`);
+
+      await this.store.appendLog(registered.id, {
+        phase: 'subaccount_registration_trace',
+        status: registered.status,
+        message: '子号自动注册原始完整日志',
+        data: {
+          email: result.email,
+          password: result.password,
+          name: result.name,
+          birthdate: result.birthdate,
+          callbackUrl: result.callbackUrl,
+          session: result.session,
+          mailGroup,
+          events: result.events
+        }
+      });
+
+      try {
+        const mailbox = await this.registration.completeMailbox(result.email);
+        await this.store.appendLog(registered.id, {
+          phase: 'subaccount_registration_mailbox_complete',
+          status: registered.status,
+          message: `GongXi-Mail 邮箱已转移到分组 ${mailbox.group}`,
+          data: {
+            email: mailbox.email,
+            group: mailbox.group,
+            events: mailbox.events
+          }
+        });
+      } catch (mailboxError) {
+        const message = `子号已录入，但 GongXi-Mail 邮箱分组转移失败: ${(mailboxError as Error).message}`;
+        await this.store.appendLog(registered.id, {
+          phase: 'subaccount_registration_mailbox_complete',
+          status: 'error',
+          message,
+          data: {
+            email: result.email,
+            error: mailboxError instanceof SubaccountRegistrationError
+              ? {
+                  message: mailboxError.message,
+                  status: mailboxError.status,
+                  challenge: mailboxError.challenge,
+                  events: mailboxError.events
+                }
+              : { message: (mailboxError as Error).message, stack: (mailboxError as Error).stack }
+          }
+        });
+        const updated = await this.store.update(registered.id, { lastError: message });
+        return updated ?? registered;
+      }
 
       await this.store.appendLog(registered.id, {
         phase: 'subaccount_registration_complete',
-        status: updated.status,
-        message: result.credential ? '子号自动注册并完成 Codex 授权' : '子号自动注册完成',
+        status: registered.status,
+        message: '子号自动注册、Web Session 录入和邮箱分组转移完成',
         data: {
           email: result.email,
-          passwordStored: true,
-          callbackUrlPresent: Boolean(result.callbackUrl),
-          targetChatgptAccountId: target,
+          password: result.password,
+          name: result.name,
+          birthdate: result.birthdate,
+          session: result.session,
           mailGroup,
-          eventCount: result.events.length,
-          phases: result.events.map((event) => event.phase).filter(Boolean)
+          callbackUrl: result.callbackUrl
         }
       });
-      return updated;
+      return registered;
     } catch (e) {
       if (e instanceof SubaccountRegistrationError && e.email && e.password) {
         const status = subaccountStatusFromWorkerStatus(e.status);
@@ -569,22 +1027,36 @@ export class SubaccountService {
           lastError: e.message
         });
         await this.store.appendLog(registered.id, {
-          phase: 'subaccount_registration_complete',
+          phase: 'subaccount_registration_trace',
           status,
           message: e.message,
           data: {
             workerStatus: e.status,
             challenge: e.challenge,
-            passwordStored: true,
-            targetChatgptAccountId: target,
+            email: e.email,
+            password: e.password,
             mailGroup,
-            eventCount: e.events.length,
-            phases: e.events.map((event) => event.phase).filter(Boolean)
+            events: e.events
           }
         });
         return registered;
       }
-      if (e instanceof SubaccountRegistrationError) throw new ServiceError(502, e.message);
+      if (e instanceof SubaccountRegistrationError) {
+        await this.store.appendLog(undefined, {
+          phase: 'subaccount_registration_trace',
+          status: 'error',
+          message: e.message,
+          data: {
+            workerStatus: e.status,
+            challenge: e.challenge,
+            email: e.email,
+            password: e.password,
+            mailGroup,
+            events: e.events
+          }
+        });
+        throw new ServiceError(502, e.message);
+      }
       throw e;
     }
   }
@@ -709,6 +1181,40 @@ function eventStatusLabel(httpStatus?: number): string {
   return httpStatus >= 400 ? 'error' : 'ok';
 }
 
+function registrationProgressFromEvent(
+  event: Record<string, unknown> & { phase?: string }
+): { phase: string; message: string; progress: number; email?: string } | undefined {
+  const phase = event.phase?.trim();
+  if (!phase) return undefined;
+  const email = typeof event.email === 'string' && event.email.trim() ? event.email.trim() : undefined;
+  const stages: Record<string, { progress: number; message: string }> = {
+    flaresolverr_session_create: { progress: 5, message: '浏览器会话已准备' },
+    registration_proxy_selected: { progress: 8, message: '代理出口已确认' },
+    chatgpt_auth_csrf: { progress: 12, message: '正在建立 ChatGPT 登录会话' },
+    chatgpt_auth_csrf_retry: { progress: 16, message: 'Cloudflare 验证已完成' },
+    chatgpt_auth_signin: { progress: 20, message: '已进入 OpenAI 注册流程' },
+    registration_identity_allocated: { progress: 32, message: email ? `已取得邮箱 ${email}` : '已取得注册邮箱' },
+    authorize_continue_signup: { progress: 40, message: '正在确认账号注册方式' },
+    registration_retry_existing_account: { progress: 44, message: '邮箱已注册，正在用原密码恢复登录' },
+    registration_passwordless_signup_password_branch: { progress: 44, message: '已切换到密码注册' },
+    user_register: { progress: 50, message: '账号密码已提交' },
+    user_register_from_passwordless_signup: { progress: 50, message: '账号密码已提交' },
+    email_otp_send: { progress: 56, message: '正在等待邮箱验证码' },
+    gongxi_mail_poll: { progress: 60, message: '正在读取 GongXi-Mail 验证码' },
+    email_otp_validate_code_received: { progress: 68, message: '已收到邮箱验证码' },
+    email_otp_validate: { progress: 72, message: '邮箱验证完成' },
+    registration_profile_generated: { progress: 76, message: '正在填写账号资料' },
+    create_account: { progress: 82, message: '账号资料已提交' },
+    chatgpt_callback_1: { progress: 86, message: '正在完成 ChatGPT 回调' },
+    chatgpt_callback_2: { progress: 90, message: '正在建立 Web Session' },
+    chatgpt_auth_session: { progress: 94, message: 'Web Session 已取得' },
+    flaresolverr_session_destroy: { progress: 96, message: '正在保存子号数据' }
+  };
+  const stage = stages[phase];
+  if (!stage) return undefined;
+  return { phase, message: stage.message, progress: stage.progress, ...(email ? { email } : {}) };
+}
+
 function cleanTargetAccountId(value?: string): string | undefined {
   const target = value?.trim();
   return target || undefined;
@@ -823,6 +1329,93 @@ function readRequiredString(record: Record<string, unknown>, key: string): strin
 function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function personalProfilePatch(response: Record<string, unknown>, cachedAt: number): Partial<Subaccount> {
+  return {
+    chatgptUserId: readOptionalString(response, 'user_id'),
+    remoteUsername: readOptionalString(response, 'username'),
+    remoteDisplayName: readOptionalString(response, 'display_name'),
+    remotePictureUrl: readOptionalString(response, 'profile_picture_url'),
+    personalProfileCachedAt: cachedAt
+  };
+}
+
+function marketingNotificationPatch(response: Record<string, unknown>, cachedAt: number): Partial<Subaccount> {
+  const settings = Array.isArray(response.settings) ? response.settings : [];
+  const marketing = settings.find(
+    (item) => item && typeof item === 'object' && (item as Record<string, unknown>).category === 'marketing'
+  ) as Record<string, unknown> | undefined;
+  const options = Array.isArray(marketing?.options) ? marketing.options : [];
+  const enabledFor = (channel: string): boolean | undefined => {
+    const option = options.find(
+      (item) => item && typeof item === 'object' && (item as Record<string, unknown>).channel === channel
+    ) as Record<string, unknown> | undefined;
+    return typeof option?.enabled === 'boolean' ? option.enabled : undefined;
+  };
+  return {
+    marketingPushEnabled: enabledFor('push'),
+    marketingEmailEnabled: enabledFor('email'),
+    marketingNotificationsCachedAt: cachedAt
+  };
+}
+
+function rateLimitResetCreditsFromResponse(
+  response: Record<string, unknown>,
+  cachedAt: number
+): NonNullable<Subaccount['rateLimitResetCredits']> {
+  return {
+    credits: Array.isArray(response.credits) ? response.credits : [],
+    availableCount: typeof response.available_count === 'number' ? response.available_count : 0,
+    totalEarnedCount: typeof response.total_earned_count === 'number' ? response.total_earned_count : 0,
+    cachedAt
+  };
+}
+
+function readSessionAccessToken(session: Record<string, unknown>): string {
+  const accessToken = readOptionalString(session, 'accessToken');
+  if (!accessToken) throw new ServiceError(502, 'ChatGPT Web Session 响应缺少 accessToken');
+  return accessToken;
+}
+
+function fullErrorEvidence(error: unknown): Record<string, unknown> {
+  if (error instanceof ChatGptApiError) {
+    return {
+      name: error.name,
+      message: error.message,
+      status: error.status,
+      context: error.context,
+      body: error.body
+    };
+  }
+  if (error instanceof ChatGptWebSessionError || error instanceof ServiceError) {
+    return {
+      name: error.name,
+      message: error.message,
+      status: error.status
+    };
+  }
+  return {
+    name: error instanceof Error ? error.name : typeof error,
+    message: error instanceof Error ? error.message : String(error)
+  };
+}
+
+function fullErrorMessage(error: unknown): string {
+  if (error instanceof ChatGptApiError) {
+    return `${error.context} HTTP ${error.status}: ${error.body}`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function asServiceError(error: unknown): ServiceError {
+  if (error instanceof ServiceError) return error;
+  if (error instanceof ChatGptWebSessionError) return new ServiceError(error.status, fullErrorMessage(error));
+  if (error instanceof ChatGptApiError) {
+    const status = error.status >= 400 && error.status < 500 ? error.status : 502;
+    return new ServiceError(status, fullErrorMessage(error));
+  }
+  return new ServiceError(502, fullErrorMessage(error));
 }
 
 function assertCredentialMatchesTarget(credential: CodexCredentialJson, target?: string): void {

@@ -11,6 +11,7 @@ import type {
   SeatType,
   ApiResult,
   SubaccountAuthLog,
+  SubaccountRegistrationJobView,
   SubaccountView,
   CodexAuthRuntimeStatus,
   CodexCredentialJson,
@@ -156,10 +157,23 @@ export const apiClient = {
     groupName?: string;
   }) =>
     call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
-  registerSubaccount: (payload: { mailGroup?: string; chatgptAccountId?: string } = {}) =>
-    call<SubaccountView>('POST', '/subaccounts/registration/start', payload),
+  listSubaccountRegistrationJobs: () =>
+    call<SubaccountRegistrationJobView[]>('GET', '/subaccounts/registration/jobs'),
+  retrySubaccountRegistration: (jobId: string) =>
+    call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/retry`),
+  registerSubaccount: (payload: { mailGroup?: string } = {}) =>
+    call<SubaccountRegistrationJobView>('POST', '/subaccounts/registration/start', payload),
   updateSubaccountLocalProfile: (id: string, payload: { remark?: string; proxy?: string; session?: unknown }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
+  refreshSubaccount: (id: string) => call<SubaccountView>('POST', `/subaccounts/${id}/refresh`),
+  setSubaccountMarketingNotifications: (id: string, payload: {
+    marketingPushEnabled?: boolean;
+    marketingEmailEnabled?: boolean;
+  }) => call<SubaccountView>('PATCH', `/subaccounts/${id}/personal-settings`, payload),
+  setSubaccountMemoryEnabled: (id: string, memoryEnabled: boolean) =>
+    call<SubaccountView>('PATCH', `/subaccounts/${id}/personal-settings`, { memoryEnabled }),
+  updateSubaccountPersonalProfile: (id: string, payload: { username?: string; displayName?: string }) =>
+    call<SubaccountView>('PATCH', `/subaccounts/${id}/personal-settings`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
   startSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>
     call<{ sessionId: string; authUrl: string; expiresAt: number; targetChatgptAccountId?: string }>(

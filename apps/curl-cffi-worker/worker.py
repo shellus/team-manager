@@ -6,31 +6,40 @@ import base64
 import hashlib
 import random
 import re
+import sys
 import time
+import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import parse_qs, quote, urljoin, urlparse
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from curl_cffi import requests
 import yaml
 
+sys.path.insert(0, os.path.dirname(__file__))
+from turnstile import solve_turnstile_token
+
 
 BASE_URL = os.environ.get("TEAMMGR_CHATGPT_BASE_URL", "https://chatgpt.com").rstrip("/") + "/"
 PROXY_URL = os.environ.get("TEAMMGR_CHATGPT_PROXY", "").strip()
 AUTH_PROXY_URL = os.environ.get("TEAMMGR_AUTH_PROXY", "").strip() or PROXY_URL
+REGISTRATION_PROXY_URL = os.environ.get("TEAMMGR_REGISTRATION_PROXY", "").strip() or AUTH_PROXY_URL
 IMPERSONATE = os.environ.get("TEAMMGR_CURL_CFFI_IMPERSONATE", "chrome110").strip() or "chrome110"
 AUTH_IMPERSONATE = os.environ.get("TEAMMGR_AUTH_IMPERSONATE", "chrome146").strip() or IMPERSONATE
 REQUEST_TIMEOUT = float(os.environ.get("TEAMMGR_CURL_CFFI_TIMEOUT", "60"))
 PORT = int(os.environ.get("TEAMMGR_CURL_CFFI_PORT", "8080"))
 ALLOWED_METHODS = {"GET", "POST", "PATCH", "DELETE"}
 FLARESOLVERR_URL = os.environ.get("TEAMMGR_FLARESOLVERR_URL", "").strip().rstrip("/")
+FLARESOLVERR_PROXY_URL = os.environ.get("TEAMMGR_FLARESOLVERR_PROXY", "").strip()
 GONGXI_MAIL_BASE_URL = os.environ.get("TEAMMGR_GONGXI_MAIL_BASE_URL", "").strip().rstrip("/")
 GONGXI_MAIL_API_KEY = os.environ.get("TEAMMGR_GONGXI_MAIL_API_KEY", "").strip()
 GONGXI_MAIL_TIMEOUT = float(os.environ.get("TEAMMGR_GONGXI_MAIL_TIMEOUT", "150"))
+GONGXI_MAIL_GROUP = os.environ.get("TEAMMGR_GONGXI_MAIL_GROUP", "").strip()
+GONGXI_MAIL_REGISTERED_GROUP = os.environ.get("TEAMMGR_GONGXI_MAIL_REGISTERED_GROUP", "").strip()
 PHONE_POOL_YAML = os.environ.get("TEAMMGR_PHONE_POOL_YAML", "").strip()
 if not PHONE_POOL_YAML:
     legacy_phone_pool_file = os.environ.get("TEAMMGR_PHONE_POOL_FILE", "").strip()
@@ -102,7 +111,13 @@ class WorkerHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.write_json(
                     HTTPStatus.BAD_GATEWAY,
-                    {"ok": False, "status": "worker_error", "error": exc.__class__.__name__, "message": str(exc)},
+                    {
+                        "ok": False,
+                        "status": "worker_error",
+                        "error": exc.__class__.__name__,
+                        "message": str(exc),
+                        "traceback": traceback.format_exc(),
+                    },
                 )
             return
 
@@ -145,6 +160,55 @@ class WorkerHandler(BaseHTTPRequestHandler):
                 self.write_json(
                     HTTPStatus.BAD_GATEWAY,
                     {"ok": False, "status": "worker_error", "error": exc.__class__.__name__, "message": str(exc)},
+                )
+            return
+
+        if self.path == "/subaccounts/register-events":
+            try:
+                payload = self.read_json()
+            except ValueError as exc:
+                self.write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "status": "bad_request", "message": str(exc)})
+                return
+
+            try:
+                self.write_ndjson_start(HTTPStatus.OK)
+
+                def emit_event(event: dict[str, Any]) -> None:
+                    self.write_ndjson({"type": "event", "event": event})
+
+                result = run_subaccount_registration(payload, emit_event)
+                self.write_ndjson({"type": "result", "result": result})
+            except ValueError as exc:
+                self.write_ndjson({"type": "error", "status": "bad_request", "message": str(exc)})
+            except Exception as exc:
+                self.write_ndjson(
+                    {
+                        "type": "error",
+                        "status": "worker_error",
+                        "error": exc.__class__.__name__,
+                        "message": str(exc),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+            return
+
+        if self.path == "/subaccounts/registration/mailbox-group":
+            try:
+                payload = self.read_json()
+                result = complete_subaccount_registration_mailbox(payload)
+                self.write_json(HTTPStatus.OK, result)
+            except ValueError as exc:
+                self.write_json(HTTPStatus.BAD_REQUEST, {"ok": False, "status": "bad_request", "message": str(exc)})
+            except Exception as exc:
+                self.write_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    {
+                        "ok": False,
+                        "status": "worker_error",
+                        "error": exc.__class__.__name__,
+                        "message": str(exc),
+                        "traceback": traceback.format_exc(),
+                    },
                 )
             return
 
@@ -317,28 +381,58 @@ class SentinelTokenGenerator:
         return "gAAAAAB" + self.ERROR_PREFIX + self._b64(str(None))
 
 
-def build_sentinel_token(session: requests.Session, device_id: str, flow: str) -> str:
+def build_sentinel_bundle(
+    session: requests.Session,
+    device_id: str,
+    flow: str,
+    *,
+    wait_for_so_token: bool = False,
+    events: list[dict[str, Any]] | None = None,
+) -> tuple[str, str, str]:
     generator = SentinelTokenGenerator(device_id, AUTH_USER_AGENT)
+    requirements_token = generator.requirements_token()
+    url = "https://sentinel.openai.com/backend-api/sentinel/req"
+    headers = {
+        "Content-Type": "text/plain;charset=UTF-8",
+        "Referer": "https://sentinel.openai.com/backend-api/sentinel/frame.html",
+        "Origin": "https://sentinel.openai.com",
+        "User-Agent": AUTH_USER_AGENT,
+        "sec-ch-ua": AUTH_SEC_CH_UA,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+    }
+    request_body = {"p": requirements_token, "id": device_id, "flow": flow}
     response = session.post(
-        "https://sentinel.openai.com/backend-api/sentinel/req",
-        data=json.dumps({"p": generator.requirements_token(), "id": device_id, "flow": flow}),
-        headers={
-            "Content-Type": "text/plain;charset=UTF-8",
-            "Referer": "https://sentinel.openai.com/backend-api/sentinel/frame.html",
-            "Origin": "https://sentinel.openai.com",
-            "User-Agent": AUTH_USER_AGENT,
-            "sec-ch-ua": AUTH_SEC_CH_UA,
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Linux"',
-        },
+        url,
+        data=json.dumps(request_body),
+        headers=headers,
         timeout=20,
         verify=False,
     )
+    if events is not None:
+        append_registration_event(
+            events,
+            f"sentinel_{flow}",
+            request={
+                "method": "POST",
+                "url": url,
+                "headers": headers,
+                "body": request_body,
+                "cookies": cookie_snapshot(session),
+            },
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "cookies": cookie_snapshot(session),
+            },
+        )
     try:
         data = response.json() if response.text else {}
     except Exception:
         fallback = {"p": generator.requirements_token(), "t": "", "c": "", "id": device_id, "flow": flow}
-        return json.dumps(fallback, separators=(",", ":"))
+        return json.dumps(fallback, separators=(",", ":")), "", ""
     token = str(data.get("token") or "").strip()
     if response.status_code != 200 or not token:
         raise RuntimeError(f"sentinel_req_failed_{response.status_code}")
@@ -348,7 +442,32 @@ def build_sentinel_token(session: requests.Session, device_id: str, flow: str) -
         if proof.get("required") and proof.get("seed")
         else generator.requirements_token()
     )
-    return json.dumps({"p": p_value, "t": "", "c": token, "id": device_id, "flow": flow}, separators=(",", ":"))
+    turnstile = data.get("turnstile") or {}
+    so_token = ""
+    if turnstile.get("required") and turnstile.get("dx"):
+        if wait_for_so_token:
+            time.sleep(5)
+        so_token = solve_turnstile_token(str(turnstile.get("dx") or ""), requirements_token) or ""
+        if events is not None:
+            append_registration_event(
+                events,
+                f"sentinel_{flow}_turnstile",
+                dx=turnstile.get("dx"),
+                requirementsToken=requirements_token,
+                soToken=so_token,
+            )
+        if not so_token:
+            raise RuntimeError("sentinel_so_token_failed")
+    sentinel = json.dumps(
+        {"p": p_value, "t": so_token, "c": token, "id": device_id, "flow": flow},
+        separators=(",", ":"),
+    )
+    return sentinel, so_token, "0" + token
+
+
+def build_sentinel_token(session: requests.Session, device_id: str, flow: str) -> str:
+    sentinel, _, _ = build_sentinel_bundle(session, device_id, flow)
+    return sentinel
 
 
 def run_codex_auto_auth(payload: Any, event_sink: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
@@ -476,168 +595,676 @@ def run_codex_auto_auth(payload: Any, event_sink: Callable[[dict[str, Any]], Non
         return {**token_or_error, "events": events}
 
 
-def run_subaccount_registration(payload: Any) -> dict[str, Any]:
+def append_registration_event(events: list[dict[str, Any]], phase: str, **data: Any) -> dict[str, Any]:
+    event = {"at": datetime.now(timezone.utc).isoformat(), "phase": phase, **data}
+    events.append(event)
+    print(f"[subaccount-registration] {json.dumps(event, ensure_ascii=False, default=str)}", flush=True)
+    return event
+
+
+def cookie_snapshot(session: requests.Session) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": cookie.name,
+            "value": cookie.value,
+            "domain": cookie.domain,
+            "path": cookie.path,
+            "expires": cookie.expires,
+            "secure": cookie.secure,
+        }
+        for cookie in session.cookies.jar
+    ]
+
+
+def response_headers(response: Any) -> dict[str, str]:
+    return {str(key): str(value) for key, value in response.headers.items()}
+
+
+def chatgpt_headers(referer: str, *, content_type: str = "") -> dict[str, str]:
+    headers = {
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        "origin": BASE_URL.rstrip("/"),
+        "referer": referer,
+        "user-agent": AUTH_USER_AGENT,
+    }
+    if content_type:
+        headers["content-type"] = content_type
+    return headers
+
+
+def start_chatgpt_web_auth(
+    session: requests.Session,
+    events: list[dict[str, Any]],
+    flaresolverr_session_id: str = "",
+) -> str:
+    csrf_url = urljoin(BASE_URL, "api/auth/csrf")
+    csrf_headers = chatgpt_headers(urljoin(BASE_URL, "auth/login"))
+    def request_csrf(phase: str) -> Any:
+        response = session.get(csrf_url, headers=csrf_headers, timeout=REQUEST_TIMEOUT)
+        append_registration_event(
+            events,
+            phase,
+            request={"method": "GET", "url": csrf_url, "headers": csrf_headers, "cookies": cookie_snapshot(session)},
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "cookies": cookie_snapshot(session),
+            },
+        )
+        return response
+
+    csrf_response = request_csrf("chatgpt_auth_csrf")
+    if csrf_response.status_code == 403:
+        solve_auth_page(
+            session,
+            csrf_url,
+            events,
+            raw_trace=True,
+            proxy_url=REGISTRATION_PROXY_URL,
+            flaresolverr_session_id=flaresolverr_session_id,
+        )
+        csrf_response = request_csrf("chatgpt_auth_csrf_retry")
+    csrf_data = response_json(csrf_response)
+    body_csrf_token = str(csrf_data.get("csrfToken") or "")
+    csrf_cookie = (
+        cookie_value(session, "__Host-next-auth.csrf-token")
+        or cookie_value(session, "__Host-authjs.csrf-token")
+        or cookie_value(session, "next-auth.csrf-token")
+        or cookie_value(session, "authjs.csrf-token")
+    )
+    cookie_csrf_token = unquote(csrf_cookie).split("|", 1)[0].strip() if csrf_cookie else ""
+    csrf_token = cookie_csrf_token or body_csrf_token
+    if body_csrf_token and cookie_csrf_token and body_csrf_token != cookie_csrf_token:
+        append_registration_event(
+            events,
+            "chatgpt_auth_csrf_cookie_mismatch",
+            responseBodyToken=body_csrf_token,
+            cookieToken=cookie_csrf_token,
+            selectedToken="cookie",
+        )
+    if csrf_response.status_code != 200 or not csrf_token:
+        raise RuntimeError(f"chatgpt_auth_csrf_failed_{csrf_response.status_code}: {csrf_response.text}")
+
+    signin_url = urljoin(BASE_URL, "api/auth/signin/openai")
+    signin_headers = chatgpt_headers(
+        urljoin(BASE_URL, "auth/login"),
+        content_type="application/x-www-form-urlencoded",
+    )
+    signin_body = {
+        "csrfToken": csrf_token,
+        "callbackUrl": BASE_URL.rstrip("/") + "/",
+        "json": "true",
+    }
+    signin_response = session.post(
+        signin_url,
+        data=signin_body,
+        headers=signin_headers,
+        allow_redirects=False,
+        timeout=REQUEST_TIMEOUT,
+    )
+    append_registration_event(
+        events,
+        "chatgpt_auth_signin",
+        request={
+            "method": "POST",
+            "url": signin_url,
+            "headers": signin_headers,
+            "body": signin_body,
+            "cookies": cookie_snapshot(session),
+        },
+        response={
+            "status": signin_response.status_code,
+            "url": str(signin_response.url),
+            "headers": response_headers(signin_response),
+            "body": signin_response.text,
+            "cookies": cookie_snapshot(session),
+        },
+    )
+    signin_data = response_json(signin_response)
+    auth_url = str(signin_data.get("url") or signin_response.headers.get("location") or "").strip()
+    if signin_response.status_code not in (200, 302) or not auth_url.startswith(AUTH_BASE_URL):
+        raise RuntimeError(f"chatgpt_auth_signin_failed_{signin_response.status_code}: {signin_response.text}")
+    return auth_url
+
+
+def probe_registration_proxy(session: requests.Session, events: list[dict[str, Any]]) -> None:
+    response = session.get("https://api.ipify.org?format=json", timeout=REQUEST_TIMEOUT)
+    append_registration_event(
+        events,
+        "registration_proxy_selected",
+        proxy=REGISTRATION_PROXY_URL,
+        response={
+            "status": response.status_code,
+            "url": str(response.url),
+            "headers": response_headers(response),
+            "body": response.text,
+        },
+    )
+
+
+def generate_registration_profile() -> tuple[str, str]:
+    first_names = ("Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Cameron", "Avery")
+    last_names = ("Miller", "Wilson", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Martin")
+    name = f"{random.SystemRandom().choice(first_names)} {random.SystemRandom().choice(last_names)}"
+    year = random.SystemRandom().randint(1985, 2001)
+    month = random.SystemRandom().randint(1, 12)
+    day = random.SystemRandom().randint(1, 28)
+    return name, f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def follow_chatgpt_callback(
+    session: requests.Session,
+    step_json: dict[str, Any],
+    device_id: str,
+    events: list[dict[str, Any]],
+) -> str:
+    candidate = str(step_json.get("continue_url") or "").strip()
+    if not candidate:
+        raise RuntimeError(f"registration_callback_missing: {json.dumps(step_json, ensure_ascii=False)}")
+    current = AUTH_BASE_URL + "/"
+    last_url = ""
+    for index in range(12):
+        target = urljoin(current, candidate)
+        parsed = urlparse(target)
+        if parsed.netloc == urlparse(AUTH_BASE_URL).netloc:
+            headers = auth_headers(session, target, device_id)
+        else:
+            headers = chatgpt_headers(target)
+            headers["accept"] = "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8"
+        response = session.get(target, headers=headers, allow_redirects=False, timeout=REQUEST_TIMEOUT)
+        data = response_json(response)
+        append_registration_event(
+            events,
+            f"chatgpt_callback_{index + 1}",
+            request={"method": "GET", "url": target, "headers": headers, "cookies": cookie_snapshot(session)},
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "cookies": cookie_snapshot(session),
+            },
+        )
+        last_url = str(response.url)
+        location = str(response.headers.get("location") or "").strip()
+        next_url = location or str(data.get("continue_url") or "").strip()
+        if not next_url:
+            if parsed.netloc == urlparse(BASE_URL).netloc and response.status_code < 400:
+                return last_url
+            break
+        current = target
+        candidate = next_url
+    return last_url
+
+
+def extract_chatgpt_session_token(session: requests.Session) -> str:
+    direct = ""
+    chunks: list[tuple[int, str]] = []
+    for cookie in session.cookies.jar:
+        if "chatgpt.com" not in str(cookie.domain or ""):
+            continue
+        if cookie.name == "__Secure-next-auth.session-token":
+            direct = str(cookie.value)
+        match = re.fullmatch(r"__Secure-next-auth\.session-token\.(\d+)", str(cookie.name))
+        if match:
+            chunks.append((int(match.group(1)), str(cookie.value)))
+    if direct:
+        return direct
+    return "".join(value for _, value in sorted(chunks))
+
+
+def fetch_chatgpt_web_session(session: requests.Session, events: list[dict[str, Any]]) -> dict[str, Any]:
+    url = urljoin(BASE_URL, f"api/auth/session?t={int(time.time() * 1000)}")
+    headers = chatgpt_headers(BASE_URL.rstrip("/") + "/")
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+    data = response_json(response)
+    session_token = extract_chatgpt_session_token(session)
+    append_registration_event(
+        events,
+        "chatgpt_auth_session",
+        request={"method": "GET", "url": url, "headers": headers, "cookies": cookie_snapshot(session)},
+        response={
+            "status": response.status_code,
+            "url": str(response.url),
+            "headers": response_headers(response),
+            "body": response.text,
+            "cookies": cookie_snapshot(session),
+        },
+        sessionToken=session_token,
+    )
+    email = str(((data.get("user") or {}).get("email") or "")).strip()
+    account_id = str(((data.get("account") or {}).get("id") or "")).strip()
+    access_token = str(data.get("accessToken") or "").strip()
+    if response.status_code != 200 or not email or not account_id or not access_token or not session_token:
+        raise RuntimeError(f"chatgpt_auth_session_invalid_{response.status_code}: {response.text}")
+    return {
+        **data,
+        "user": {**(data.get("user") or {}), "email": email},
+        "account": {**(data.get("account") or {}), "id": account_id},
+        "accessToken": access_token,
+        "sessionToken": session_token,
+    }
+
+
+def login_registered_account_with_password(
+    email: str,
+    password: str,
+    events: list[dict[str, Any]],
+    flaresolverr_session_id: str = "",
+) -> tuple[dict[str, Any], str]:
+    owns_flaresolverr_session = not flaresolverr_session_id
+    if owns_flaresolverr_session:
+        flaresolverr_session_id = create_flaresolverr_session(events, REGISTRATION_PROXY_URL)
+    session_kwargs: dict[str, Any] = {"impersonate": AUTH_IMPERSONATE, "verify": False}
+    if REGISTRATION_PROXY_URL:
+        session_kwargs["proxy"] = REGISTRATION_PROXY_URL
+    try:
+        with requests.Session(**session_kwargs) as session:
+            session.headers.update({"user-agent": AUTH_USER_AGENT})
+            auth_url = start_chatgpt_web_auth(session, events, flaresolverr_session_id)
+            solve_auth_page(
+                session,
+                auth_url,
+                events,
+                raw_trace=True,
+                proxy_url=REGISTRATION_PROXY_URL,
+                flaresolverr_session_id=flaresolverr_session_id,
+            )
+            device_id = cookie_value(session, "oai-did") or str(uuid.uuid4())
+            session.cookies.set("oai-did", device_id, domain=".auth.openai.com", path="/")
+            session.cookies.set("oai-did", device_id, domain="auth.openai.com", path="/")
+            _, step_json = post_auth_json(
+                session,
+                "/api/accounts/authorize/continue",
+                {"username": {"kind": "email", "value": email}},
+                f"{AUTH_BASE_URL}/log-in",
+                events,
+                "password_login_authorize_continue",
+                device_id,
+                raw_trace=True,
+            )
+            login_page_type = page_type(step_json)
+            login_methods = ((step_json.get("oai-client-auth-session") or {}).get("login_methods") or [])
+            password_available = any(
+                isinstance(method, dict) and str(method.get("type") or "") == "password"
+                for method in login_methods
+            )
+            if login_page_type not in {
+                "login_password",
+                "email_otp_verification",
+                "email_otp_verification_registration",
+            } or (login_page_type != "login_password" and not password_available):
+                raise RuntimeError(
+                    f"password_login_unexpected_page_{login_page_type or 'empty'}: "
+                    f"{json.dumps(step_json, ensure_ascii=False)}"
+                )
+            _, step_json = post_auth_json(
+                session,
+                "/api/accounts/password/verify",
+                {"password": password},
+                str(step_json.get("continue_url") or f"{AUTH_BASE_URL}/log-in/password"),
+                events,
+                "password_login_verify",
+                device_id,
+                sentinel_flow="password_verify",
+                raw_trace=True,
+            )
+            otp_requested_at = datetime.now(timezone.utc)
+            step_json, email_error = complete_email_otp_steps(
+                session,
+                step_json,
+                email,
+                otp_requested_at,
+                events,
+                device_id,
+                raw_trace=True,
+            )
+            if email_error:
+                raise RuntimeError(f"password_login_email_otp_failed: {json.dumps(email_error, ensure_ascii=False)}")
+            callback_url = follow_chatgpt_callback(session, step_json, device_id, events)
+            return fetch_chatgpt_web_session(session, events), callback_url
+    finally:
+        if owns_flaresolverr_session:
+            destroy_flaresolverr_session(flaresolverr_session_id, events)
+
+
+def retry_existing_registered_account(
+    email: str,
+    password: str,
+    events: list[dict[str, Any]],
+    flaresolverr_session_id: str,
+) -> dict[str, Any]:
+    append_registration_event(
+        events,
+        "registration_retry_existing_account",
+        email=email,
+        password=password,
+    )
+    session_data, callback_url = login_registered_account_with_password(
+        email,
+        password,
+        events,
+        flaresolverr_session_id,
+    )
+    session_email = str(((session_data.get("user") or {}).get("email") or "")).strip()
+    if session_email.lower() != email.lower():
+        raise RuntimeError(
+            f"password_login_session_email_mismatch: registered={email}, session={session_data.get('user')}"
+        )
+    return {
+        "ok": True,
+        "status": "ok",
+        "email": email,
+        "password": password,
+        "callbackUrl": callback_url,
+        "session": session_data,
+        "events": events,
+    }
+
+
+def run_subaccount_registration(
+    payload: Any,
+    event_sink: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("request body must be a JSON object")
-    auth_url = str(payload.get("authUrl") or "").strip()
-    code_verifier = str(payload.get("codeVerifier") or "").strip()
-    expected_state = str(payload.get("state") or "").strip()
-    target_chatgpt_account_id = str(payload.get("targetChatgptAccountId") or "").strip()
-    mail_group = str(payload.get("mailGroup") or os.environ.get("TEAMMGR_GONGXI_MAIL_GROUP") or "").strip()
-    if not auth_url:
-        raise ValueError("authUrl is required")
-    if not code_verifier:
-        raise ValueError("codeVerifier is required")
-    if not expected_state:
-        raise ValueError("state is required")
+    mail_group = str(payload.get("mailGroup") or GONGXI_MAIL_GROUP or "").strip()
+    requested_email = str(payload.get("email") or "").strip()
+    requested_password = str(payload.get("password") or "").strip()
+    resume_existing = payload.get("resumeExisting") is True
     if not FLARESOLVERR_URL:
         raise ValueError("TEAMMGR_FLARESOLVERR_URL is required")
     if not GONGXI_MAIL_BASE_URL or not GONGXI_MAIL_API_KEY:
         raise ValueError("TEAMMGR_GONGXI_MAIL_BASE_URL and TEAMMGR_GONGXI_MAIL_API_KEY are required")
 
-    events: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = EventRecorder(event_sink)
     email = ""
     password = ""
+    profile_name = ""
+    birthdate = ""
+    passwordless_signup = False
+    flaresolverr_session_id = ""
     session_kwargs: dict[str, Any] = {"impersonate": AUTH_IMPERSONATE, "verify": False}
-    if AUTH_PROXY_URL:
-        session_kwargs["proxy"] = AUTH_PROXY_URL
+    if REGISTRATION_PROXY_URL:
+        session_kwargs["proxy"] = REGISTRATION_PROXY_URL
 
-    with requests.Session(**session_kwargs) as session:
-        session.headers.update({"user-agent": AUTH_USER_AGENT})
-        otp_requested_at = datetime.now(timezone.utc)
-        solve_auth_page(session, auth_url, events)
-        device_id = cookie_value(session, "oai-did") or str(uuid.uuid4())
-        max_email_attempts = max(1, int(os.environ.get("TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS", "3")))
-        step_json: dict[str, Any] = {}
-        for email_attempt in range(1, max_email_attempts + 1):
-            email = allocate_gongxi_email(mail_group, events)
-            password = generate_registration_password()
-            try:
-                _, step_json = post_auth_json(
-                    session,
-                    "/api/accounts/authorize/continue",
-                    {"username": {"kind": "email", "value": email}, "screen_hint": "signup"},
-                    f"{AUTH_BASE_URL}/sign-up",
+    try:
+        flaresolverr_session_id = create_flaresolverr_session(events, REGISTRATION_PROXY_URL)
+        if resume_existing:
+            if not requested_email or not requested_password:
+                raise ValueError("resumeExisting requires email and password")
+            return retry_existing_registered_account(
+                requested_email,
+                requested_password,
+                events,
+                flaresolverr_session_id,
+            )
+        with requests.Session(**session_kwargs) as session:
+            session.headers.update({"user-agent": AUTH_USER_AGENT})
+            probe_registration_proxy(session, events)
+            auth_url = start_chatgpt_web_auth(session, events, flaresolverr_session_id)
+            solve_auth_page(
+                session,
+                auth_url,
+                events,
+                raw_trace=True,
+                proxy_url=REGISTRATION_PROXY_URL,
+                flaresolverr_session_id=flaresolverr_session_id,
+            )
+            device_id = cookie_value(session, "oai-did") or str(uuid.uuid4())
+            session.cookies.set("oai-did", device_id, domain=".auth.openai.com", path="/")
+            session.cookies.set("oai-did", device_id, domain="auth.openai.com", path="/")
+            max_email_attempts = 1 if requested_email else max(
+                1,
+                int(os.environ.get("TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS", "3")),
+            )
+            step_json: dict[str, Any] = {}
+            otp_requested_at = datetime.now(timezone.utc)
+            for email_attempt in range(1, max_email_attempts + 1):
+                email = requested_email or allocate_gongxi_email(mail_group, events)
+                password = requested_password or generate_registration_password()
+                append_registration_event(
                     events,
-                    "authorize_continue_signup",
-                    device_id,
+                    "registration_identity_allocated",
+                    attempt=email_attempt,
+                    email=email,
+                    password=password,
+                    mailGroup=mail_group,
                 )
-                step_type = page_type(step_json)
-                if step_type == "auth_challenge":
-                    step_json, challenge_error = resolve_auth_challenge_for_token_stage(session, step_json, device_id, events)
-                    if challenge_error:
-                        return {
-                            **challenge_error,
-                            "email": email,
-                            "password": password,
-                            "events": events,
-                        }
-                    step_type = page_type(step_json)
-                if step_type != "create_account_password":
-                    if is_registration_email_rejected_page(step_json):
-                        events.append(
-                            {
-                                "phase": "registration_email_rejected",
-                                "attempt": email_attempt,
-                                "pageType": step_type,
-                            }
-                        )
-                        continue
-                    return registration_unexpected_page(email, password, step_type, events)
-
-                otp_requested_at = datetime.now(timezone.utc)
-                _, step_json = post_auth_json(
-                    session,
-                    "/api/accounts/user/register",
-                    {"username": email, "password": password},
-                    str(step_json.get("continue_url") or f"{AUTH_BASE_URL}/create-account/password"),
-                    events,
-                    "user_register",
-                    device_id,
-                    sentinel_flow="user_register",
-                )
-                break
-            except Exception as exc:
-                message = str(exc)
-                if is_registration_email_rejected_error(message):
-                    events.append(
-                        {
-                            "phase": "registration_email_rejected",
-                            "attempt": email_attempt,
-                            "message": message[:160],
-                        }
+                try:
+                    _, step_json = post_auth_json(
+                        session,
+                        "/api/accounts/authorize/continue",
+                        {"username": {"kind": "email", "value": email}, "screen_hint": "signup"},
+                        f"{AUTH_BASE_URL}/sign-up",
+                        events,
+                        "authorize_continue_signup",
+                        device_id,
+                        raw_trace=True,
                     )
-                    continue
-                if is_account_locked_error(message):
-                    challenge = "account_locked"
-                else:
-                    challenge = "registration_sentinel" if is_registration_sentinel_error(message) else "registration_failed"
+                    step_type = page_type(step_json)
+                    if step_type == "auth_challenge":
+                        step_json, challenge_error = resolve_auth_challenge_for_token_stage(
+                            session, step_json, device_id, events
+                        )
+                        if challenge_error:
+                            return {**challenge_error, "email": email, "password": password, "events": events}
+                        step_type = page_type(step_json)
+                    if step_type != "create_account_password":
+                        session_payload = step_json.get("oai-client-auth-session") or {}
+                        verification_mode = str(session_payload.get("email_verification_mode") or "").strip()
+                        passwordless_signup = bool(
+                            step_type in {"email_otp_send", "email_otp_verification", "email_otp_verification_registration"}
+                            and verification_mode == "passwordless_signup"
+                        )
+                        if passwordless_signup:
+                            append_registration_event(
+                                events,
+                                "registration_passwordless_signup_password_branch",
+                                attempt=email_attempt,
+                                email=email,
+                                password=password,
+                                response=step_json,
+                            )
+                            otp_requested_at = datetime.now(timezone.utc)
+                            _, step_json = post_auth_json(
+                                session,
+                                "/api/accounts/user/register",
+                                {"username": email, "password": password},
+                                f"{AUTH_BASE_URL}/create-account/password",
+                                events,
+                                "user_register_from_passwordless_signup",
+                                device_id,
+                                sentinel_flow="username_password_create",
+                                raw_trace=True,
+                            )
+                            passwordless_signup = False
+                            break
+                        if is_registration_email_rejected_page(step_json):
+                            append_registration_event(
+                                events,
+                                "registration_email_rejected",
+                                attempt=email_attempt,
+                                email=email,
+                                response=step_json,
+                            )
+                            if requested_email:
+                                return retry_existing_registered_account(
+                                    email,
+                                    password,
+                                    events,
+                                    flaresolverr_session_id,
+                                )
+                            continue
+                        return registration_unexpected_page(email, password, step_type, events)
+
+                    otp_requested_at = datetime.now(timezone.utc)
+                    _, step_json = post_auth_json(
+                        session,
+                        "/api/accounts/user/register",
+                        {"username": email, "password": password},
+                        str(step_json.get("continue_url") or f"{AUTH_BASE_URL}/create-account/password"),
+                        events,
+                        "user_register",
+                        device_id,
+                        sentinel_flow="username_password_create",
+                        raw_trace=True,
+                    )
+                    break
+                except Exception as exc:
+                    message = str(exc)
+                    append_registration_event(
+                        events,
+                        "registration_email_attempt_failed",
+                        attempt=email_attempt,
+                        email=email,
+                        password=password,
+                        error=message,
+                        traceback=traceback.format_exc(),
+                    )
+                    if is_registration_email_rejected_error(message):
+                        if requested_email:
+                            return retry_existing_registered_account(
+                                email,
+                                password,
+                                events,
+                                flaresolverr_session_id,
+                            )
+                        continue
+                    challenge = (
+                        "account_locked"
+                        if is_account_locked_error(message)
+                        else "registration_sentinel"
+                        if is_registration_sentinel_error(message)
+                        else "registration_failed"
+                    )
+                    return {
+                        "ok": False,
+                        "status": registration_failure_status(challenge),
+                        "challenge": challenge,
+                        "email": email,
+                        "password": password,
+                        "message": message,
+                        "events": events,
+                    }
+            else:
                 return {
                     "ok": False,
-                    "status": registration_failure_status(challenge),
-                    "challenge": challenge,
-                    "email": email,
-                    "password": password,
-                    "message": message[:240],
+                    "status": "error",
+                    "challenge": "registration_email_unavailable",
+                    "message": f"No usable GongXi-Mail email after {max_email_attempts} attempt(s)",
                     "events": events,
                 }
-        else:
-            return {
-                "ok": False,
-                "status": "error",
-                "challenge": "registration_email_unavailable",
-                "message": f"No usable GongXi-Mail email after {max_email_attempts} attempt(s)",
-                "events": events,
-            }
 
-        step_json, email_error = complete_email_otp_steps(session, step_json, email, otp_requested_at, events, device_id)
-        if email_error:
-            return registration_email_otp_error_result(email, password, email_error, events)
+            step_json, email_error = complete_email_otp_steps(
+                session,
+                step_json,
+                email,
+                otp_requested_at,
+                events,
+                device_id,
+                raw_trace=True,
+            )
+            if email_error:
+                return registration_email_otp_error_result(email, password, email_error, events)
 
-        phone_result = complete_phone_steps(session, step_json, device_id, email, events)
-        if phone_result.get("_phone_result"):
-            challenge = phone_result["_phone_result"].get("challenge") or "phone_verification"
+            profile_name, birthdate = generate_registration_profile()
+            append_registration_event(
+                events,
+                "registration_profile_generated",
+                name=profile_name,
+                birthdate=birthdate,
+            )
+            _, step_json = post_auth_json(
+                session,
+                "/api/accounts/create_account",
+                {"name": profile_name, "birthdate": birthdate},
+                str(step_json.get("continue_url") or f"{AUTH_BASE_URL}/about-you"),
+                events,
+                "create_account",
+                device_id,
+                sentinel_flow="oauth_create_account",
+                raw_trace=True,
+                sentinel_so_token=True,
+            )
+            callback_url = follow_chatgpt_callback(session, step_json, device_id, events)
+            session_data = fetch_chatgpt_web_session(session, events)
+            if str(((session_data.get("user") or {}).get("email") or "")).strip().lower() != email.lower():
+                raise RuntimeError(
+                    f"chatgpt_auth_session_email_mismatch: registered={email}, session={session_data.get('user')}"
+                )
             return {
-                "ok": False,
-                "status": phone_error_status(challenge),
-                "challenge": challenge,
+                "ok": True,
+                "status": "ok",
                 "email": email,
                 "password": password,
-                "message": phone_result["_phone_result"].get("message") or "Phone verification failed",
+                "name": profile_name,
+                "birthdate": birthdate,
+                "callbackUrl": callback_url,
+                "session": session_data,
                 "events": events,
             }
-        step_json = phone_result
-        step_type = page_type(step_json)
-        step_json, email_error = complete_email_otp_steps(session, step_json, email, otp_requested_at, events, device_id)
-        if email_error:
-            return registration_email_otp_error_result(email, password, email_error, events)
-
-        token_or_error = complete_codex_workspace_and_token(
-            session,
-            step_json,
-            device_id,
-            target_chatgpt_account_id,
-            expected_state,
-            code_verifier,
+    except Exception as exc:
+        append_registration_event(
             events,
+            "registration_unhandled_error",
+            email=email,
+            password=password,
+            name=profile_name,
+            birthdate=birthdate,
+            error=str(exc),
+            traceback=traceback.format_exc(),
         )
-        if not token_or_error.get("ok"):
-            return {
-                **token_or_error,
-                "email": email,
-                "password": password,
-                "events": events,
-            }
-
+        challenge = "account_locked" if is_account_locked_error(str(exc)) else "registration_failed"
         return {
-            "ok": True,
-            "status": "ok",
-            "email": email,
-            "password": password,
-            "callbackUrl": token_or_error.get("callbackUrl"),
-            "tokenResponse": token_or_error.get("tokenResponse"),
+            "ok": False,
+            "status": registration_failure_status(challenge),
+            "challenge": challenge,
+            **({"email": email, "password": password} if email and password else {}),
+            "message": str(exc),
             "events": events,
         }
+    finally:
+        destroy_flaresolverr_session(flaresolverr_session_id, events)
+
+
+def complete_subaccount_registration_mailbox(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("request body must be a JSON object")
+    email = str(payload.get("email") or "").strip()
+    target_group = str(payload.get("group") or GONGXI_MAIL_REGISTERED_GROUP or "").strip()
+    if not email:
+        raise ValueError("email is required")
+    if not target_group:
+        raise ValueError("TEAMMGR_GONGXI_MAIL_REGISTERED_GROUP is required")
+    url = f"{GONGXI_MAIL_BASE_URL}/api/move-email-group"
+    headers = {
+        "accept": "application/json",
+        "content-type": "application/json",
+        "x-api-key": GONGXI_MAIL_API_KEY,
+    }
+    body = {"email": email, "group": target_group}
+    response = requests.post(url, headers=headers, json=body, timeout=45)
+    event = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "phase": "gongxi_move_email_group",
+        "request": {"method": "POST", "url": url, "headers": headers, "body": body},
+        "response": {
+            "status": response.status_code,
+            "url": str(response.url),
+            "headers": response_headers(response),
+            "body": response.text,
+        },
+    }
+    print(f"[subaccount-registration] {json.dumps(event, ensure_ascii=False, default=str)}", flush=True)
+    data = response_json(response)
+    if response.status_code >= 400 or data.get("success") is not True:
+        raise RuntimeError(f"gongxi_move_email_group_failed_{response.status_code}: {response.text}")
+    return {"ok": True, "status": "ok", "email": email, "group": target_group, "events": [event]}
 
 
 def complete_email_otp_steps(
@@ -647,6 +1274,8 @@ def complete_email_otp_steps(
     otp_requested_at: datetime,
     events: list[dict[str, Any]],
     device_id: str,
+    *,
+    raw_trace: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     step_type = page_type(step_json)
     if step_type == "auth_challenge":
@@ -670,6 +1299,7 @@ def complete_email_otp_steps(
                 events,
                 "email_otp_send",
                 device_id,
+                **({"raw_trace": True} if raw_trace else {}),
             )
         except Exception as exc:
             if is_account_locked_error(str(exc)):
@@ -690,6 +1320,7 @@ def complete_email_otp_steps(
             events,
             "email_otp_validate",
             device_id,
+            raw_trace=raw_trace,
         )
 
     return step_json, None
@@ -992,7 +1623,9 @@ def is_registration_email_rejected_error(message: str) -> bool:
 
 def is_account_locked_error(message: str) -> bool:
     return bool(
-        re.search(r"\b(locked|suspended|disabled|deactivated)\b", message, re.I)
+        re.search(r"\b(account|user)\b.{0,48}\b(locked|suspended|disabled|deactivated)\b", message, re.I)
+        or re.search(r"\b(locked|suspended|disabled|deactivated)\b.{0,48}\b(account|user)\b", message, re.I)
+        or re.search(r"your account has been (locked|suspended|disabled|deactivated)", message, re.I)
         or re.search(r"(账号|账户).*(锁定|停用|封禁)", message)
     )
 
@@ -1198,13 +1831,28 @@ def validate_email_otp_with_retry(
     events: list[dict[str, Any]],
     phase: str,
     device_id: str,
+    *,
+    raw_trace: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     max_attempts = max(1, int(os.environ.get("TEAMMGR_EMAIL_CODE_MAX_ATTEMPTS", "3")))
     rejected_codes: set[str] = set()
     last_error = ""
     for attempt in range(1, max_attempts + 1):
         try:
-            code = poll_gongxi_code(email, min_dt, rejected_codes)
+            code = poll_gongxi_code(
+                email,
+                min_dt,
+                rejected_codes,
+                events=events if raw_trace else None,
+            )
+            if raw_trace:
+                append_registration_event(
+                    events,
+                    f"{phase}_code_received",
+                    email=email,
+                    code=code,
+                    rejectedCodes=sorted(rejected_codes),
+                )
         except Exception as exc:
             events.append({"phase": f"{phase}_poll_failed", "message": str(exc)[:160]})
             return {}, {"kind": "email_otp_timeout", "message": str(exc)[:240]}
@@ -1218,6 +1866,7 @@ def validate_email_otp_with_retry(
                 events,
                 phase,
                 device_id,
+                **({"raw_trace": True} if raw_trace else {}),
             )
         except Exception as exc:
             last_error = str(exc)
@@ -1231,7 +1880,7 @@ def validate_email_otp_with_retry(
                 {
                     "phase": f"{phase}_rejected",
                     "attempt": attempt,
-                    "message": redact_otp_message(last_error)[:160],
+                    "message": last_error if raw_trace else redact_otp_message(last_error)[:160],
                 }
             )
             continue
@@ -1250,7 +1899,7 @@ def validate_email_otp_with_retry(
 
     message = f"Email OTP code was rejected after {max_attempts} attempt(s)"
     if last_error:
-        message = f"{message}: {redact_otp_message(last_error)[:180]}"
+        message = f"{message}: {last_error if raw_trace else redact_otp_message(last_error)[:180]}"
     return {}, {"kind": "email_otp_invalid", "message": message}
 
 
@@ -1735,24 +2384,123 @@ def extract_sms_codes(text: str) -> list[str]:
     return re.findall(r"(?<!\d)(\d{6})(?!\d)", text)
 
 
-def solve_auth_page(session: requests.Session, auth_url: str, events: list[dict[str, Any]]) -> str:
+def create_flaresolverr_session(events: list[dict[str, Any]], proxy_url: str = "") -> str:
+    session_id = f"teammgr-registration-{uuid.uuid4()}"
+    payload: dict[str, Any] = {"cmd": "sessions.create", "session": session_id}
+    selected_proxy = FLARESOLVERR_PROXY_URL or proxy_url.strip() or AUTH_PROXY_URL
+    if selected_proxy:
+        payload["proxy"] = {"url": selected_proxy}
+    response = requests.post(f"{FLARESOLVERR_URL}/v1", json=payload, timeout=30)
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"flaresolverr_session_create_invalid_json: {response.text[:300]}") from exc
+    append_registration_event(
+        events,
+        "flaresolverr_session_create",
+        request={
+            "method": "POST",
+            "url": f"{FLARESOLVERR_URL}/v1",
+            "headers": {"content-type": "application/json"},
+            "body": payload,
+        },
+        response={
+            "status": response.status_code,
+            "url": str(response.url),
+            "headers": response_headers(response),
+            "body": response.text,
+            "json": data,
+        },
+    )
+    if response.status_code >= 400 or data.get("status") != "ok":
+        raise RuntimeError(f"flaresolverr_session_create_failed: {data.get('message') or response.text[:300]}")
+    return str(data.get("session") or session_id)
+
+
+def destroy_flaresolverr_session(session_id: str, events: list[dict[str, Any]]) -> None:
+    if not session_id:
+        return
+    payload = {"cmd": "sessions.destroy", "session": session_id}
+    try:
+        response = requests.post(f"{FLARESOLVERR_URL}/v1", json=payload, timeout=30)
+        data = response_json(response)
+        append_registration_event(
+            events,
+            "flaresolverr_session_destroy",
+            request={
+                "method": "POST",
+                "url": f"{FLARESOLVERR_URL}/v1",
+                "headers": {"content-type": "application/json"},
+                "body": payload,
+            },
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "json": data,
+            },
+        )
+    except Exception as exc:
+        append_registration_event(
+            events,
+            "flaresolverr_session_destroy_failed",
+            session=session_id,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+
+
+def solve_auth_page(
+    session: requests.Session,
+    auth_url: str,
+    events: list[dict[str, Any]],
+    *,
+    raw_trace: bool = False,
+    proxy_url: str = "",
+    flaresolverr_session_id: str = "",
+) -> str:
     payload: dict[str, Any] = {"cmd": "request.get", "url": auth_url, "maxTimeout": 90000}
-    if AUTH_PROXY_URL:
-        payload["proxy"] = {"url": AUTH_PROXY_URL}
+    if flaresolverr_session_id:
+        payload["session"] = flaresolverr_session_id
+        payload["session_ttl_minutes"] = 10
+    else:
+        selected_proxy = FLARESOLVERR_PROXY_URL or proxy_url.strip() or AUTH_PROXY_URL
+        if selected_proxy:
+            payload["proxy"] = {"url": selected_proxy}
     response = requests.post(f"{FLARESOLVERR_URL}/v1", json=payload, timeout=120)
     try:
         data = response.json()
     except Exception as exc:
         raise RuntimeError(f"flaresolverr_invalid_json: {response.text[:300]}") from exc
     solution_url = str(((data.get("solution") or {}).get("url") or "")[:240])
-    events.append(
-        {
-            "phase": "flaresolverr_authorize",
-            "status": response.status_code,
-            "solverStatus": data.get("status"),
-            "url": solution_url,
-        }
-    )
+    if raw_trace:
+        append_registration_event(
+            events,
+            "flaresolverr_authorize",
+            request={
+                "method": "POST",
+                "url": f"{FLARESOLVERR_URL}/v1",
+                "headers": {"content-type": "application/json"},
+                "body": payload,
+            },
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "json": data,
+            },
+        )
+    else:
+        events.append(
+            {
+                "phase": "flaresolverr_authorize",
+                "status": response.status_code,
+                "solverStatus": data.get("status"),
+                "url": solution_url,
+            }
+        )
     if data.get("status") != "ok":
         raise RuntimeError(f"flaresolverr_failed: {data.get('message')}")
     solution = data.get("solution") or {}
@@ -1779,10 +2527,24 @@ def post_auth_json(
     *,
     sentinel_flow: str = "",
     allow_redirects: bool = True,
+    raw_trace: bool = False,
+    sentinel_so_token: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
     headers = auth_headers(session, referer, device_id)
     if sentinel_flow:
-        headers["openai-sentinel-token"] = build_sentinel_token(session, device_id, sentinel_flow)
+        sentinel_token, so_token, oai_sc = build_sentinel_bundle(
+            session,
+            device_id,
+            sentinel_flow,
+            wait_for_so_token=sentinel_so_token,
+            events=events if raw_trace else None,
+        )
+        headers["openai-sentinel-token"] = sentinel_token
+        if sentinel_so_token and so_token:
+            headers["openai-sentinel-so-token"] = so_token
+        if oai_sc:
+            session.cookies.set("oai-sc", oai_sc, domain=".auth.openai.com", path="/")
+            session.cookies.set("oai-sc", oai_sc, domain="auth.openai.com", path="/")
     response = session.post(
         f"{AUTH_BASE_URL}{path}",
         json=payload,
@@ -1791,22 +2553,43 @@ def post_auth_json(
         timeout=REQUEST_TIMEOUT,
     )
     data = response_json(response)
-    event = {
-        "phase": phase,
-        "method": "POST",
-        "path": path,
-        "status": response.status_code,
-        "pageType": page_type(data),
-        "continueUrl": short_url(data.get("continue_url")),
-    }
-    if response.headers.get("location"):
-        event["location"] = short_url(response.headers.get("location"))
+    if raw_trace:
+        append_registration_event(
+            events,
+            phase,
+            request={
+                "method": "POST",
+                "url": f"{AUTH_BASE_URL}{path}",
+                "headers": headers,
+                "body": payload,
+                "cookies": cookie_snapshot(session),
+            },
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "cookies": cookie_snapshot(session),
+            },
+        )
+    else:
+        event = {
+            "phase": phase,
+            "method": "POST",
+            "path": path,
+            "status": response.status_code,
+            "pageType": page_type(data),
+            "continueUrl": short_url(data.get("continue_url")),
+        }
+        if response.headers.get("location"):
+            event["location"] = short_url(response.headers.get("location"))
+        if response.status_code >= 400:
+            error_preview = redact_otp_message(response.text)[:300]
+            event["errorPreview"] = error_preview
+        events.append(event)
     if response.status_code >= 400:
-        error_preview = redact_otp_message(response.text)[:300]
-        event["errorPreview"] = error_preview
-    events.append(event)
-    if response.status_code >= 400:
-        raise RuntimeError(f"{phase}_failed_{response.status_code}: {redact_otp_message(response.text)[:300]}")
+        error_body = response.text if raw_trace else redact_otp_message(response.text)[:300]
+        raise RuntimeError(f"{phase}_failed_{response.status_code}: {error_body}")
     return response, data
 
 
@@ -1817,6 +2600,8 @@ def get_auth_json(
     events: list[dict[str, Any]],
     phase: str,
     device_id: str,
+    *,
+    raw_trace: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
     response = session.get(
         f"{AUTH_BASE_URL}{path}",
@@ -1824,20 +2609,40 @@ def get_auth_json(
         timeout=REQUEST_TIMEOUT,
     )
     data = response_json(response)
-    event = {
-        "phase": phase,
-        "method": "GET",
-        "path": path,
-        "status": response.status_code,
-        "pageType": page_type(data),
-        "continueUrl": short_url(data.get("continue_url")),
-    }
+    if raw_trace:
+        append_registration_event(
+            events,
+            phase,
+            request={
+                "method": "GET",
+                "url": f"{AUTH_BASE_URL}{path}",
+                "headers": auth_headers(session, referer, device_id),
+                "cookies": cookie_snapshot(session),
+            },
+            response={
+                "status": response.status_code,
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+                "cookies": cookie_snapshot(session),
+            },
+        )
+    else:
+        event = {
+            "phase": phase,
+            "method": "GET",
+            "path": path,
+            "status": response.status_code,
+            "pageType": page_type(data),
+            "continueUrl": short_url(data.get("continue_url")),
+        }
+        if response.status_code >= 400:
+            error_preview = redact_otp_message(response.text)[:300]
+            event["errorPreview"] = error_preview
+        events.append(event)
     if response.status_code >= 400:
-        error_preview = redact_otp_message(response.text)[:300]
-        event["errorPreview"] = error_preview
-    events.append(event)
-    if response.status_code >= 400:
-        raise RuntimeError(f"{phase}_failed_{response.status_code}: {redact_otp_message(response.text)[:300]}")
+        error_body = response.text if raw_trace else redact_otp_message(response.text)[:300]
+        raise RuntimeError(f"{phase}_failed_{response.status_code}: {error_body}")
     return response, data
 
 
@@ -1977,19 +2782,25 @@ def short_url(value: Any) -> str:
     return text[:240]
 
 
-def poll_gongxi_code(email: str, min_dt: datetime, excluded_codes: set[str] | None = None) -> str:
+def poll_gongxi_code(
+    email: str,
+    min_dt: datetime,
+    excluded_codes: set[str] | None = None,
+    *,
+    events: list[dict[str, Any]] | None = None,
+) -> str:
     deadline = time.time() + GONGXI_MAIL_TIMEOUT
     excluded = excluded_codes or set()
     while time.time() < deadline:
         rows = [
             row
-            for row in gongxi_code_candidates(email)
+            for row in gongxi_code_candidates(email, events=events)
             if row["date"] and row["date"] >= min_dt - timedelta(seconds=5) and str(row["code"]) not in excluded
         ]
         if rows:
             return str(rows[0]["code"])
         time.sleep(4)
-    latest = gongxi_code_candidates(email)[:3]
+    latest = gongxi_code_candidates(email, events=events)[:3]
     raise TimeoutError(
         "email_code_timeout: "
         + repr([(row["mailbox"], row["subject"], row["date"].isoformat() if row["date"] else None) for row in latest])
@@ -1998,21 +2809,28 @@ def poll_gongxi_code(email: str, min_dt: datetime, excluded_codes: set[str] | No
 
 def allocate_gongxi_email(mail_group: str, events: list[dict[str, Any]] | None = None) -> str:
     query = f"?group={quote(mail_group)}" if mail_group else ""
+    url = f"{GONGXI_MAIL_BASE_URL}/api/get-email{query}"
+    headers = {"accept": "application/json", "x-api-key": GONGXI_MAIL_API_KEY}
     response = requests.get(
-        f"{GONGXI_MAIL_BASE_URL}/api/get-email{query}",
-        headers={"accept": "application/json", "x-api-key": GONGXI_MAIL_API_KEY},
+        url,
+        headers=headers,
         timeout=45,
     )
     data = response_json(response)
     email = extract_gongxi_email(data)
     if events is not None:
-        events.append(
-            {
-                "phase": "gongxi_get_email",
+        append_registration_event(
+            events,
+            "gongxi_get_email",
+            request={"method": "GET", "url": url, "headers": headers},
+            response={
                 "status": response.status_code,
-                "mailGroup": bool(mail_group),
-                "emailPresent": bool(email),
-            }
+                "url": str(response.url),
+                "headers": response_headers(response),
+                "body": response.text,
+            },
+            mailGroup=mail_group,
+            email=email,
         )
     if response.status_code >= 400:
         raise RuntimeError(f"gongxi_get_email_failed_{response.status_code}: {response.text[:240]}")
@@ -2043,15 +2861,34 @@ def generate_registration_password() -> str:
     return f"{raw}!9a"
 
 
-def gongxi_code_candidates(email: str) -> list[dict[str, Any]]:
+def gongxi_code_candidates(
+    email: str,
+    *,
+    events: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for mailbox in ("inbox", "junk"):
+        url = f"{GONGXI_MAIL_BASE_URL}/api/mail_all"
+        headers = {"content-type": "application/json", "x-api-key": GONGXI_MAIL_API_KEY}
+        body = {"email": email, "mailbox": mailbox}
         response = requests.post(
-            f"{GONGXI_MAIL_BASE_URL}/api/mail_all",
-            headers={"content-type": "application/json", "x-api-key": GONGXI_MAIL_API_KEY},
-            json={"email": email, "mailbox": mailbox},
+            url,
+            headers=headers,
+            json=body,
             timeout=45,
         )
+        if events is not None:
+            append_registration_event(
+                events,
+                "gongxi_mail_poll",
+                request={"method": "POST", "url": url, "headers": headers, "body": body},
+                response={
+                    "status": response.status_code,
+                    "url": str(response.url),
+                    "headers": response_headers(response),
+                    "body": response.text,
+                },
+            )
         data = response_json(response)
         messages = ((data.get("data") or {}).get("messages") or []) if isinstance(data.get("data"), dict) else []
         for message in messages:

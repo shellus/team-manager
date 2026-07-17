@@ -54,6 +54,33 @@ export interface CodexPersonalAccessTokenResponse {
   access_token?: string;
 }
 
+export interface ChatGptMeResponse extends Record<string, unknown> {
+  id?: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+}
+
+export interface ChatGptPersonalProfileResponse extends Record<string, unknown> {
+  user_id?: string;
+  username?: string;
+  display_name?: string;
+  profile_picture_url?: string;
+}
+
+export interface ChatGptNotificationSettingsResponse extends Record<string, unknown> {
+  settings?: Array<{
+    category?: string;
+    options?: Array<{ channel?: string; enabled?: boolean }>;
+  }>;
+}
+
+export interface ChatGptRateLimitResetCreditsResponse extends Record<string, unknown> {
+  credits?: unknown[];
+  available_count?: number;
+  total_earned_count?: number;
+}
+
 /**
  * ChatGPT 网页 backend-api 薄封装。
  * 阶段一实测：所有请求必须带 Authorization: Bearer；workspace 操作还需 chatgpt-account-id。
@@ -116,34 +143,66 @@ export class ChatGptApi {
   }
 
   /** 当前 ChatGPT session 可见的账号 / workspace 列表。 */
-  async checkAccounts(): Promise<ChatGptAccountCheckEntry[]> {
+  async checkAccountsRaw(): Promise<Record<string, unknown>> {
     const path = '/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480';
-    const data = await this.request<{
-      accounts?: Record<string, { account?: Record<string, unknown>; can_access_with_session?: unknown }>;
-    }>(
+    return this.request<Record<string, unknown>>('GET', path);
+  }
+
+  /** 当前 ChatGPT session 可见的账号 / workspace 列表。 */
+  async checkAccounts(): Promise<ChatGptAccountCheckEntry[]> {
+    return parseChatGptAccountCheckEntries(await this.checkAccountsRaw());
+  }
+
+  async getMe(): Promise<ChatGptMeResponse> {
+    return this.request<ChatGptMeResponse>('GET', '/backend-api/me');
+  }
+
+  async getPersonalProfile(userId: string): Promise<ChatGptPersonalProfileResponse> {
+    return this.request<ChatGptPersonalProfileResponse>(
       'GET',
-      path
+      `/backend-api/calpico/chatgpt/profile/${encodeURIComponent(userId)}`
     );
-    const seen = new Set<string>();
-    const entries: ChatGptAccountCheckEntry[] = [];
-    const accounts = data.accounts ?? {};
-    for (const [key, value] of Object.entries(accounts)) {
-      const entry = value?.account ?? {};
-      const accountId = readString(entry.account_id) ?? key;
-      if (!accountId || seen.has(accountId)) continue;
-      seen.add(accountId);
-      entries.push({
-        accountId,
-        role: readString(entry.account_user_role) as MemberRole | undefined,
-        workspaceName: readString(entry.name),
-        nextRenewalOn: readRenewalDate(value as Record<string, unknown>),
-        planType: readString(entry.plan_type),
-        structure: readString(entry.structure),
-        canAccessWithSession:
-          typeof value?.can_access_with_session === 'boolean' ? value.can_access_with_session : undefined
-      });
-    }
-    return entries;
+  }
+
+  async setPersonalUsername(userId: string, username: string): Promise<ChatGptPersonalProfileResponse> {
+    return this.request<ChatGptPersonalProfileResponse>(
+      'POST',
+      `/backend-api/calpico/chatgpt/profile/${encodeURIComponent(userId)}/username`,
+      { username }
+    );
+  }
+
+  async setPersonalDisplayName(userId: string, displayName: string): Promise<ChatGptPersonalProfileResponse> {
+    return this.request<ChatGptPersonalProfileResponse>(
+      'POST',
+      `/backend-api/calpico/chatgpt/profile/${encodeURIComponent(userId)}`,
+      { display_name: displayName }
+    );
+  }
+
+  async getNotificationSettings(): Promise<ChatGptNotificationSettingsResponse> {
+    return this.request<ChatGptNotificationSettingsResponse>('GET', '/backend-api/notifications/settings');
+  }
+
+  async setMarketingNotifications(input: {
+    push?: boolean;
+    email?: boolean;
+  }): Promise<ChatGptNotificationSettingsResponse> {
+    return this.request<ChatGptNotificationSettingsResponse>('PATCH', '/backend-api/notifications/settings', {
+      updates: { marketing: input }
+    });
+  }
+
+  async setMemoryEnabled(enabled: boolean): Promise<Record<string, unknown>> {
+    return this.request(
+      'PATCH',
+      `/backend-api/settings/account_user_setting?feature=m3m&value=${enabled ? 'true' : 'false'}`,
+      {}
+    );
+  }
+
+  async getRateLimitResetCredits(): Promise<ChatGptRateLimitResetCreditsResponse> {
+    return this.request<ChatGptRateLimitResetCreditsResponse>('GET', '/backend-api/wham/rate-limit-reset-credits');
   }
 
   /** 母号状态：从 accounts/check 取本 workspace 那条 */
@@ -180,7 +239,6 @@ export class ChatGptApi {
     }
     return all;
   }
-
   /** 用当前 session 在目标 workspace 查询某个邮箱的成员记录。普通成员可用来读取自己的 seat_type。 */
   async findMemberByEmail(email: string): Promise<Member | undefined> {
     const target = email.trim().toLowerCase();
@@ -382,6 +440,32 @@ interface RawPendingInvite {
   is_scim_managed: boolean;
 }
 
+export function parseChatGptAccountCheckEntries(data: Record<string, unknown>): ChatGptAccountCheckEntry[] {
+  const seen = new Set<string>();
+  const entries: ChatGptAccountCheckEntry[] = [];
+  const accounts =
+    data.accounts && typeof data.accounts === 'object' && !Array.isArray(data.accounts)
+      ? data.accounts as Record<string, { account?: Record<string, unknown>; can_access_with_session?: unknown }>
+      : {};
+  for (const [key, value] of Object.entries(accounts)) {
+    const entry = value?.account ?? {};
+    const accountId = readString(entry.account_id) ?? key;
+    if (!accountId || seen.has(accountId)) continue;
+    seen.add(accountId);
+    entries.push({
+      accountId,
+      role: readString(entry.account_user_role) as MemberRole | undefined,
+      workspaceName: readString(entry.name),
+      nextRenewalOn: readRenewalDate(value as Record<string, unknown>),
+      planType: readString(entry.plan_type),
+      structure: readString(entry.structure),
+      canAccessWithSession:
+        typeof value?.can_access_with_session === 'boolean' ? value.can_access_with_session : undefined
+    });
+  }
+  return entries;
+}
+
 export class ChatGptApiError extends Error {
   constructor(
     public readonly status: number,
@@ -398,9 +482,13 @@ function isTokenInvalidatedResponse(body: string): boolean {
     const data = JSON.parse(body) as { error?: { code?: unknown; message?: unknown } };
     const code = typeof data.error?.code === 'string' ? data.error.code : '';
     const message = typeof data.error?.message === 'string' ? data.error.message : '';
-    return code === 'token_invalidated' || /authentication token has been invalidated/i.test(message);
+    return (
+      code === 'token_invalidated' ||
+      code === 'token_revoked' ||
+      /authentication token has been invalidated|invalidated oauth token|token has been revoked/i.test(message)
+    );
   } catch {
-    return /authentication token has been invalidated|token_invalidated/i.test(body);
+    return /authentication token has been invalidated|invalidated oauth token|token has been revoked|token_invalidated|token_revoked/i.test(body);
   }
 }
 

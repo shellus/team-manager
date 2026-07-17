@@ -7,13 +7,15 @@ import type {
 } from '@team-manager/shared';
 import type { ActionBusyState } from '../../components/actionBusy.js';
 import { Button, Card, Empty, Space, Table, Tabs, Typography } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { SubaccountTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { formatDateTime } from '../../components/format.js';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
 import { SubaccountAuthPanel } from './SubaccountAuthPanel.js';
 import { SubaccountCredentialPanel } from './SubaccountCredentialPanel.js';
+import { SubaccountRegistrationPanel } from './SubaccountRegistrationPanel.js';
+import { SubaccountSettingsPanel } from './SubaccountSettingsPanel.js';
 import { SubaccountTeamLinks } from './SubaccountTeamLinks.js';
 
 export function SubaccountDetail({
@@ -25,10 +27,12 @@ export function SubaccountDetail({
   busyState,
   quota,
   runningTarget,
+  syncing,
   onTabChange,
   onSubaccountChanged,
   onOpenEdit,
   onOpenDelete,
+  onSync,
   onOpenInvite,
   onStartAuth,
   onAutoAuth,
@@ -46,10 +50,12 @@ export function SubaccountDetail({
   busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
   runningTarget: string;
+  syncing: boolean;
   onTabChange: (tab: SubaccountTab) => void;
   onSubaccountChanged: (subaccount: SubaccountView) => void;
   onOpenEdit: () => void;
   onOpenDelete: () => void;
+  onSync: () => void;
   onOpenInvite: () => void;
   onStartAuth: (workspaceId: string, teamTitle: string) => void;
   onAutoAuth: (workspaceId: string) => void;
@@ -91,6 +97,9 @@ export function SubaccountDetail({
           <Button icon={<EditOutlined />} onClick={onOpenEdit}>
             本地资料
           </Button>
+          <Button icon={<ReloadOutlined />} loading={syncing} onClick={onSync}>
+            同步账号
+          </Button>
           <Button danger icon={<DeleteOutlined />} onClick={onOpenDelete}>
             删除子号
           </Button>
@@ -110,6 +119,21 @@ export function SubaccountDetail({
                 accounts={accounts}
                 onSubaccountChanged={onSubaccountChanged}
                 onOpenInvite={onOpenInvite}
+              />
+            )
+          },
+          {
+            key: 'registration',
+            label: '注册资料',
+            children: <SubaccountRegistrationPanel subaccount={subaccount} />
+          },
+          {
+            key: 'settings',
+            label: '设置',
+            children: (
+              <SubaccountSettingsPanel
+                subaccount={subaccount}
+                onSubaccountChanged={onSubaccountChanged}
               />
             )
           },

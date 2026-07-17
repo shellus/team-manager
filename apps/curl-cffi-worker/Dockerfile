@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN pip install --no-cache-dir "curl-cffi>=0.15.0" "pyyaml>=6.0"
 
-COPY worker.py ./
+COPY worker.py turnstile.py ./
 
 EXPOSE 8080
 

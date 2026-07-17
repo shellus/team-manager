@@ -5,6 +5,7 @@ import type {
   CodexQuotaSnapshot,
   SeatType,
   SubaccountAuthLog,
+  SubaccountRegistrationJobView,
   SubaccountView
 } from '@team-manager/shared';
 import { Alert, Form, Input, Modal, Select, Space } from 'antd';
@@ -84,6 +85,7 @@ export function SubaccountRoutes({
   const [inviteForm] = Form.useForm<TeamInviteValues>();
 
   const [subaccounts, setSubaccounts] = useState<SubaccountView[]>([]);
+  const [registrationJobs, setRegistrationJobs] = useState<SubaccountRegistrationJobView[]>([]);
   const [runtimeStatus, setRuntimeStatus] = useState<CodexAuthRuntimeStatus | null>(null);
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
   const [authSession, setAuthSession] = useState<ManualAuthSession | null>(null);
@@ -130,7 +132,12 @@ export function SubaccountRoutes({
     setLoading(true);
     setLocalError('');
     try {
-      setSubaccounts(sortSubaccountsForList(await apiClient.listSubaccounts()));
+      const [nextSubaccounts, nextJobs] = await Promise.all([
+        apiClient.listSubaccounts(),
+        apiClient.listSubaccountRegistrationJobs()
+      ]);
+      setSubaccounts(sortSubaccountsForList(nextSubaccounts));
+      setRegistrationJobs(nextJobs);
     } catch (error) {
       reportLocalError(error);
     } finally {
@@ -170,6 +177,37 @@ export function SubaccountRoutes({
     void loadSubaccounts();
     void loadRuntimeStatus();
   }, [loadRuntimeStatus, loadSubaccounts]);
+
+  const hasActiveRegistration = registrationJobs.some(
+    (job) => job.status === 'queued' || job.status === 'running'
+  );
+
+  useEffect(() => {
+    if (!hasActiveRegistration) return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const [nextSubaccounts, nextJobs] = await Promise.all([
+          apiClient.listSubaccounts(),
+          apiClient.listSubaccountRegistrationJobs()
+        ]);
+        if (!cancelled) {
+          setSubaccounts(sortSubaccountsForList(nextSubaccounts));
+          setRegistrationJobs(nextJobs);
+        }
+      } catch {
+        // 后台任务保留在服务端，短暂轮询失败不会清空当前进度。
+      } finally {
+        if (!cancelled) timer = window.setTimeout(poll, 1500);
+      }
+    };
+    timer = window.setTimeout(poll, 700);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [hasActiveRegistration]);
 
   useEffect(() => {
     if (loading || subaccounts.length === 0) return;
@@ -290,11 +328,23 @@ export function SubaccountRoutes({
     setLocalError('');
     try {
       await actionBusy.run('register-subaccount', async () => {
-        const registered = await apiClient.registerSubaccount();
-        mergeSubaccount(registered);
+        const job = await apiClient.registerSubaccount();
+        setRegistrationJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
         closeModal();
-        navigate({ pathname: `/subaccounts/${registered.id}`, search: '?tab=credential' });
         void loadRuntimeStatus();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const retryRegistration = async (job: SubaccountRegistrationJobView) => {
+    const key = `retry-registration-${job.id}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        const retried = await apiClient.retrySubaccountRegistration(job.id);
+        setRegistrationJobs((current) => current.map((item) => (item.id === retried.id ? retried : item)));
       });
     } catch (error) {
       reportLocalError(error);
@@ -317,6 +367,19 @@ export function SubaccountRoutes({
     } catch (error) {
       reportLocalError(error);
       throw error;
+    }
+  };
+
+  const syncSubaccount = async () => {
+    if (!selected) return;
+    setLocalError('');
+    try {
+      await actionBusy.run('subaccount-refresh', async () => {
+        mergeSubaccount(await apiClient.refreshSubaccount(selected.id));
+        await loadLogs(selected.id);
+      });
+    } catch (error) {
+      reportLocalError(error);
     }
   };
 
@@ -523,6 +586,7 @@ export function SubaccountRoutes({
     <div className="workbench">
       <SubaccountList
         subaccounts={subaccounts}
+        registrationJobs={registrationJobs}
         selectedId={selected?.id ?? ''}
         runtimeStatus={runtimeStatus}
         isBusy={actionBusy.isBusy}
@@ -530,6 +594,7 @@ export function SubaccountRoutes({
         onOpenImportSession={() => openModal('import-session')}
         onOpenImportCredential={() => openModal('import-credential')}
         onOpenRegister={() => openModal('register-subaccount')}
+        onRetryRegistration={(job) => void retryRegistration(job)}
         onOpenEdit={(subaccount) => {
           openSubaccountRecordModal(subaccount, 'edit-subaccount-profile');
         }}
@@ -549,10 +614,12 @@ export function SubaccountRoutes({
           busyState={actionBusy.busyState}
           quota={quota}
           runningTarget={runningTarget}
+          syncing={actionBusy.isBusy('subaccount-refresh')}
           onTabChange={changeTab}
           onSubaccountChanged={mergeSubaccount}
           onOpenEdit={() => selected && openModal('edit-subaccount-profile', selected.id)}
           onOpenDelete={() => selected && openModal('delete-subaccount', selected.id)}
+          onSync={() => void syncSubaccount()}
           onOpenInvite={() => openModal('invite-to-team', selected?.id ?? '')}
           onStartAuth={(workspaceId, teamTitle) => void startAuth(workspaceId, teamTitle)}
           onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
@@ -613,7 +680,7 @@ export function SubaccountRoutes({
         onOk={() => void registerSubaccount()}
       >
         <Space direction="vertical" size={12} className="panel-stack">
-          <span>系统会使用运行环境配置完成邮箱、短信和 Codex 授权流程。生成的密码只保存在后端运行时数据。</span>
+          <span>系统会取一个 GongXi-Mail 邮箱，完成账号注册、资料与密码设置，获取 chatgpt.com Web Session，录入为子号，最后把邮箱转移到已注册分组。本按钮不会生成 Codex 凭证。</span>
           <ModalErrorAlert message={searchState.modal === 'register-subaccount' ? localError : ''} />
         </Space>
       </Modal>

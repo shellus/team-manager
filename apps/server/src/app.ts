@@ -13,6 +13,7 @@ import { AppSettingsStore } from './appSettingsStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
+import { SubaccountRegistrationJobStore } from './subaccountRegistrationJobStore.js';
 import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
 import type { SubaccountRegistrationExecutor } from './subaccountRegistration.js';
 import type { Transport } from './transport.js';
@@ -84,8 +85,11 @@ export async function buildApp({
   const service = new TeamService(store, teamTransport, accountBillingStore);
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
+  const subaccountRegistrationJobs = new SubaccountRegistrationJobStore(config.dataDir);
+  await subaccountRegistrationJobs.init();
   const subaccountService = new SubaccountService(
     subaccountStore,
+    subaccountRegistrationJobs,
     subaccountCodexFetch,
     subaccountQuotaTransport,
     subaccountCodexAutoAuth,
@@ -636,6 +640,14 @@ export async function buildApp({
   // ---- 子号池 ----
   api.get('/subaccounts', (c) => wrap(c, () => Promise.resolve(subaccountService.list())));
 
+  api.get('/subaccounts/registration/jobs', (c) =>
+    wrap(c, () => Promise.resolve(subaccountService.listRegistrationJobs()))
+  );
+
+  api.post('/subaccounts/registration/jobs/:jobId/retry', (c) =>
+    wrap(c, () => subaccountService.retrySubaccountRegistration(c.req.param('jobId')))
+  );
+
   api.post('/subaccounts/session', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => subaccountService.importSession(body));
@@ -648,13 +660,17 @@ export async function buildApp({
 
   api.post('/subaccounts/registration/start', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
-      chatgptAccountId?: string;
       mailGroup?: string;
+      email?: string;
+      password?: string;
+      resumeExisting?: boolean;
     };
     return wrap(c, () =>
-      subaccountService.registerNewSubaccount({
-        targetChatgptAccountId: body.chatgptAccountId,
-        mailGroup: body.mailGroup
+      subaccountService.startSubaccountRegistration({
+        mailGroup: body.mailGroup,
+        email: body.email,
+        password: body.password,
+        resumeExisting: body.resumeExisting
       })
     );
   });
@@ -662,6 +678,58 @@ export async function buildApp({
   api.patch('/subaccounts/:id/local-profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { remark?: unknown; proxy?: unknown; session?: unknown };
     return wrap(c, () => subaccountService.updateLocalProfile(c.req.param('id'), body));
+  });
+
+  api.post('/subaccounts/:id/refresh', (c) =>
+    wrap(c, () => subaccountService.refreshWebAccount(c.req.param('id')))
+  );
+
+  api.patch('/subaccounts/:id/personal-settings', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      marketingPushEnabled?: unknown;
+      marketingEmailEnabled?: unknown;
+      memoryEnabled?: unknown;
+      username?: unknown;
+      displayName?: unknown;
+    };
+    if (
+      typeof body.marketingPushEnabled === 'boolean' ||
+      typeof body.marketingEmailEnabled === 'boolean'
+    ) {
+      return wrap(c, () =>
+        subaccountService.setMarketingNotifications(c.req.param('id'), {
+          ...(typeof body.marketingPushEnabled === 'boolean' ? { push: body.marketingPushEnabled } : {}),
+          ...(typeof body.marketingEmailEnabled === 'boolean' ? { email: body.marketingEmailEnabled } : {})
+        })
+      );
+    }
+    if (typeof body.memoryEnabled === 'boolean') {
+      return wrap(c, () => subaccountService.setMemoryEnabled(c.req.param('id'), body.memoryEnabled as boolean));
+    }
+    if (body.username !== undefined || body.displayName !== undefined) {
+      if (body.username !== undefined && typeof body.username !== 'string') {
+        return c.json({ ok: false, error: 'username 必须是字符串' }, 400);
+      }
+      if (body.displayName !== undefined && typeof body.displayName !== 'string') {
+        return c.json({ ok: false, error: 'displayName 必须是字符串' }, 400);
+      }
+      const username = typeof body.username === 'string' ? body.username.trim() : undefined;
+      const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : undefined;
+      if (body.username !== undefined && !username) return c.json({ ok: false, error: 'username 不能为空' }, 400);
+      if (body.displayName !== undefined && !displayName) {
+        return c.json({ ok: false, error: 'displayName 不能为空' }, 400);
+      }
+      return wrap(c, () =>
+        subaccountService.updatePersonalProfile(c.req.param('id'), {
+          ...(username ? { username } : {}),
+          ...(displayName ? { displayName } : {})
+        })
+      );
+    }
+    return c.json({
+      ok: false,
+      error: '缺少营销通知、记忆、username 或 displayName 设置'
+    }, 400);
   });
 
   api.get('/subaccounts/logs', (c) => wrap(c, () => Promise.resolve(subaccountService.listLogs())));

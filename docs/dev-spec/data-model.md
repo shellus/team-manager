@@ -4,7 +4,7 @@
 
 ## 总原则
 
-- 后端 store 中的对象是本地事实源；前端消费后端返回的 view。管理后台 view 可回填账号 Web session JSON 和代理地址；Codex credential JSON、注册密码和运行环境密钥仍不得进入普通 view。
+- 后端 store 中的对象是本地事实源；前端消费后端返回的 view。可信管理后台 view 可回填账号 Web session JSON、代理地址和自动注册密码；Codex credential JSON 和运行环境密钥仍不得进入普通 view。
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
@@ -92,7 +92,7 @@
 母号 backend-api 请求认证规则：
 
 - `ChatGptApi` 是母号远端请求的统一封装。成员、邀请、设置、账单和改名等远端请求都通过该封装发送。
-- 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 时，如果母号保存了 `sessionToken`，封装会换取目标 Team workspace 的新 Web access token，回写 `accessToken` 并重试一次原请求。
+- 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 或 `token_revoked` 时，如果账号保存了 `sessionToken`，封装会换取目标 workspace 的新 Web access token，回写 token 并重试一次原请求。
 - 权限不足、目标不存在、账单风险确认等非认证失效错误不得被重试逻辑吞掉。
 
 ## 母号写操作规则
@@ -155,8 +155,14 @@
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token；通过 `SubaccountView.session` 回填给管理后台 |
 | `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `SubaccountView.session` 回填给管理后台 |
 | `proxy` | 本地输入 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT/K12 凭证创建和额度请求 |
+| `sessionTokenStatus` / `sessionTokenCheckedAt` | Web 账号同步 | Session Cookie 最近一次通过 `/api/auth/session` 验证的结果和时间 |
+| `webAccessTokenStatus` / `webAccessTokenCheckedAt` | Web 账号同步 | Web access token 最近一次通过 backend-api 验证的结果和时间 |
+| `chatgptUserId`、`remoteUsername`、`remoteDisplayName`、`remotePictureUrl` | `/backend-api/me` 与 Calpico profile | 子号个人资料缓存 |
+| `marketingPushEnabled` / `marketingEmailEnabled` | notifications settings | 子号个人营销通知缓存 |
+| `memoryEnabled` | `account_user_setting?feature=m3m` 写操作 | 子号记忆开关最近一次明确修改结果；未修改前可为未知 |
+| `rateLimitResetCredits` | `wham/rate-limit-reset-credits` | reset credits 明细、当前可用数、累计获得数和缓存时间 |
 | `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证元数据 |
-| `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据，仅后端持久化，不下发前端 |
+| `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据；可信管理后台详情页可查看和复制注册密码 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
 | `status` / `lastError` | 授权或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
@@ -194,6 +200,7 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 ### Derived view fields
 
 - `SubaccountView.hasWebSession` 是列表和详情展示用能力位；可编辑的 Web session 明文放在 `SubaccountView.session`。
+- `SubaccountView.registrationPassword`、`registeredAt` 和 `registrationSource` 只用于可信管理后台展示自动注册资料。
 - `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
 - `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
 - 顶层 `hasCodexCredential`、`lastQuota`、`lastQuotaAt`、`lastAuthAt` 是冗余字段，不应出现在 view 或持久化数据中。
@@ -204,8 +211,10 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 |---|---|---|
 | 导入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加脱敏日志 | 合并返回的子号 view |
 | 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
-| 自动注册子号 | 通过 worker 申请邮箱并注册 OpenAI 账号；写入 `email`、`registrationPassword`、`registeredAt`、`registrationSource`；如授权成功则写入独立凭证文件并 upsert `codexCredentials[]` 元数据 | 合并返回的子号 view，密码不下发 |
+| 自动注册子号 | 先原子写入 `data/subaccount-registration-jobs.json` 任务记录，再由后台队列调用 worker；成功后写入 `email`、Web Session、`registrationPassword`、`registeredAt`、`registrationSource`，不生成 Codex 凭证；失败任务重试时优先复用已保存邮箱和密码 | 立即显示任务项并轮询进度；刷新页面继续读取同一任务；任务完成后替换为正常子号 view，“注册资料”页签显示注册密码 |
 | 编辑本地资料 | 更新 `remark` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
+| 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
+| 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
 | 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |

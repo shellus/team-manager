@@ -24,6 +24,15 @@
 | 账号锁定 | OpenAI 返回账号锁定、停用或不可用 | 停止对该子号重试自动授权，换账号或按 OpenAI 流程恢复账号 |
 | 异常 | 最近流程失败 | 查看卡片错误和验证与授权日志 |
 
+子号“设置”页会把 Web 登录态拆成两个独立结果：
+
+| 检查项 | 有效 | 无效 |
+|---|---|---|
+| Session Cookie | `sessionToken` 可通过 `/api/auth/session` 换取 Session | Cookie 失效、缺失或账号不匹配 |
+| Web Access Token | `/backend-api/me` 接受 Bearer token | backend-api 返回 401，例如 `token_revoked` |
+
+Session Cookie 有效但 Web Access Token 无效并不矛盾，表示 ChatGPT 仍接受登录 Cookie，但签发的 Web AT 被后端拒绝。此时查看同步日志中的 `/api/auth/session`、`/backend-api/me`、个人资料、通知设置和用量限制原始响应，再决定是否重新登录或更换注册环境。
+
 ## Team 关联状态
 
 | 状态 | 含义 | 处理 |
@@ -41,11 +50,11 @@
 
 - worker 不可连接：检查运行实例与 worker sidecar。
 - GongXi-Mail 未就绪：检查运行环境中的邮件服务连接配置。
-- 自动注册不可用：检查 worker、GongXi-Mail 和授权页面 clearance 运行配置。
+- 自动注册不可用：检查 worker、GongXi-Mail、注册代理和授权页面 clearance 运行配置。
 - 短信接码不可用：检查运行环境中的 YAML 手机号池或 OTP 服务配置；号码达到绑定账号数量上限时会计入用尽数量，新账号不会继续取用。
 - 授权页面未就绪：检查授权页面 clearance 相关运行配置。
 
-页面不会显示真实 URL、API key、手机号、接码渠道或本机路径。
+页面能力摘要不会显示真实 URL、API key、手机号、接码渠道或本机路径；注册追踪日志按本自托管实例的排障要求保存完整原始数据。
 
 ## 常见错误
 
@@ -68,7 +77,7 @@
 
 ### 自动注册需要额外验证
 
-自动注册在 `user/register` 阶段遇到 sentinel、account creation failed 或人机校验时，子号会进入待验证或异常状态。账号锁定会进入单独的账号锁定状态。若 worker 已申请邮箱并生成密码，后端会保存这些私有字段，便于后续继续处理；页面不会展示密码。
+自动注册在 `user/register` 或 `create_account` 阶段遇到 sentinel、account creation failed 或人机校验时，子号会进入待验证或异常状态。账号锁定会进入单独的账号锁定状态。若 worker 已申请邮箱并生成密码，后端会保存这些私有字段与完整原始追踪日志，便于后续继续处理；可信管理后台的子号详情会显示自动注册密码、注册时间和来源。
 
 若 OpenAI 在注册入口连续把 GongXi-Mail 分配的候选邮箱识别为已注册或被占用，worker 会继续换邮箱，直到 `TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 用尽。全部耗尽时 API 返回 502 和 `No usable GongXi-Mail email...`，不会创建子号；需要切换 `mailGroup` 或向 GongXi-Mail 补充可注册的新邮箱。
 

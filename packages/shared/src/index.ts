@@ -21,6 +21,16 @@ export type SeatType = 'default' | 'usage_based';
 /** 母号本地额度窗口类型。 */
 export type AccountLimitType = 'unknown' | 'weekly' | 'monthly';
 
+/** Web 登录态各组成部分最近一次实测结果。 */
+export type WebSessionCheckStatus = 'unknown' | 'valid' | 'invalid';
+
+export interface SubaccountRateLimitResetCredits {
+  credits: unknown[];
+  availableCount: number;
+  totalEarnedCount: number;
+  cachedAt: number;
+}
+
 export const EDITABLE_MEMBER_ROLES = [
   'analytics-viewer',
   'standard-user',
@@ -280,6 +290,28 @@ export type SubaccountStatus =
   | 'account_locked'
   | 'error';
 
+export type SubaccountRegistrationJobStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'interrupted';
+
+/** 自动注册后台任务。任务本身不包含密码、Cookie、验证码或 Token。 */
+export interface SubaccountRegistrationJobView {
+  id: string;
+  status: SubaccountRegistrationJobStatus;
+  phase: string;
+  message: string;
+  progress: number;
+  email?: string;
+  subaccountId?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  error?: string;
+}
+
 /** 子号池记录（含敏感字段，仅后端 data/ 持久化） */
 export interface Subaccount {
   id: string;                  // team-manager 内部 id（uuid）
@@ -289,14 +321,30 @@ export interface Subaccount {
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
   proxy?: string;              // 每子号独立代理
-  registrationPassword?: string; // 自动注册生成的 OpenAI 密码，仅后端持久化，不下发前端
+  registrationPassword?: string; // 自动注册生成的 OpenAI 密码
   registeredAt?: number;
   registrationSource?: string;
+  chatgptUserId?: string;
+  remoteUsername?: string;
+  remoteDisplayName?: string;
+  remotePictureUrl?: string;
+  personalProfileCachedAt?: number;
+  sessionTokenStatus?: WebSessionCheckStatus;
+  sessionTokenCheckedAt?: number;
+  webAccessTokenStatus?: WebSessionCheckStatus;
+  webAccessTokenCheckedAt?: number;
+  marketingPushEnabled?: boolean;
+  marketingEmailEnabled?: boolean;
+  marketingNotificationsCachedAt?: number;
+  memoryEnabled?: boolean;
+  memoryCachedAt?: number;
+  rateLimitResetCredits?: SubaccountRateLimitResetCredits;
   codexCredentials?: SubaccountCodexCredential[];
   teamLinks?: SubaccountTeamLink[];
   status: SubaccountStatus;
   createdAt: number;
   updatedAt: number;
+  lastRefreshAt?: number;
   lastError?: string;
 }
 
@@ -307,6 +355,24 @@ export interface SubaccountView {
   remark?: string;
   chatgptAccountId?: string;
   proxy?: string;
+  registrationPassword?: string;
+  registeredAt?: number;
+  registrationSource?: string;
+  chatgptUserId?: string;
+  remoteUsername?: string;
+  remoteDisplayName?: string;
+  remotePictureUrl?: string;
+  personalProfileCachedAt?: number;
+  sessionTokenStatus?: WebSessionCheckStatus;
+  sessionTokenCheckedAt?: number;
+  webAccessTokenStatus?: WebSessionCheckStatus;
+  webAccessTokenCheckedAt?: number;
+  marketingPushEnabled?: boolean;
+  marketingEmailEnabled?: boolean;
+  marketingNotificationsCachedAt?: number;
+  memoryEnabled?: boolean;
+  memoryCachedAt?: number;
+  rateLimitResetCredits?: SubaccountRateLimitResetCredits;
   session?: ChatGptSessionInput;
   status: SubaccountStatus;
   hasWebSession: boolean;
@@ -314,6 +380,7 @@ export interface SubaccountView {
   teamLinks: SubaccountTeamLink[];
   createdAt: number;
   updatedAt: number;
+  lastRefreshAt?: number;
   lastError?: string;
 }
 

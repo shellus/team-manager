@@ -67,7 +67,7 @@ function normalizeCredentialFileName(input: unknown, email: string, accountId: s
   return safe.endsWith('.json') ? safe : `${safe}.json`;
 }
 
-/** 子号持久化：敏感 session / Codex 凭证仅存在运行时 data/，API 默认只返回脱敏视图。 */
+/** 子号持久化：可信管理后台可查看 Web session 与注册密码；Codex 凭证明文只由显式导出接口返回。 */
 export class SubaccountStore {
   private readonly file: string;
   private readonly logFile: string;
@@ -166,18 +166,24 @@ export class SubaccountStore {
     const now = Date.now();
     const existing = this.findByEmail(session.user.email);
     const next: Subaccount = {
+      ...existing,
       id: existing?.id ?? randomUUID(),
       email: session.user.email,
       remark: hasRemark ? normalizeOptionalString(options.remark) : existing?.remark,
       chatgptAccountId: session.account.id,
       webAccessToken: session.accessToken,
       sessionToken: session.sessionToken,
+      sessionTokenStatus: 'unknown',
+      sessionTokenCheckedAt: undefined,
+      webAccessTokenStatus: 'unknown',
+      webAccessTokenCheckedAt: undefined,
       proxy: hasProxy ? normalizeOptionalString(options.proxy) : existing?.proxy,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,
       status: existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready',
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      lastRefreshAt: undefined,
       lastError: undefined
     };
 
@@ -209,6 +215,7 @@ export class SubaccountStore {
       lastAuthAt: now
     });
     const next: Subaccount = {
+      ...existing,
       id,
       email,
       remark: existing?.remark,
@@ -232,6 +239,7 @@ export class SubaccountStore {
   async saveRegisteredSubaccount(input: {
     email: string;
     password: string;
+    session?: ChatGptSessionInput;
     source?: string;
     status?: Subaccount['status'];
     lastError?: string;
@@ -240,16 +248,24 @@ export class SubaccountStore {
     const email = input.email.trim();
     if (!email) throw new Error('注册结果缺少 email');
     if (!input.password.trim()) throw new Error('注册结果缺少 password');
+    if (input.session && input.session.user.email.trim().toLowerCase() !== email.toLowerCase()) {
+      throw new Error(`注册结果邮箱与 session.user.email 不一致: ${email} != ${input.session.user.email}`);
+    }
 
     const now = Date.now();
     const existing = this.findByEmail(email);
     const next: Subaccount = {
+      ...existing,
       id: existing?.id ?? randomUUID(),
       email,
       remark: existing?.remark,
-      chatgptAccountId: existing?.chatgptAccountId,
-      webAccessToken: existing?.webAccessToken,
-      sessionToken: existing?.sessionToken,
+      chatgptAccountId: input.session?.account.id ?? existing?.chatgptAccountId,
+      webAccessToken: input.session?.accessToken ?? existing?.webAccessToken,
+      sessionToken: input.session?.sessionToken ?? existing?.sessionToken,
+      sessionTokenStatus: input.session ? 'unknown' : existing?.sessionTokenStatus,
+      sessionTokenCheckedAt: input.session ? undefined : existing?.sessionTokenCheckedAt,
+      webAccessTokenStatus: input.session ? 'unknown' : existing?.webAccessTokenStatus,
+      webAccessTokenCheckedAt: input.session ? undefined : existing?.webAccessTokenCheckedAt,
       proxy: existing?.proxy,
       registrationPassword: input.password,
       registeredAt: existing?.registeredAt ?? now,
@@ -259,6 +275,7 @@ export class SubaccountStore {
       status: input.status ?? (existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      lastRefreshAt: input.session ? undefined : existing?.lastRefreshAt,
       lastError: input.lastError
     };
 
@@ -282,9 +299,14 @@ export class SubaccountStore {
       chatgptAccountId: input.session?.account.id ?? existing.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing.webAccessToken,
       sessionToken: input.session === undefined ? existing.sessionToken : input.session.sessionToken,
+      sessionTokenStatus: input.session === undefined ? existing.sessionTokenStatus : 'unknown',
+      sessionTokenCheckedAt: input.session === undefined ? existing.sessionTokenCheckedAt : undefined,
+      webAccessTokenStatus: input.session === undefined ? existing.webAccessTokenStatus : 'unknown',
+      webAccessTokenCheckedAt: input.session === undefined ? existing.webAccessTokenCheckedAt : undefined,
       proxy: Object.prototype.hasOwnProperty.call(input, 'proxy') ? input.proxy : existing.proxy,
       status: credentials.length ? 'codex_ready' : 'session_ready',
       updatedAt: Date.now(),
+      lastRefreshAt: input.session === undefined ? existing.lastRefreshAt : undefined,
       lastError: undefined
     };
     this.subaccounts.set(id, merged);
@@ -486,6 +508,24 @@ export class SubaccountStore {
       remark: account.remark,
       chatgptAccountId: account.chatgptAccountId,
       proxy: account.proxy,
+      registrationPassword: account.registrationPassword,
+      registeredAt: account.registeredAt,
+      registrationSource: account.registrationSource,
+      chatgptUserId: account.chatgptUserId,
+      remoteUsername: account.remoteUsername,
+      remoteDisplayName: account.remoteDisplayName,
+      remotePictureUrl: account.remotePictureUrl,
+      personalProfileCachedAt: account.personalProfileCachedAt,
+      sessionTokenStatus: account.sessionTokenStatus ?? 'unknown',
+      sessionTokenCheckedAt: account.sessionTokenCheckedAt,
+      webAccessTokenStatus: account.webAccessTokenStatus ?? 'unknown',
+      webAccessTokenCheckedAt: account.webAccessTokenCheckedAt,
+      marketingPushEnabled: account.marketingPushEnabled,
+      marketingEmailEnabled: account.marketingEmailEnabled,
+      marketingNotificationsCachedAt: account.marketingNotificationsCachedAt,
+      memoryEnabled: account.memoryEnabled,
+      memoryCachedAt: account.memoryCachedAt,
+      rateLimitResetCredits: account.rateLimitResetCredits,
       session:
         account.webAccessToken && account.chatgptAccountId
           ? {
@@ -510,6 +550,7 @@ export class SubaccountStore {
       teamLinks: account.teamLinks ?? [],
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
+      lastRefreshAt: account.lastRefreshAt,
       lastError: account.lastError
     };
   }
@@ -631,11 +672,27 @@ async function normalizeStoredSubaccount(
     registrationPassword: record.registrationPassword,
     registeredAt: record.registeredAt,
     registrationSource: record.registrationSource,
+    chatgptUserId: record.chatgptUserId,
+    remoteUsername: record.remoteUsername,
+    remoteDisplayName: record.remoteDisplayName,
+    remotePictureUrl: record.remotePictureUrl,
+    personalProfileCachedAt: record.personalProfileCachedAt,
+    sessionTokenStatus: record.sessionTokenStatus,
+    sessionTokenCheckedAt: record.sessionTokenCheckedAt,
+    webAccessTokenStatus: record.webAccessTokenStatus,
+    webAccessTokenCheckedAt: record.webAccessTokenCheckedAt,
+    marketingPushEnabled: record.marketingPushEnabled,
+    marketingEmailEnabled: record.marketingEmailEnabled,
+    marketingNotificationsCachedAt: record.marketingNotificationsCachedAt,
+    memoryEnabled: record.memoryEnabled,
+    memoryCachedAt: record.memoryCachedAt,
+    rateLimitResetCredits: normalizeRateLimitCredits(record.rateLimitResetCredits),
     codexCredentials: dedupeCodexCredentials(credentials),
     teamLinks,
     status: record.status,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    lastRefreshAt: record.lastRefreshAt,
     lastError: record.lastError
   });
   return { account, changed };
@@ -653,6 +710,21 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     registrationPassword: input.registrationPassword,
     registeredAt: input.registeredAt,
     registrationSource: input.registrationSource,
+    chatgptUserId: input.chatgptUserId?.trim() || undefined,
+    remoteUsername: input.remoteUsername?.trim() || undefined,
+    remoteDisplayName: input.remoteDisplayName?.trim() || undefined,
+    remotePictureUrl: input.remotePictureUrl?.trim() || undefined,
+    personalProfileCachedAt: input.personalProfileCachedAt,
+    sessionTokenStatus: normalizeCheckStatus(input.sessionTokenStatus),
+    sessionTokenCheckedAt: input.sessionTokenCheckedAt,
+    webAccessTokenStatus: normalizeCheckStatus(input.webAccessTokenStatus),
+    webAccessTokenCheckedAt: input.webAccessTokenCheckedAt,
+    marketingPushEnabled: input.marketingPushEnabled,
+    marketingEmailEnabled: input.marketingEmailEnabled,
+    marketingNotificationsCachedAt: input.marketingNotificationsCachedAt,
+    memoryEnabled: input.memoryEnabled,
+    memoryCachedAt: input.memoryCachedAt,
+    rateLimitResetCredits: normalizeRateLimitCredits(input.rateLimitResetCredits),
     codexCredentials: dedupeCodexCredentials(input.codexCredentials ?? []),
     teamLinks: (input.teamLinks ?? []).map((link) => ({
       accountId: link.accountId,
@@ -667,7 +739,25 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     status: input.status,
     createdAt: input.createdAt,
     updatedAt: input.updatedAt,
+    lastRefreshAt: input.lastRefreshAt,
     lastError: input.lastError
+  };
+}
+
+function normalizeCheckStatus(value: unknown): Subaccount['sessionTokenStatus'] {
+  return value === 'valid' || value === 'invalid' || value === 'unknown' ? value : undefined;
+}
+
+function normalizeRateLimitCredits(value: unknown): Subaccount['rateLimitResetCredits'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.credits)) return undefined;
+  if (typeof record.availableCount !== 'number' || typeof record.totalEarnedCount !== 'number') return undefined;
+  return {
+    credits: record.credits,
+    availableCount: record.availableCount,
+    totalEarnedCount: record.totalEarnedCount,
+    cachedAt: typeof record.cachedAt === 'number' ? record.cachedAt : Date.now()
   };
 }
 
