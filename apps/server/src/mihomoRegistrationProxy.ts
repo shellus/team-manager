@@ -10,14 +10,24 @@ const STATIC_DOMAIN_SUFFIXES = [
   'oaistatic.com',
   'oaiusercontent.com',
   'cdn.openai.com',
+  'openaiassets.blob.core.windows.net',
+  'cdn.auth0.com',
   'intercomcdn.com',
   'cloudflareinsights.com',
   'gstatic.com',
   'googleapis.com',
+  'googletagmanager.com',
+  'googleadservices.com',
+  'doubleclick.net',
+  'connect.facebook.net',
+  'analytics.tiktok.com',
   'segment.io',
   'sentry.io',
   'datadoghq.com',
-  'browser-intake-datadoghq.com'
+  'browser-intake-datadoghq.com',
+  'js.stripe.com',
+  'stripecdn.com',
+  'stripe-camo.global.ssl.fastly.net'
 ];
 
 type EventSink = (event: SubaccountRegistrationEvent) => void | Promise<void>;
@@ -53,6 +63,20 @@ export class MihomoRegistrationProxyManager {
     private readonly fetchImpl: typeof fetch = fetch
   ) {
     this.sessionFile = join(config.dataDir, SESSION_FILE);
+  }
+
+  async syncConfig(emit?: EventSink): Promise<void> {
+    await this.enqueue(async () => {
+      await this.init();
+      await this.writeConfig();
+      await this.reloadConfig();
+      await emit?.({
+        phase: 'mihomo_registration_config_synced',
+        sessionCount: this.sessions.size,
+        staticDomainSuffixes: STATIC_DOMAIN_SUFFIXES,
+        message: 'Mihomo 已按保存的 profile 会话重建配置并加载静态/CDN 分流规则'
+      });
+    });
   }
 
   async ensureSession(sessionId: string, emit?: EventSink): Promise<void> {

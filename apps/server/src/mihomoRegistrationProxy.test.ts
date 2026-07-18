@@ -36,7 +36,18 @@ describe('Mihomo registration proxy', () => {
   it('routes static domains before the per-user residential rule', () => {
     const rules = buildMihomoConfig(config, ['profile-session']).rules as string[];
     assert.ok(rules.indexOf('DOMAIN-SUFFIX,oaistatic.com,NORMAL') < rules.indexOf('IN-USER,profile-session,RES-profile-session'));
+    assert.ok(rules.indexOf('DOMAIN-SUFFIX,openaiassets.blob.core.windows.net,NORMAL') < rules.indexOf('IN-USER,profile-session,RES-profile-session'));
+    assert.ok(rules.indexOf('DOMAIN-SUFFIX,js.stripe.com,NORMAL') < rules.indexOf('IN-USER,profile-session,RES-profile-session'));
+    assert.ok(rules.indexOf('DOMAIN-SUFFIX,stripecdn.com,NORMAL') < rules.indexOf('IN-USER,profile-session,RES-profile-session'));
     assert.equal(rules.at(-1), 'MATCH,NORMAL');
+  });
+
+  it('keeps CAPTCHA and payment API domains on the profile residential route', () => {
+    const rules = buildMihomoConfig(config, ['profile-session']).rules as string[];
+    assert.equal(rules.includes('DOMAIN-SUFFIX,newassets.hcaptcha.com,NORMAL'), false);
+    assert.equal(rules.includes('DOMAIN-SUFFIX,api.hcaptcha.com,NORMAL'), false);
+    assert.equal(rules.includes('DOMAIN-SUFFIX,api.stripe.com,NORMAL'), false);
+    assert.equal(rules.includes('DOMAIN-SUFFIX,checkout.stripe.com,NORMAL'), false);
   });
 
   it('does not expose an unauthenticated proxy before the first registration session exists', () => {

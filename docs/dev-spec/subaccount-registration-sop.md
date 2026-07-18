@@ -51,6 +51,8 @@
 ### Mihomo 分流边界
 
 - `TEAMMGR_CLOAK_PROXY` 使用 `{session}` 占位符，每个新 profile 生成独立 Basic 用户名。
+- Mihomo 先按明确的纯静态/CDN 域名白名单走普通代理，再按 Basic 用户名把其余请求送入该 profile 独立的家宽 sid。OpenAI/Auth0/Stripe 静态资源与常见分析脚本可走普通出口；ChatGPT/Auth 登录、WebSocket、验证码、支付 API 和风控域名继续走家宽。
+- 服务启动时会从 `registration-mihomo-sessions.json` 恢复已有 profile session，原子重建配置并通过 Controller 热加载；新增静态规则不依赖再创建一个注册任务才生效。
 - Team Manager 把 sid 持久化，并为每个 sid 生成单独的家宽 SOCKS outbound；失败且删除 profile 时同步释放 sid，成功或等待人工的 profile 保留 sid。
 - `oaistatic.com`、`oaiusercontent.com`、`cdn.openai.com` 等静态/CDN 域名优先走普通 HTTP 代理；其余该用户流量按 `IN-USER` 规则走家宽。
 - 家宽 SOCKS 使用普通代理作为 `dialer-proxy`，避免容器直接连接境外上游。

@@ -206,12 +206,18 @@ export function createCloakBrowserClient(): CloakBrowserClient | undefined {
   const baseUrl = process.env.TEAMMGR_CLOAK_BROWSER_BASE_URL?.trim().replace(/\/+$/, '');
   const token = process.env.TEAMMGR_CLOAK_BROWSER_TOKEN?.trim();
   if (!baseUrl || !token) return undefined;
+  const proxyManager = createMihomoRegistrationProxyManager();
+  if (proxyManager) {
+    void proxyManager.syncConfig().catch((error) => {
+      console.error(`[team-manager] Mihomo 注册代理配置同步失败: ${(error as Error).message}`);
+    });
+  }
   return new CloakBrowserClient({
     baseUrl,
     token,
     proxy: process.env.TEAMMGR_CLOAK_PROXY?.trim() || undefined,
     rotateUrl: process.env.TEAMMGR_CLOAK_PROXY_ROTATE_URL?.trim() || undefined,
-    proxyManager: createMihomoRegistrationProxyManager()
+    proxyManager
   });
 }
 
