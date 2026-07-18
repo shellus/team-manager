@@ -17,6 +17,9 @@ export interface SubaccountRegistrationJobPatch {
   progress?: number;
   email?: string;
   subaccountId?: string;
+  registrationMethod?: 'cloak_browser';
+  cloakProfileId?: string;
+  cloakProfileName?: string;
   completedAt?: number;
   error?: string;
 }
@@ -86,6 +89,7 @@ export class SubaccountRegistrationJobStore {
       phase: 'registration_queued',
       message: '已加入自动注册队列',
       progress: 0,
+      registrationMethod: 'cloak_browser',
       createdAt: now,
       updatedAt: now
     };
@@ -106,6 +110,23 @@ export class SubaccountRegistrationJobStore {
     this.jobs.set(id, next);
     await this.persist();
     return cloneJob(next);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const removed = this.jobs.delete(id);
+    if (removed) await this.persist();
+    return removed;
+  }
+
+  async removeBySubaccountId(subaccountId: string): Promise<number> {
+    let removed = 0;
+    for (const [id, job] of this.jobs) {
+      if (job.subaccountId !== subaccountId) continue;
+      this.jobs.delete(id);
+      removed += 1;
+    }
+    if (removed) await this.persist();
+    return removed;
   }
 
   private async persist(): Promise<void> {
@@ -138,6 +159,9 @@ function normalizeJob(value: unknown): SubaccountRegistrationJobView | undefined
     progress: clampProgress(typeof record.progress === 'number' ? record.progress : 0),
     ...(record.email ? { email: record.email } : {}),
     ...(record.subaccountId ? { subaccountId: record.subaccountId } : {}),
+    ...(record.registrationMethod === 'cloak_browser' ? { registrationMethod: record.registrationMethod } : {}),
+    ...(record.cloakProfileId ? { cloakProfileId: record.cloakProfileId } : {}),
+    ...(record.cloakProfileName ? { cloakProfileName: record.cloakProfileName } : {}),
     createdAt: typeof record.createdAt === 'number' ? record.createdAt : Date.now(),
     updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : Date.now(),
     ...(typeof record.completedAt === 'number' ? { completedAt: record.completedAt } : {}),

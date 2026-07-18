@@ -5,6 +5,7 @@ import { Alert, Avatar, Button, Card, Collapse, Descriptions, Form, Input, Space
 import { apiClient } from '../../api.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
+import { cleanSubaccountError, subaccountErrorSummary } from './errorHandling.js';
 
 interface ProfileValues {
   username: string;
@@ -66,19 +67,26 @@ export function SubaccountSettingsPanel({
         <Alert
           type="warning"
           showIcon
-          message="最近一次远端操作存在失败步骤"
+          message={subaccount.status === 'error' ? '账号操作失败' : '最近一次同步存在失败步骤'}
           description={
-            <Collapse
-              ghost
-              size="small"
-              items={[
-                {
-                  key: 'sync-error',
-                  label: '查看完整错误',
-                  children: <Typography.Text className="preserve-lines">{subaccount.lastError}</Typography.Text>
-                }
-              ]}
-            />
+            <Space direction="vertical" size={4} className="panel-stack">
+              <Typography.Text>{subaccountErrorSummary(subaccount.lastError)}</Typography.Text>
+              <Collapse
+                ghost
+                size="small"
+                items={[
+                  {
+                    key: 'sync-error',
+                    label: '查看完整错误与调用信息',
+                    children: (
+                      <Typography.Text className="preserve-lines">
+                        {cleanSubaccountError(subaccount.lastError)}
+                      </Typography.Text>
+                    )
+                  }
+                ]}
+              />
+            </Space>
           }
         />
       )}

@@ -98,6 +98,7 @@ class RecordingTeamTransport implements Transport {
     display_name: 'Child User',
     profile_picture_url: 'https://example.invalid/child.png'
   };
+  personalProfileUnavailable = false;
   marketingPushEnabled = true;
   marketingEmailEnabled = false;
   memoryEnabled = true;
@@ -159,6 +160,20 @@ class RecordingTeamTransport implements Transport {
     if (req.method === 'GET' && /^\/backend-api\/calpico\/chatgpt\/profile\/[^/]+$/.test(req.path)) {
       const failed = this.authFailure(req);
       if (failed) return failed;
+      if (this.personalProfileUnavailable) {
+        return {
+          status: 401,
+          body: JSON.stringify({
+            error: {
+              message: 'You must be a member of an organization to use the API.',
+              type: 'invalid_request_error',
+              code: 'no_organization',
+              param: null
+            },
+            status: 401
+          })
+        };
+      }
       return { status: 200, body: JSON.stringify(this.personalProfile) };
     }
     if (req.method === 'POST' && /\/backend-api\/calpico\/chatgpt\/profile\/[^/]+\/username$/.test(req.path)) {
@@ -611,7 +626,7 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('reports available and exhausted phone pool counts from the worker health check', async () => {
+  it('reports worker phone pool counts without treating the legacy worker as browser registration', async () => {
     const originalWorkerUrl = process.env.TEAMMGR_CURL_CFFI_URL;
     const originalFetch = globalThis.fetch;
     process.env.TEAMMGR_CURL_CFFI_URL = 'https://worker.example.invalid';
@@ -639,7 +654,7 @@ describe('Subaccount API', () => {
 
       assert.equal(response.status, 200);
       assert.equal(json.data!.phoneOtp, true);
-      assert.equal(json.data!.subaccountRegistration, true);
+      assert.equal(json.data!.subaccountRegistration, false);
       assert.equal(json.data!.phonePoolCount, 3);
       assert.equal(json.data!.phonePoolExhaustedCount, 2);
     } finally {
@@ -811,8 +826,44 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('persists a valid Session Cookie and an invalid Web AT as separate child sync results', async () => {
+  it('does not flag an otherwise healthy free account when the optional profile endpoint requires an organization', async () => {
     const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const freshToken = chatGptWebAccessToken('personal-free-account-id', 'free');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('personal-free-account-id', freshToken);
+      teamTransport.personalProfileUnavailable = true;
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'personal-free-account-id' },
+          accessToken: 'stale-free-child-token',
+          sessionToken: 'free-child-session-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/refresh`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const refreshedBody = await refreshed.text();
+      const refreshedJson = JSON.parse(refreshedBody) as ApiResult<SubaccountView>;
+
+      assert.equal(refreshed.status, 200, refreshedBody);
+      assert.equal(refreshedJson.data!.sessionTokenStatus, 'valid');
+      assert.equal(refreshedJson.data!.webAccessTokenStatus, 'valid');
+      assert.equal(refreshedJson.data!.lastError, undefined);
+      assert.equal(refreshedJson.data!.remoteDisplayName, 'Child User');
+      assert.equal(refreshedJson.data!.remoteUsername, undefined);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists a valid Session Cookie and an invalid Web AT as separate child sync results', async () => {
+    const { app, dir, authHeaders, teamTransport, subaccountStore } = await buildTestApp();
     try {
       const revokedToken = chatGptWebAccessToken('child-chatgpt-account-id', 'free');
       teamTransport.sessionAccessTokensByWorkspaceId.set('child-chatgpt-account-id', revokedToken);
@@ -828,6 +879,7 @@ describe('Subaccount API', () => {
         })
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      await subaccountStore.update(subaccount.id, { status: 'error', lastError: 'earlier migration failed' });
 
       const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/refresh`, {
         method: 'POST',
@@ -839,6 +891,7 @@ describe('Subaccount API', () => {
       assert.equal(refreshed.status, 200, body);
       assert.equal(json.data!.sessionTokenStatus, 'valid');
       assert.equal(json.data!.webAccessTokenStatus, 'invalid');
+      assert.equal(json.data!.status, 'session_ready');
       assert.match(json.data!.lastError ?? '', /token_invalidated/);
       assert.equal(typeof json.data!.lastRefreshAt, 'number');
 
@@ -1967,12 +2020,21 @@ describe('Subaccount API', () => {
       assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_trace'));
       assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_mailbox_complete'));
       assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), true);
+
+      const removed = await app.request(`/api/subaccounts/${registered.id}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      });
+      assert.equal(removed.status, 200);
+      const jobsAfterDelete = await app.request('/api/subaccounts/registration/jobs', { headers: authHeaders });
+      const jobsAfterDeleteJson = (await jobsAfterDelete.json()) as ApiResult<SubaccountRegistrationJobView[]>;
+      assert.equal(jobsAfterDeleteJson.data!.some((job) => job.id === completed.job.id), false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('keeps a newly allocated registration account visible when sentinel verification is required', async () => {
+  it('keeps a newly allocated registration account visible while waiting for manual verification', async () => {
     const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
       registration: new FakeVerificationRequiredRegistration()
     });
@@ -1987,7 +2049,7 @@ describe('Subaccount API', () => {
       const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
       const registered = completed.subaccount!;
 
-      assert.equal(completed.job.status, 'failed');
+      assert.equal(completed.job.status, 'waiting_manual');
       assert.equal(registered.email, 'pending-child@example.com');
       assert.equal(registered.status, 'verification_required');
       assert.match(registered.lastError ?? '', /account_creation_failed/);

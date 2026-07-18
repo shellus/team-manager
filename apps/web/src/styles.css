@@ -514,12 +514,6 @@ body {
   min-width: 0;
 }
 
-.record-error {
-  display: block;
-  margin-top: 8px;
-  font-size: 12px;
-}
-
 .text-warning {
   color: var(--color-warning);
 }

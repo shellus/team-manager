@@ -293,6 +293,7 @@ export type SubaccountStatus =
 export type SubaccountRegistrationJobStatus =
   | 'queued'
   | 'running'
+  | 'waiting_manual'
   | 'succeeded'
   | 'failed'
   | 'interrupted';
@@ -306,6 +307,9 @@ export interface SubaccountRegistrationJobView {
   progress: number;
   email?: string;
   subaccountId?: string;
+  registrationMethod?: 'cloak_browser';
+  cloakProfileId?: string;
+  cloakProfileName?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -324,6 +328,9 @@ export interface Subaccount {
   registrationPassword?: string; // 自动注册生成的 OpenAI 密码
   registeredAt?: number;
   registrationSource?: string;
+  registrationMethod?: 'cloak_browser';
+  cloakProfileId?: string;
+  cloakProfileName?: string;
   chatgptUserId?: string;
   remoteUsername?: string;
   remoteDisplayName?: string;
@@ -358,6 +365,9 @@ export interface SubaccountView {
   registrationPassword?: string;
   registeredAt?: number;
   registrationSource?: string;
+  registrationMethod?: 'cloak_browser';
+  cloakProfileId?: string;
+  cloakProfileName?: string;
   chatgptUserId?: string;
   remoteUsername?: string;
   remoteDisplayName?: string;
@@ -460,6 +470,7 @@ export interface CodexAuthRuntimeStatus {
   phoneOtp: boolean;
   phonePoolCount?: number;
   phonePoolExhaustedCount?: number;
+  cloakBrowserUrl?: string;
   error?: string;
 }
 

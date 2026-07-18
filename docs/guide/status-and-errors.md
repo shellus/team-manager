@@ -50,7 +50,7 @@ Session Cookie 有效但 Web Access Token 无效并不矛盾，表示 ChatGPT �
 
 - worker 不可连接：检查运行实例与 worker sidecar。
 - GongXi-Mail 未就绪：检查运行环境中的邮件服务连接配置。
-- 自动注册不可用：检查 worker、GongXi-Mail、注册代理和授权页面 clearance 运行配置。
+- 自动注册不可用：检查 CloakBrowser-Manager 地址/Token、GongXi-Mail、profile 代理模板，以及 Mihomo 配置路径/controller/普通代理/家宽代理配置。worker 与授权页面 clearance 只影响 Codex 自动授权。
 - 短信接码不可用：检查运行环境中的 YAML 手机号池或 OTP 服务配置；号码达到绑定账号数量上限时会计入用尽数量，新账号不会继续取用。
 - 授权页面未就绪：检查授权页面 clearance 相关运行配置。
 
@@ -77,9 +77,9 @@ Session Cookie 有效但 Web Access Token 无效并不矛盾，表示 ChatGPT �
 
 ### 自动注册需要额外验证
 
-自动注册在 `user/register` 或 `create_account` 阶段遇到 sentinel、account creation failed 或人机校验时，子号会进入待验证或异常状态。账号锁定会进入单独的账号锁定状态。若 worker 已申请邮箱并生成密码，后端会保存这些私有字段与完整原始追踪日志，便于后续继续处理；可信管理后台的子号详情会显示自动注册密码、注册时间和来源。
+自动注册在浏览器页面遇到 Cloudflare/CAPTCHA 时，前两次会删除 profile、执行可选换 IP hook 并重新开始；第三次仍失败则进入等待人工处理。若已申请邮箱并生成密码，后端会保存邮箱、密码、Cloak profile 和完整原始追踪日志；可信管理后台的任务项提供“人工验证后继续”，子号详情显示自动注册密码、注册时间、来源和 profile。
 
-若 OpenAI 在注册入口连续把 GongXi-Mail 分配的候选邮箱识别为已注册或被占用，worker 会继续换邮箱，直到 `TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 用尽。全部耗尽时 API 返回 502 和 `No usable GongXi-Mail email...`，不会创建子号；需要切换 `mailGroup` 或向 GongXi-Mail 补充可注册的新邮箱。
+Cloudflare JS 校验若能自动完成并返回空邮箱表单，系统会在同一 profile 重新提交，不立即换 IP。密码提交出现 `Operation timed out` 时也会先点击 `Try again` 重试；连续失败、代理连接失败或浏览器上下文关闭才重建 profile。若 Mihomo 日志显示 `auth-cdn.oaistatic.com` 等静态域名命中 `NORMAL`、`chatgpt.com`/`auth.openai.com` 命中当前 `RES-<sid>`，说明分流正常。
 
 ### 页面展示与远端不一致
 

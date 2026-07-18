@@ -14,7 +14,14 @@ import {
 } from '@ant-design/icons';
 import { Button, Card, Dropdown, List, Progress, Segmented, Space, Tag, Typography } from 'antd';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
-import { formatDateTime, shortText } from '../../components/format.js';
+import { formatDateTime } from '../../components/format.js';
+
+function registrationJobSummary(job: SubaccountRegistrationJobView): string {
+  if (job.status === 'failed') return '注册未完成，可使用原邮箱和密码重试';
+  if (job.status === 'interrupted') return '任务因服务重启中断，可继续重试';
+  if (job.status === 'waiting_manual') return '需要在 CloakBrowser 完成人机验证后继续';
+  return job.message;
+}
 
 export function SubaccountList({
   subaccounts,
@@ -43,9 +50,18 @@ export function SubaccountList({
   onOpenEdit: (subaccount: SubaccountView) => void;
   onOpenDelete: (subaccount: SubaccountView) => void;
 }) {
+  const subaccountById = new Map(subaccounts.map((subaccount) => [subaccount.id, subaccount]));
   const visibleJobs = registrationJobs.filter((job) => {
-    if (job.status === 'failed' || job.status === 'interrupted') return true;
-    return !job.subaccountId || !subaccounts.some((subaccount) => subaccount.id === job.subaccountId);
+    if (job.status === 'succeeded') return false;
+    if (job.subaccountId && !subaccountById.has(job.subaccountId)) return false;
+    if (job.status === 'failed' || job.status === 'interrupted' || job.status === 'waiting_manual') {
+      const linkedSubaccount = job.subaccountId ? subaccountById.get(job.subaccountId) : undefined;
+      if (linkedSubaccount && linkedSubaccount.status !== 'error' && linkedSubaccount.status !== 'verification_required') {
+        return false;
+      }
+      return true;
+    }
+    return !job.subaccountId || !subaccountById.has(job.subaccountId);
   });
   const jobSubaccountIds = new Set(
     visibleJobs.map((job) => job.subaccountId).filter((id): id is string => Boolean(id))
@@ -95,18 +111,35 @@ export function SubaccountList({
           if (record.kind === 'job') {
             const job = record.job;
             const failed = job.status === 'failed' || job.status === 'interrupted';
+            const waitingManual = job.status === 'waiting_manual';
+            const linkedSubaccount = job.subaccountId ? subaccountById.get(job.subaccountId) : undefined;
+            const selected = linkedSubaccount?.id === selectedId;
             return (
               <List.Item>
-                <Card size="small" className="record-card registration-job-card" aria-live="polite">
+                <Card
+                  size="small"
+                  hoverable={Boolean(linkedSubaccount)}
+                  className={`record-card registration-job-card${selected ? ' selected' : ''}`}
+                  aria-live="polite"
+                  onClick={linkedSubaccount ? () => onSelect(linkedSubaccount) : undefined}
+                >
                   <div className="record-card-head">
                     <div className="record-title">
                       <Typography.Text strong ellipsis={{ tooltip: job.email || '自动注册子号' }}>
                         {job.email || '正在分配邮箱'}
                       </Typography.Text>
-                      <Typography.Text type="secondary">{job.message}</Typography.Text>
+                      <Typography.Text type="secondary" ellipsis={{ tooltip: registrationJobSummary(job) }}>
+                        {registrationJobSummary(job)}
+                      </Typography.Text>
                     </div>
-                    <Tag color={failed ? 'error' : job.status === 'queued' ? 'default' : 'processing'}>
-                      {failed ? '注册失败' : job.status === 'queued' ? '排队中' : '注册中'}
+                    <Tag color={failed ? 'error' : waitingManual ? 'warning' : job.status === 'queued' ? 'default' : 'processing'}>
+                      {failed
+                        ? '注册失败'
+                        : waitingManual
+                          ? '等待人工处理'
+                          : job.status === 'queued'
+                            ? '排队中'
+                            : '注册中'}
                     </Tag>
                   </div>
                   <Progress
@@ -116,20 +149,35 @@ export function SubaccountList({
                     status={failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {job.error && (
-                    <Typography.Text className="record-error" type="danger" title={job.error}>
-                      {shortText(job.error, 96)}
+                  {waitingManual && (job.cloakProfileName || job.cloakProfileId) && (
+                    <Typography.Text className="record-meta muted" copyable={{ text: job.cloakProfileId }}>
+                      Cloak: {job.cloakProfileName || job.cloakProfileId}
                     </Typography.Text>
                   )}
-                  {failed && (
-                    <Button
-                      size="small"
-                      icon={<ReloadOutlined />}
-                      loading={isBusy(`retry-registration-${job.id}`)}
-                      onClick={() => onRetryRegistration(job)}
-                    >
-                      {job.email ? '重试此邮箱' : '重新开始'}
-                    </Button>
+                  {(failed || waitingManual) && (
+                    <Space wrap>
+                      {waitingManual && runtimeStatus?.cloakBrowserUrl && (
+                        <Button
+                          size="small"
+                          href={runtimeStatus.cloakBrowserUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          打开 CloakBrowser
+                        </Button>
+                      )}
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        loading={isBusy(`retry-registration-${job.id}`)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRetryRegistration(job);
+                        }}
+                      >
+                        {waitingManual ? '人工验证后继续' : job.email ? '重试此邮箱' : '重新开始'}
+                      </Button>
+                    </Space>
                   )}
                 </Card>
               </List.Item>
@@ -160,6 +208,12 @@ export function SubaccountList({
                   </div>
                   <Space size={4}>
                     <SubaccountStatusTag status={subaccount.status} />
+                    {subaccount.lastError
+                      && subaccount.status !== 'error'
+                      && subaccount.status !== 'account_locked'
+                      && subaccount.status !== 'verification_required' && (
+                        <Tag color="warning">同步警告</Tag>
+                    )}
                     <Dropdown
                       trigger={['click']}
                       menu={{
@@ -197,11 +251,6 @@ export function SubaccountList({
                 <div className="record-meta muted">
                   <span>更新 {formatDateTime(subaccount.updatedAt)}</span>
                 </div>
-                {subaccount.lastError && (
-                  <Typography.Text className="record-error" type="danger" title={subaccount.lastError}>
-                    {shortText(subaccount.lastError, 96)}
-                  </Typography.Text>
-                )}
               </Card>
             </List.Item>
           );

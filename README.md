@@ -161,7 +161,7 @@ corepack pnpm docs:build
 ## 当前边界
 
 - 自动 Codex 授权支持已录入子号或可由运行环境能力完成验证的账号；页面会只读展示 worker、GongXi-Mail、自动注册、短信 OTP、可用/用尽号码数量和授权页面 clearance 是否可用。
-- 全新 OpenAI 子号注册可通过 curl_cffi worker 申请 GongXi-Mail 邮箱、生成随机密码、执行 signup/register、邮箱 OTP、资料填写、ChatGPT callback 和 Web Session 录入。若新任务分配到已存在或被占用邮箱，worker 会重新取邮箱；失败任务重试时则复用已保存邮箱和密码，必要时转为密码登录恢复 Session。可信自托管管理后台在独立“注册资料”页签显示密码、注册时间和来源。
+- 全新 OpenAI 子号注册默认且只使用 CloakBrowser 页面流程：申请 GongXi-Mail 邮箱后为每个邮箱创建独立 profile，填写密码、邮箱 OTP、姓名和生日，最后从同一浏览器上下文读取 ChatGPT Web Session。运行环境可接入 Mihomo 分流代理，为每个 profile 建立独立家宽 sid，并让静态/CDN 域名使用普通出口。Cloudflare/CAPTCHA 前两次会删除 profile、执行可选换 IP hook并重建，第三次保留 profile 等待人工处理。可信自托管管理后台在独立“注册资料”页签显示密码、注册时间、来源和 Cloak profile。
 - 短信 OTP 能力由 curl_cffi worker 使用运行环境 YAML 手机号池完成。worker 可自动处理首次手机号绑定、已绑定手机号短信二次验证、验证码错误后的候选码重试、号码达到绑定上限后的用尽标记和后续跳过；真实手机号、短信 inbox URL 和 YAML 文件不进入 git。
-- 遇到 auth.openai.com 人机校验时，worker 会先尝试使用运行环境 FlareSolverr 继续流程；账号锁定会标记为独立的 `account_locked` 子号状态。注册阶段 sentinel 稳定通过、无法自动继续的人机校验、账号锁定恢复和短信接码渠道 UI 管理仍是后续候选能力，这些分支会进入明确状态并按自托管排障要求保留完整原始日志。
+- curl_cffi worker 不再承担新子号注册，只保留 Codex 自动授权及既有传输能力。注册页面无法自动继续的人机校验进入明确的 `waiting_manual` 任务状态，并按自托管排障要求保留完整原始日志和浏览器 trace。
 - 系统不对接外部 credential-status 服务，Codex 额度直接由目标 workspace 对应凭证查询。

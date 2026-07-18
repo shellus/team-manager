@@ -26,9 +26,23 @@ export function SubaccountRegistrationPanel({ subaccount }: { subaccount: Subacc
         </Descriptions.Item>
         <Descriptions.Item label="注册时间">{formatDateTime(subaccount.registeredAt)}</Descriptions.Item>
         <Descriptions.Item label="注册来源">
-          {subaccount.registrationSource?.startsWith('gongxi')
-            ? 'GongXi-Mail'
+          {subaccount.registrationMethod === 'cloak_browser'
+            ? 'CloakBrowser + GongXi-Mail'
+            : subaccount.registrationSource?.startsWith('gongxi')
+              ? 'GongXi-Mail'
             : subaccount.registrationSource || '自动注册'}
+        </Descriptions.Item>
+        <Descriptions.Item label="浏览器 Profile">
+          {subaccount.cloakProfileName || subaccount.cloakProfileId ? (
+            <Typography.Text copyable={{ text: subaccount.cloakProfileId }}>
+              {subaccount.cloakProfileName || subaccount.cloakProfileId}
+            </Typography.Text>
+          ) : '暂无'}
+        </Descriptions.Item>
+        <Descriptions.Item label="Profile ID">
+          {subaccount.cloakProfileId ? (
+            <Typography.Text code copyable>{subaccount.cloakProfileId}</Typography.Text>
+          ) : '暂无'}
         </Descriptions.Item>
       </Descriptions>
     </Card>

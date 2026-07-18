@@ -648,6 +648,10 @@ export async function buildApp({
     wrap(c, () => subaccountService.retrySubaccountRegistration(c.req.param('jobId')))
   );
 
+  api.delete('/subaccounts/registration/jobs/:jobId', (c) =>
+    wrap(c, () => subaccountService.removeSubaccountRegistrationJob(c.req.param('jobId')))
+  );
+
   api.post('/subaccounts/session', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => subaccountService.importSession(body));

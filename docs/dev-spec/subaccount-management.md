@@ -65,14 +65,14 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `codex-rs/login/src/auth/personal_access_token.rs` 会用 PAT 调 `GET /api/accounts/v1/user-auth-credential/whoami` 补齐 `email`、`chatgpt_user_id`、`chatgpt_account_id`、`chatgpt_plan_type` 和 FedRAMP 标记。
   - `codex-rs/model-provider-info/src/lib.rs` 将 `PersonalAccessToken` 视为使用 ChatGPT Codex backend 的认证模式。
 - 自动注册：
-  - `POST /api/subaccounts/registration/start` 原子创建持久化后台任务并立即返回；服务端串行队列通过 worker `/subaccounts/register-events` 执行注册和接收阶段事件，只负责 ChatGPT 账号注册和 Web Session 录入，不创建 Codex OAuth 会话。
-  - worker 通过 GongXi-Mail `/api/get-email` 申请邮箱，生成随机强密码，执行 `screen_hint:"signup"`；若 OpenAI 默认进入 `passwordless_signup`，则显式切换到同一会话的密码注册分支，再调用 `/api/accounts/user/register`、邮箱 OTP、资料填写和 ChatGPT callback。
-  - 新任务若在 signup continue 或 register 阶段发现邮箱已存在、已注册或被占用，worker 会记录 `registration_email_rejected` 并重新从 GongXi-Mail 取邮箱；`TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 控制最大取邮箱次数，默认 3 次。
-  - 失败或中断任务可通过 `POST /api/subaccounts/registration/jobs/:jobId/retry` 原子复用原任务。已保存邮箱和密码时重试同一账号；若远端返回邮箱已存在，则改走密码登录并重新取得 Web Session。邮箱分配前失败的任务才重新取邮箱。
-  - 若所有候选邮箱都被判定为已注册或被占用，worker 返回 `registration_email_unavailable`，不携带最后一个无效邮箱和密码；后台任务进入失败状态，不创建子号记录。
-  - callback 回到 ChatGPT 后，worker 访问 `/api/auth/session` 获取 `accessToken`、`sessionToken` 和账号 ID；后端创建或更新子号记录、保存生成密码，再把邮箱转移到已注册分组。
+  - `POST /api/subaccounts/registration/start` 原子创建持久化后台任务并立即返回；服务端串行队列通过 CloakBrowser 页面执行器完成注册和阶段事件，只负责 ChatGPT 账号注册和 Web Session 录入，不创建 Codex OAuth 会话。每个邮箱使用独立持久化 profile。
+  - 页面执行器直接调用 GongXi-Mail 申请邮箱并生成随机强密码，从 `chatgpt.com/auth/login` 建立认证会话，在页面中依次提交邮箱、密码、邮箱 OTP、姓名和生日。
+  - Cloudflare JS 校验成功后若返回空邮箱表单，执行器在同一 profile 重填；密码提交出现 `Operation timed out` 时点击 `Try again` 重交。连续失败或浏览器/代理环境异常时删除 profile 并换 sid 重试。
+  - 失败或中断任务可通过 `POST /api/subaccounts/registration/jobs/:jobId/retry` 原子复用原任务。已保存邮箱和密码时重试同一账号；邮箱分配前失败的任务才重新取邮箱。
+  - callback 回到 ChatGPT 后，页面执行器访问 `/api/auth/session` 获取 `accessToken`、`sessionToken` 和账号 ID；后端创建或更新子号记录、保存生成密码，再把邮箱转移到已注册分组。
+  - 运行环境可配置 Mihomo 为每个 profile 生成独立家宽 sid，并按域名把静态/CDN 流量送往普通代理；源码不保存真实代理账号、密码或部署地址。
   - 自动注册按钮不选择 workspace、不执行 Codex OAuth、不生成 PAT，也不写入 Codex credential 文件。
-  - 注册阶段 sentinel 或 OpenAI 人机校验失败时，worker 返回 `verification_required` 和完整原始事件；如已经拿到邮箱和密码，后端仍会落库，便于后续恢复。
+  - 注册阶段 Cloudflare/CAPTCHA 连续三次无法自动通过时，最后一个 profile 进入 `verification_required` 并保留完整原始事件；如已经拿到邮箱和密码，后端仍会落库，便于人工接管。
   - 对已落库的自动注册账号再次执行 Codex 自动授权时，后端会把 `registrationPassword` 传给 worker 走密码登录；可信管理后台的“注册资料”页签显示该密码和注册来源，完整授权日志仍按运行环境规则保存。
 - 自动授权运行能力检查：
   - `GET /api/subaccounts/codex-auth/status` 返回 worker 是否配置、worker 是否可连接、GongXi-Mail 是否可用、短信 OTP 能力是否可用、授权页面 clearance 是否可用。
@@ -141,7 +141,6 @@ phones:
 - 新账号首次绑定手机号时，worker 跳过 `exhausted:true` 的号码；已绑定手机号二次验证仍可在全池中按尾号匹配，因为用尽只限制新增绑定，不限制已绑定账号收码。
 - `POST /api/accounts/add-phone/send` 返回“maximum number of accounts”等上限错误时，worker 会把该号码写回为 `exhausted:true`，并记录 `exhaustedAt` 和 `exhaustedReason`。
 - `phone-otp/validate` 成功后，worker 会把当前子号邮箱写入该号码的 `gptAccounts[]`。
-- `TEAMMGR_REGISTRATION_EMAIL_MAX_ATTEMPTS` 可控制注册阶段从 GongXi-Mail 重新取邮箱的最大次数，默认 3 次。若所有候选邮箱都被 OpenAI 判定为已注册或被占用，worker 返回 `registration_email_unavailable`，不携带最后一个无效邮箱和密码。
 - `TEAMMGR_EMAIL_CODE_MAX_ATTEMPTS` 可控制单次邮箱验证码候选重试次数，默认 3 次。
 - `TEAMMGR_PHONE_CODE_MAX_ATTEMPTS` 可控制单次手机号验证的验证码候选重试次数，默认 3 次。
 
@@ -171,7 +170,7 @@ phones:
 
 ## 未纳入当前实现
 
-当前不实现注册阶段 sentinel 的真实浏览器 SDK 级通过、人机校验稳定自动通过、账号锁定恢复、短信接码渠道 UI 管理，也不调用 mail-auto。自动注册和自动授权可以使用运行环境已经提供的 GongXi-Mail 与 YAML 短信 OTP 能力；账号锁定会被标记为 `account_locked` 业务状态，但不会尝试解锁账号。team-manager 不保存或编辑这些连接配置。后续如要继续增强注册/登录执行器，必须继续用真实请求协议补齐脱敏原始接口样本，至少包括：
+当前不承诺所有 Cloudflare/CAPTCHA 都能稳定自动通过，也不实现账号锁定恢复、短信接码渠道 UI 管理或调用 mail-auto。自动注册使用 CloakBrowser 与 GongXi-Mail，自动授权可以继续使用运行环境 YAML 短信 OTP 能力；账号锁定会被标记为 `account_locked` 业务状态，但不会尝试解锁账号。team-manager 不保存或编辑这些连接配置。后续如要继续增强注册/登录执行器，必须继续用真实请求协议补齐脱敏原始接口样本，至少包括：
 
 - 注册起始请求与响应结构
 - 手机号输入请求与响应结构

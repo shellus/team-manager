@@ -56,4 +56,34 @@ describe('SubaccountRegistrationJobStore', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('removes every persisted task linked to a deleted subaccount', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'teammgr-registration-jobs-'));
+    try {
+      const store = new SubaccountRegistrationJobStore(dir);
+      await store.init();
+      const first = await store.create();
+      const second = await store.create();
+      await store.update(first.id, {
+        status: 'failed',
+        phase: 'registration_failed',
+        message: 'failed',
+        progress: 100,
+        subaccountId: 'deleted-subaccount-id'
+      });
+      await store.update(second.id, {
+        status: 'succeeded',
+        phase: 'registration_complete',
+        message: 'complete',
+        progress: 100,
+        subaccountId: 'deleted-subaccount-id'
+      });
+
+      assert.equal(await store.removeBySubaccountId('deleted-subaccount-id'), 2);
+      assert.equal(store.get(first.id), undefined);
+      assert.equal(store.get(second.id), undefined);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

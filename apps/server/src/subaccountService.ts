@@ -81,7 +81,7 @@ export class SubaccountService {
     password?: string;
     resumeExisting?: boolean;
   }): Promise<SubaccountRegistrationJobView> {
-    if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
+    if (!this.registration) throw new ServiceError(501, '未配置 CloakBrowser 或 GongXi-Mail 自动注册环境');
     const job = await this.registrationJobs.create();
     this.registrationQueue = this.registrationQueue
       .then(() => this.runSubaccountRegistrationJob(job.id, input))
@@ -94,8 +94,8 @@ export class SubaccountService {
   async retrySubaccountRegistration(jobId: string): Promise<SubaccountRegistrationJobView> {
     const job = this.registrationJobs.get(jobId);
     if (!job) throw new ServiceError(404, `自动注册任务不存在: ${jobId}`);
-    if (job.status !== 'failed' && job.status !== 'interrupted') {
-      throw new ServiceError(409, '只有失败或中断的注册任务可以重试');
+    if (job.status !== 'failed' && job.status !== 'interrupted' && job.status !== 'waiting_manual') {
+      throw new ServiceError(409, '只有失败、中断或等待人工处理的注册任务可以重试');
     }
     const subaccount = job.subaccountId ? this.store.get(job.subaccountId) : undefined;
     const retryInput =
@@ -103,7 +103,10 @@ export class SubaccountService {
         ? {
             email: subaccount.email,
             password: subaccount.registrationPassword,
-            resumeExisting: false
+            resumeExisting: job.status === 'waiting_manual',
+            cloakProfileId: job.status === 'waiting_manual'
+              ? subaccount.cloakProfileId ?? job.cloakProfileId
+              : undefined
           }
         : {};
     const reset = await this.registrationJobs.update(jobId, {
@@ -122,9 +125,24 @@ export class SubaccountService {
     return reset;
   }
 
+  async removeSubaccountRegistrationJob(jobId: string): Promise<boolean> {
+    const job = this.registrationJobs.get(jobId);
+    if (!job) throw new ServiceError(404, `自动注册任务不存在: ${jobId}`);
+    if (job.status === 'queued' || job.status === 'running') {
+      throw new ServiceError(409, '注册任务仍在运行，不能删除');
+    }
+    return this.registrationJobs.remove(jobId);
+  }
+
   private async runSubaccountRegistrationJob(
     jobId: string,
-    input: { mailGroup?: string; email?: string; password?: string; resumeExisting?: boolean }
+    input: {
+      mailGroup?: string;
+      email?: string;
+      password?: string;
+      resumeExisting?: boolean;
+      cloakProfileId?: string;
+    }
   ): Promise<void> {
     await this.registrationJobs.update(jobId, {
       status: 'running',
@@ -135,21 +153,30 @@ export class SubaccountService {
     try {
       const registered = await this.registerNewSubaccount({
         ...input,
+        jobId,
         onEvent: async (event) => {
           const progress = registrationProgressFromEvent(event);
           if (!progress) return;
           await this.registrationJobs.update(jobId, progress);
         }
       });
-      const failed = Boolean(registered.lastError) || !registered.hasWebSession;
+      const waitingManual = registered.status === 'verification_required';
+      const failed = !waitingManual && (Boolean(registered.lastError) || !registered.hasWebSession);
       await this.registrationJobs.update(jobId, {
-        status: failed ? 'failed' : 'succeeded',
-        phase: failed ? 'registration_failed' : 'registration_complete',
-        message: failed ? registered.lastError ?? '自动注册未取得有效 Web Session' : '自动注册完成',
-        progress: 100,
+        status: waitingManual ? 'waiting_manual' : failed ? 'failed' : 'succeeded',
+        phase: waitingManual ? 'registration_waiting_manual' : failed ? 'registration_failed' : 'registration_complete',
+        message: waitingManual
+          ? registered.lastError ?? '等待人工处理 CloakBrowser 验证'
+          : failed
+            ? registered.lastError ?? '自动注册未取得有效 Web Session'
+            : '自动注册完成',
+        progress: waitingManual ? 95 : 100,
         email: registered.email,
         subaccountId: registered.id,
-        completedAt: Date.now(),
+        registrationMethod: registered.registrationMethod,
+        cloakProfileId: registered.cloakProfileId,
+        cloakProfileName: registered.cloakProfileName,
+        completedAt: waitingManual ? undefined : Date.now(),
         error: failed ? registered.lastError ?? 'registration_incomplete' : undefined
       });
     } catch (error) {
@@ -165,17 +192,22 @@ export class SubaccountService {
   }
 
   async getCodexAuthRuntimeStatus(): Promise<CodexAuthRuntimeStatus> {
+    const registrationRuntime = await getCloakRegistrationRuntimeStatus();
     const workerUrl = process.env.TEAMMGR_CURL_CFFI_URL?.trim().replace(/\/+$/, '');
     if (!workerUrl) {
       return {
         workerConfigured: false,
         workerReachable: false,
         codexAutoAuth: false,
-        subaccountRegistration: false,
+        subaccountRegistration: registrationRuntime.available,
         flaresolverr: false,
-        gongxiMail: false,
+        gongxiMail: registrationRuntime.gongxiMail,
         phoneOtp: false,
-        error: '未配置 TEAMMGR_CURL_CFFI_URL'
+        cloakBrowserUrl: registrationRuntime.cloakBrowserUrl,
+        error: [
+          '未配置 TEAMMGR_CURL_CFFI_URL',
+          registrationRuntime.error
+        ].filter(Boolean).join('; ')
       };
     }
 
@@ -197,18 +229,21 @@ export class SubaccountService {
         workerConfigured: true,
         workerReachable,
         codexAutoAuth: workerReachable && capabilities.codexAutoAuth === true,
-        subaccountRegistration: workerReachable && capabilities.subaccountRegistration === true,
+        subaccountRegistration: registrationRuntime.available,
         flaresolverr: capabilities.flaresolverr === true,
-        gongxiMail: capabilities.gongxiMail === true,
+        gongxiMail: registrationRuntime.gongxiMail,
         phoneOtp: capabilities.phoneOtp === true,
+        cloakBrowserUrl: registrationRuntime.cloakBrowserUrl,
         phonePoolCount: typeof data.phonePoolCount === 'number' ? data.phonePoolCount : undefined,
         phonePoolExhaustedCount:
           typeof data.phonePoolExhaustedCount === 'number' ? data.phonePoolExhaustedCount : undefined,
         error:
           workerReachable
-            ? typeof data.phonePoolError === 'string' && data.phonePoolError
-              ? data.phonePoolError
-              : undefined
+            ? registrationRuntime.error ?? (
+                typeof data.phonePoolError === 'string' && data.phonePoolError
+                  ? data.phonePoolError
+                  : undefined
+              )
             : `curl_cffi worker health 返回 HTTP ${response.status}`
       };
     } catch (e) {
@@ -216,11 +251,12 @@ export class SubaccountService {
         workerConfigured: true,
         workerReachable: false,
         codexAutoAuth: false,
-        subaccountRegistration: false,
+        subaccountRegistration: registrationRuntime.available,
         flaresolverr: false,
-        gongxiMail: false,
+        gongxiMail: registrationRuntime.gongxiMail,
         phoneOtp: false,
-        error: (e as Error).message
+        cloakBrowserUrl: registrationRuntime.cloakBrowserUrl,
+        error: registrationRuntime.error ?? (e as Error).message
       };
     }
   }
@@ -418,7 +454,9 @@ export class SubaccountService {
           profileResponse = await api.getPersonalProfile(userId);
           patch = { ...patch, ...personalProfilePatch(profileResponse, Date.now()) };
         } catch (error) {
-          errors.push(`用户名资料读取失败: ${fullErrorMessage(error)}`);
+          if (!isOptionalPersonalProfileUnavailable(error)) {
+            errors.push(`用户名资料读取失败: ${fullErrorMessage(error)}`);
+          }
         }
       }
 
@@ -439,6 +477,9 @@ export class SubaccountService {
 
     patch.lastRefreshAt = Date.now();
     patch.lastError = errors.length ? errors.join('\n') : undefined;
+    if ((patch.sessionTokenStatus ?? initial.sessionTokenStatus) === 'valid' && initial.status === 'error') {
+      patch.status = initial.codexCredentials?.length ? 'codex_ready' : 'session_ready';
+    }
     const updated = await this.store.update(id, patch);
     if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
     await this.store.appendLog(id, {
@@ -635,7 +676,13 @@ export class SubaccountService {
   }
 
   async remove(id: string): Promise<boolean> {
-    return this.store.remove(id);
+    const activeJob = this.registrationJobs.list().find(
+      (job) => job.subaccountId === id && (job.status === 'queued' || job.status === 'running')
+    );
+    if (activeJob) throw new ServiceError(409, '子号仍有自动注册任务在运行，请等待任务结束后再删除');
+    const removed = await this.store.remove(id);
+    if (removed) await this.registrationJobs.removeBySubaccountId(id);
+    return removed;
   }
 
   async startCodexAuth(id: string, targetChatgptAccountId?: string): Promise<CodexAuthStart> {
@@ -923,23 +970,27 @@ export class SubaccountService {
   }
 
   async registerNewSubaccount(input: {
+    jobId?: string;
     mailGroup?: string;
     email?: string;
     password?: string;
     resumeExisting?: boolean;
+    cloakProfileId?: string;
     onEvent?: (event: Record<string, unknown> & { phase?: string }) => void | Promise<void>;
   }): Promise<SubaccountView> {
-    if (!this.registration) throw new ServiceError(501, '未配置子号自动注册 worker');
+    if (!this.registration) throw new ServiceError(501, '未配置 CloakBrowser 或 GongXi-Mail 自动注册环境');
     const mailGroup = cleanOptionalString(input.mailGroup);
     const email = cleanOptionalString(input.email);
     const password = cleanOptionalString(input.password);
 
     try {
       const result = await this.registration.register({
+        jobId: input.jobId,
         mailGroup,
         email,
         password,
         resumeExisting: input.resumeExisting === true,
+        cloakProfileId: input.cloakProfileId,
         onEvent: input.onEvent
       });
 
@@ -947,7 +998,10 @@ export class SubaccountService {
         email: result.email,
         password: result.password,
         session: result.session,
-        source: mailGroup ? `gongxi:${mailGroup}` : 'gongxi',
+        source: mailGroup ? `cloak:gongxi:${mailGroup}` : 'cloak:gongxi',
+        registrationMethod: result.registrationMethod,
+        cloakProfileId: result.cloakProfileId,
+        cloakProfileName: result.cloakProfileName,
         status: 'session_ready'
       });
 
@@ -961,6 +1015,9 @@ export class SubaccountService {
           name: result.name,
           birthdate: result.birthdate,
           callbackUrl: result.callbackUrl,
+          registrationMethod: result.registrationMethod,
+          cloakProfileId: result.cloakProfileId,
+          cloakProfileName: result.cloakProfileName,
           session: result.session,
           mailGroup,
           events: result.events
@@ -1022,7 +1079,10 @@ export class SubaccountService {
         const registered = await this.store.saveRegisteredSubaccount({
           email: e.email,
           password: e.password,
-          source: mailGroup ? `gongxi:${mailGroup}` : 'gongxi',
+          source: mailGroup ? `cloak:gongxi:${mailGroup}` : 'cloak:gongxi',
+          registrationMethod: e.registrationMethod,
+          cloakProfileId: e.cloakProfileId,
+          cloakProfileName: e.cloakProfileName,
           status,
           lastError: e.message
         });
@@ -1036,6 +1096,9 @@ export class SubaccountService {
             email: e.email,
             password: e.password,
             mailGroup,
+            registrationMethod: e.registrationMethod,
+            cloakProfileId: e.cloakProfileId,
+            cloakProfileName: e.cloakProfileName,
             events: e.events
           }
         });
@@ -1176,6 +1239,60 @@ function subaccountStatusFromWorkerStatus(status: string): SubaccountStatus {
   return 'error';
 }
 
+async function getCloakRegistrationRuntimeStatus(): Promise<{
+  available: boolean;
+  gongxiMail: boolean;
+  cloakBrowserUrl?: string;
+  error?: string;
+}> {
+  const baseUrl = process.env.TEAMMGR_CLOAK_BROWSER_BASE_URL?.trim().replace(/\/+$/, '');
+  const token = process.env.TEAMMGR_CLOAK_BROWSER_TOKEN?.trim();
+  const gongxiMail = Boolean(
+    process.env.TEAMMGR_GONGXI_MAIL_BASE_URL?.trim()
+      && process.env.TEAMMGR_GONGXI_MAIL_API_KEY?.trim()
+      && process.env.TEAMMGR_GONGXI_MAIL_REGISTERED_GROUP?.trim()
+  );
+  if (!baseUrl || !token) {
+    return {
+      available: false,
+      gongxiMail,
+      ...(baseUrl ? { cloakBrowserUrl: baseUrl } : {}),
+      error: '未配置 CloakBrowser Manager 地址或 Token'
+    };
+  }
+  if (!gongxiMail) {
+    return {
+      available: false,
+      gongxiMail: false,
+      cloakBrowserUrl: baseUrl,
+      error: '未完整配置 GongXi-Mail 自动注册参数'
+    };
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(`${baseUrl}/api/health`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal
+    }).finally(() => clearTimeout(timer));
+    return response.ok
+      ? { available: true, gongxiMail: true, cloakBrowserUrl: baseUrl }
+      : {
+          available: false,
+          gongxiMail: true,
+          cloakBrowserUrl: baseUrl,
+          error: `CloakBrowser health 返回 HTTP ${response.status}`
+        };
+  } catch (error) {
+    return {
+      available: false,
+      gongxiMail: true,
+      cloakBrowserUrl: baseUrl,
+      error: `CloakBrowser 不可达: ${(error as Error).message}`
+    };
+  }
+}
+
 function eventStatusLabel(httpStatus?: number): string {
   if (httpStatus === undefined) return 'ok';
   return httpStatus >= 400 ? 'error' : 'ok';
@@ -1183,11 +1300,31 @@ function eventStatusLabel(httpStatus?: number): string {
 
 function registrationProgressFromEvent(
   event: Record<string, unknown> & { phase?: string }
-): { phase: string; message: string; progress: number; email?: string } | undefined {
+): {
+  phase: string;
+  message: string;
+  progress: number;
+  email?: string;
+  cloakProfileId?: string;
+  cloakProfileName?: string;
+} | undefined {
   const phase = event.phase?.trim();
   if (!phase) return undefined;
   const email = typeof event.email === 'string' && event.email.trim() ? event.email.trim() : undefined;
+  const cloakProfileId = typeof event.cloakProfileId === 'string' && event.cloakProfileId.trim()
+    ? event.cloakProfileId.trim()
+    : undefined;
+  const cloakProfileName = typeof event.cloakProfileName === 'string' && event.cloakProfileName.trim()
+    ? event.cloakProfileName.trim()
+    : undefined;
   const stages: Record<string, { progress: number; message: string }> = {
+    cloak_profile_create: { progress: 6, message: '正在创建邮箱专属浏览器资料' },
+    cloak_registration_attempt: { progress: 10, message: '独立浏览器环境已准备' },
+    cloak_browser_connected: { progress: 14, message: '已连接 CloakBrowser' },
+    cloak_signup_open: { progress: 18, message: '正在打开 ChatGPT 注册页' },
+    registration_email_filled: { progress: 34, message: '注册邮箱已填写' },
+    registration_password_filled: { progress: 48, message: '注册密码已填写' },
+    cloak_challenge_detected: { progress: 12, message: '遇到 Cloudflare/CAPTCHA，正在重建环境' },
     flaresolverr_session_create: { progress: 5, message: '浏览器会话已准备' },
     registration_proxy_selected: { progress: 8, message: '代理出口已确认' },
     chatgpt_auth_csrf: { progress: 12, message: '正在建立 ChatGPT 登录会话' },
@@ -1212,7 +1349,14 @@ function registrationProgressFromEvent(
   };
   const stage = stages[phase];
   if (!stage) return undefined;
-  return { phase, message: stage.message, progress: stage.progress, ...(email ? { email } : {}) };
+  return {
+    phase,
+    message: stage.message,
+    progress: stage.progress,
+    ...(email ? { email } : {}),
+    ...(cloakProfileId ? { cloakProfileId } : {}),
+    ...(cloakProfileName ? { cloakProfileName } : {})
+  };
 }
 
 function cleanTargetAccountId(value?: string): string | undefined {
@@ -1416,6 +1560,18 @@ function asServiceError(error: unknown): ServiceError {
     return new ServiceError(status, fullErrorMessage(error));
   }
   return new ServiceError(502, fullErrorMessage(error));
+}
+
+function isOptionalPersonalProfileUnavailable(error: unknown): boolean {
+  if (!(error instanceof ChatGptApiError) || error.status !== 401) return false;
+  try {
+    const payload = JSON.parse(error.body) as { error?: { code?: unknown; message?: unknown } };
+    return payload.error?.code === 'no_organization'
+      || (typeof payload.error?.message === 'string'
+        && /must be a member of an organization/i.test(payload.error.message));
+  } catch {
+    return /no_organization|must be a member of an organization/i.test(error.body);
+  }
 }
 
 function assertCredentialMatchesTarget(credential: CodexCredentialJson, target?: string): void {

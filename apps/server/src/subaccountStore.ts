@@ -241,6 +241,9 @@ export class SubaccountStore {
     password: string;
     session?: ChatGptSessionInput;
     source?: string;
+    registrationMethod?: 'cloak_browser';
+    cloakProfileId?: string;
+    cloakProfileName?: string;
     status?: Subaccount['status'];
     lastError?: string;
   }): Promise<SubaccountView> {
@@ -254,6 +257,9 @@ export class SubaccountStore {
 
     const now = Date.now();
     const existing = this.findByEmail(email);
+    const failedRegistrationWithExistingSession = !input.session
+      && Boolean(existing?.chatgptAccountId && (existing.webAccessToken || existing.sessionToken))
+      && (input.status === 'error' || input.status === 'verification_required');
     const next: Subaccount = {
       ...existing,
       id: existing?.id ?? randomUUID(),
@@ -270,9 +276,14 @@ export class SubaccountStore {
       registrationPassword: input.password,
       registeredAt: existing?.registeredAt ?? now,
       registrationSource: input.source,
+      registrationMethod: input.registrationMethod ?? existing?.registrationMethod,
+      cloakProfileId: input.cloakProfileId ?? existing?.cloakProfileId,
+      cloakProfileName: input.cloakProfileName ?? existing?.cloakProfileName,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,
-      status: input.status ?? (existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'),
+      status: failedRegistrationWithExistingSession
+        ? existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'
+        : input.status ?? (existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       lastRefreshAt: input.session ? undefined : existing?.lastRefreshAt,
@@ -511,6 +522,9 @@ export class SubaccountStore {
       registrationPassword: account.registrationPassword,
       registeredAt: account.registeredAt,
       registrationSource: account.registrationSource,
+      registrationMethod: account.registrationMethod,
+      cloakProfileId: account.cloakProfileId,
+      cloakProfileName: account.cloakProfileName,
       chatgptUserId: account.chatgptUserId,
       remoteUsername: account.remoteUsername,
       remoteDisplayName: account.remoteDisplayName,
@@ -672,6 +686,9 @@ async function normalizeStoredSubaccount(
     registrationPassword: record.registrationPassword,
     registeredAt: record.registeredAt,
     registrationSource: record.registrationSource,
+    registrationMethod: record.registrationMethod,
+    cloakProfileId: record.cloakProfileId,
+    cloakProfileName: record.cloakProfileName,
     chatgptUserId: record.chatgptUserId,
     remoteUsername: record.remoteUsername,
     remoteDisplayName: record.remoteDisplayName,
@@ -710,6 +727,9 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     registrationPassword: input.registrationPassword,
     registeredAt: input.registeredAt,
     registrationSource: input.registrationSource,
+    registrationMethod: input.registrationMethod,
+    cloakProfileId: input.cloakProfileId,
+    cloakProfileName: input.cloakProfileName,
     chatgptUserId: input.chatgptUserId?.trim() || undefined,
     remoteUsername: input.remoteUsername?.trim() || undefined,
     remoteDisplayName: input.remoteDisplayName?.trim() || undefined,

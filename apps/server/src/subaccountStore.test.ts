@@ -61,6 +61,30 @@ describe('SubaccountStore', () => {
     });
   });
 
+  it('keeps an existing Web Session usable when a later browser migration attempt fails', async () => {
+    await withStore(async (store) => {
+      const saved = await store.importSession({
+        user: { email: 'legacy-child@example.com' },
+        account: { id: 'legacy-account-id' },
+        accessToken: 'legacy-web-access-token',
+        sessionToken: 'legacy-session-token'
+      });
+
+      const failedMigration = await store.saveRegisteredSubaccount({
+        email: 'legacy-child@example.com',
+        password: 'saved-registration-password',
+        registrationMethod: 'cloak_browser',
+        status: 'error',
+        lastError: 'chatgpt_auth_session_invalid_200'
+      });
+
+      assert.equal(failedMigration.id, saved.id);
+      assert.equal(failedMigration.status, 'session_ready');
+      assert.equal(failedMigration.session?.sessionToken, 'legacy-session-token');
+      assert.equal(failedMigration.lastError, 'chatgpt_auth_session_invalid_200');
+    });
+  });
+
   it('deduplicates Team links by workspace id when the local parent id changes', async () => {
     await withStore(async (store) => {
       const saved = await store.importSession({
