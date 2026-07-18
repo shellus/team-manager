@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AccountView,
-  CodexAuthRuntimeStatus,
   CodexQuotaSnapshot,
   SeatType,
   SubaccountAuthLog,
   SubaccountRegistrationJobView,
+  SubaccountRegistrationRuntimeStatus,
   SubaccountView
 } from '@team-manager/shared';
-import { Alert, Form, Input, Modal, Select, Space } from 'antd';
+import { Alert, Form, Modal, Select, Space } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
 import {
@@ -20,9 +20,8 @@ import {
   type SubaccountTab
 } from '../../app/routeState.js';
 import { BillingRiskModal } from '../../components/BillingRiskModal.js';
-import { actionKey, actionTargetByPrefix } from '../../components/actionBusy.js';
+import { actionKey } from '../../components/actionBusy.js';
 import { isBillingRiskError } from '../../components/format.js';
-import { JsonImportModal } from '../../components/JsonImportModal.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
@@ -34,7 +33,7 @@ import {
   resolveLocalGroup
 } from '../../components/recordGroups.js';
 import { SEAT_LABEL } from '../../labels.js';
-import { buildCredentialDownload, buildWorkspaceSessionDownload, downloadTextFile } from './credentialDownload.js';
+import { buildCredentialDownload, downloadTextFile } from './credentialDownload.js';
 import { shouldForwardSubaccountErrorToGlobal } from './errorHandling.js';
 import { SubaccountDetail } from './SubaccountDetail.js';
 import { SubaccountList } from './SubaccountList.js';
@@ -48,14 +47,6 @@ import { subaccountMatchesQuery } from './subaccountSearch.js';
 interface TeamInviteValues {
   accountId: string;
   seat: SeatType;
-}
-
-interface ManualAuthSession {
-  sessionId: string;
-  authUrl: string;
-  expiresAt: number;
-  targetChatgptAccountId?: string;
-  targetTeamTitle?: string;
 }
 
 interface SubaccountBillingRisk {
@@ -94,10 +85,8 @@ export function SubaccountRoutes({
 
   const [subaccounts, setSubaccounts] = useState<SubaccountView[]>([]);
   const [registrationJobs, setRegistrationJobs] = useState<SubaccountRegistrationJobView[]>([]);
-  const [runtimeStatus, setRuntimeStatus] = useState<CodexAuthRuntimeStatus | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<SubaccountRegistrationRuntimeStatus | null>(null);
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
-  const [authSession, setAuthSession] = useState<ManualAuthSession | null>(null);
-  const [callbackUrl, setCallbackUrl] = useState('');
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
   const [billingRisk, setBillingRisk] = useState<SubaccountBillingRisk | null>(null);
   const [loading, setLoading] = useState(false);
@@ -153,10 +142,8 @@ export function SubaccountRoutes({
     setLoading(true);
     setLocalError('');
     try {
-      const [nextSubaccounts, nextJobs] = await Promise.all([
-        apiClient.listSubaccounts(),
-        apiClient.listSubaccountRegistrationJobs()
-      ]);
+      const nextJobs = await apiClient.listSubaccountRegistrationJobs();
+      const nextSubaccounts = await apiClient.listSubaccounts();
       setSubaccounts(sortSubaccountsForList(nextSubaccounts));
       setRegistrationJobs(nextJobs);
     } catch (error) {
@@ -168,16 +155,11 @@ export function SubaccountRoutes({
 
   const loadRuntimeStatus = useCallback(async () => {
     try {
-      setRuntimeStatus(await apiClient.getCodexAuthRuntimeStatus());
+      setRuntimeStatus(await apiClient.getSubaccountRegistrationRuntimeStatus());
     } catch (error) {
       setRuntimeStatus({
-        workerConfigured: false,
-        workerReachable: false,
-        codexAutoAuth: false,
-        subaccountRegistration: false,
-        flaresolverr: false,
-        gongxiMail: false,
-        phoneOtp: false,
+        configured: false,
+        reachable: false,
         error: (error as Error).message
       });
     }
@@ -209,10 +191,8 @@ export function SubaccountRoutes({
     let timer: number | undefined;
     const poll = async () => {
       try {
-        const [nextSubaccounts, nextJobs] = await Promise.all([
-          apiClient.listSubaccounts(),
-          apiClient.listSubaccountRegistrationJobs()
-        ]);
+        const nextJobs = await apiClient.listSubaccountRegistrationJobs();
+        const nextSubaccounts = await apiClient.listSubaccounts();
         if (!cancelled) {
           setSubaccounts(sortSubaccountsForList(nextSubaccounts));
           setRegistrationJobs(nextJobs);
@@ -251,36 +231,11 @@ export function SubaccountRoutes({
 
   useEffect(() => {
     setQuota(null);
-    setAuthSession(null);
-    setCallbackUrl('');
     setBillingRisk(null);
     setLocalError('');
     if (selected?.id) void loadLogs(selected.id);
     else setLogs([]);
   }, [loadLogs, selected?.id]);
-
-  const runningTarget = actionTargetByPrefix(actionBusy.busyState, 'codex-auto-');
-
-  useEffect(() => {
-    if (!selected?.id || !runningTarget) return undefined;
-    let cancelled = false;
-    let timer: number | undefined;
-    const poll = async () => {
-      try {
-        const nextLogs = await apiClient.listSubaccountLogs(selected.id);
-        if (!cancelled) setLogs(nextLogs);
-      } catch {
-        // 自动授权主请求负责报告错误，轮询失败不覆盖页面状态。
-      } finally {
-        if (!cancelled) timer = window.setTimeout(poll, 2000);
-      }
-    };
-    timer = window.setTimeout(poll, 700);
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [runningTarget, selected?.id]);
 
   const closeModal = () => {
     const next = clearModalState(searchParams);
@@ -347,23 +302,6 @@ export function SubaccountRoutes({
         mergeSubaccount(added);
         closeModal();
         navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=teams' });
-      });
-    } catch (error) {
-      reportLocalError(error);
-      throw error;
-    }
-  };
-
-  const importCredential = async (payload: unknown) => {
-    setLocalError('');
-    try {
-      await actionBusy.run('import-credential', async () => {
-        const added = await apiClient.importSubaccountCodexCredential(
-          payload as { credential: Record<string, unknown>; fileName?: string; groupName?: string }
-        );
-        mergeSubaccount(added);
-        closeModal();
-        navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=credential' });
       });
     } catch (error) {
       reportLocalError(error);
@@ -509,68 +447,13 @@ export function SubaccountRoutes({
     }
   };
 
-  const startAuth = async (workspaceId: string, teamTitle: string) => {
-    if (!selected || !workspaceId) return;
-    const key = actionKey('codex-start', workspaceId);
-    setLocalError('');
-    try {
-      await actionBusy.run(key, async () => {
-        setAuthSession({
-          ...(await apiClient.startSubaccountCodexAuth(selected.id, workspaceId)),
-          targetTeamTitle: teamTitle
-        });
-        openModal('manual-codex-callback', workspaceId);
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
-  const autoAuth = async (workspaceId: string) => {
-    if (!selected || !workspaceId) return;
-    const key = actionKey('codex-auto', workspaceId);
-    setLocalError('');
-    try {
-      await actionBusy.run(key, async () => {
-        mergeSubaccount(await apiClient.autoSubaccountCodexAuth(selected.id, workspaceId));
-        setAuthSession(null);
-        setCallbackUrl('');
-        void loadRuntimeStatus();
-        await loadLogs(selected.id);
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
   const createPersonalAccessToken = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = actionKey('codex-pat', workspaceId);
+    const key = actionKey('pat-create', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
-        const link = selected.teamLinks.find((item) => item.workspaceId === workspaceId || item.accountId === workspaceId);
-        const updated =
-          link?.planType === 'k12'
-            ? await apiClient.createSubaccountK12Credential(selected.id, workspaceId)
-            : await apiClient.createSubaccountPersonalAccessTokenCredential(selected.id, workspaceId);
-        mergeSubaccount(updated);
-        await loadLogs(selected.id);
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
-  const completeManualAuth = async () => {
-    if (!selected || !authSession) return;
-    setLocalError('');
-    try {
-      await actionBusy.run('codex-callback', async () => {
-        mergeSubaccount(await apiClient.completeSubaccountCodexAuth(selected.id, authSession.sessionId, callbackUrl.trim()));
-        setAuthSession(null);
-        setCallbackUrl('');
-        closeModal();
+        mergeSubaccount(await apiClient.createSubaccountPersonalAccessTokenCredential(selected.id, workspaceId));
         await loadLogs(selected.id);
       });
     } catch (error) {
@@ -594,7 +477,7 @@ export function SubaccountRoutes({
 
   const exportCredential = async (workspaceId: string) => {
     if (!selected || !workspaceId) return;
-    const key = actionKey('credential-export', workspaceId);
+    const key = actionKey('pat-export', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
@@ -606,24 +489,10 @@ export function SubaccountRoutes({
     }
   };
 
-  const exportWorkspaceSession = async (workspaceId: string) => {
-    if (!selected || !workspaceId) return;
-    const key = actionKey('workspace-session-export', workspaceId);
-    setLocalError('');
-    try {
-      await actionBusy.run(key, async () => {
-        const session = await apiClient.getSubaccountWorkspaceSession(selected.id, workspaceId);
-        downloadTextFile(buildWorkspaceSessionDownload(selected, workspaceId, session));
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
   const deleteCredential = async () => {
     if (!selected || !searchState.target) return;
     const workspaceId = searchState.target;
-    const key = actionKey('credential-delete', workspaceId);
+    const key = actionKey('pat-delete', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
@@ -651,7 +520,6 @@ export function SubaccountRoutes({
         onGroupChange={changeGroup}
         onSearchChange={changeSearchQuery}
         onOpenImportSession={() => openModal('import-session')}
-        onOpenImportCredential={() => openModal('import-credential')}
         onOpenRegister={() => openModal('register-subaccount')}
         onRetryRegistration={(job) => void retryRegistration(job)}
         onOpenEdit={(subaccount) => {
@@ -668,11 +536,9 @@ export function SubaccountRoutes({
           subaccount={selected}
           accounts={accounts}
           activeTab={searchState.tab}
-          runtimeStatus={runtimeStatus}
           logs={logs}
           busyState={actionBusy.busyState}
           quota={quota}
-          runningTarget={runningTarget}
           syncing={actionBusy.isBusy('subaccount-refresh')}
           onTabChange={changeTab}
           onSubaccountChanged={mergeSubaccount}
@@ -680,13 +546,10 @@ export function SubaccountRoutes({
           onOpenDelete={() => selected && openModal('delete-subaccount', selected.id)}
           onSync={() => void syncSubaccount()}
           onOpenInvite={() => openModal('invite-to-team', selected?.id ?? '')}
-          onStartAuth={(workspaceId, teamTitle) => void startAuth(workspaceId, teamTitle)}
-          onAutoAuth={(workspaceId) => void autoAuth(workspaceId)}
-          onCreatePersonalAccessToken={(workspaceId) => void createPersonalAccessToken(workspaceId)}
+          onCreatePat={(workspaceId) => void createPersonalAccessToken(workspaceId)}
           onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
-          onExportWorkspaceSession={(workspaceId) => void exportWorkspaceSession(workspaceId)}
-          onExportCredential={(workspaceId) => void exportCredential(workspaceId)}
-          onOpenDeleteCredential={(workspaceId) => openModal('delete-codex-credential', workspaceId)}
+          onExportPat={(workspaceId) => void exportCredential(workspaceId)}
+          onOpenDeletePat={(workspaceId) => openModal('delete-pat-credential', workspaceId)}
         />
       </Space>
 
@@ -701,17 +564,6 @@ export function SubaccountRoutes({
         confirmLoading={actionBusy.isBusy('import-session')}
         onCancel={closeModal}
         onSubmit={importSession}
-      />
-
-      <JsonImportModal
-        open={searchState.modal === 'import-credential'}
-        mode="credential"
-        title="导入 Codex 凭证"
-        description="导入已有 CPA/Codex auth JSON，系统按 workspace 保存凭证，不会创建 Web session。"
-        submitLabel="导入凭证"
-        confirmLoading={actionBusy.isBusy('import-credential')}
-        onCancel={closeModal}
-        onSubmit={importCredential}
       />
 
       <LocalProfileModal
@@ -793,40 +645,17 @@ export function SubaccountRoutes({
       </Modal>
 
       <Modal
-        open={searchState.modal === 'manual-codex-callback' && Boolean(authSession)}
-        title={`手动授权回调${authSession?.targetTeamTitle ? ` · ${authSession.targetTeamTitle}` : ''}`}
-        okText="提交回调并生成凭证"
+        open={searchState.modal === 'delete-pat-credential' && Boolean(selected)}
+        title="删除 PAT 凭证"
+        okText="删除 PAT"
         cancelText="取消"
-        confirmLoading={actionBusy.isBusy('codex-callback')}
-        onCancel={closeModal}
-        onOk={() => void completeManualAuth()}
-      >
-        <Space direction="vertical" size={12} className="panel-stack">
-          <Input.TextArea rows={4} value={authSession?.authUrl ?? ''} readOnly spellCheck={false} />
-          <Input.TextArea
-            rows={5}
-            value={callbackUrl}
-            disabled={actionBusy.isBusy('codex-callback')}
-            spellCheck={false}
-            placeholder="粘贴授权回调 URL"
-            onChange={(event) => setCallbackUrl(event.target.value)}
-          />
-          <ModalErrorAlert message={searchState.modal === 'manual-codex-callback' ? localError : ''} />
-        </Space>
-      </Modal>
-
-      <Modal
-        open={searchState.modal === 'delete-codex-credential' && Boolean(selected)}
-        title="删除 Codex 凭证"
-        okText="删除凭证"
-        cancelText="取消"
-        okButtonProps={{ danger: true, loading: actionBusy.isBusy(actionKey('credential-delete', searchState.target)) }}
+        okButtonProps={{ danger: true, loading: actionBusy.isBusy(actionKey('pat-delete', searchState.target)) }}
         onCancel={closeModal}
         onOk={() => void deleteCredential()}
       >
         <Space direction="vertical" size={12} className="panel-stack">
-          <span>确认删除 workspace {searchState.target || '当前'} 的 Codex 凭证？这不会移除 Team 成员关系。</span>
-          <ModalErrorAlert message={searchState.modal === 'delete-codex-credential' ? localError : ''} />
+          <span>确认删除 workspace {searchState.target || '当前'} 的 PAT 凭证？这不会移除 Team 成员关系。</span>
+          <ModalErrorAlert message={searchState.modal === 'delete-pat-credential' ? localError : ''} />
         </Space>
       </Modal>
 

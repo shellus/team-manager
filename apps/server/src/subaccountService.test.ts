@@ -1,21 +1,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type {
   ApiResult,
-  CodexAuthRuntimeStatus,
   CodexCredentialJson,
   SubaccountRegistrationJobView,
   SubaccountView
 } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
+import type {
+  AccountRegistrarGateway,
+  AccountRegistrationDelivery,
+  AccountRegistrationRequest
+} from './accountRegistrarClient.js';
 import type { AppConfig } from './config.js';
-import { CODEX_AUTH_REDIRECT_URI } from './codexAuth.js';
-import { CodexAutoAuthError, type CodexAutoAuthExecutor } from './codexAutoAuth.js';
 import { SubaccountStore } from './subaccountStore.js';
 import type { Transport } from './transport.js';
 
@@ -40,6 +41,21 @@ function chatGptWebAccessToken(accountId: string, planType = 'team'): string {
     },
     exp: 1783387600
   });
+}
+
+function patCredential(accountId: string, token = `at-${accountId}`): CodexCredentialJson {
+  return {
+    access_token: token,
+    personal_access_token: token,
+    account_id: accountId,
+    email: 'child@example.com',
+    type: 'codex',
+    last_refresh: '2026-06-18T00:00:00.000Z',
+    expired: '2026-07-18T00:00:00.000Z',
+    plan_type: 'team',
+    auth_mode: 'personalAccessToken',
+    credential_source: 'personal_access_token'
+  };
 }
 
 class RecordingQuotaTransport implements Transport {
@@ -322,79 +338,60 @@ function tokenRevokedResponse() {
   };
 }
 
-class FakeCodexAutoAuth implements CodexAutoAuthExecutor {
-  requests: Array<{
-    email: string;
-    authUrl: string;
-    state: string;
-    codeVerifier: string;
-    targetChatgptAccountId?: string;
-    password?: string;
-  }> = [];
+class FakeAccountRegistrar implements AccountRegistrarGateway {
+  requests: AccountRegistrationRequest[] = [];
+  private jobs: SubaccountRegistrationJobView[] = [];
 
-  async complete(options: Parameters<CodexAutoAuthExecutor['complete']>[0]) {
-    const accountId = options.targetChatgptAccountId ?? 'auto-child-chatgpt-account-id';
-    this.requests.push({
-      email: options.email,
-      authUrl: options.session.authUrl,
-      state: options.session.state,
-      codeVerifier: options.session.codeVerifier,
-      targetChatgptAccountId: options.targetChatgptAccountId,
-      password: options.password
-    });
-    return {
-      callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=auto-code&state=${options.session.state}`,
-      events: [{ phase: 'passwordless_send_otp', status: 200 }, { phase: 'oauth_token_exchange', status: 200 }],
-      credential: {
-        access_token: 'auto-codex-access-token',
-        refresh_token: 'auto-codex-refresh-token',
-        id_token: unsignedJwt({
-          email: options.email,
-          'https://api.openai.com/auth': {
-            chatgpt_account_id: accountId,
-            chatgpt_plan_type: 'team'
-          }
-        }),
-        account_id: accountId,
-        email: options.email,
-        type: 'codex' as const,
-        last_refresh: '2026-06-18T00:00:00.000Z',
-        expired: '2026-06-18T01:00:00.000Z',
-        plan_type: 'team'
-      }
+  async health() {
+    return { status: 'ok', registrationConfigured: true };
+  }
+
+  async start(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
+    this.requests.push(input);
+    const job: SubaccountRegistrationJobView = {
+      id: 'registration-job-1',
+      status: 'queued',
+      phase: 'registration_queued',
+      message: '已加入账号注册队列',
+      progress: 0,
+      registrationMethod: 'cloak_browser',
+      createdAt: 1,
+      updatedAt: 1
     };
+    this.jobs = [job];
+    return job;
   }
-}
 
-class FakeStreamingCodexAutoAuth extends FakeCodexAutoAuth {
-  async complete(options: Parameters<CodexAutoAuthExecutor['complete']>[0]) {
-    const result = await super.complete(options);
-    for (const event of result.events) {
-      await options.onEvent?.(event);
-    }
-    return result;
+  async list(): Promise<SubaccountRegistrationJobView[]> {
+    this.jobs = this.jobs.map((job) => job.status === 'queued' ? {
+      ...job,
+      status: 'succeeded',
+      phase: 'registration_complete',
+      message: '账号注册和 Session 交付已完成',
+      progress: 100,
+      email: 'registered-child@example.com',
+      completedAt: 2,
+      updatedAt: 2
+    } : job);
+    return this.jobs;
   }
-}
 
-class FakeAccountLockedAutoAuth implements CodexAutoAuthExecutor {
-  async complete() {
-    throw new CodexAutoAuthError(
-      'Account is locked or unavailable',
-      'account_locked',
-      'account_locked',
-      [{ phase: 'account_locked', status: 200 }]
-    );
+  async retry(id: string): Promise<SubaccountRegistrationJobView> {
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job) throw new Error('registration job missing');
+    const queued = { ...job, status: 'queued' as const, progress: 0, phase: 'registration_queued' };
+    this.jobs = [queued];
+    return queued;
   }
-}
 
-class FakeSubaccountRegistration {
-  requests: Array<{ mailGroup?: string }> = [];
-  completedMailboxes: string[] = [];
+  async remove(id: string): Promise<boolean> {
+    const before = this.jobs.length;
+    this.jobs = this.jobs.filter((job) => job.id !== id);
+    return this.jobs.length !== before;
+  }
 
-  async register(options: { mailGroup?: string; onEvent?: (event: Record<string, unknown>) => void | Promise<void> }) {
-    this.requests.push({ mailGroup: options.mailGroup });
-    await options.onEvent?.({ phase: 'registration_identity_allocated', email: 'registered-child@example.com' });
-    await options.onEvent?.({ phase: 'chatgpt_auth_session' });
+  async result(id: string): Promise<AccountRegistrationDelivery> {
+    if (!this.jobs.some((job) => job.id === id)) throw new Error('registration job missing');
     return {
       email: 'registered-child@example.com',
       password: 'generated-child-password',
@@ -407,120 +404,18 @@ class FakeSubaccountRegistration {
         accessToken: chatGptWebAccessToken('registered-child-chatgpt-account-id', 'free'),
         sessionToken: 'registered-child-session-token'
       },
-      events: [
-        { phase: 'gongxi_get_email', status: 200 },
-        { phase: 'user_register', status: 200 },
-        { phase: 'chatgpt_auth_session', status: 200 }
-      ]
-    };
-  }
-
-  async completeMailbox(email: string) {
-    this.completedMailboxes.push(email);
-    return {
-      email,
-      group: '48team子号',
-      events: [{ phase: 'gongxi_move_email_group', status: 200 }]
+      registrationMethod: 'cloak_browser',
+      cloakProfileId: 'profile-1',
+      cloakProfileName: 'registered-child',
+      registeredAt: 2,
+      mailbox: { email: 'registered-child@example.com', group: 'registered' },
+      events: [{ phase: 'chatgpt_auth_session', status: 200 }]
     };
   }
 }
 
-class FakeVerificationRequiredRegistration {
-  async register() {
-    const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
-    throw new SubaccountRegistrationError(
-      'user_register_failed_400: account_creation_failed',
-      'verification_required',
-      'registration_sentinel',
-      'pending-child@example.com',
-      'generated-child-password',
-      [{ phase: 'user_register', status: 400 }]
-    );
-  }
-}
 
-class FakeRetryableRegistration {
-  requests: Array<{ email?: string; password?: string; resumeExisting?: boolean }> = [];
-  completedMailboxes: string[] = [];
-
-  async register(options: {
-    email?: string;
-    password?: string;
-    resumeExisting?: boolean;
-    onEvent?: (event: Record<string, unknown>) => void | Promise<void>;
-  }) {
-    this.requests.push({
-      email: options.email,
-      password: options.password,
-      resumeExisting: options.resumeExisting
-    });
-    if (this.requests.length === 1) {
-      const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
-      throw new SubaccountRegistrationError(
-        'chatgpt_auth_signin_failed_200: {"url":"https://chatgpt.com/api/auth/signin?csrf=true"}',
-        'error',
-        'registration_failed',
-        'retry-child@example.com',
-        'retry-child-password',
-        [{ phase: 'chatgpt_auth_signin', status: 200 }]
-      );
-    }
-    await options.onEvent?.({ phase: 'registration_retry_existing_account', email: options.email });
-    await options.onEvent?.({ phase: 'chatgpt_auth_session', email: options.email });
-    return {
-      email: options.email!,
-      password: options.password!,
-      name: 'Retry Child',
-      birthdate: '1996-05-12',
-      callbackUrl: 'https://chatgpt.com/',
-      session: {
-        user: { email: options.email! },
-        account: { id: 'retry-child-chatgpt-account-id' },
-        accessToken: chatGptWebAccessToken('retry-child-chatgpt-account-id', 'free'),
-        sessionToken: 'retry-child-session-token'
-      },
-      events: [{ phase: 'registration_retry_existing_account', status: 200 }]
-    };
-  }
-
-  async completeMailbox(email: string) {
-    this.completedMailboxes.push(email);
-    return { email, group: '48team子号', events: [{ phase: 'gongxi_move_email_group', status: 200 }] };
-  }
-}
-
-class FakeAccountLockedRegistration {
-  async register() {
-    const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
-    throw new SubaccountRegistrationError(
-      'user_register_failed_403: account disabled',
-      'account_locked',
-      'account_locked',
-      'locked-child@example.com',
-      'generated-child-password',
-      [{ phase: 'user_register', status: 403 }]
-    );
-  }
-}
-
-class FakeRegistrationEmailUnavailable {
-  async register() {
-    const { SubaccountRegistrationError } = await import('./subaccountRegistration.js');
-    throw new SubaccountRegistrationError(
-      'No usable GongXi-Mail email after 10 attempt(s)',
-      'error',
-      'registration_email_unavailable',
-      undefined,
-      undefined,
-      [
-        { phase: 'registration_email_rejected', status: 200 },
-        { phase: 'registration_email_rejected', status: 200 }
-      ]
-    );
-  }
-}
-
-async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor; registration?: unknown } = {}) {
+async function buildTestApp(options: { registrar?: AccountRegistrarGateway } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccount-api-'));
   const config: AppConfig = {
     port: 0,
@@ -541,34 +436,14 @@ async function buildTestApp(options: { codexAutoAuth?: CodexAutoAuthExecutor; re
   });
   const subaccountStore = new SubaccountStore(dir);
   await subaccountStore.init();
-  const fakeFetch = async () =>
-    ({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          access_token: 'codex-access-token',
-          refresh_token: 'codex-refresh-token',
-          id_token: unsignedJwt({
-            email: 'child@example.com',
-            'https://api.openai.com/auth': {
-              chatgpt_account_id: 'child-chatgpt-account-id',
-              chatgpt_plan_type: 'team'
-            }
-          }),
-          expires_in: 3600
-        })
-    }) as Response;
   const quotaTransport = new RecordingQuotaTransport();
   const teamTransport = new RecordingTeamTransport();
   const app = await buildApp({
     config,
     store,
     subaccountStore,
-    subaccountCodexFetch: fakeFetch as typeof fetch,
     subaccountQuotaTransport: quotaTransport,
-    subaccountCodexAutoAuth: options.codexAutoAuth,
-    subaccountRegistration: options.registration,
+    subaccountRegistrar: options.registrar,
     teamTransport
   } as Parameters<typeof buildApp>[0]);
 
@@ -605,66 +480,6 @@ async function waitForRegistrationJob(
 }
 
 describe('Subaccount API', () => {
-  it('reports missing Codex auto auth runtime config without using fallbacks', async () => {
-    const originalWorkerUrl = process.env.TEAMMGR_CURL_CFFI_URL;
-    delete process.env.TEAMMGR_CURL_CFFI_URL;
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const response = await app.request('/api/subaccounts/codex-auth/status', { headers: authHeaders });
-      const json = (await response.json()) as ApiResult<CodexAuthRuntimeStatus>;
-
-      assert.equal(response.status, 200);
-      assert.equal(json.data!.workerConfigured, false);
-      assert.equal(json.data!.workerReachable, false);
-      assert.equal(json.data!.codexAutoAuth, false);
-      assert.equal(json.data!.subaccountRegistration, false);
-      assert.match(json.data!.error ?? '', /TEAMMGR_CURL_CFFI_URL/);
-    } finally {
-      if (originalWorkerUrl === undefined) delete process.env.TEAMMGR_CURL_CFFI_URL;
-      else process.env.TEAMMGR_CURL_CFFI_URL = originalWorkerUrl;
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('reports worker phone pool counts without treating the legacy worker as browser registration', async () => {
-    const originalWorkerUrl = process.env.TEAMMGR_CURL_CFFI_URL;
-    const originalFetch = globalThis.fetch;
-    process.env.TEAMMGR_CURL_CFFI_URL = 'https://worker.example.invalid';
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          ok: true,
-          capabilities: {
-            codexAutoAuth: true,
-            subaccountRegistration: true,
-            flaresolverr: true,
-            gongxiMail: true,
-            phoneOtp: true
-          },
-          phonePoolCount: 3,
-          phonePoolExhaustedCount: 2
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )) as typeof fetch;
-
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const response = await app.request('/api/subaccounts/codex-auth/status', { headers: authHeaders });
-      const json = (await response.json()) as ApiResult<CodexAuthRuntimeStatus & { phonePoolExhaustedCount?: number }>;
-
-      assert.equal(response.status, 200);
-      assert.equal(json.data!.phoneOtp, true);
-      assert.equal(json.data!.subaccountRegistration, false);
-      assert.equal(json.data!.phonePoolCount, 3);
-      assert.equal(json.data!.phonePoolExhaustedCount, 2);
-    } finally {
-      globalThis.fetch = originalFetch;
-      if (originalWorkerUrl === undefined) delete process.env.TEAMMGR_CURL_CFFI_URL;
-      else process.env.TEAMMGR_CURL_CFFI_URL = originalWorkerUrl;
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   it('imports child session JSON and returns editable Web session views', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {
@@ -1047,197 +862,6 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('imports an existing Codex credential JSON as a credential-only child', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/codex-credential', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          id_token: unsignedJwt({
-            email: 'child@example.com',
-            'https://api.openai.com/auth': {
-              chatgpt_account_id: 'workspace-account-id',
-              chatgpt_plan_type: 'team'
-            }
-          }),
-          access_token: 'imported-access-token',
-          refresh_token: 'imported-refresh-token',
-          account_id: 'workspace-account-id',
-          last_refresh: '2026-06-18T00:00:00.000Z',
-          email: 'child@example.com',
-          type: 'codex',
-          expired: '2026-06-18T01:00:00.000Z',
-          plan_type: 'team'
-        })
-      });
-      const addedJson = (await added.json()) as ApiResult<SubaccountView>;
-
-      assert.equal(added.status, 200);
-      assert.equal(addedJson.data!.email, 'child@example.com');
-      assert.equal(addedJson.data!.hasWebSession, false);
-      assert.equal(addedJson.data!.status, 'codex_ready');
-      assert.equal(addedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
-      assert.equal(JSON.stringify(addedJson).includes('imported-refresh-token'), false);
-      assert.equal(JSON.stringify(addedJson).includes('imported-access-token'), false);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('imports a Codex personal access token credential without OAuth refresh or id tokens', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/codex-credential', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          personal_access_token: 'at-imported-codex-token',
-          account_id: 'workspace-account-id',
-          last_refresh: '2026-06-18T00:00:00.000Z',
-          email: 'child@example.com',
-          type: 'codex',
-          expired: '2026-07-18T00:00:00.000Z',
-          auth_mode: 'personalAccessToken',
-          credential_source: 'personal_access_token',
-          credential_id: 'token-imported'
-        })
-      });
-      const body = await added.text();
-      const addedJson = JSON.parse(body) as ApiResult<SubaccountView>;
-
-      assert.equal(added.status, 200, body);
-      assert.equal(addedJson.data!.email, 'child@example.com');
-      assert.equal(addedJson.data!.status, 'codex_ready');
-      assert.equal(addedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
-      assert.equal(body.includes('at-imported-codex-token'), false);
-
-      const exported = await app.request(
-        `/api/subaccounts/${addedJson.data!.id}/codex-credential?chatgptAccountId=workspace-account-id`,
-        { headers: authHeaders }
-      );
-      const exportedJson = (await exported.json()) as ApiResult<CodexCredentialJson>;
-      assert.equal(exported.status, 200);
-      assert.equal(exportedJson.data!.access_token, 'at-imported-codex-token');
-      assert.equal(exportedJson.data!.personal_access_token, 'at-imported-codex-token');
-      assert.equal(exportedJson.data!.auth_mode, 'personalAccessToken');
-      assert.equal(exportedJson.data!.credential_source, 'personal_access_token');
-      assert.equal('refresh_token' in exportedJson.data!, false);
-      assert.equal('id_token' in exportedJson.data!, false);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('imports Codex credentials with a custom file name and CPA pool group', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/codex-credential', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          fileName: 'cpa-a-child.json',
-          groupName: 'CPA-A',
-          credential: {
-            id_token: unsignedJwt({
-              email: 'child@example.com',
-              'https://api.openai.com/auth': {
-                chatgpt_account_id: 'workspace-account-id',
-                chatgpt_plan_type: 'team'
-              }
-            }),
-            access_token: 'imported-access-token',
-            refresh_token: 'imported-refresh-token',
-            account_id: 'workspace-account-id',
-            last_refresh: '2026-06-18T00:00:00.000Z',
-            email: 'child@example.com',
-            type: 'codex',
-            expired: '2026-06-18T01:00:00.000Z',
-            plan_type: 'team'
-          }
-        })
-      });
-      const body = await added.text();
-      const addedJson = JSON.parse(body) as ApiResult<SubaccountView>;
-
-      assert.equal(added.status, 200, body);
-      assert.equal(addedJson.data!.codexCredentials[0]!.fileName, 'cpa-a-child.json');
-      assert.equal(addedJson.data!.codexCredentials[0]!.groupName, 'CPA-A');
-      assert.equal(body.includes('imported-refresh-token'), false);
-      assert.equal(body.includes('imported-access-token'), false);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('deletes the selected Team workspace Codex credential without removing the child account', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/codex-credential', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          fileName: 'cpa-a-child.json',
-          groupName: 'CPA-A',
-          credential: {
-            id_token: unsignedJwt({
-              email: 'child@example.com',
-              'https://api.openai.com/auth': {
-                chatgpt_account_id: 'workspace-account-id',
-                chatgpt_plan_type: 'team'
-              }
-            }),
-            access_token: 'imported-access-token',
-            refresh_token: 'imported-refresh-token',
-            account_id: 'workspace-account-id',
-            last_refresh: '2026-06-18T00:00:00.000Z',
-            email: 'child@example.com',
-            type: 'codex',
-            expired: '2026-06-18T01:00:00.000Z',
-            plan_type: 'team'
-          }
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-      const credential = subaccount.codexCredentials[0]!;
-      const credentialPath = join(dir, 'subaccount-credentials', subaccount.id, credential.fileName);
-      assert.equal(existsSync(credentialPath), true);
-
-      const removed = await app.request(
-        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
-        {
-          method: 'DELETE',
-          headers: authHeaders
-        }
-      );
-      const removedBody = await removed.text();
-
-      assert.equal(removed.status, 200, removedBody);
-      const removedJson = JSON.parse(removedBody) as ApiResult<SubaccountView>;
-      assert.equal(removedJson.data!.id, subaccount.id);
-      assert.equal(removedJson.data!.email, 'child@example.com');
-      assert.equal(removedJson.data!.status, 'empty');
-      assert.equal(removedJson.data!.codexCredentials.length, 0);
-      assert.equal(existsSync(credentialPath), false);
-
-      const missing = await app.request(
-        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
-        { headers: authHeaders }
-      );
-      assert.equal(missing.status, 404);
-
-      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
-      const logsJson = (await logs.json()) as ApiResult<
-        Array<{ phase: string; status: string; data?: { accountId?: string; fileName?: string } }>
-      >;
-      const deleteLog = logsJson.data!.find((log) => log.phase === 'codex_credential_delete');
-      assert.equal(deleteLog?.status, 'empty');
-      assert.equal(deleteLog?.data?.accountId, 'workspace-account-id');
-      assert.equal(deleteLog?.data?.fileName, 'cpa-a-child.json');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
 
   it('returns 400 for unsupported child session JSON shapes', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
@@ -1270,17 +894,7 @@ describe('Subaccount API', () => {
         })
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-      await subaccountStore.saveCodexCredential(subaccount.id, {
-        access_token: 'codex-access-token',
-        refresh_token: 'codex-refresh-token',
-        id_token: 'codex-id-token',
-        account_id: 'workspace-account-id',
-        email: 'child@example.com',
-        type: 'codex',
-        last_refresh: '2026-06-18T00:00:00.000Z',
-        expired: '2026-06-18T01:00:00.000Z',
-        plan_type: 'team'
-      });
+      await subaccountStore.saveCodexCredential(subaccount.id, patCredential('workspace-account-id'));
       await subaccountStore.saveTeamLink(subaccount.id, {
         accountId: mother.id,
         seat: 'usage_based',
@@ -1435,170 +1049,6 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('starts Codex Auth and completes a pasted callback into credential JSON', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: 'child-web-access-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const started = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/start`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const startedJson = (await started.json()) as ApiResult<{ sessionId: string; authUrl: string }>;
-      const authUrl = new URL(startedJson.data!.authUrl);
-      const state = authUrl.searchParams.get('state');
-      assert.ok(state);
-      assert.equal(authUrl.searchParams.get('prompt'), 'login');
-
-      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/callback`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          sessionId: startedJson.data!.sessionId,
-          callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=auth-code&state=${state}`
-        })
-      });
-      const completedJson = (await completed.json()) as ApiResult<SubaccountView>;
-      assert.equal(completedJson.data!.status, 'codex_ready');
-      assert.equal(completedJson.data!.codexCredentials.length, 1);
-
-      const credential = await app.request(`/api/subaccounts/${subaccount.id}/codex-credential`, {
-        headers: authHeaders
-      });
-      const credentialJson = (await credential.json()) as ApiResult<Record<string, unknown>>;
-      assert.equal(credentialJson.data!.type, 'codex');
-      assert.equal(credentialJson.data!.email, 'child@example.com');
-      assert.equal(credentialJson.data!.refresh_token, 'codex-refresh-token');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('auto-completes Codex Auth through the worker executor', async () => {
-    const codexAutoAuth = new FakeCodexAutoAuth();
-    const { app, dir, authHeaders } = await buildTestApp({ codexAutoAuth });
-    try {
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: 'child-web-access-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/auto`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const completedJson = (await completed.json()) as ApiResult<SubaccountView>;
-
-      assert.equal(completed.status, 200);
-      assert.equal(completedJson.data!.status, 'codex_ready');
-      assert.equal(completedJson.data!.codexCredentials.length, 1);
-      assert.equal(codexAutoAuth.requests.length, 1);
-      assert.equal(codexAutoAuth.requests[0]!.email, 'child@example.com');
-      assert.match(new URL(codexAutoAuth.requests[0]!.authUrl).searchParams.get('login_hint') ?? '', /child@example.com/);
-
-      const credential = await app.request(`/api/subaccounts/${subaccount.id}/codex-credential`, {
-        headers: authHeaders
-      });
-      const credentialJson = (await credential.json()) as ApiResult<Record<string, unknown>>;
-      assert.equal(credentialJson.data!.refresh_token, 'auto-codex-refresh-token');
-
-      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
-      const logsJson = (await logs.json()) as ApiResult<
-        Array<{ phase: string; status: string; data?: { httpStatus?: number } }>
-      >;
-      assert.ok(logsJson.data!.some((log) => log.phase === 'codex_auto_auth_complete'));
-      assert.ok(
-        logsJson.data!.some(
-          (log) => log.phase === 'passwordless_send_otp' && log.status === 'ok' && log.data?.httpStatus === 200
-        )
-      );
-      assert.ok(logsJson.data!.some((log) => log.phase === 'oauth_token_exchange' && log.status === 'ok'));
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('does not duplicate Codex auto auth event logs when the worker streams progress before the final result', async () => {
-    const { app, dir, authHeaders } = await buildTestApp({ codexAutoAuth: new FakeStreamingCodexAutoAuth() });
-    try {
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: 'child-web-access-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/auto`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      assert.equal(completed.status, 200);
-
-      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
-      const logsJson = (await logs.json()) as ApiResult<Array<{ phase: string }>>;
-      assert.equal(logsJson.data!.filter((log) => log.phase === 'passwordless_send_otp').length, 1);
-      assert.equal(logsJson.data!.filter((log) => log.phase === 'oauth_token_exchange').length, 1);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('stores Codex credentials for the selected Team workspace', async () => {
-    const codexAutoAuth = new FakeCodexAutoAuth();
-    const { app, dir, authHeaders } = await buildTestApp({ codexAutoAuth });
-    try {
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: 'child-web-access-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/auto`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
-      });
-      const completedJson = (await completed.json()) as ApiResult<SubaccountView>;
-
-      assert.equal(completed.status, 200);
-      assert.equal(codexAutoAuth.requests[0]!.targetChatgptAccountId, 'workspace-account-id');
-      assert.equal(completedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
-
-      const credential = await app.request(
-        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
-        { headers: authHeaders }
-      );
-      const credentialJson = (await credential.json()) as ApiResult<Record<string, unknown>>;
-      assert.equal(credentialJson.data!.account_id, 'workspace-account-id');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   it('creates a Codex personal access token credential with the child Web session', async () => {
     const { app, dir, authHeaders, teamTransport } = await buildTestApp();
     try {
@@ -1613,7 +1063,7 @@ describe('Subaccount API', () => {
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
 
-      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/personal-access-token`, {
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/pat-credentials`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
@@ -1636,7 +1086,7 @@ describe('Subaccount API', () => {
       });
 
       const exported = await app.request(
-        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=workspace-account-id`,
+        `/api/subaccounts/${subaccount.id}/pat-credentials?chatgptAccountId=workspace-account-id`,
         { headers: authHeaders }
       );
       const exportedJson = (await exported.json()) as ApiResult<Record<string, unknown>>;
@@ -1646,8 +1096,6 @@ describe('Subaccount API', () => {
       assert.equal(exportedJson.data!.email, 'child@example.com');
       assert.equal(exportedJson.data!.type, 'codex');
       assert.equal(exportedJson.data!.auth_mode, 'personalAccessToken');
-      assert.equal('refresh_token' in exportedJson.data!, false);
-      assert.equal('id_token' in exportedJson.data!, false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1677,7 +1125,7 @@ describe('Subaccount API', () => {
       assert.equal(stored?.sessionToken, 'child-session-json-token');
       assert.equal(subaccount.session?.sessionToken, 'child-session-json-token');
 
-      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/personal-access-token`, {
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/pat-credentials`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
@@ -1707,57 +1155,6 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('downloads the full workspace-scoped ChatGPT session JSON from the child session token', async () => {
-    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
-    try {
-      const workspaceWebAccessToken = chatGptWebAccessToken('workspace-account-id');
-      teamTransport.sessionAccessTokensByWorkspaceId.set('workspace-account-id', workspaceWebAccessToken);
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          proxy: '  socks5://child-proxy.example:1080  ',
-          session: {
-            user: { email: 'child@example.com' },
-            account: { id: 'personal-account-id' },
-            accessToken: chatGptWebAccessToken('personal-account-id', 'free'),
-            sessionToken: 'child-session-json-token'
-          }
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const downloaded = await app.request(
-        `/api/subaccounts/${subaccount.id}/workspace-session?chatgptAccountId=workspace-account-id`,
-        { headers: authHeaders }
-      );
-      const body = await downloaded.text();
-      const downloadedJson = JSON.parse(body) as ApiResult<Record<string, unknown>>;
-
-      assert.equal(downloaded.status, 200, body);
-      assert.deepEqual(downloadedJson.data, {
-        user: { email: 'child@example.com' },
-        account: { id: 'workspace-account-id' },
-        accessToken: workspaceWebAccessToken
-      });
-
-      const sessionRequest = teamTransport.requests.find(
-        (item) =>
-          item.path.startsWith('/api/auth/session') &&
-          item.path.includes('team_manager_workspace=workspace-account-id')
-      );
-      assert.equal(sessionRequest?.method, 'GET');
-      assert.match(
-        sessionRequest?.headers.cookie ?? '',
-        /__Secure-next-auth\.session-token=child-session-json-token/
-      );
-      assert.match(sessionRequest?.headers.cookie ?? '', /_account=workspace-account-id/);
-      assert.equal((sessionRequest as any)?.proxy, 'socks5://child-proxy.example:1080');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   it('rejects a generated personal access token when ChatGPT returns a different workspace', async () => {
     const { app, dir, authHeaders, teamTransport } = await buildTestApp();
     try {
@@ -1773,7 +1170,7 @@ describe('Subaccount API', () => {
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
 
-      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/personal-access-token`, {
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/pat-credentials`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
@@ -1783,151 +1180,6 @@ describe('Subaccount API', () => {
 
       assert.equal(created.status, 409, createdText);
       assert.match(createdJson.error ?? '', /workspace 与目标不一致/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('creates a K12 Codex credential from the child workspace session instead of a personal access token', async () => {
-    const { app, dir, authHeaders, teamTransport, subaccountStore } = await buildTestApp();
-    try {
-      const k12Token = chatGptWebAccessToken('k12-workspace-id', 'k12');
-      teamTransport.sessionAccessTokensByWorkspaceId.set('k12-workspace-id', k12Token);
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'personal-account-id' },
-          accessToken: chatGptWebAccessToken('personal-account-id', 'free'),
-          sessionToken: 'child-session-json-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-      await subaccountStore.saveTeamLink(subaccount.id, {
-        accountId: 'k12-workspace-id',
-        workspaceId: 'k12-workspace-id',
-        workspaceName: 'K12 Space',
-        planType: 'k12',
-        seat: 'default',
-        status: 'member'
-      });
-
-      const created = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/k12-credential`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({ chatgptAccountId: 'k12-workspace-id' })
-      });
-      const body = await created.text();
-      const createdJson = JSON.parse(body) as ApiResult<SubaccountView>;
-
-      assert.equal(created.status, 200, body);
-      assert.equal(createdJson.data!.codexCredentials[0]!.accountId, 'k12-workspace-id');
-      assert.equal(createdJson.data!.codexCredentials[0]!.planType, 'k12');
-      assert.equal(
-        teamTransport.requests.some((request) => request.path === '/backend-api/wham/auth-credentials'),
-        false
-      );
-      const sessionRequest = teamTransport.requests.find(
-        (request) =>
-          request.method === 'GET' &&
-          request.path.startsWith('/api/auth/session') &&
-          request.path.includes('exchange_workspace_token=true') &&
-          request.path.includes('workspace_id=k12-workspace-id')
-      );
-      assert.equal(sessionRequest?.method, 'GET');
-
-      const exported = await app.request(
-        `/api/subaccounts/${subaccount.id}/codex-credential?chatgptAccountId=k12-workspace-id`,
-        { headers: authHeaders }
-      );
-      const exportedJson = (await exported.json()) as ApiResult<CodexCredentialJson>;
-      assert.equal(exported.status, 200);
-      assert.equal(exportedJson.data!.access_token, k12Token);
-      assert.equal(exportedJson.data!.account_id, 'k12-workspace-id');
-      assert.equal(exportedJson.data!.email, 'child@example.com');
-      assert.equal(exportedJson.data!.type, 'codex');
-      assert.equal(exportedJson.data!.plan_type, 'k12');
-      assert.equal(exportedJson.data!.auth_mode, 'chatgpt');
-      assert.equal(exportedJson.data!.credential_source, 'oauth');
-      assert.equal(typeof exportedJson.data!.id_token, 'string');
-      assert.equal('personal_access_token' in exportedJson.data!, false);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('marks a child account as locked when Codex auto auth reports account_locked', async () => {
-    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
-      codexAutoAuth: new FakeAccountLockedAutoAuth()
-    });
-    try {
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'locked-child@example.com' },
-          account: { id: 'locked-child-chatgpt-account-id' },
-          accessToken: 'locked-child-web-access-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/auto`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const completedJson = (await completed.json()) as ApiResult<SubaccountView>;
-
-      assert.equal(completed.status, 502);
-      assert.equal(completedJson.error, 'Account is locked or unavailable');
-      assert.equal(subaccountStore.get(subaccount.id)?.status, 'account_locked');
-
-      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
-      const logsJson = (await logs.json()) as ApiResult<Array<{ phase: string; status: string }>>;
-      assert.ok(
-        logsJson.data!.some((log) => log.phase === 'codex_auto_auth_complete' && log.status === 'account_locked')
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects a pasted Codex callback when the selected workspace does not match the target', async () => {
-    const { app, dir, authHeaders } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: 'child-web-access-token'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const started = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/start`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
-      });
-      const startedJson = (await started.json()) as ApiResult<{ sessionId: string; authUrl: string }>;
-      const state = new URL(startedJson.data!.authUrl).searchParams.get('state')!;
-
-      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/callback`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          sessionId: startedJson.data!.sessionId,
-          callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=auth-code&state=${state}`
-        })
-      });
-      const completedJson = (await completed.json()) as ApiResult;
-
-      assert.equal(completed.status, 409);
-      assert.equal(completedJson.ok, false);
-      assert.match(completedJson.error ?? '', /workspace 与目标不一致/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1951,24 +1203,17 @@ describe('Subaccount API', () => {
         headers: authHeaders,
         body: JSON.stringify({ proxy: 'http://quota-proxy.example:8080' })
       });
-      const started = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/start`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const startedJson = (await started.json()) as ApiResult<{ sessionId: string; authUrl: string }>;
-      const state = new URL(startedJson.data!.authUrl).searchParams.get('state')!;
-      await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/callback`, {
+      const created = await app.request(`/api/subaccounts/${subaccount.id}/pat-credentials`, {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({
-          sessionId: startedJson.data!.sessionId,
-          callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=auth-code&state=${state}`
-        })
+        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
       });
+      assert.equal(created.status, 200);
 
       const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/quota/refresh`, {
         method: 'POST',
-        headers: authHeaders
+        headers: authHeaders,
+        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
       });
       const refreshedJson = (await refreshed.json()) as ApiResult<{
         status: string;
@@ -1979,8 +1224,8 @@ describe('Subaccount API', () => {
       assert.equal(refreshedJson.data!.windows[0]!.id, 'code-five-hour');
       assert.equal(refreshedJson.data!.windows[0]!.usedPercent, 28);
       assert.equal(quotaTransport.requests[0]!.path, '/backend-api/wham/usage');
-      assert.equal(quotaTransport.requests[0]!.headers.Authorization, 'Bearer codex-access-token');
-      assert.equal(quotaTransport.requests[0]!.headers['Chatgpt-Account-Id'], 'child-chatgpt-account-id');
+      assert.equal(quotaTransport.requests[0]!.headers.Authorization, 'Bearer at-generated-codex-token');
+      assert.equal(quotaTransport.requests[0]!.headers['Chatgpt-Account-Id'], 'workspace-account-id');
       assert.equal((quotaTransport.requests[0] as any).proxy, 'http://quota-proxy.example:8080');
 
       const listed = await app.request('/api/subaccounts', { headers: authHeaders });
@@ -1992,9 +1237,9 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('registers a new child Web Session, stores the password, logs the raw trace, and moves the mailbox', async () => {
-    const registration = new FakeSubaccountRegistration();
-    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ registration });
+  it('imports a completed registrar delivery exactly once and keeps the private raw result', async () => {
+    const registrar = new FakeAccountRegistrar();
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ registrar });
     try {
       const started = await app.request('/api/subaccounts/registration/start', {
         method: 'POST',
@@ -2013,18 +1258,20 @@ describe('Subaccount API', () => {
       assert.equal(registered.session?.sessionToken, 'registered-child-session-token');
       assert.equal(registered.registrationPassword, 'generated-child-password');
       assert.equal(registered.codexCredentials.length, 0);
-      assert.equal(registration.requests[0]!.mailGroup, 'clean-outlook');
-      assert.deepEqual(registration.completedMailboxes, ['registered-child@example.com']);
+      assert.equal(registrar.requests[0]!.mailGroup, 'clean-outlook');
 
       const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
       assert.equal(stored.registrationPassword, 'generated-child-password');
 
       const allLogs = await app.request(`/api/subaccounts/${registered.id}/logs`, { headers: authHeaders });
       const allLogsJson = (await allLogs.json()) as ApiResult<Array<{ phase: string; message: string }>>;
-      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_complete'));
-      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_trace'));
-      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_mailbox_complete'));
+      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_delivery'));
       assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), true);
+
+      const jobsAfterImport = await app.request('/api/subaccounts/registration/jobs', { headers: authHeaders });
+      const jobsAfterImportJson = (await jobsAfterImport.json()) as ApiResult<SubaccountRegistrationJobView[]>;
+      assert.equal(jobsAfterImportJson.data!.length, 0);
+      assert.equal(subaccountStore.list().length, 1);
 
       const removed = await app.request(`/api/subaccounts/${registered.id}`, {
         method: 'DELETE',
@@ -2034,158 +1281,6 @@ describe('Subaccount API', () => {
       const jobsAfterDelete = await app.request('/api/subaccounts/registration/jobs', { headers: authHeaders });
       const jobsAfterDeleteJson = (await jobsAfterDelete.json()) as ApiResult<SubaccountRegistrationJobView[]>;
       assert.equal(jobsAfterDeleteJson.data!.some((job) => job.id === completed.job.id), false);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps a newly allocated registration account visible while waiting for manual verification', async () => {
-    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
-      registration: new FakeVerificationRequiredRegistration()
-    });
-    try {
-      const started = await app.request('/api/subaccounts/registration/start', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({})
-      });
-      assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
-      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
-      const registered = completed.subaccount!;
-
-      assert.equal(completed.job.status, 'waiting_manual');
-      assert.equal(registered.email, 'pending-child@example.com');
-      assert.equal(registered.status, 'verification_required');
-      assert.match(registered.lastError ?? '', /account_creation_failed/);
-      assert.equal(registered.registrationPassword, 'generated-child-password');
-
-      const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
-      assert.equal(stored.registrationPassword, 'generated-child-password');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('retries a failed registration job with the same saved email and password', async () => {
-    const registration = new FakeRetryableRegistration();
-    const { app, dir, authHeaders } = await buildTestApp({ registration });
-    try {
-      const started = await app.request('/api/subaccounts/registration/start', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({})
-      });
-      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
-      const failed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
-      assert.equal(failed.job.status, 'failed');
-      assert.equal(failed.subaccount?.email, 'retry-child@example.com');
-      assert.equal(failed.subaccount?.registrationPassword, 'retry-child-password');
-
-      const retried = await app.request(`/api/subaccounts/registration/jobs/${failed.job.id}/retry`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const retriedBody = await retried.text();
-      const retriedJson = JSON.parse(retriedBody) as ApiResult<SubaccountRegistrationJobView>;
-      assert.equal(retried.status, 200, retriedBody);
-      assert.equal(retriedJson.data!.id, failed.job.id);
-      assert.equal(retriedJson.data!.status, 'queued');
-
-      const completed = await waitForRegistrationJob(app, authHeaders, failed.job.id);
-      assert.equal(completed.job.status, 'succeeded');
-      assert.equal(completed.subaccount?.email, 'retry-child@example.com');
-      assert.equal(completed.subaccount?.session?.sessionToken, 'retry-child-session-token');
-      assert.deepEqual(registration.requests, [
-        { email: undefined, password: undefined, resumeExisting: false },
-        { email: 'retry-child@example.com', password: 'retry-child-password', resumeExisting: false }
-      ]);
-      assert.deepEqual(registration.completedMailboxes, ['retry-child@example.com']);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps a locked registration account visible with account_locked status', async () => {
-    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
-      registration: new FakeAccountLockedRegistration()
-    });
-    try {
-      const started = await app.request('/api/subaccounts/registration/start', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({})
-      });
-      assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
-      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
-      const registered = completed.subaccount!;
-
-      assert.equal(completed.job.status, 'failed');
-      assert.equal(registered.email, 'locked-child@example.com');
-      assert.equal(registered.status, 'account_locked');
-      assert.match(registered.lastError ?? '', /account disabled/);
-      assert.equal(registered.registrationPassword, 'generated-child-password');
-
-      const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
-      assert.equal(stored.registrationPassword, 'generated-child-password');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps a failed background job without creating a child when registration has no usable email', async () => {
-    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({
-      registration: new FakeRegistrationEmailUnavailable()
-    });
-    try {
-      const started = await app.request('/api/subaccounts/registration/start', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({})
-      });
-      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
-      const completed = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
-
-      assert.equal(started.status, 200);
-      assert.equal(completed.job.status, 'failed');
-      assert.match(completed.job.error ?? '', /No usable GongXi-Mail email/);
-      assert.equal(completed.subaccount, undefined);
-      assert.equal(subaccountStore.list().length, 0);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('reuses the registration password for Codex auto auth and keeps it in the private raw logs', async () => {
-    const codexAutoAuth = new FakeCodexAutoAuth();
-    const { app, dir, authHeaders } = await buildTestApp({
-      codexAutoAuth,
-      registration: new FakeVerificationRequiredRegistration()
-    });
-    try {
-      const started = await app.request('/api/subaccounts/registration/start', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({})
-      });
-      assert.equal(started.status, 200);
-      const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
-      const registrationResult = await waitForRegistrationJob(app, authHeaders, startedJson.data!.id);
-      const registered = registrationResult.subaccount!;
-
-      const completed = await app.request(`/api/subaccounts/${registered.id}/codex-auth/auto`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      assert.equal(completed.status, 200);
-
-      assert.equal(codexAutoAuth.requests[0]!.email, 'pending-child@example.com');
-      assert.equal(codexAutoAuth.requests[0]!.password, 'generated-child-password');
-
-      const logs = await app.request(`/api/subaccounts/${registered.id}/logs`, { headers: authHeaders });
-      const logsText = await logs.text();
-      assert.equal(logsText.includes('generated-child-password'), true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -2275,88 +1370,6 @@ describe('Subaccount API', () => {
         false
       );
       assert.equal(store.get(mother.id)?.accessToken, 'mother-access-token');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('lets a child account request joining a K12 workspace without mother credentials or billing confirmation', async () => {
-    const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
-    try {
-      const childToken = chatGptWebAccessToken('child-chatgpt-account-id');
-      const added = await app.request('/api/subaccounts/session', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          user: { email: 'child@example.com' },
-          account: { id: 'child-chatgpt-account-id' },
-          accessToken: childToken
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const joined = await app.request(`/api/subaccounts/${subaccount.id}/k12-joins`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({ workspaceId: 'external-k12-workspace-id' })
-      });
-      const joinedJson = (await joined.json()) as ApiResult<SubaccountView>;
-      const joinRequest = teamTransport.requests.find((request) =>
-        request.path === '/backend-api/accounts/external-k12-workspace-id/invites/request'
-      );
-
-      assert.equal(joined.status, 200);
-      assert.equal(joinRequest?.method, 'POST');
-      assert.equal(joinRequest?.headers.Authorization, `Bearer ${childToken}`);
-      assert.equal(joinRequest?.body, '{}');
-      assert.equal(
-        teamTransport.requests.some((request) => request.headers.Authorization === 'Bearer mother-access-token'),
-        false
-      );
-      assert.equal(store.get(mother.id)?.accessToken, 'mother-access-token');
-      assert.equal(joinedJson.data!.teamLinks[0]!.accountId, 'external-k12-workspace-id');
-      assert.equal(joinedJson.data!.teamLinks[0]!.workspaceId, 'external-k12-workspace-id');
-      assert.equal(joinedJson.data!.teamLinks[0]!.planType, 'k12');
-      assert.equal(joinedJson.data!.teamLinks[0]!.status, 'unknown');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects Team link sync for credential-only child accounts instead of using mother credentials', async () => {
-    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
-    try {
-      const added = await app.request('/api/subaccounts/codex-credential', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          access_token: 'codex-access-token',
-          refresh_token: 'codex-refresh-token',
-          id_token: unsignedJwt({
-            email: 'child@example.com',
-            'https://api.openai.com/auth': {
-              chatgpt_account_id: 'workspace-account-id',
-              chatgpt_plan_type: 'team'
-            }
-          }),
-          account_id: 'workspace-account-id',
-          email: 'child@example.com',
-          type: 'codex',
-          expired: '2026-06-18T01:00:00.000Z',
-          last_refresh: '2026-06-18T00:00:00.000Z'
-        })
-      });
-      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-
-      const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
-        method: 'POST',
-        headers: authHeaders
-      });
-      const syncedJson = (await synced.json()) as ApiResult;
-
-      assert.equal(synced.status, 400);
-      assert.match(syncedJson.error ?? '', /缺少 ChatGPT Web session/);
-      assert.equal(teamTransport.requests.length, 0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -2487,7 +1500,7 @@ describe('Subaccount API', () => {
             account_id: 'external-workspace-id',
             account_user_role: 'standard-user',
             name: 'External Team',
-            plan_type: 'k12'
+            plan_type: 'team'
           }
         }
       });
@@ -2535,7 +1548,7 @@ describe('Subaccount API', () => {
       assert.equal(linksByWorkspaceId.get('workspace-account-id')!.accountId, mother.id);
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.accountId, 'external-workspace-id');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.workspaceName, 'External Team');
-      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.planType, 'k12');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.planType, 'team');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.role, 'standard-user');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.seat, 'default');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.status, 'member');

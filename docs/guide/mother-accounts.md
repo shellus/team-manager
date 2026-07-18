@@ -91,7 +91,7 @@
 
 母号详情页右上角菜单进入“查看待处理邀请”。待处理邀请列表支持刷新和撤销。
 
-pending invite 与正式 member 需要区分。子号处于 pending invite 时，仍可能在 Codex 授权阶段看到目标 Team workspace；但本地 Team 关联状态应保持为 `invited`，直到同步到成员列表后才变为 `member`。
+pending invite 与正式 member 需要区分。子号处于 pending invite 时，仍可能为目标 Team 创建 PAT；但本地 Team 关联状态应保持为 `invited`，直到同步到成员列表后才变为 `member`。
 
 ChatGPT 固定席位的待处理邀请支持编辑客户席位资料。编辑只更新 team-manager 本地数据，不调用 ChatGPT 远端接口；Codex 席位不创建客户席位资料。
 

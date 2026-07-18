@@ -8,18 +8,16 @@ export type ParentModal =
   | 'invite-member'
   | 'billing-risk';
 
-export type SubaccountTab = 'teams' | 'registration' | 'settings' | 'credential' | 'auth' | 'quota' | 'logs';
+export type SubaccountTab = 'teams' | 'registration' | 'settings' | 'pat' | 'logs';
 
 export type SubaccountModal =
   | ''
   | 'import-session'
-  | 'import-credential'
   | 'register-subaccount'
   | 'edit-subaccount-profile'
   | 'delete-subaccount'
   | 'invite-to-team'
-  | 'manual-codex-callback'
-  | 'delete-codex-credential'
+  | 'delete-pat-credential'
   | 'billing-risk';
 
 export interface ParentSearchState {
@@ -33,11 +31,10 @@ export interface SubaccountSearchState {
   tab: SubaccountTab;
   modal: SubaccountModal;
   target: string;
-  credential: string;
 }
 
 export const parentTabs = ['members', 'invites', 'settings', 'billing'] as const satisfies readonly ParentTab[];
-export const subaccountTabs = ['teams', 'registration', 'settings', 'credential', 'auth', 'quota', 'logs'] as const satisfies readonly SubaccountTab[];
+export const subaccountTabs = ['teams', 'registration', 'settings', 'pat', 'logs'] as const satisfies readonly SubaccountTab[];
 
 const parentTabSet = new Set<ParentTab>(parentTabs);
 const parentModalSet = new Set<ParentModal>([
@@ -53,13 +50,11 @@ const subaccountTabSet = new Set<SubaccountTab>(subaccountTabs);
 const subaccountModalSet = new Set<SubaccountModal>([
   '',
   'import-session',
-  'import-credential',
   'register-subaccount',
   'edit-subaccount-profile',
   'delete-subaccount',
   'invite-to-team',
-  'manual-codex-callback',
-  'delete-codex-credential',
+  'delete-pat-credential',
   'billing-risk'
 ]);
 
@@ -85,11 +80,13 @@ export function parseSubaccountSearchState(params: URLSearchParams): SubaccountS
   const rawModal = readParam(params, 'modal');
   const modal = subaccountModalSet.has(rawModal as SubaccountModal) ? (rawModal as SubaccountModal) : '';
 
+  const tab = rawTab === 'credential'
+    ? 'pat'
+    : subaccountTabSet.has(rawTab as SubaccountTab) ? (rawTab as SubaccountTab) : 'teams';
   return {
-    tab: subaccountTabSet.has(rawTab as SubaccountTab) ? (rawTab as SubaccountTab) : 'teams',
+    tab,
     modal,
-    target: modal ? readParam(params, 'target') : '',
-    credential: readParam(params, 'credential')
+    target: modal ? readParam(params, 'target') : ''
   };
 }
 

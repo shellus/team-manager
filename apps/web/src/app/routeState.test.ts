@@ -32,16 +32,15 @@ describe('routeState', () => {
     });
   });
 
-  test('parses subaccount credential tab modal target and credential workspace', () => {
+  test('maps the former credential tab to PAT and parses the PAT delete modal', () => {
     const state = parseSubaccountSearchState(
-      new URLSearchParams('tab=credential&modal=delete-codex-credential&target=acct-1&credential=acct-2')
+      new URLSearchParams('tab=credential&modal=delete-pat-credential&target=acct-1')
     );
 
     expect(state).toEqual({
-      tab: 'credential',
-      modal: 'delete-codex-credential',
-      target: 'acct-1',
-      credential: 'acct-2'
+      tab: 'pat',
+      modal: 'delete-pat-credential',
+      target: 'acct-1'
     });
   });
 
@@ -51,8 +50,7 @@ describe('routeState', () => {
     expect(state).toEqual({
       tab: 'teams',
       modal: '',
-      target: '',
-      credential: ''
+      target: ''
     });
   });
 

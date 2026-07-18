@@ -10,7 +10,7 @@ import { limitTypeLabel, roleLabel, seatLabel } from '../labels.js';
 const SUBACCOUNT_STATUS_LABEL: Record<SubaccountStatus, string> = {
   empty: '未录入',
   session_ready: 'Session 可用',
-  codex_auth_pending: '授权中',
+  pat_creating: 'PAT 创建中',
   codex_ready: 'Codex 可用',
   verification_required: '待验证',
   account_locked: '账号锁定',
@@ -38,7 +38,7 @@ export function SubaccountStatusTag({ status }: { status: SubaccountStatus }) {
       ? 'success'
       : status === 'error' || status === 'account_locked'
         ? 'error'
-        : status === 'codex_auth_pending' || status === 'verification_required'
+        : status === 'pat_creating' || status === 'verification_required'
           ? 'warning'
           : 'default';
   return <Tag color={color}>{SUBACCOUNT_STATUS_LABEL[status]}</Tag>;

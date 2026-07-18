@@ -37,12 +37,12 @@ ChatGPT 席位额度窗口可能存在不同灰度策略。系统不写死固定
 
 同一账号仍在同一 Team 下时，把成员从 Codex 席位切回 ChatGPT 席位即可继续复用原 Team 凭证，不需要重新生成凭证。
 
-跨 Team 搬迁不同。账号从原 Team 移除并加入另一个 Team 后，需要在目标 Team 下重新授权，生成绑定目标 Team workspace 的新凭证。
+跨 Team 搬迁不同。账号从原 Team 移除并加入另一个 Team 后，需要为目标 Team workspace 重新创建 PAT。
 
 ## 推荐操作策略
 
 - 默认新成员席位设置为 Codex 席位。
 - 需要 ChatGPT Team 额度时，再把目标成员切到 ChatGPT 席位。
 - 额度用尽或暂时不用额度时，优先切回 Codex 席位。
-- 保留同一 Team 下已有凭证，避免重复授权。
+- 保留同一 Team 下已有 PAT，避免重复创建。
 - 移除成员只用于明确离开 Team 或跨 Team 搬迁，不用于常规腾位。

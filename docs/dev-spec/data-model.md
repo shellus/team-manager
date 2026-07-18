@@ -8,7 +8,7 @@
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
-- curl_cffi worker、GongXi-Mail、短信接码和授权页面 clearance 属于运行环境能力，不是账号业务模型字段；后端只暴露脱敏可用状态，前端只读展示。
+- curl_cffi worker 是通用 ChatGPT 请求转发能力。GongXi-Mail、CloakBrowser、Mihomo 和家宽代理属于独立注册服务，不是 Team Manager 账号业务模型字段。
 - store 只按当前 schema 持久化对象；历史冗余字段应通过离线数据清洗删除，不在业务代码中做兼容映射。
 - GPT 账号基础字段统一为 `email` 和 `remark`。`email` 是账号名称和唯一可读身份；`remark` 是本系统本地备注。母号、子号和席位资料不得再使用 `label`、`note`、`displayName` 或 `name` 表示本地账号名称/备注。
 
@@ -149,23 +149,23 @@
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id |
-| `email` | session JSON、注册结果或 Codex credential | 子号邮箱 |
+| `email` | session JSON 或注册服务交付 | 子号邮箱 |
 | `remark` | 本地输入 | 子号本地备注 |
 | `groupName` | 本地输入 | 子号本地分组，缺省为 `默认分组`；与 Codex credential 的 CPA 号池分组无关 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token；通过 `SubaccountView.session` 回填给管理后台 |
 | `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `SubaccountView.session` 回填给管理后台 |
-| `proxy` | 本地输入 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT/K12 凭证创建和额度请求 |
+| `proxy` | 本地输入 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT 创建和额度请求 |
 | `sessionTokenStatus` / `sessionTokenCheckedAt` | Web 账号同步 | Session Cookie 最近一次通过 `/api/auth/session` 验证的结果和时间 |
 | `webAccessTokenStatus` / `webAccessTokenCheckedAt` | Web 账号同步 | Web access token 最近一次通过 backend-api 验证的结果和时间 |
 | `chatgptUserId`、`remoteUsername`、`remoteDisplayName`、`remotePictureUrl` | `/backend-api/me` 与 Calpico profile | 子号个人资料缓存 |
 | `marketingPushEnabled` / `marketingEmailEnabled` | notifications settings | 子号个人营销通知缓存 |
 | `memoryEnabled` | `account_user_setting?feature=m3m` 写操作 | 子号记忆开关最近一次明确修改结果；未修改前可为未知 |
 | `rateLimitResetCredits` | `wham/rate-limit-reset-credits` | reset credits 明细、当前可用数、累计获得数和缓存时间 |
-| `codexCredentials[]` | Codex OAuth token exchange 或已有 CPA/Codex auth JSON | 子号在某 Team workspace 下的 Codex 凭证元数据 |
+| `codexCredentials[]` | PAT 创建结果 | 子号在某 Team workspace 下的 PAT 凭证元数据 |
 | `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据；可信管理后台详情页可查看和复制注册密码 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
-| `status` / `lastError` | 授权或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
+| `status` / `lastError` | 注册、PAT 或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
 
 ### Codex credential
@@ -175,15 +175,15 @@
 - `accountId`：凭证绑定的 Team workspace account id，来自 credential JSON 的 `account_id`。
 - `fileName`：独立凭证文件名，文件位于 `data/subaccount-credentials/<subaccountId>/`。
 - `groupName`：CPA 号池分组名，缺省为 `默认号池`。
-- `planType`：导入或授权时凭证里的 `plan_type` 摘要。
-- `auth_mode` / `credential_source`：独立凭证文件内的敏感 JSON 可记录凭证来源。OAuth 凭证通常有 `refresh_token` 和 `id_token`；Codex 个人访问令牌凭证使用 `auth_mode:"personalAccessToken"` 和 `credential_source:"personal_access_token"`，可以没有 `refresh_token` / `id_token`。
-- `issued_account_id`：仅写入独立凭证 JSON。创建个人访问令牌时，远端响应的 `workspace_id` 必须和用户选择的目标 workspace 一致；不一致时拒绝保存，避免凭证和 Team 位置断链。
+- `planType`：PAT 创建响应对应的套餐摘要。
+- 独立凭证文件固定使用 `auth_mode:"personalAccessToken"` 和 `credential_source:"personal_access_token"`。
+- 创建 PAT 时，远端响应的 `workspace_id` 必须和用户选择的目标 workspace 一致；不一致时拒绝保存，避免凭证和 Team 位置断链。
 - `lastQuota` / `lastQuotaAt`：该 workspace 凭证的额度缓存。
-- `lastAuthAt`：该 workspace 凭证最近授权时间。
+- `lastCreatedAt`：该 workspace PAT 最近创建时间。
 
 CPA/Codex 兼容凭证明文 JSON 不写入 `subaccounts.json`，只写入独立凭证文件。普通列表和详情接口只返回 `SubaccountCodexCredentialView` 元数据；只有显式导出接口读取并返回目标凭证 JSON。
 
-workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在 store 初始化时迁移到独立文件，并从 `subaccounts.json` 中移除。
+workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其他凭证文件和元数据会被移除。
 
 ### Team links
 
@@ -204,23 +204,21 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 - `SubaccountView.registrationPassword`、`registeredAt` 和 `registrationSource` 只用于可信管理后台展示自动注册资料。
 - `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
 - `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
-- 顶层 `hasCodexCredential`、`lastQuota`、`lastQuotaAt`、`lastAuthAt` 是冗余字段，不应出现在 view 或持久化数据中。
+- 顶层 `hasCodexCredential`、`lastQuota` 和 `lastQuotaAt` 是冗余字段，不应出现在 view 或持久化数据中。
 
 ## 子号写操作规则
 
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
-| 导入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加脱敏日志 | 合并返回的子号 view |
-| 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
-| 自动注册子号 | 先原子写入 `data/subaccount-registration-jobs.json`，再由后台队列为邮箱创建独立 Cloak profile 并执行页面注册；成功后写入 `email`、Web Session、`registrationPassword`、`registeredAt`、`registrationSource`、`registrationMethod` 和 Cloak profile 元数据，不生成 Codex 凭证；失败重试复用邮箱和密码，人工接管重试还复用最后一个 profile | 立即显示任务项并轮询进度；刷新页面继续读取同一任务；等待人工处理时显示 profile 与继续按钮；任务完成后替换为正常子号 view，“注册资料”页签显示注册密码和 profile |
+| 录入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加完整操作日志 | 合并返回的子号 view |
+| 自动注册子号 | Team Manager 向独立注册服务创建持久化任务；成功后按任务 ID 幂等录入 `email`、Web Session、`registrationPassword`、`registeredAt`、`registrationSource`、`registrationMethod` 和 Cloak profile 元数据，再清理完成任务 | 立即显示任务项并轮询进度；刷新页面继续读取同一任务；任务完成后替换为正常子号 view |
 | 编辑本地资料 | 更新 `remark`、顶层 `groupName` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
 | 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |
-| Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
-| 创建 Codex 个人访问令牌 | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
+| 创建 PAT | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
 | 邀请加入母号 | 远端邀请成功后写入 `teamLinks[].status = "invited"`，账单风险沿用母号邀请规则 | 合并返回的子号 view |
-| 同步 Team 关联 | 有 Web session 时先用子号 `accounts/check` 找可见 workspace，再用子号 Web session 查询匹配 workspace 的 users 列表读取自己的 `seat_type`；credential-only 子号缺少子号侧 Web session 时返回错误，不使用母号凭证兜底读取 | 合并返回的子号 view |
+| 同步 Team 关联 | 用子号 `accounts/check` 找可见 workspace，再用子号 Web session 查询匹配 workspace 的 users 列表读取自己的 `seat_type` | 合并返回的子号 view |
 
 ## 本地资料编辑 API
 
@@ -264,31 +262,6 @@ Content-Type: application/json
 }
 ```
 
-母号和子号的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应 view 会返回已保存的分组、`session` 和 `proxy`，用于管理后台本地资料编辑回填；Codex credential JSON 仍只通过显式导出接口返回。
+母号和子号的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应 view 会返回已保存的分组、`session` 和 `proxy`，用于管理后台本地资料编辑回填。
 
-## Codex 凭证导入 API
-
-`POST /api/subaccounts/codex-credential` 支持两种格式。旧格式为直接提交 CPA/Codex credential JSON；新格式可同时指定独立文件名和 CPA 号池：
-
-```http
-POST /api/subaccounts/codex-credential
-Content-Type: application/json
-
-{
-  "fileName": "cpa-a-child.json",
-  "groupName": "CPA-A",
-  "credential": {
-    "email": "child@example.com",
-    "account_id": "<team-workspace-account-id>",
-    "access_token": "<redacted>",
-    "refresh_token": "<redacted>",
-    "id_token": "<redacted>",
-    "last_refresh": "2026-06-18T00:00:00.000Z",
-    "expired": "2026-06-18T01:00:00.000Z",
-    "type": "codex",
-    "plan_type": "team"
-  }
-}
-```
-
-`fileName` 只作为 `data/subaccount-credentials/<subaccountId>/` 下的文件名使用，后端会去除路径成分。响应只返回 `accountId`、`fileName`、`groupName`、额度缓存等脱敏元数据。
+Codex 凭证只有 PAT，由当前子号 Web Session 针对目标 Team workspace 创建。

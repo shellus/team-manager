@@ -13,9 +13,10 @@ import { AppSettingsStore } from './appSettingsStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
-import { SubaccountRegistrationJobStore } from './subaccountRegistrationJobStore.js';
-import type { CodexAutoAuthExecutor } from './codexAutoAuth.js';
-import type { SubaccountRegistrationExecutor } from './subaccountRegistration.js';
+import {
+  createAccountRegistrarClient,
+  type AccountRegistrarGateway
+} from './accountRegistrarClient.js';
 import type { Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
@@ -29,10 +30,8 @@ export interface BuildAppDeps {
   config: AppConfig;
   store: AccountStore;
   subaccountStore: SubaccountStore;
-  subaccountCodexFetch?: typeof fetch;
   subaccountQuotaTransport?: Transport;
-  subaccountCodexAutoAuth?: CodexAutoAuthExecutor;
-  subaccountRegistration?: SubaccountRegistrationExecutor;
+  subaccountRegistrar?: AccountRegistrarGateway;
   teamTransport?: Transport;
   settingsStore?: AppSettingsStore;
   billingStore?: AccountBillingStore;
@@ -71,10 +70,8 @@ export async function buildApp({
   config,
   store,
   subaccountStore,
-  subaccountCodexFetch,
   subaccountQuotaTransport,
-  subaccountCodexAutoAuth,
-  subaccountRegistration,
+  subaccountRegistrar,
   teamTransport,
   settingsStore,
   billingStore
@@ -85,16 +82,11 @@ export async function buildApp({
   const service = new TeamService(store, teamTransport, accountBillingStore);
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
-  const subaccountRegistrationJobs = new SubaccountRegistrationJobStore(config.dataDir);
-  await subaccountRegistrationJobs.init();
   const subaccountService = new SubaccountService(
     subaccountStore,
-    subaccountRegistrationJobs,
-    subaccountCodexFetch,
     subaccountQuotaTransport,
-    subaccountCodexAutoAuth,
-    subaccountRegistration,
-    teamTransport
+    teamTransport,
+    subaccountRegistrar ?? createAccountRegistrarClient()
   );
 
   const syncTeamLinksByChildWorkspaces = async (id: string, subaccount: Subaccount) => {
@@ -302,67 +294,6 @@ export async function buildApp({
       status: 'success',
       message: '子号已从 Team workspace 自行退出',
       data: { accountId: link.accountId, workspaceId, userId: childUserId }
-    });
-    return updated ?? subaccountStore.list().find((item) => item.id === id);
-  };
-
-  const joinK12WorkspaceByChild = async (id: string, workspaceId: string) => {
-    const target = workspaceId.trim();
-    if (!target) throw new ServiceError(400, '缺少 K12 workspace ID');
-    const subaccount = subaccountStore.get(id);
-    if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
-    if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
-      await subaccountStore.appendLog(id, {
-        phase: 'k12_workspace_join',
-        status: 'error',
-        message: '子号缺少 ChatGPT Web session，无法从子号侧加入 K12 workspace',
-        data: { workspaceId: target }
-      });
-      throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法从子号侧加入 K12 workspace');
-    }
-
-    let childWebAccessToken = subaccount.webAccessToken;
-    const updateChildWebAccessToken = async (accessToken: string) => {
-      childWebAccessToken = accessToken;
-      await subaccountStore.update(id, { webAccessToken: accessToken, lastError: undefined });
-    };
-
-    try {
-      await service.requestSessionWorkspaceInvite(
-        {
-          accountId: subaccount.chatgptAccountId,
-          accessToken: childWebAccessToken,
-          proxy: subaccount.proxy,
-          sessionToken: subaccount.sessionToken,
-          onAccessTokenRefreshed: updateChildWebAccessToken
-        },
-        target
-      );
-    } catch (e) {
-      await subaccountStore.appendLog(id, {
-        phase: 'k12_workspace_join',
-        status: 'error',
-        message: `K12 workspace 加入请求失败: ${(e as Error).message}`,
-        data: { workspaceId: target }
-      });
-      throw new ServiceError(502, `K12 workspace 加入请求失败: ${(e as Error).message}`);
-    }
-
-    const parent = (await service.listAccounts()).find((account) => account.accountId === target);
-    const updated = await subaccountStore.saveTeamLink(id, {
-      accountId: parent?.id ?? target,
-      workspaceId: target,
-      workspaceName: parent?.workspaceName,
-      planType: parent?.planType ?? 'k12',
-      role: 'standard-user',
-      seat: 'default',
-      status: 'unknown'
-    });
-    await subaccountStore.appendLog(id, {
-      phase: 'k12_workspace_join',
-      status: 'success',
-      message: '已用子号向 K12 workspace 发起加入请求',
-      data: { workspaceId: target }
     });
     return updated ?? subaccountStore.list().find((item) => item.id === id);
   };
@@ -641,7 +572,7 @@ export async function buildApp({
   api.get('/subaccounts', (c) => wrap(c, () => Promise.resolve(subaccountService.list())));
 
   api.get('/subaccounts/registration/jobs', (c) =>
-    wrap(c, () => Promise.resolve(subaccountService.listRegistrationJobs()))
+    wrap(c, () => subaccountService.listRegistrationJobs())
   );
 
   api.post('/subaccounts/registration/jobs/:jobId/retry', (c) =>
@@ -655,11 +586,6 @@ export async function buildApp({
   api.post('/subaccounts/session', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => subaccountService.importSession(body));
-  });
-
-  api.post('/subaccounts/codex-credential', async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    return wrap(c, () => subaccountService.importCodexCredential(body));
   });
 
   api.post('/subaccounts/registration/start', async (c) => {
@@ -745,53 +671,24 @@ export async function buildApp({
 
   api.delete('/subaccounts/:id', (c) => wrap(c, () => subaccountService.remove(c.req.param('id'))));
 
-  api.post('/subaccounts/:id/codex-auth/start', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
-    return wrap(c, () => subaccountService.startCodexAuth(c.req.param('id'), body.chatgptAccountId));
-  });
-
-  api.get('/subaccounts/codex-auth/status', (c) =>
-    wrap(c, () => subaccountService.getCodexAuthRuntimeStatus())
+  api.get('/subaccounts/registration/status', (c) =>
+    wrap(c, () => subaccountService.getRegistrationRuntimeStatus())
   );
 
-  api.post('/subaccounts/:id/codex-auth/auto', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
-    return wrap(c, () => subaccountService.autoCompleteCodexAuth(c.req.param('id'), body.chatgptAccountId));
-  });
-
-  api.post('/subaccounts/:id/codex-auth/personal-access-token', async (c) => {
+  api.post('/subaccounts/:id/pat-credentials', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
     return wrap(c, () =>
       subaccountService.createPersonalAccessTokenCredential(c.req.param('id'), body.chatgptAccountId)
     );
   });
 
-  api.post('/subaccounts/:id/codex-auth/k12-credential', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
-    return wrap(c, () => subaccountService.createK12WorkspaceCredential(c.req.param('id'), body.chatgptAccountId));
-  });
-
-  api.post('/subaccounts/:id/codex-auth/callback', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { sessionId?: string; callbackUrl?: string };
-    if (!body.sessionId?.trim() || !body.callbackUrl?.trim()) {
-      return c.json({ ok: false, error: '缺少 sessionId 或 callbackUrl' }, 400);
-    }
-    return wrap(c, () =>
-      subaccountService.completeCodexAuth(c.req.param('id'), body.sessionId!, body.callbackUrl!)
-    );
-  });
-
-  api.get('/subaccounts/:id/codex-credential', (c) =>
+  api.get('/subaccounts/:id/pat-credentials', (c) =>
     wrap(c, () =>
       Promise.resolve(subaccountService.getCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
     )
   );
 
-  api.get('/subaccounts/:id/workspace-session', (c) =>
-    wrap(c, () => subaccountService.getWorkspaceSession(c.req.param('id'), c.req.query('chatgptAccountId')))
-  );
-
-  api.delete('/subaccounts/:id/codex-credential', (c) =>
+  api.delete('/subaccounts/:id/pat-credentials', (c) =>
     wrap(c, () => subaccountService.removeCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
   );
 
@@ -835,12 +732,6 @@ export async function buildApp({
   api.delete('/subaccounts/:id/team-links/:accountId', (c) =>
     wrap(c, () => leaveTeamLinkByChild(c.req.param('id'), c.req.param('accountId')))
   );
-
-  api.post('/subaccounts/:id/k12-joins', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { workspaceId?: string };
-    if (!body.workspaceId?.trim()) return c.json({ ok: false, error: '缺少 K12 workspace ID' }, 400);
-    return wrap(c, () => joinK12WorkspaceByChild(c.req.param('id'), body.workspaceId!));
-  });
 
   api.get('/subaccounts/:id/logs', (c) =>
     wrap(c, () => Promise.resolve(subaccountService.listLogs(c.req.param('id'))))

@@ -1,18 +1,18 @@
 import type {
-  CodexAuthRuntimeStatus,
+  SubaccountRegistrationRuntimeStatus,
   SubaccountRegistrationJobView,
   SubaccountView
 } from '@team-manager/shared';
 import {
   DeleteOutlined,
   EditOutlined,
-  FileProtectOutlined,
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
   RobotOutlined
 } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Progress, Segmented, Space, Tag, Typography } from 'antd';
+import { Button, Card, Dropdown, List, Progress, Space, Tag, Typography } from 'antd';
+import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import {
   ALL_LOCAL_GROUP,
@@ -44,7 +44,6 @@ export function SubaccountList({
   onGroupChange,
   onSearchChange,
   onOpenImportSession,
-  onOpenImportCredential,
   onOpenRegister,
   onRetryRegistration,
   onOpenEdit,
@@ -56,13 +55,12 @@ export function SubaccountList({
   activeGroup: string;
   searchQuery: string;
   selectedId: string;
-  runtimeStatus: CodexAuthRuntimeStatus | null;
+  runtimeStatus: SubaccountRegistrationRuntimeStatus | null;
   isBusy: (key: string) => boolean;
   onSelect: (subaccount: SubaccountView) => void;
   onGroupChange: (group: string) => void;
   onSearchChange: (query: string) => void;
   onOpenImportSession: () => void;
-  onOpenImportCredential: () => void;
   onOpenRegister: () => void;
   onRetryRegistration: (job: SubaccountRegistrationJobView) => void;
   onOpenEdit: (subaccount: SubaccountView) => void;
@@ -100,16 +98,13 @@ export function SubaccountList({
           type="primary"
           icon={<RobotOutlined />}
           loading={isBusy('register-subaccount')}
-          disabled={runtimeStatus?.subaccountRegistration === false}
+          disabled={runtimeStatus?.configured === false || runtimeStatus?.reachable === false}
           onClick={onOpenRegister}
         >
           自动注册
         </Button>
         <Button icon={<PlusOutlined />} onClick={onOpenImportSession}>
           录入子号
-        </Button>
-        <Button icon={<FileProtectOutlined />} onClick={onOpenImportCredential}>
-          导入凭证
         </Button>
       </div>
       <KeywordSearchInput
@@ -118,9 +113,8 @@ export function SubaccountList({
         value={searchQuery}
         onSearchChange={onSearchChange}
       />
-      <Segmented
-        className="group-selector"
-        block
+      <GroupSelector
+        ariaLabel="筛选子号分组"
         value={activeGroup}
         options={[
           {
@@ -132,7 +126,7 @@ export function SubaccountList({
             value: group.name
           }))
         ]}
-        onChange={(value) => onGroupChange(String(value))}
+        onChange={onGroupChange}
       />
       <List
         className="record-list"
@@ -188,16 +182,6 @@ export function SubaccountList({
                   )}
                   {(failed || waitingManual) && (
                     <Space wrap>
-                      {waitingManual && runtimeStatus?.cloakBrowserUrl && (
-                        <Button
-                          size="small"
-                          href={runtimeStatus.cloakBrowserUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          打开 CloakBrowser
-                        </Button>
-                      )}
                       <Button
                         size="small"
                         icon={<ReloadOutlined />}

@@ -44,12 +44,12 @@
 
 新子号优先使用子号页“自动注册”入口：
 
-1. 通过运行环境 worker 从 GongXi-Mail 获取邮箱。
-2. worker 生成随机密码并注册 OpenAI 账号。
-3. 注册成功后，后端保存子号邮箱、私有密码和 Web session。
+1. Team Manager 向独立 GPT Account Registrar 创建任务。
+2. 注册服务从 GongXi-Mail 获取邮箱，使用独立 Cloak profile 完成注册。
+3. 注册成功后，Team Manager 录入邮箱、私有密码和 Web Session。
 4. 若注册阶段遇到人机校验、账号锁定或邮箱异常，按子号状态处理，不把该账号计入可用候选。
 
-凭证生成阶段使用 PAT，不需要走 Codex OAuth 短信接码。若 OpenAI 在账号注册或首次登录阶段要求手机验证，那属于注册阶段，不属于 PAT 生成步骤。
+凭证生成阶段只创建 PAT。若 OpenAI 在账号注册或首次登录阶段要求手机验证，那属于独立注册服务，不属于 PAT 生成步骤。
 
 ## 腾出目标 Team 席位
 
@@ -71,9 +71,9 @@
 2. 席位选择 `default`，让该子号获得 ChatGPT Team 额度窗口。
 3. 若邀请或切换到 `default` 触发账单风险确认，先确认当前 `default` 成员数量和席位归属，再显式确认。
 4. 邀请完成后刷新母号成员和 pending invite。
-5. 到子号页刷新 Team 关联，确认该子号在目标 Team 下是 `member` 或至少处于可授权的 `invited` 状态。
+5. 到子号页刷新 Team 关联，确认该子号在目标 Team 下是 `member` 或至少处于可创建 PAT 的 `invited` 状态。
 
-子号不需要点击邀请邮件里的 Accept 才能进入授权流程。pending invite 通常已足够让授权流程看到目标 Team workspace，但正式成员状态仍应通过刷新确认。
+子号不需要点击邀请邮件里的 Accept 才能创建 PAT。pending invite 通常已足够让 Web Session 看到目标 Team workspace，但正式成员状态仍应通过刷新确认。
 
 ## 生成 PAT 凭证
 
@@ -87,7 +87,7 @@
 6. 对 CPA 热重载文件号池，将导出的凭证 JSON 按目标号池文件名原子替换到 `auths/<实例名>/`；不调用 CPA 管理 API，不重启实例。
 7. 通过号池状态 API 刷新目标实例，确认凭证状态为可用且额度窗口未用尽。
 
-不要通过修改凭证 JSON 的 `account_id`、请求头或文件名来复用其他 Team 的凭证。跨 Team 使用必须重新生成绑定目标 workspace 的新凭证。
+不要通过修改凭证 JSON 的 `account_id`、请求头或文件名来复用其他 Team 的凭证。跨 Team 使用必须为目标 workspace 重新创建 PAT。
 
 替换 CPA 文件前应把旧文件备份到活动 `auths/<实例名>/` 之外，避免 CPA 把备份 JSON 当成新凭证加载。替换后如果 `status` 仍显示 `auth_unavailable`，但 `quota.status=success`，通常表示 CPA 实例中仍有旧运行态标记；再次确认文件已热重载后，以 `credential-status` 刷新结果为准。
 
@@ -125,4 +125,4 @@
 - [母号与 Team 管理](./mother-accounts)
 - [子号与 Codex 凭证](./subaccounts)
 - [额度与席位轮转](./quota-and-seats)
-- [子号注册与授权 SOP](../dev-spec/subaccount-registration-sop)
+- [子号注册服务对接 SOP](../dev-spec/subaccount-registration-sop)

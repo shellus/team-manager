@@ -72,14 +72,15 @@ describe('Codex quota', () => {
 
     const snapshot = await fetchCodexQuota(
       {
-        id_token: 'id-token',
         access_token: 'codex-access-token',
-        refresh_token: 'refresh-token',
+        personal_access_token: 'codex-access-token',
         account_id: 'child-account-id',
         last_refresh: '2026-06-18T00:00:00.000Z',
         email: 'child@example.com',
         type: 'codex',
-        expired: '2026-06-18T01:00:00.000Z'
+        expired: '2026-06-18T01:00:00.000Z',
+        auth_mode: 'personalAccessToken',
+        credential_source: 'personal_access_token'
       },
       transport
     );

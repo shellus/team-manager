@@ -1,19 +1,18 @@
 import type {
   AccountView,
-  CodexAuthRuntimeStatus,
   CodexQuotaSnapshot,
   SubaccountAuthLog,
   SubaccountView
 } from '@team-manager/shared';
 import type { ActionBusyState } from '../../components/actionBusy.js';
-import { Button, Card, Empty, Space, Table, Tabs, Typography } from 'antd';
+import { Button, Card, Empty, Space, Tabs, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { SubaccountTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { formatDateTime } from '../../components/format.js';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
-import { SubaccountAuthPanel } from './SubaccountAuthPanel.js';
-import { SubaccountCredentialPanel } from './SubaccountCredentialPanel.js';
+import { SubaccountLogPanel } from './SubaccountLogPanel.js';
+import { SubaccountPatCredentialPanel } from './SubaccountPatCredentialPanel.js';
 import { SubaccountRegistrationPanel } from './SubaccountRegistrationPanel.js';
 import { SubaccountSettingsPanel } from './SubaccountSettingsPanel.js';
 import { SubaccountTeamLinks } from './SubaccountTeamLinks.js';
@@ -22,11 +21,9 @@ export function SubaccountDetail({
   subaccount,
   accounts,
   activeTab,
-  runtimeStatus,
   logs,
   busyState,
   quota,
-  runningTarget,
   syncing,
   onTabChange,
   onSubaccountChanged,
@@ -34,22 +31,17 @@ export function SubaccountDetail({
   onOpenDelete,
   onSync,
   onOpenInvite,
-  onStartAuth,
-  onAutoAuth,
-  onCreatePersonalAccessToken,
+  onCreatePat,
   onRefreshQuota,
-  onExportWorkspaceSession,
-  onExportCredential,
-  onOpenDeleteCredential
+  onExportPat,
+  onOpenDeletePat
 }: {
   subaccount: SubaccountView | null;
   accounts: AccountView[];
   activeTab: SubaccountTab;
-  runtimeStatus: CodexAuthRuntimeStatus | null;
   logs: SubaccountAuthLog[];
   busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
-  runningTarget: string;
   syncing: boolean;
   onTabChange: (tab: SubaccountTab) => void;
   onSubaccountChanged: (subaccount: SubaccountView) => void;
@@ -57,13 +49,10 @@ export function SubaccountDetail({
   onOpenDelete: () => void;
   onSync: () => void;
   onOpenInvite: () => void;
-  onStartAuth: (workspaceId: string, teamTitle: string) => void;
-  onAutoAuth: (workspaceId: string) => void;
-  onCreatePersonalAccessToken: (workspaceId: string) => void;
+  onCreatePat: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
-  onExportWorkspaceSession: (workspaceId: string) => void;
-  onExportCredential: (workspaceId: string) => void;
-  onOpenDeleteCredential: (workspaceId: string) => void;
+  onExportPat: (workspaceId: string) => void;
+  onOpenDeletePat: (workspaceId: string) => void;
 }) {
   if (!subaccount) {
     return (
@@ -138,72 +127,25 @@ export function SubaccountDetail({
             )
           },
           {
-            key: 'credential',
-            label: <CountedTabLabel label="凭证" count={credentialCount} />,
+            key: 'pat',
+            label: <CountedTabLabel label="PAT 凭证" count={credentialCount} />,
             children: (
-              <SubaccountCredentialPanel
+              <SubaccountPatCredentialPanel
                 subaccount={subaccount}
                 accounts={accounts}
-                runtimeStatus={runtimeStatus}
                 busyState={busyState}
                 quota={quota}
-                onStartAuth={onStartAuth}
-                onAutoAuth={onAutoAuth}
-                onCreatePersonalAccessToken={onCreatePersonalAccessToken}
+                onCreate={onCreatePat}
                 onRefreshQuota={onRefreshQuota}
-                onExportWorkspaceSession={onExportWorkspaceSession}
-                onExportCredential={onExportCredential}
-                onOpenDeleteCredential={onOpenDeleteCredential}
-              />
-            )
-          },
-          {
-            key: 'auth',
-            label: '授权',
-            children: (
-              <SubaccountAuthPanel
-                runtimeStatus={runtimeStatus}
-                logs={logs}
-                runningTarget={runningTarget}
-              />
-            )
-          },
-          {
-            key: 'quota',
-            label: '额度',
-            children: (
-              <Table
-                rowKey="accountId"
-                columns={[
-                  { title: 'workspace', dataIndex: 'accountId' },
-                  { title: '文件', dataIndex: 'fileName' },
-                  { title: '号池', dataIndex: 'groupName' },
-                  {
-                    title: '最近额度',
-                    render: (_, credential) => credential.lastQuota?.status ?? '暂无'
-                  },
-                  {
-                    title: '刷新时间',
-                    dataIndex: 'lastQuotaAt',
-                    render: (value) => formatDateTime(value)
-                  }
-                ]}
-                dataSource={subaccount.codexCredentials}
-                pagination={false}
-                locale={{ emptyText: '暂无凭证额度缓存' }}
+                onExport={onExportPat}
+                onOpenDelete={onOpenDeletePat}
               />
             )
           },
           {
             key: 'logs',
             label: <CountedTabLabel label="日志" count={logCount} />,
-            children: (
-              <SubaccountAuthPanel
-                runtimeStatus={runtimeStatus}
-                logs={logs}
-                runningTarget={runningTarget}
-              />
-            )
+            children: <SubaccountLogPanel logs={logs} />
           }
         ]}
       />

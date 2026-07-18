@@ -1,8 +1,9 @@
 import type { AccountView } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import { DeleteOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Segmented, Typography } from 'antd';
+import { Button, Card, Dropdown, List, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
+import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import { LimitTypeTag } from '../../components/StatusTag.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
@@ -47,9 +48,8 @@ export function ParentList({
         onSearchChange={onSearchChange}
       />
       {groups.length > 0 && (
-        <Segmented
-          className="group-selector"
-          block
+        <GroupSelector
+          ariaLabel="筛选母号分组"
           value={activeGroup}
           options={[
             {
@@ -61,7 +61,7 @@ export function ParentList({
               value: group.name
             }))
           ]}
-          onChange={(value) => onGroupChange(String(value))}
+          onChange={onGroupChange}
         />
       )}
       <List

@@ -6,7 +6,7 @@ team-manager 用于管理 ChatGPT Team workspace 的母号、成员、邀请、�
 
 - [业务流程总览](./guide/)：操作员日常使用流程。
 - [母号与 Team 管理](./guide/mother-accounts)：母号录入、成员、邀请、默认席位和 Team 名称。
-- [子号与 Codex 凭证](./guide/subaccounts)：子号录入、已有凭证导入、Team 关联、授权和额度刷新。
+- [子号与 PAT 凭证](./guide/subaccounts)：子号注册或录入、Team 关联、PAT 创建和额度刷新。
 - [额度与席位轮转](./guide/quota-and-seats)：如何腾 ChatGPT 席位并保留同 Team 凭证。
 - [新号填充凭证号池](./guide/fill-credential-pool)：使用新子号加入多个 Team、生成 PAT 凭证并填充号池。
 - [状态与排错](./guide/status-and-errors)：常见状态、错误和运行能力检查。

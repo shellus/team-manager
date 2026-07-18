@@ -1,86 +1,41 @@
 # 状态与排错
 
-本页列出页面常见状态和处理原则。业务状态以页面/API 返回为准，运行时 JSON 文件只作为排查证据，不作为业务修改入口。
-
-## 母号状态
-
-| 状态 | 含义 | 处理 |
-|---|---|---|
-| active | 母号 session 可用 | 可继续管理成员、邀请和设置 |
-| invalid | session 失效或远端返回错误 | 编辑本地资料并替换 session，随后刷新 |
-| unknown | 尚未刷新或状态无法判断 | 点击刷新获取远端状态 |
-
-母号列表中的成员数、ChatGPT 席位数和待处理邀请数来自缓存派生。操作成功后页面应更新对应缓存；如果展示和远端不一致，先使用页面刷新入口。
-
 ## 子号状态
 
 | 状态 | 含义 | 处理 |
 |---|---|---|
-| 未录入 | 子号本地记录不完整 | 录入 session 或导入已有 Codex 凭证 |
-| Session 可用 | 已录入 Web session，但未必有 Codex 凭证 | 同步 Team 关联后生成或导入凭证 |
-| 授权中 | Codex 授权流程已开始 | 查看授权日志，等待完成或重新发起 |
-| Codex 可用 | 至少有一份 Codex 凭证 | 按目标 Team 刷新额度 |
-| 待验证 | 自动授权遇到额外验证 | 检查运行能力，必要时使用登录 URL 手动授权 |
-| 账号锁定 | OpenAI 返回账号锁定、停用或不可用 | 停止对该子号重试自动授权，换账号或按 OpenAI 流程恢复账号 |
-| 异常 | 最近流程失败 | 查看卡片错误和验证与授权日志 |
+| 未录入 | 缺少可用 Web Session | 自动注册或录入 Session JSON |
+| Session 可用 | Web Session 已保存 | 同步 Team 关联并创建 PAT |
+| PAT 创建中 | 正在为目标 workspace 创建 PAT | 等待请求完成 |
+| Codex 可用 | 至少有一份 PAT | 按目标 Team 刷新额度 |
+| 待验证 | 注册服务等待人工验证 | 完成人机验证后重试原任务 |
+| 账号锁定 | 上游账号被锁定或停用 | 停止重试并更换账号 |
+| 异常 | 最近操作失败 | 在详情日志查看完整错误 |
 
-子号“设置”页会把 Web 登录态拆成两个独立结果：
+Session Cookie 与 Web Access Token 分开检查。Session Cookie 有效但 Web Access Token 无效，表示登录 Cookie 仍可换取 Session，但当前 Bearer token 已被拒绝。
 
-| 检查项 | 有效 | 无效 |
-|---|---|---|
-| Session Cookie | `sessionToken` 可通过 `/api/auth/session` 换取 Session | Cookie 失效、缺失或账号不匹配 |
-| Web Access Token | `/backend-api/me` 接受 Bearer token | backend-api 返回 401，例如 `token_revoked` |
+## 注册任务状态
 
-Session Cookie 有效但 Web Access Token 无效并不矛盾，表示 ChatGPT 仍接受登录 Cookie，但签发的 Web AT 被后端拒绝。此时查看同步日志中的 `/api/auth/session`、`/backend-api/me`、个人资料、通知设置和用量限制原始响应，再决定是否重新登录或更换注册环境。
+注册任务显示在子号列表中，错误正文只在详情日志或注册服务日志中查看，列表保持稳定高度。
 
-## Team 关联状态
+- `failed`、`interrupted`：点击“重试此邮箱”。
+- `waiting_manual`：在注册服务保留的 profile 完成人机验证，再点击“人工验证后继续”。
+- 注册服务不可用：检查 Team Manager 的注册服务地址与 Token，以及注册服务自身健康状态。
 
-| 状态 | 含义 | 处理 |
-|---|---|---|
-| 已在 Team | 子号邮箱已在成员列表中 | 可以生成或刷新该 Team 凭证 |
-| 邀请中 | 子号邮箱在 pending invites 中 | 可尝试授权；后续同步确认是否成为 member |
-| 未找到 | 曾有本地记录，但本次同步未查到 | 检查母号成员和邀请列表 |
-| 未确认 | 查询某个母号失败 | 刷新母号状态后重新同步 |
+## PAT 问题
 
-## 自动授权运行能力
+### workspace 不一致
 
-子号页展示 worker、GongXi-Mail、自动注册、短信接码和授权页面能力。状态不可用时，对应的自动注册或自动授权按钮会禁用。
+系统拒绝保存绑定到其他 workspace 的 PAT。确认子号已加入目标 Team，并重新录入包含 `sessionToken` 的 ChatGPT Session。
 
-处理原则：
+### PAT 创建失败
 
-- worker 不可连接：检查运行实例与 worker sidecar。
-- GongXi-Mail 未就绪：检查运行环境中的邮件服务连接配置。
-- 自动注册不可用：检查 CloakBrowser-Manager 地址/Token、GongXi-Mail、profile 代理模板，以及 Mihomo 配置路径/controller/普通代理/家宽代理配置。worker 与授权页面 clearance 只影响 Codex 自动授权。
-- 短信接码不可用：检查运行环境中的 YAML 手机号池或 OTP 服务配置；号码达到绑定账号数量上限时会计入用尽数量，新账号不会继续取用。
-- 授权页面未就绪：检查授权页面 clearance 相关运行配置。
+检查目标 Team 的个人访问令牌权限、子号成员状态和子号代理。远端错误会完整写入子号日志。
 
-页面能力摘要不会显示真实 URL、API key、手机号、接码渠道或本机路径；注册追踪日志按本自托管实例的排障要求保存完整原始数据。
+### 额度 401
 
-## 常见错误
+确认子号仍在对应 Team，然后重新创建该 workspace 的 PAT，再刷新额度。
 
-### 账单风险确认
+## 页面与远端不一致
 
-邀请 ChatGPT 席位或把成员切到 ChatGPT 席位时，如果可能超过已购固定席位数，系统返回账单风险提示。取消不会执行操作；确认后才继续。
-
-### Codex quota 401
-
-额度刷新返回 401 通常表示该 workspace 对应凭证不可用或已失效。处理顺序：
-
-1. 确认子号仍在对应 Team 中。
-2. 确认席位类型是否满足预期。
-3. 重新生成或导入该 Team workspace 对应凭证。
-4. 再次刷新额度。
-
-### 自动授权需要额外验证
-
-自动授权遇到邮箱 OTP 错误时，会先从 GongXi-Mail 重新取候选码重试；遇到手机号首次绑定或已绑定手机号二次验证时，会优先使用运行环境 YAML 手机号池自动收码。短信验证码被判为错误、无效或过期时，worker 会先换用同一 inbox 中其他候选码或新码重试。遇到人机校验时，worker 会先尝试使用运行环境 FlareSolverr 继续流程；无法自动继续时才进入待验证。手机号池为空、绑定手机号不在池中、尾号匹配到多个号码、短信超时、验证码重试耗尽或人机校验无法继续时，子号会进入待验证或异常状态。账号锁定会进入单独的账号锁定状态，不再作为验证码流程继续重试。运行能力可用时可重新自动授权；否则使用登录 URL 手动授权。
-
-### 自动注册需要额外验证
-
-自动注册在浏览器页面遇到 Cloudflare/CAPTCHA 时，前两次会删除 profile、执行可选换 IP hook 并重新开始；第三次仍失败则进入等待人工处理。若已申请邮箱并生成密码，后端会保存邮箱、密码、Cloak profile 和完整原始追踪日志；可信管理后台的任务项提供“人工验证后继续”，子号详情显示自动注册密码、注册时间、来源和 profile。
-
-Cloudflare JS 校验若能自动完成并返回空邮箱表单，系统会在同一 profile 重新提交，不立即换 IP。密码提交出现 `Operation timed out` 时也会先点击 `Try again` 重试；连续失败、代理连接失败或浏览器上下文关闭才重建 profile。若 Mihomo 日志显示 `auth-cdn.oaistatic.com` 等静态域名命中 `NORMAL`、`chatgpt.com`/`auth.openai.com` 命中当前 `RES-<sid>`，说明分流正常。
-
-### 页面展示与远端不一致
-
-先使用页面上的刷新入口。不要通过编辑 `data/accounts.json` 或 `data/subaccounts.json` 修复展示，因为这会绕过 service/store 的缓存更新规则。
+先使用页面刷新入口。不要直接编辑运行时 JSON；业务修改必须通过 UI、API 或 service/store 方法完成。

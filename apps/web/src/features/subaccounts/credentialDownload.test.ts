@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { CodexCredentialJson, SubaccountView } from '@team-manager/shared';
-import { buildCredentialDownload, buildWorkspaceSessionDownload } from './credentialDownload.js';
+import { buildCredentialDownload } from './credentialDownload.js';
 
 const subaccount = {
   id: 'sub-1',
@@ -31,7 +31,8 @@ describe('credentialDownload', () => {
       email: 'child@example.com',
       type: 'codex',
       expired: '2026-07-25T00:00:00.000Z',
-      auth_mode: 'personalAccessToken'
+      auth_mode: 'personalAccessToken',
+      credential_source: 'personal_access_token'
     } satisfies CodexCredentialJson;
 
     const download = buildCredentialDownload(subaccount, 'workspace-1', credential);
@@ -49,24 +50,11 @@ describe('credentialDownload', () => {
       last_refresh: '2026-06-25T00:00:00.000Z',
       email: 'Second.Child+PAT@example.com',
       type: 'codex',
-      expired: '2026-07-25T00:00:00.000Z'
+      expired: '2026-07-25T00:00:00.000Z',
+      auth_mode: 'personalAccessToken',
+      credential_source: 'personal_access_token'
     });
 
     expect(download.fileName).toBe('second.child-pat-example.com-workspace-2.json');
-  });
-
-  test('builds a workspace session download with the full ChatGPT session JSON', () => {
-    const session = {
-      user: { email: 'child@example.com' },
-      account: { id: 'workspace-1' },
-      accessToken: 'workspace-web-access-token',
-      expires: '2026-07-08T12:00:00.000Z'
-    };
-
-    const download = buildWorkspaceSessionDownload(subaccount, 'workspace-1', session);
-
-    expect(download.fileName).toBe('child-example.com-workspace-1-session.json');
-    expect(download.content).toBe(`${JSON.stringify(session, null, 2)}\n`);
-    expect(download.mimeType).toBe('application/json;charset=utf-8');
   });
 });

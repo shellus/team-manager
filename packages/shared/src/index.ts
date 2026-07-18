@@ -284,7 +284,7 @@ export type NotificationChannelKey = keyof NotificationChannels;
 export type SubaccountStatus =
   | 'empty'
   | 'session_ready'
-  | 'codex_auth_pending'
+  | 'pat_creating'
   | 'codex_ready'
   | 'verification_required'
   | 'account_locked'
@@ -327,6 +327,7 @@ export interface Subaccount {
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
   proxy?: string;              // 每子号独立代理
   registrationPassword?: string; // 自动注册生成的 OpenAI 密码
+  registrationJobId?: string;    // 外部注册服务任务 id，用于幂等交付
   registeredAt?: number;
   registrationSource?: string;
   registrationMethod?: 'cloak_browser';
@@ -365,6 +366,7 @@ export interface SubaccountView {
   chatgptAccountId?: string;
   proxy?: string;
   registrationPassword?: string;
+  registrationJobId?: string;
   registeredAt?: number;
   registrationSource?: string;
   registrationMethod?: 'cloak_browser';
@@ -400,7 +402,7 @@ export interface SubaccountTeamLink {
   accountId: string;             // team-manager 母号内部 id；未录入母号的远端 workspace 使用 workspaceId 作为稳定占位
   workspaceId?: string;          // 远端 ChatGPT workspace account_id
   workspaceName?: string;        // accounts/check 返回的 workspace 名称
-  planType?: string;             // accounts/check 返回的 plan_type，例如 team/k12
+  planType?: string;             // accounts/check 返回的 plan_type，例如 team/business
   role?: MemberRole;             // 子号在该 workspace 的角色
   seat: SeatType;
   status: 'invited' | 'member' | 'removed' | 'unknown';
@@ -415,7 +417,7 @@ export interface SubaccountCodexCredential {
   planType?: string;
   lastQuota?: CodexQuotaSnapshot;
   lastQuotaAt?: number;
-  lastAuthAt?: number;
+  lastCreatedAt?: number;
 }
 
 export interface SubaccountCodexCredentialView {
@@ -426,26 +428,23 @@ export interface SubaccountCodexCredentialView {
   planType?: string;
   lastQuota?: CodexQuotaSnapshot;
   lastQuotaAt?: number;
-  lastAuthAt?: number;
+  lastCreatedAt?: number;
 }
 
-/** CPA / Codex 兼容凭证 JSON，后端按需显式导出 */
+/** CPA / Codex 兼容 PAT 凭证 JSON，后端按需显式导出。 */
 export interface CodexCredentialJson {
-  id_token?: string;
   access_token: string;
-  refresh_token?: string;
+  personal_access_token: string;
   account_id: string;
   last_refresh: string;
   email: string;
   type: 'codex';
   expired: string;
   plan_type?: string;
-  auth_mode?: 'chatgpt' | 'personalAccessToken';
-  credential_source?: 'oauth' | 'personal_access_token';
-  personal_access_token?: string;
+  auth_mode: 'personalAccessToken';
+  credential_source: 'personal_access_token';
   credential_id?: string;
   chatgpt_user_id?: string;
-  issued_account_id?: string;
 }
 
 export interface QuotaWindow {
@@ -462,17 +461,9 @@ export interface CodexQuotaSnapshot {
   error: string | null;
 }
 
-export interface CodexAuthRuntimeStatus {
-  workerConfigured: boolean;
-  workerReachable: boolean;
-  codexAutoAuth: boolean;
-  subaccountRegistration: boolean;
-  flaresolverr: boolean;
-  gongxiMail: boolean;
-  phoneOtp: boolean;
-  phonePoolCount?: number;
-  phonePoolExhaustedCount?: number;
-  cloakBrowserUrl?: string;
+export interface SubaccountRegistrationRuntimeStatus {
+  configured: boolean;
+  reachable: boolean;
   error?: string;
 }
 

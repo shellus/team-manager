@@ -13,7 +13,7 @@ import type {
   SubaccountAuthLog,
   SubaccountRegistrationJobView,
   SubaccountView,
-  CodexAuthRuntimeStatus,
+  SubaccountRegistrationRuntimeStatus,
   CodexCredentialJson,
   CodexQuotaSnapshot
 } from '@team-manager/shared';
@@ -156,12 +156,6 @@ export const apiClient = {
     proxy?: string;
   } | unknown) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
-  importSubaccountCodexCredential: (payload: {
-    credential: Record<string, unknown>;
-    fileName?: string;
-    groupName?: string;
-  }) =>
-    call<SubaccountView>('POST', '/subaccounts/codex-credential', payload),
   listSubaccountRegistrationJobs: () =>
     call<SubaccountRegistrationJobView[]>('GET', '/subaccounts/registration/jobs'),
   retrySubaccountRegistration: (jobId: string) =>
@@ -183,34 +177,18 @@ export const apiClient = {
   updateSubaccountPersonalProfile: (id: string, payload: { username?: string; displayName?: string }) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/personal-settings`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
-  startSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>
-    call<{ sessionId: string; authUrl: string; expiresAt: number; targetChatgptAccountId?: string }>(
-      'POST',
-      `/subaccounts/${id}/codex-auth/start`,
-      { chatgptAccountId }
-    ),
-  getCodexAuthRuntimeStatus: () => call<CodexAuthRuntimeStatus>('GET', '/subaccounts/codex-auth/status'),
-  autoSubaccountCodexAuth: (id: string, chatgptAccountId?: string) =>
-    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/auto`, { chatgptAccountId }),
+  getSubaccountRegistrationRuntimeStatus: () =>
+    call<SubaccountRegistrationRuntimeStatus>('GET', '/subaccounts/registration/status'),
   createSubaccountPersonalAccessTokenCredential: (id: string, chatgptAccountId?: string) =>
-    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/personal-access-token`, { chatgptAccountId }),
-  createSubaccountK12Credential: (id: string, chatgptAccountId: string) =>
-    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/k12-credential`, { chatgptAccountId }),
-  completeSubaccountCodexAuth: (id: string, sessionId: string, callbackUrl: string) =>
-    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/callback`, { sessionId, callbackUrl }),
+    call<SubaccountView>('POST', `/subaccounts/${id}/pat-credentials`, { chatgptAccountId }),
   getSubaccountCodexCredential: (id: string, chatgptAccountId?: string) => {
     const suffix = chatgptAccountId ? `?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}` : '';
-    return call<CodexCredentialJson>('GET', `/subaccounts/${id}/codex-credential${suffix}`);
+    return call<CodexCredentialJson>('GET', `/subaccounts/${id}/pat-credentials${suffix}`);
   },
-  getSubaccountWorkspaceSession: (id: string, chatgptAccountId: string) =>
-    call<Record<string, unknown>>(
-      'GET',
-      `/subaccounts/${id}/workspace-session?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
-    ),
   removeSubaccountCodexCredential: (id: string, chatgptAccountId: string) =>
     call<SubaccountView>(
       'DELETE',
-      `/subaccounts/${id}/codex-credential?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
+      `/subaccounts/${id}/pat-credentials?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
     ),
   refreshSubaccountQuota: (id: string, chatgptAccountId?: string) =>
     call<CodexQuotaSnapshot>('POST', `/subaccounts/${id}/quota/refresh`, { chatgptAccountId }),
@@ -220,7 +198,5 @@ export const apiClient = {
     call<SubaccountView>('POST', `/subaccounts/${id}/team-invites`, { accountId, seat, confirmBillingRisk }),
   leaveSubaccountTeam: (id: string, chatgptAccountId: string) =>
     call<SubaccountView>('DELETE', `/subaccounts/${id}/team-links/${encodeURIComponent(chatgptAccountId)}`),
-  joinSubaccountK12Workspace: (id: string, workspaceId: string) =>
-    call<SubaccountView>('POST', `/subaccounts/${id}/k12-joins`, { workspaceId }),
   syncSubaccountTeamLinks: (id: string) => call<SubaccountView>('POST', `/subaccounts/${id}/team-links/sync`)
 };
