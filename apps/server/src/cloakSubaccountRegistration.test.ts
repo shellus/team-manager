@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isRetryableBrowserEnvironmentError } from './cloakSubaccountRegistration.js';
+import {
+  isPageEvaluationInterruptedByNavigation,
+  isRetryableBrowserEnvironmentError
+} from './cloakSubaccountRegistration.js';
 
 test('classifies observed Playwright navigation and click failures as retryable browser errors', () => {
   const timeout = new Error('page.goto: Timeout 90000ms exceeded.');
@@ -18,6 +21,25 @@ test('classifies observed Playwright navigation and click failures as retryable 
   assert.equal(
     isRetryableBrowserEnvironmentError(new Error('page.goto: net::ERR_PROXY_CONNECTION_FAILED')),
     true
+  );
+  assert.equal(
+    isRetryableBrowserEnvironmentError(new Error(
+      'page.evaluate: Execution context was destroyed, most likely because of a navigation'
+    )),
+    true
+  );
+});
+
+test('recognizes page evaluation errors caused by an in-flight navigation', () => {
+  assert.equal(
+    isPageEvaluationInterruptedByNavigation(new Error(
+      'page.evaluate: Execution context was destroyed, most likely because of a navigation'
+    )),
+    true
+  );
+  assert.equal(
+    isPageEvaluationInterruptedByNavigation(new Error('注册邮箱与 Session 邮箱不一致')),
+    false
   );
 });
 

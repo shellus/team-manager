@@ -624,7 +624,7 @@ export class CloakSubaccountRegistrationExecutor implements SubaccountRegistrati
   private async throwIfChallenge(page: Page): Promise<void> {
     const networkChallenge = this.networkChallenges.get(page);
     if (networkChallenge) throw new CloakChallengeError(networkChallenge);
-    const state = await page.evaluate(() => ({
+    const state = await this.evaluateStableDocument(page, () => ({
       title: document.title,
       text: (document.body?.innerText ?? '').slice(0, 10_000),
       url: location.href,
@@ -647,7 +647,7 @@ export class CloakSubaccountRegistrationExecutor implements SubaccountRegistrati
 
   private async throwIfBrokenAuthPage(page: Page): Promise<void> {
     if (!page.url().startsWith('https://auth.openai.com')) return;
-    const state = await page.evaluate(() => ({
+    const state = await this.evaluateStableDocument(page, () => ({
       styleSheetCount: document.styleSheets.length,
       text: (document.body?.innerText ?? '').slice(0, 3000),
       hasEmailInput: Boolean(document.querySelector('input[type="email"], input[name="email"]'))
@@ -660,6 +660,25 @@ export class CloakSubaccountRegistrationExecutor implements SubaccountRegistrati
         `OpenAI 注册页资源加载失败，页面退化为裸 HTML，视为当前 IP/浏览器环境不可用: ${page.url()}`
       );
     }
+  }
+
+  private async evaluateStableDocument<T>(page: Page, evaluator: () => T): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await page.evaluate(evaluator);
+      } catch (error) {
+        if (!isPageEvaluationInterruptedByNavigation(error)) throw error;
+        lastError = error;
+        if (attempt < 3) {
+          await page.waitForLoadState('domcontentloaded', { timeout: 5_000 }).catch(() => undefined);
+          await delay(attempt * 250);
+        }
+      }
+    }
+    throw new CloakRetryableEnvironmentError(
+      `浏览器页面状态检查持续被导航打断: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+    );
   }
 
   private installRawPageLogging(
@@ -837,8 +856,14 @@ function serializeError(error: unknown): Record<string, unknown> {
 export function isRetryableBrowserEnvironmentError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return error instanceof CloakRetryableEnvironmentError
+    || isPageEvaluationInterruptedByNavigation(error)
     || (error instanceof Error && error.name === 'TimeoutError')
     || /OPENAI_AUTH_(SESSION_ENDED|ENTRY_UNAVAILABLE|EMAIL_SUBMISSION_LOOP|PASSWORD_SUBMISSION_LOOP)|Target page, context or browser has been closed|Timeout \d+ms exceeded|ERR_ABORTED|ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED|ERR_TIMED_OUT|SOCKS|proxy.*failed|Navigation interrupted by another one/i.test(message);
+}
+
+export function isPageEvaluationInterruptedByNavigation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Execution context was destroyed|Cannot find context with specified id|Inspected target navigated or closed|frame was detached/i.test(message);
 }
 
 function isExpectedNavigationDestination(currentUrl: string, targetUrl: string): boolean {
