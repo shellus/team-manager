@@ -26,6 +26,13 @@ import { JsonImportModal } from '../../components/JsonImportModal.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
+import {
+  ALL_LOCAL_GROUP,
+  countLocalGroups,
+  filterByLocalGroup,
+  localGroupName,
+  resolveLocalGroup
+} from '../../components/recordGroups.js';
 import { SEAT_LABEL } from '../../labels.js';
 import { buildCredentialDownload, buildWorkspaceSessionDownload, downloadTextFile } from './credentialDownload.js';
 import { shouldForwardSubaccountErrorToGlobal } from './errorHandling.js';
@@ -36,6 +43,7 @@ import {
   sortSubaccountsForList,
   subaccountAfterRemoval
 } from './subaccountListState.js';
+import { subaccountMatchesQuery } from './subaccountSearch.js';
 
 interface TeamInviteValues {
   accountId: string;
@@ -95,8 +103,21 @@ export function SubaccountRoutes({
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState('');
   const actionBusy = useActionBusy();
+  const searchQuery = searchParams.get('q') ?? '';
+  const matchingSubaccounts = useMemo(
+    () => subaccounts.filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery)),
+    [searchQuery, subaccounts]
+  );
+  const groups = useMemo(() => countLocalGroups(matchingSubaccounts), [matchingSubaccounts]);
+  const activeGroup = resolveLocalGroup(searchParams.get('group')?.trim() ?? '', groups);
+  const groupedSubaccounts = useMemo(
+    () => filterByLocalGroup(matchingSubaccounts, activeGroup),
+    [activeGroup, matchingSubaccounts]
+  );
 
-  const selected = subaccounts.find((subaccount) => subaccount.id === subaccountId) ?? subaccounts[0] ?? null;
+  const selected = groupedSubaccounts.find((subaccount) => subaccount.id === subaccountId)
+    ?? groupedSubaccounts[0]
+    ?? null;
   const deleteTarget =
     searchState.modal === 'delete-subaccount'
       ? resolveSubaccountDeleteTarget(subaccounts, selected, searchState.target)
@@ -210,9 +231,14 @@ export function SubaccountRoutes({
   }, [hasActiveRegistration]);
 
   useEffect(() => {
-    if (loading || subaccounts.length === 0) return;
+    if (loading || subaccounts.length === 0 || searchState.modal) return;
     const nextParams = new URLSearchParams(searchParams);
     let changed = false;
+    if ((searchParams.get('group')?.trim() ?? '') !== activeGroup) {
+      if (activeGroup === ALL_LOCAL_GROUP) nextParams.delete('group');
+      else nextParams.set('group', activeGroup);
+      changed = true;
+    }
     if (!searchParams.get('tab')) {
       nextParams.set('tab', searchState.tab);
       changed = true;
@@ -221,7 +247,7 @@ export function SubaccountRoutes({
     if (location.pathname !== nextPath || changed) {
       navigate({ pathname: nextPath, search: toSearch(nextParams) }, { replace: true });
     }
-  }, [loading, location.pathname, navigate, searchParams, searchState.tab, selected, subaccounts.length]);
+  }, [activeGroup, loading, location.pathname, navigate, searchParams, searchState.modal, searchState.tab, selected, subaccounts.length]);
 
   useEffect(() => {
     setQuota(null);
@@ -286,14 +312,35 @@ export function SubaccountRoutes({
     setSearchParams(setSearchValue(searchParams, 'tab', tab));
   };
 
+  const changeSearchQuery = (query: string) => {
+    const next = setSearchValue(searchParams, 'q', query);
+    next.set('tab', searchState.tab);
+    setSearchParams(next);
+  };
+
+  const changeGroup = (group: string) => {
+    const firstInGroup = group === ALL_LOCAL_GROUP
+      ? matchingSubaccounts[0]
+      : matchingSubaccounts.find((subaccount) => localGroupName(subaccount) === group);
+    const next = setSearchValue(searchParams, 'group', group);
+    next.set('tab', searchState.tab);
+    navigate({
+      pathname: firstInGroup ? `/subaccounts/${firstInGroup.id}` : '/subaccounts',
+      search: toSearch(next)
+    });
+  };
+
   const importSession = async (payload: unknown) => {
     setLocalError('');
     try {
       await actionBusy.run('import-session', async () => {
-        const record = payload && typeof payload === 'object' ? payload as { remark?: string; proxy?: string; session?: unknown } : {};
+        const record = payload && typeof payload === 'object'
+          ? payload as { remark?: string; groupName?: string; proxy?: string; session?: unknown }
+          : {};
         if (!record.session) throw new Error('请粘贴 Session JSON');
         const added = await apiClient.importSubaccountSession({
           remark: record.remark ?? '',
+          groupName: record.groupName ?? '默认分组',
           proxy: record.proxy ?? '',
           session: record.session
         });
@@ -351,18 +398,25 @@ export function SubaccountRoutes({
     }
   };
 
-  const updateLocalProfile = async (payload: { remark?: string; proxy?: string; session?: unknown }) => {
+  const updateLocalProfile = async (payload: {
+    remark?: string;
+    groupName?: string;
+    proxy?: string;
+    session?: unknown;
+  }) => {
     if (!selected) return;
     setLocalError('');
     try {
       await actionBusy.run('edit-subaccount-profile', async () => {
         const updated = await apiClient.updateSubaccountLocalProfile(selected.id, {
           remark: payload.remark ?? '',
+          groupName: payload.groupName ?? '默认分组',
           proxy: payload.proxy ?? '',
           ...(payload.session ? { session: payload.session } : {})
         });
+        const next = setSearchValue(clearModalState(searchParams), 'group', localGroupName(updated));
+        navigate({ pathname: `/subaccounts/${updated.id}`, search: toSearch(next) }, { replace: true });
         mergeSubaccount(updated);
-        closeModal();
       });
     } catch (error) {
       reportLocalError(error);
@@ -587,10 +641,15 @@ export function SubaccountRoutes({
       <SubaccountList
         subaccounts={subaccounts}
         registrationJobs={registrationJobs}
+        groups={groups}
+        activeGroup={activeGroup}
+        searchQuery={searchQuery}
         selectedId={selected?.id ?? ''}
         runtimeStatus={runtimeStatus}
         isBusy={actionBusy.isBusy}
         onSelect={selectSubaccount}
+        onGroupChange={changeGroup}
+        onSearchChange={changeSearchQuery}
         onOpenImportSession={() => openModal('import-session')}
         onOpenImportCredential={() => openModal('import-credential')}
         onOpenRegister={() => openModal('register-subaccount')}
@@ -638,7 +697,7 @@ export function SubaccountRoutes({
         description="保存子号本地记录后，可继续生成 Codex 凭证并查询额度。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         submitLabel="保存子号"
         requireSession
-        initialValues={{ remark: '', proxy: '' }}
+        initialValues={{ remark: '', groupName: '默认分组', proxy: '' }}
         confirmLoading={actionBusy.isBusy('import-session')}
         onCancel={closeModal}
         onSubmit={importSession}
@@ -659,9 +718,10 @@ export function SubaccountRoutes({
         open={searchState.modal === 'edit-subaccount-profile' && Boolean(selected)}
         mode="subaccount"
         title="编辑子号本地资料"
-        description="只更新本系统保存的备注名和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
+        description="只更新本系统保存的备注、分组、代理地址和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         initialValues={{
           remark: selected?.remark ?? '',
+          groupName: selected?.groupName ?? '默认分组',
           proxy: selected?.proxy ?? '',
           session: selected?.session
         }}

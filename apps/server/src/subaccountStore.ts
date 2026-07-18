@@ -44,10 +44,15 @@ function codexCredentialAccountId(item: SubaccountCodexCredential): string {
 }
 
 const DEFAULT_CREDENTIAL_GROUP = '默认号池';
+const DEFAULT_SUBACCOUNT_GROUP = '默认分组';
 const CREDENTIAL_DIR = 'subaccount-credentials';
 
 function normalizeGroupName(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_CREDENTIAL_GROUP;
+}
+
+function normalizeSubaccountGroupName(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_SUBACCOUNT_GROUP;
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -155,12 +160,13 @@ export class SubaccountStore {
 
   async importSession(
     raw: unknown,
-    options: { remark?: unknown; proxy?: unknown } = {}
+    options: { remark?: unknown; groupName?: unknown; proxy?: unknown } = {}
   ): Promise<SubaccountView> {
     this.ensureLoaded();
     const session = parseChatGptSessionInput(raw);
     if ('error' in session) throw new Error(session.error);
     const hasRemark = Object.prototype.hasOwnProperty.call(options, 'remark');
+    const hasGroupName = Object.prototype.hasOwnProperty.call(options, 'groupName');
     const hasProxy = Object.prototype.hasOwnProperty.call(options, 'proxy');
 
     const now = Date.now();
@@ -170,6 +176,7 @@ export class SubaccountStore {
       id: existing?.id ?? randomUUID(),
       email: session.user.email,
       remark: hasRemark ? normalizeOptionalString(options.remark) : existing?.remark,
+      groupName: hasGroupName ? normalizeSubaccountGroupName(options.groupName) : existing?.groupName,
       chatgptAccountId: session.account.id,
       webAccessToken: session.accessToken,
       sessionToken: session.sessionToken,
@@ -219,6 +226,7 @@ export class SubaccountStore {
       id,
       email,
       remark: existing?.remark,
+      groupName: existing?.groupName,
       chatgptAccountId: existing?.chatgptAccountId,
       webAccessToken: existing?.webAccessToken,
       sessionToken: existing?.sessionToken,
@@ -265,6 +273,7 @@ export class SubaccountStore {
       id: existing?.id ?? randomUUID(),
       email,
       remark: existing?.remark,
+      groupName: existing?.groupName,
       chatgptAccountId: input.session?.account.id ?? existing?.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing?.webAccessToken,
       sessionToken: input.session?.sessionToken ?? existing?.sessionToken,
@@ -297,7 +306,7 @@ export class SubaccountStore {
 
   async updateLocalProfile(
     id: string,
-    input: { remark?: string; proxy?: string; session?: ChatGptSessionInput }
+    input: { remark?: string; groupName?: string; proxy?: string; session?: ChatGptSessionInput }
   ): Promise<SubaccountView | undefined> {
     this.ensureLoaded();
     const existing = this.subaccounts.get(id);
@@ -306,6 +315,9 @@ export class SubaccountStore {
     const merged: Subaccount = {
       ...existing,
       remark: Object.prototype.hasOwnProperty.call(input, 'remark') ? input.remark : existing.remark,
+      groupName: Object.prototype.hasOwnProperty.call(input, 'groupName')
+        ? normalizeSubaccountGroupName(input.groupName)
+        : existing.groupName,
       email: input.session?.user.email ?? existing.email,
       chatgptAccountId: input.session?.account.id ?? existing.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing.webAccessToken,
@@ -517,6 +529,7 @@ export class SubaccountStore {
       id: account.id,
       email: account.email,
       remark: account.remark,
+      groupName: normalizeSubaccountGroupName(account.groupName),
       chatgptAccountId: account.chatgptAccountId,
       proxy: account.proxy,
       registrationPassword: account.registrationPassword,
@@ -617,7 +630,8 @@ async function normalizeStoredSubaccount(
     hasOwn(record, 'codexCredential') ||
     hasOwn(record, 'lastQuota') ||
     hasOwn(record, 'lastQuotaAt') ||
-    hasOwn(record, 'lastAuthAt');
+    hasOwn(record, 'lastAuthAt') ||
+    record.groupName !== normalizeSubaccountGroupName(record.groupName);
   const credentials: SubaccountCodexCredential[] = [];
   for (const item of record.codexCredentials ?? []) {
     const legacyCredential = item.credential;
@@ -679,6 +693,7 @@ async function normalizeStoredSubaccount(
     id: record.id,
     email: record.email,
     remark: record.remark,
+    groupName: record.groupName,
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
     sessionToken: record.sessionToken,
@@ -720,6 +735,7 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     id: input.id,
     email: input.email,
     remark: input.remark?.trim() || undefined,
+    groupName: normalizeSubaccountGroupName(input.groupName),
     chatgptAccountId: input.chatgptAccountId,
     webAccessToken: input.webAccessToken,
     sessionToken: input.sessionToken,

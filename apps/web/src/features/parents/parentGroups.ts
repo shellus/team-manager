@@ -1,31 +1,31 @@
 import type { AccountView } from '@team-manager/shared';
+import {
+  ALL_LOCAL_GROUP,
+  ALL_LOCAL_GROUP_LABEL,
+  countLocalGroups,
+  filterByLocalGroup,
+  localGroupName,
+  resolveLocalGroup,
+  type LocalGroupCount
+} from '../../components/recordGroups.js';
 
-export const ALL_PARENT_GROUP = '';
-export const ALL_PARENT_GROUP_LABEL = '所有';
+export const ALL_PARENT_GROUP = ALL_LOCAL_GROUP;
+export const ALL_PARENT_GROUP_LABEL = ALL_LOCAL_GROUP_LABEL;
 
-export interface ParentGroupCount {
-  name: string;
-  count: number;
-}
+export type ParentGroupCount = LocalGroupCount;
 
 export function parentGroupName(account: AccountView): string {
-  return account.groupName || '默认分组';
+  return localGroupName(account);
 }
 
 export function countParentGroups(accounts: AccountView[]): ParentGroupCount[] {
-  const countByGroup = new Map<string, number>();
-  for (const account of accounts) {
-    const groupName = parentGroupName(account);
-    countByGroup.set(groupName, (countByGroup.get(groupName) ?? 0) + 1);
-  }
-  return [...countByGroup.entries()].map(([name, count]) => ({ name, count }));
+  return countLocalGroups(accounts);
 }
 
 export function resolveParentGroup(requestedGroup: string, groups: ParentGroupCount[]): string {
-  return groups.some((group) => group.name === requestedGroup) ? requestedGroup : ALL_PARENT_GROUP;
+  return resolveLocalGroup(requestedGroup, groups);
 }
 
 export function filterParentsByGroup(accounts: AccountView[], activeGroup: string): AccountView[] {
-  if (activeGroup === ALL_PARENT_GROUP) return accounts;
-  return accounts.filter((account) => parentGroupName(account) === activeGroup);
+  return filterByLocalGroup(accounts, activeGroup);
 }

@@ -13,8 +13,16 @@ import {
   RobotOutlined
 } from '@ant-design/icons';
 import { Button, Card, Dropdown, List, Progress, Segmented, Space, Tag, Typography } from 'antd';
+import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
+import {
+  ALL_LOCAL_GROUP,
+  ALL_LOCAL_GROUP_LABEL,
+  filterByLocalGroup,
+  type LocalGroupCount
+} from '../../components/recordGroups.js';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
 import { formatDateTime } from '../../components/format.js';
+import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
 
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
   if (job.status === 'failed') return '注册未完成，可使用原邮箱和密码重试';
@@ -26,10 +34,15 @@ function registrationJobSummary(job: SubaccountRegistrationJobView): string {
 export function SubaccountList({
   subaccounts,
   registrationJobs,
+  groups,
+  activeGroup,
+  searchQuery,
   selectedId,
   runtimeStatus,
   isBusy,
   onSelect,
+  onGroupChange,
+  onSearchChange,
   onOpenImportSession,
   onOpenImportCredential,
   onOpenRegister,
@@ -39,10 +52,15 @@ export function SubaccountList({
 }: {
   subaccounts: SubaccountView[];
   registrationJobs: SubaccountRegistrationJobView[];
+  groups: LocalGroupCount[];
+  activeGroup: string;
+  searchQuery: string;
   selectedId: string;
   runtimeStatus: CodexAuthRuntimeStatus | null;
   isBusy: (key: string) => boolean;
   onSelect: (subaccount: SubaccountView) => void;
+  onGroupChange: (group: string) => void;
+  onSearchChange: (query: string) => void;
   onOpenImportSession: () => void;
   onOpenImportCredential: () => void;
   onOpenRegister: () => void;
@@ -66,9 +84,12 @@ export function SubaccountList({
   const jobSubaccountIds = new Set(
     visibleJobs.map((job) => job.subaccountId).filter((id): id is string => Boolean(id))
   );
-  const visibleSubaccounts = subaccounts.filter((subaccount) => !jobSubaccountIds.has(subaccount.id));
+  const matchingSubaccounts = subaccounts.filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery));
+  const visibleSubaccounts = filterByLocalGroup(matchingSubaccounts, activeGroup)
+    .filter((subaccount) => !jobSubaccountIds.has(subaccount.id));
+  const matchingJobs = visibleJobs.filter((job) => registrationJobMatchesQuery(job, searchQuery));
   const records = [
-    ...visibleJobs.map((job) => ({ kind: 'job' as const, id: job.id, job })),
+    ...matchingJobs.map((job) => ({ kind: 'job' as const, id: job.id, job })),
     ...visibleSubaccounts.map((subaccount) => ({ kind: 'subaccount' as const, id: subaccount.id, subaccount }))
   ];
 
@@ -91,22 +112,33 @@ export function SubaccountList({
           导入凭证
         </Button>
       </div>
+      <KeywordSearchInput
+        placeholder="搜索子号邮箱、备注、分组或 Cloak profile"
+        ariaLabel="搜索子号"
+        value={searchQuery}
+        onSearchChange={onSearchChange}
+      />
       <Segmented
         className="group-selector"
         block
-        value="all"
+        value={activeGroup}
         options={[
           {
-            label: `所有 (${records.length})`,
-            value: 'all'
-          }
+            label: `${ALL_LOCAL_GROUP_LABEL} (${matchingSubaccounts.length + matchingJobs.length})`,
+            value: ALL_LOCAL_GROUP
+          },
+          ...groups.map((group) => ({
+            label: `${group.name} (${group.count})`,
+            value: group.name
+          }))
         ]}
+        onChange={(value) => onGroupChange(String(value))}
       />
       <List
         className="record-list"
         dataSource={records}
         rowKey={(record) => `${record.kind}:${record.id}`}
-        locale={{ emptyText: '还没有子号' }}
+        locale={{ emptyText: searchQuery ? '没有匹配的子号或注册任务' : '还没有子号' }}
         renderItem={(record) => {
           if (record.kind === 'job') {
             const job = record.job;
@@ -245,6 +277,7 @@ export function SubaccountList({
                   </Space>
                 </div>
                 <div className="record-meta">
+                  <span>分组 {subaccount.groupName || '默认分组'}</span>
                   <span>{subaccount.hasWebSession ? 'Web Session 已录入' : '无 Web Session'}</span>
                   <span>Codex 凭证 {subaccount.codexCredentials.length} 份</span>
                 </div>

@@ -680,7 +680,12 @@ export async function buildApp({
   });
 
   api.patch('/subaccounts/:id/local-profile', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { remark?: unknown; proxy?: unknown; session?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      remark?: unknown;
+      groupName?: unknown;
+      proxy?: unknown;
+      session?: unknown;
+    };
     return wrap(c, () => subaccountService.updateLocalProfile(c.req.param('id'), body));
   });
 

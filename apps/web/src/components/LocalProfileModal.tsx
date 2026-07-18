@@ -129,9 +129,9 @@ export function LocalProfileModal({
       }
       await onSubmit({
         remark: values.remark?.trim() ?? '',
+        groupName: values.groupName?.trim() || '默认分组',
         proxy: values.proxy?.trim() ?? '',
         ...(mode === 'parent' ? {
-          groupName: values.groupName?.trim() || '默认分组',
           limitType: values.limitType ?? 'unknown',
           nextRenewalOn: values.nextRenewalOn?.trim() ?? ''
         } : {}),
@@ -162,49 +162,50 @@ export function LocalProfileModal({
         onFinish={submit}
         onValuesChange={(_, values) => setRawSession(values.rawSession ?? '')}
       >
-        {mode === 'subaccount' ? (
-          <div className="form-grid two">
-            <Form.Item name="remark" label="备注">
-              <Input placeholder="例如用途、客户或订单备注" />
-            </Form.Item>
-            <Form.Item name="proxy" label="代理地址">
-              <Input placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" />
-            </Form.Item>
-          </div>
-        ) : (
-          <div className="form-grid two">
-            <Form.Item name="remark" label="备注">
-              <Input placeholder="例如用途、客户或订单备注" />
-            </Form.Item>
-            <Form.Item name="groupName" label="母号分组" rules={[{ required: true, message: '请输入分组' }]}>
-              <Input placeholder="例如默认分组" />
-            </Form.Item>
-            <Form.Item name="limitType" label="限额类型" rules={[{ required: true, message: '请选择限额类型' }]}>
-              <Select<AccountLimitType>
-                options={[
-                  { value: 'unknown', label: LIMIT_TYPE_LABEL.unknown },
-                  { value: 'weekly', label: LIMIT_TYPE_LABEL.weekly },
-                  { value: 'monthly', label: LIMIT_TYPE_LABEL.monthly }
+        <div className="form-grid two">
+          <Form.Item name="remark" label="备注">
+            <Input placeholder="例如用途、客户或订单备注" />
+          </Form.Item>
+          <Form.Item
+            name="groupName"
+            label={mode === 'parent' ? '母号分组' : '子号分组'}
+            rules={[{ required: true, message: '请输入分组' }]}
+          >
+            <Input placeholder="例如默认分组" />
+          </Form.Item>
+          {mode === 'parent' && (
+            <>
+              <Form.Item
+                name="limitType"
+                label="限额类型"
+                rules={[{ required: true, message: '请选择限额类型' }]}
+              >
+                <Select<AccountLimitType>
+                  options={[
+                    { value: 'unknown', label: LIMIT_TYPE_LABEL.unknown },
+                    { value: 'weekly', label: LIMIT_TYPE_LABEL.weekly },
+                    { value: 'monthly', label: LIMIT_TYPE_LABEL.monthly }
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item
+                name="nextRenewalOn"
+                label="下次续费时间"
+                rules={[
+                  {
+                    pattern: /^$|^\d{4}-\d{2}-\d{2}$/,
+                    message: '请使用 yyyy-mm-dd'
+                  }
                 ]}
-              />
-            </Form.Item>
-            <Form.Item
-              name="nextRenewalOn"
-              label="下次续费时间"
-              rules={[
-                {
-                  pattern: /^$|^\d{4}-\d{2}-\d{2}$/,
-                  message: '请使用 yyyy-mm-dd'
-                }
-              ]}
-            >
-              <Input type="date" />
-            </Form.Item>
-            <Form.Item name="proxy" label="代理地址">
-              <Input placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" />
-            </Form.Item>
-          </div>
-        )}
+              >
+                <Input type="date" />
+              </Form.Item>
+            </>
+          )}
+        </div>
+        <Form.Item name="proxy" label="代理地址">
+          <Input placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" />
+        </Form.Item>
         <Form.Item
           name="rawSession"
           label="Session JSON"

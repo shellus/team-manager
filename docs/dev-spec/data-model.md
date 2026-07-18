@@ -151,6 +151,7 @@
 | `id` | team-manager | 内部 id |
 | `email` | session JSON、注册结果或 Codex credential | 子号邮箱 |
 | `remark` | 本地输入 | 子号本地备注 |
+| `groupName` | 本地输入 | 子号本地分组，缺省为 `默认分组`；与 Codex credential 的 CPA 号池分组无关 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token；通过 `SubaccountView.session` 回填给管理后台 |
 | `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `SubaccountView.session` 回填给管理后台 |
@@ -212,7 +213,7 @@ workspace key 以 `accountId` 为准。旧数据中的内嵌 `credential` 会在
 | 导入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加脱敏日志 | 合并返回的子号 view |
 | 导入已有 Codex credential | 按 `credential.email` 创建或更新子号；不写入 `webAccessToken`；凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 自动注册子号 | 先原子写入 `data/subaccount-registration-jobs.json`，再由后台队列为邮箱创建独立 Cloak profile 并执行页面注册；成功后写入 `email`、Web Session、`registrationPassword`、`registeredAt`、`registrationSource`、`registrationMethod` 和 Cloak profile 元数据，不生成 Codex 凭证；失败重试复用邮箱和密码，人工接管重试还复用最后一个 profile | 立即显示任务项并轮询进度；刷新页面继续读取同一任务；等待人工处理时显示 profile 与继续按钮；任务完成后替换为正常子号 view，“注册资料”页签显示注册密码和 profile |
-| 编辑本地资料 | 更新 `remark` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
+| 编辑本地资料 | 更新 `remark`、顶层 `groupName` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
 | 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |
 | Codex 授权成功 | 凭证 JSON 写入独立文件，按 `credential.account_id` upsert `codexCredentials[]` 元数据，更新状态和日志 | 合并返回的子号 view 或重新拉取 |
@@ -252,6 +253,7 @@ Content-Type: application/json
 
 {
   "remark": "本地备注",
+  "groupName": "客户 A",
   "proxy": "<proxy-url>",
   "session": {
     "user": { "email": "child@example.com" },
@@ -262,7 +264,7 @@ Content-Type: application/json
 }
 ```
 
-母号和子号的 `session`、`proxy` 都可省略。`groupName` 为空时归入 `默认分组`，`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应 view 会返回已保存的 `session` 和 `proxy`，用于管理后台本地资料编辑回填；Codex credential JSON 仍只通过显式导出接口返回。
+母号和子号的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应 view 会返回已保存的分组、`session` 和 `proxy`，用于管理后台本地资料编辑回填；Codex credential JSON 仍只通过显式导出接口返回。
 
 ## Codex 凭证导入 API
 

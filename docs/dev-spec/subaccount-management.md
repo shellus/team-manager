@@ -26,9 +26,10 @@ GongXi-Mail、短信接码、Flaresolverr/curl_cffi worker 地址和相关密钥
   - `fileName` 为独立凭证文件名，`groupName` 为 CPA 号池名；缺省文件名由邮箱和 workspace 派生，缺省号池为 `默认号池`。
   - 该子号可以没有 ChatGPT Web session；响应只返回 `hasWebSession:false` 和脱敏的 credential view。
 - 子号本地资料编辑：
-  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注 `remark` 和独立代理地址 `proxy`。
+  - `PATCH /api/subaccounts/:id/local-profile` 支持修改本地备注 `remark`、顶层子号分组 `groupName` 和独立代理地址 `proxy`。
+  - 顶层 `groupName` 缺省为 `默认分组`，不复用 `codexCredentials[].groupName` 的 CPA 号池语义。
   - 请求带新的 session JSON 对象时更新 `email`、`chatgptAccountId`、`webAccessToken`，并在存在 `sessionToken` 时更新 `sessionToken`。
-  - 保留已有 Codex 凭证、Team 关联和授权日志，响应 view 回填已保存的 Web session 和代理地址；Codex credential JSON 仍不进入普通 view。
+  - 保留已有 Codex 凭证、Team 关联和授权日志，响应 view 回填已保存的分组、Web session 和代理地址；Codex credential JSON 仍不进入普通 view。
 - Web 账号同步与个人设置：
   - `POST /api/subaccounts/:id/refresh` 先用 `sessionToken` 调用 `/api/auth/session`，再用新 Web access token调用 `/backend-api/me`、Calpico 个人资料、营销通知设置和 reset credits。
   - `sessionTokenStatus` 与 `webAccessTokenStatus` 分开持久化；前者表示 Session Cookie 是否可换取 Session，后者表示 backend-api 是否接受 Web access token。

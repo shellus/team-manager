@@ -1,6 +1,6 @@
 # 子号与 Codex 凭证
 
-子号页管理子号本地资料、Team 关联、Codex 授权、已有凭证导入、额度缓存和授权日志。GPT 账号显示名统一来自 `email`，本地备注统一来自 `remark`。子号可以只有 Codex 凭证，没有 Web session。
+子号页管理子号本地资料、Team 关联、Codex 授权、已有凭证导入、额度缓存和授权日志。GPT 账号显示名统一来自 `email`，本地备注统一来自 `remark`。子号可使用顶层 `groupName` 做本地分组；它与 Codex 凭证的 CPA 号池分组相互独立。左侧列表支持按分组切换，并可按邮箱、备注、分组或 Cloak profile 关键词筛选，筛选词和当前分组保存在 URL 中。子号可以只有 Codex 凭证，没有 Web session。
 
 ## 子号录入方式
 
@@ -37,9 +37,9 @@
 
 子号侧 ChatGPT Web 请求也会复用 `sessionToken`。同步账号、同步 Team 关联或修改设置时，如果 backend-api 返回 401 `token_invalidated` 或 `token_revoked`，系统会按当前请求的 workspace 换取新的 Web access token，回写子号本地记录并重试一次。
 
-录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。本地资料弹窗会回填已保存的 session JSON，便于直接检查或替换。
+录入后子号进入子号池，页面显示 Web Session 已录入。该 session 用于 ChatGPT Web 请求和后续授权流程。本地资料弹窗会回填已保存的分组和 session JSON，便于直接检查或替换。
 
-子号本地资料可配置独立代理地址 `proxy`。子号代理会用于子号侧 Team 关联同步、退出 Team、请求加入 K12 workspace、按 `sessionToken` 换取目标 workspace Web access token、创建 Team PAT/K12 凭证，以及刷新该子号 Codex 额度；未配置子号代理时，curl_cffi worker 才回退到运行环境全局代理。
+子号本地资料可配置分组 `groupName` 和独立代理地址 `proxy`。子号代理会用于子号侧 Team 关联同步、退出 Team、请求加入 K12 workspace、按 `sessionToken` 换取目标 workspace Web access token、创建 Team PAT/K12 凭证，以及刷新该子号 Codex 额度；未配置子号代理时，curl_cffi worker 才回退到运行环境全局代理。
 
 ## 个人资料、常用设置与 Web 登录态
 

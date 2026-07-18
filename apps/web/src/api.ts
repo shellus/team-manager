@@ -149,7 +149,12 @@ export const apiClient = {
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
   listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
-  importSubaccountSession: (payload: { session: unknown; remark?: string; proxy?: string } | unknown) =>
+  importSubaccountSession: (payload: {
+    session: unknown;
+    remark?: string;
+    groupName?: string;
+    proxy?: string;
+  } | unknown) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
   importSubaccountCodexCredential: (payload: {
     credential: Record<string, unknown>;
@@ -163,7 +168,10 @@ export const apiClient = {
     call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/retry`),
   registerSubaccount: (payload: { mailGroup?: string } = {}) =>
     call<SubaccountRegistrationJobView>('POST', '/subaccounts/registration/start', payload),
-  updateSubaccountLocalProfile: (id: string, payload: { remark?: string; proxy?: string; session?: unknown }) =>
+  updateSubaccountLocalProfile: (
+    id: string,
+    payload: { remark?: string; groupName?: string; proxy?: string; session?: unknown }
+  ) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   refreshSubaccount: (id: string) => call<SubaccountView>('POST', `/subaccounts/${id}/refresh`),
   setSubaccountMarketingNotifications: (id: string, payload: {

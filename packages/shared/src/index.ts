@@ -321,6 +321,7 @@ export interface Subaccount {
   id: string;                  // team-manager 内部 id（uuid）
   email: string;               // 只取 session.user.email 或注册得到的邮箱
   remark?: string;             // 本地备注
+  groupName?: string;          // 本地子号分组，缺省由后端归入默认分组
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
@@ -360,6 +361,7 @@ export interface SubaccountView {
   id: string;
   email: string;
   remark?: string;
+  groupName?: string;
   chatgptAccountId?: string;
   proxy?: string;
   registrationPassword?: string;

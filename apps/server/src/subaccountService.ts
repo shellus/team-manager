@@ -266,6 +266,7 @@ export class SubaccountService {
     const input = await this.resolveSubaccountSessionInput(payload.session);
     const view = await this.store.importSession(input.session, {
       ...(payload.hasRemark ? { remark: payload.remark } : {}),
+      ...(payload.hasGroupName ? { groupName: payload.groupName } : {}),
       ...(payload.hasProxy ? { proxy: payload.proxy } : {})
     });
     await this.store.appendLog(view.id, {
@@ -275,7 +276,8 @@ export class SubaccountService {
       data: {
         email: view.email,
         accountIdPresent: Boolean(view.chatgptAccountId),
-        localProfilePresent: payload.hasRemark || payload.hasProxy,
+        localProfilePresent: payload.hasRemark || payload.hasGroupName || payload.hasProxy,
+        groupName: view.groupName,
         proxyPresent: Boolean(view.proxy),
         inputType: input.type
       }
@@ -327,9 +329,13 @@ export class SubaccountService {
     return updated;
   }
 
-  async updateLocalProfile(id: string, input: { remark?: unknown; proxy?: unknown; session?: unknown }): Promise<SubaccountView> {
+  async updateLocalProfile(
+    id: string,
+    input: { remark?: unknown; groupName?: unknown; proxy?: unknown; session?: unknown }
+  ): Promise<SubaccountView> {
     this.requireSubaccount(id);
     const hasRemark = Object.prototype.hasOwnProperty.call(input, 'remark');
+    const hasGroupName = Object.prototype.hasOwnProperty.call(input, 'groupName');
     const hasProxy = Object.prototype.hasOwnProperty.call(input, 'proxy');
     if (hasRemark && input.remark !== undefined && typeof input.remark !== 'string') {
       throw new ServiceError(400, '备注必须是字符串');
@@ -337,7 +343,11 @@ export class SubaccountService {
     if (hasProxy && input.proxy !== undefined && typeof input.proxy !== 'string') {
       throw new ServiceError(400, '代理地址必须是字符串');
     }
+    if (hasGroupName && input.groupName !== undefined && typeof input.groupName !== 'string') {
+      throw new ServiceError(400, '子号分组必须是字符串');
+    }
     const remark = typeof input.remark === 'string' ? input.remark.trim() || undefined : undefined;
+    const groupName = typeof input.groupName === 'string' ? input.groupName.trim() || '默认分组' : undefined;
     const proxy = typeof input.proxy === 'string' ? input.proxy.trim() || undefined : undefined;
 
     const sessionInput =
@@ -347,6 +357,7 @@ export class SubaccountService {
 
     const updated = await this.store.updateLocalProfile(id, {
       ...(hasRemark ? { remark } : {}),
+      ...(hasGroupName ? { groupName } : {}),
       ...(hasProxy ? { proxy } : {}),
       session: sessionInput?.session
     });
@@ -355,9 +366,10 @@ export class SubaccountService {
     await this.store.appendLog(id, {
       phase: 'local_profile_update',
       status: updated.status,
-      message: input.session === undefined ? '已更新子号本地备注' : '已更新子号本地备注和 ChatGPT session',
+      message: input.session === undefined ? '已更新子号本地资料' : '已更新子号本地资料和 ChatGPT session',
       data: {
         email: updated.email,
+        groupName: updated.groupName,
         accountIdPresent: Boolean(updated.chatgptAccountId),
         sessionUpdated: input.session !== undefined,
         proxyUpdated: hasProxy,
@@ -1367,20 +1379,23 @@ function cleanTargetAccountId(value?: string): string | undefined {
 function parseSubaccountSessionImportPayload(raw: unknown): {
   session: unknown;
   remark?: string;
+  groupName?: string;
   proxy?: string;
   hasRemark: boolean;
+  hasGroupName: boolean;
   hasProxy: boolean;
 } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { session: raw, hasRemark: false, hasProxy: false };
+    return { session: raw, hasRemark: false, hasGroupName: false, hasProxy: false };
   }
 
   const record = raw as Record<string, unknown>;
   if (!Object.prototype.hasOwnProperty.call(record, 'session')) {
-    return { session: raw, hasRemark: false, hasProxy: false };
+    return { session: raw, hasRemark: false, hasGroupName: false, hasProxy: false };
   }
 
   const hasRemark = Object.prototype.hasOwnProperty.call(record, 'remark');
+  const hasGroupName = Object.prototype.hasOwnProperty.call(record, 'groupName');
   const hasProxy = Object.prototype.hasOwnProperty.call(record, 'proxy');
   if (hasRemark && record.remark !== undefined && typeof record.remark !== 'string') {
     throw new ServiceError(400, '备注必须是字符串');
@@ -1388,13 +1403,18 @@ function parseSubaccountSessionImportPayload(raw: unknown): {
   if (hasProxy && record.proxy !== undefined && typeof record.proxy !== 'string') {
     throw new ServiceError(400, '代理地址必须是字符串');
   }
+  if (hasGroupName && record.groupName !== undefined && typeof record.groupName !== 'string') {
+    throw new ServiceError(400, '子号分组必须是字符串');
+  }
   if (record.session === undefined) throw new ServiceError(400, '缺少 session JSON');
 
   return {
     session: record.session,
     ...(hasRemark ? { remark: (record.remark as string | undefined)?.trim() || undefined } : {}),
+    ...(hasGroupName ? { groupName: (record.groupName as string | undefined)?.trim() || '默认分组' } : {}),
     ...(hasProxy ? { proxy: (record.proxy as string | undefined)?.trim() || undefined } : {}),
     hasRemark,
+    hasGroupName,
     hasProxy
   };
 }

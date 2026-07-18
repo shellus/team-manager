@@ -32,12 +32,32 @@ describe('SubaccountStore', () => {
 
       assert.equal(saved.email, 'child@example.com');
       assert.equal(saved.remark, undefined);
+      assert.equal(saved.groupName, '默认分组');
       assert.equal(hasOwn(savedRecord, 'label'), false);
       assert.equal(saved.chatgptAccountId, 'chatgpt-account-id');
       assert.equal(saved.hasWebSession, true);
       assert.equal(hasOwn(saved, 'hasCodexCredential'), false);
       assert.equal(saved.status, 'session_ready');
       assert.equal(store.list()[0]?.email, 'child@example.com');
+    });
+  });
+
+  it('persists and updates the child local group independently from credential pool groups', async () => {
+    await withStore(async (store) => {
+      const saved = await store.importSession(
+        {
+          user: { email: 'grouped-child@example.com' },
+          account: { id: 'chatgpt-account-id' },
+          accessToken: 'web-access-token'
+        },
+        { groupName: '客户 A' }
+      );
+
+      assert.equal(saved.groupName, '客户 A');
+
+      const updated = await store.updateLocalProfile(saved.id, { groupName: '客户 B' });
+      assert.equal(updated?.groupName, '客户 B');
+      assert.equal(store.get(saved.id)?.groupName, '客户 B');
     });
   });
 

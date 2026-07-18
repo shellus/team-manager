@@ -1,8 +1,9 @@
 import type { AccountView } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
-import { DeleteOutlined, MoreOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Card, Dropdown, Input, List, Segmented, Typography } from 'antd';
+import { DeleteOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Card, Dropdown, List, Segmented, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
+import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import { LimitTypeTag } from '../../components/StatusTag.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 import {
@@ -39,13 +40,11 @@ export function ParentList({
 }) {
   return (
     <div className="side-pane">
-      <Input
-        allowClear
-        className="pane-search"
-        prefix={<SearchOutlined />}
+      <KeywordSearchInput
         placeholder="搜索母号邮箱、备注、子号邮箱、子号备注"
+        ariaLabel="搜索母号"
         value={searchQuery}
-        onChange={(event) => onSearchChange(event.target.value)}
+        onSearchChange={onSearchChange}
       />
       {groups.length > 0 && (
         <Segmented

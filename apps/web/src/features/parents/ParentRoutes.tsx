@@ -13,6 +13,7 @@ import {
 } from '../../app/routeState.js';
 import { BillingRiskModal } from '../../components/BillingRiskModal.js';
 import { isBillingRiskError } from '../../components/format.js';
+import { matchesKeywordQuery } from '../../components/keywordSearch.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
@@ -70,13 +71,7 @@ function searchableAccountText(account: AccountView): string {
 }
 
 function accountMatchesQuery(account: AccountView, query: string): boolean {
-  const terms = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (terms.length === 0) return true;
-  const haystack = searchableAccountText(account);
-  return terms.every((term) => haystack.includes(term));
+  return matchesKeywordQuery([searchableAccountText(account)], query);
 }
 
 function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
@@ -128,7 +123,7 @@ export function ParentRoutes({
   const [localError, setLocalError] = useState('');
   const [billingRisk, setBillingRisk] = useState<ParentBillingRisk | null>(null);
   const actionBusy = useActionBusy();
-  const searchQuery = searchParams.get('q')?.trim() ?? '';
+  const searchQuery = searchParams.get('q') ?? '';
   const filteredAccounts = useMemo(
     () => accounts.filter((account) => accountMatchesQuery(account, searchQuery)).sort(compareRecordSortName),
     [accounts, searchQuery]
@@ -333,7 +328,7 @@ export function ParentRoutes({
   };
 
   const changeSearchQuery = (query: string) => {
-    const next = setSearchValue(searchParams, 'q', query.trim());
+    const next = setSearchValue(searchParams, 'q', query);
     next.set('tab', searchState.tab);
     setSearchParams(next);
   };
@@ -400,7 +395,7 @@ export function ParentRoutes({
         open={searchState.modal === 'edit-parent-profile' && Boolean(selected)}
         mode="parent"
         title="编辑母号本地资料"
-        description="只更新本系统内的备注、分组、限额类型、下次续费时间和 session，不修改远端 Team 名称。"
+        description="只更新本系统内的备注、分组、限额类型、下次续费时间、代理地址和 session，不修改远端 Team 名称。"
         initialValues={{
           remark: selected?.remark ?? '',
           groupName: selected?.groupName || '默认分组',

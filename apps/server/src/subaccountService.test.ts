@@ -988,12 +988,16 @@ describe('Subaccount API', () => {
       const updated = await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
         method: 'PATCH',
         headers: authHeaders,
-        body: JSON.stringify({ proxy: '  socks5://child-proxy.example:1080  ' })
+        body: JSON.stringify({
+          groupName: '  客户 A  ',
+          proxy: '  socks5://child-proxy.example:1080  '
+        })
       });
       const updatedJson = (await updated.json()) as ApiResult<SubaccountView>;
       const view = updatedJson.data as unknown as Record<string, any>;
 
       assert.equal(updated.status, 200);
+      assert.equal(view.groupName, '客户 A');
       assert.equal(view.proxy, 'socks5://child-proxy.example:1080');
       assert.deepEqual(view.session, {
         user: { email: 'child@example.com' },
@@ -1002,6 +1006,7 @@ describe('Subaccount API', () => {
         sessionToken: 'child-session-json-token'
       });
       assert.equal((subaccountStore.get(subaccount.id) as any)?.proxy, 'socks5://child-proxy.example:1080');
+      assert.equal(subaccountStore.get(subaccount.id)?.groupName, '客户 A');
 
       const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
         method: 'POST',
