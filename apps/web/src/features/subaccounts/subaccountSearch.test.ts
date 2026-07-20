@@ -7,7 +7,7 @@ const subaccount = {
   email: 'child@example.com',
   remark: '客户测试号',
   groupName: '客户 A',
-  cloakProfileName: 'team-manager-child-a',
+  managedAccountEmail: 'child@example.com',
   status: 'session_ready',
   hasWebSession: true,
   codexCredentials: [],
@@ -23,16 +23,14 @@ const job = {
   message: '正在注册 ChatGPT 账号',
   progress: 42,
   email: 'pending@example.com',
-  registrationMethod: 'cloak_browser',
-  cloakProfileName: 'team-manager-pending',
   createdAt: 1,
   updatedAt: 2
 } satisfies SubaccountRegistrationJobView;
 
 describe('subaccount search', () => {
-  it('matches child email, remark, group and Cloak profile using combined terms', () => {
+  it('matches child email, remark, group and Account Manager reference using combined terms', () => {
     expect(subaccountMatchesQuery(subaccount, '客户 A')).toBe(true);
-    expect(subaccountMatchesQuery(subaccount, 'child team-manager')).toBe(true);
+    expect(subaccountMatchesQuery(subaccount, 'child example')).toBe(true);
     expect(subaccountMatchesQuery(subaccount, '不存在')).toBe(false);
   });
 

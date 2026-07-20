@@ -4,12 +4,13 @@
 
 ## 总原则
 
-- 后端 store 中的对象是本地事实源；前端消费后端返回的 view。可信管理后台 view 可回填账号 Web session JSON、代理地址和自动注册密码；Codex credential JSON 和运行环境密钥仍不得进入普通 view。
+- 后端 store 中的对象是本地事实源；前端消费后端返回的 view。可信管理后台 view 可回填账号 Web Session JSON 和代理地址；注册密码、CloakBrowser profile、Codex credential JSON 和运行环境密钥不得进入普通 view。
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
-- curl_cffi worker 是通用 ChatGPT 请求转发能力。GongXi-Mail、CloakBrowser、Mihomo 和家宽代理属于独立注册服务，不是 Team Manager 账号业务模型字段。
-- store 只按当前 schema 持久化对象；历史冗余字段应通过离线数据清洗删除，不在业务代码中做兼容映射。
+- 运行数据目录固定使用 `0700`；包含 Web Session、PAT、账单、通知密钥或操作日志的文件固定使用 `0600`。
+- curl_cffi worker 是通用 ChatGPT 请求转发能力。注册密码、GongXi-Mail、CloakBrowser、Mihomo、家宽代理和支付状态属于 GPT Account Manager，不是 Team Manager 账号业务模型字段。
+- store 只接受并持久化当前 schema；不属于当前 schema 的输入字段不会写入事实源。
 - GPT 账号基础字段统一为 `email` 和 `remark`。`email` 是账号名称和唯一可读身份；`remark` 是本系统本地备注。母号、子号和席位资料不得再使用 `label`、`note`、`displayName` 或 `name` 表示本地账号名称/备注。
 
 ## 母号模型
@@ -67,9 +68,7 @@
 
 `seatSlots` 不表示 `usage_based` / Codex 席位。`usage_based` 邀请不会创建 slot。
 
-旧版 `memberProfiles` 不是 canonical 字段。store 加载旧数据时会把其中尚未对应现有 slot 的资料迁移为 `seatSlots`，随后删除 `memberProfiles`；前后端类型、API 和 view 不再暴露该旧模型。
-
-免登录换号使用 `seatKey` 定位固定席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条历史记录。`lastSwap` 只保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号历史。store 初始化清洗时，旧数据中的 `lastSwap` 会并入 `swapHistory`。
+免登录换号使用 `seatKey` 定位固定席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条记录。`lastSwap` 保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号记录。store 会确保 `lastSwap` 同步存在于 `swapHistory`。
 
 ### Derived values
 
@@ -138,7 +137,7 @@
 
 任一分类数量大于 `0` 时发送通知；两类都为 `0` 时不发送。通知文本固定展示“Team 续费”和“客户席位到期”两个分区及各自数量，零数量分区显示“无”。两类明细统一按“备注、邮箱、到期时间（剩余天数）”输出：Team 续费使用母号备注和母号邮箱，客户席位到期使用席位备注和当前绑定邮箱。关系状态和 `expireRemove` 保留在结构化明细中，不进入文本行。
 
-通用 webhook payload 使用 `type=expiration_reminder`，同时返回 `itemCount`、`teamRenewalCount`、`seatExpirationCount`、格式化文本和明细数组。明细类型只使用 `team_renewal` 与 `seat_expiration`，不再使用旧的 member expiration 命名。
+通用 webhook payload 使用 `type=expiration_reminder`，同时返回 `itemCount`、`teamRenewalCount`、`seatExpirationCount`、格式化文本和明细数组。明细类型固定为 `team_renewal` 与 `seat_expiration`。
 
 ## 子号模型
 
@@ -149,7 +148,7 @@
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id |
-| `email` | session JSON 或注册服务交付 | 子号邮箱 |
+| `email` | Session JSON 或 Account Manager 交付 | 子号邮箱 |
 | `remark` | 本地输入 | 子号本地备注 |
 | `groupName` | 本地输入 | 子号本地分组，缺省为 `默认分组`；与 Codex credential 的 CPA 号池分组无关 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
@@ -163,7 +162,7 @@
 | `memoryEnabled` | `account_user_setting?feature=m3m` 写操作 | 子号记忆开关最近一次明确修改结果；未修改前可为未知 |
 | `rateLimitResetCredits` | `wham/rate-limit-reset-credits` | reset credits 明细、当前可用数、累计获得数和缓存时间 |
 | `codexCredentials[]` | PAT 创建结果 | 子号在某 Team workspace 下的 PAT 凭证元数据 |
-| `registrationPassword` / `registeredAt` / `registrationSource` | 自动注册结果 | OpenAI 注册密码和来源元数据；可信管理后台详情页可查看和复制注册密码 |
+| `managedAccountEmail` | Account Manager 交付 | 可选的规范化邮箱账号引用；手工录入且未受管的子号不设置 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
 | `status` / `lastError` | 注册、PAT 或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
@@ -181,7 +180,7 @@
 - `lastQuota` / `lastQuotaAt`：该 workspace 凭证的额度缓存。
 - `lastCreatedAt`：该 workspace PAT 最近创建时间。
 
-CPA/Codex 兼容凭证明文 JSON 不写入 `subaccounts.json`，只写入独立凭证文件。普通列表和详情接口只返回 `SubaccountCodexCredentialView` 元数据；只有显式导出接口读取并返回目标凭证 JSON。
+CPA/Codex PAT 凭证明文 JSON 不写入 `subaccounts.json`，只写入独立凭证文件。普通列表和详情接口只返回 `SubaccountCodexCredentialView` 元数据；只有显式导出接口读取并返回目标凭证 JSON。
 
 workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其他凭证文件和元数据会被移除。
 
@@ -201,7 +200,7 @@ workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其
 ### Derived view fields
 
 - `SubaccountView.hasWebSession` 是列表和详情展示用能力位；可编辑的 Web session 明文放在 `SubaccountView.session`。
-- `SubaccountView.registrationPassword`、`registeredAt` 和 `registrationSource` 只用于可信管理后台展示自动注册资料。
+- `SubaccountView.managedAccountEmail` 只表示可选 Account Manager 关联，不复制 Account Manager 的密码、Profile 或支付状态。
 - `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
 - `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
 - 顶层 `hasCodexCredential`、`lastQuota` 和 `lastQuotaAt` 是冗余字段，不应出现在 view 或持久化数据中。
@@ -211,7 +210,7 @@ workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
 | 录入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加完整操作日志 | 合并返回的子号 view |
-| 自动注册子号 | Team Manager 向独立注册服务创建持久化任务；成功后按任务 ID 幂等录入 `email`、Web Session、`registrationPassword`、`registeredAt`、`registrationSource`、`registrationMethod` 和 Cloak profile 元数据，再清理完成任务 | 立即显示任务项并轮询进度；刷新页面继续读取同一任务；任务完成后替换为正常子号 view |
+| 自动注册子号 | Team Manager 向 GPT Account Manager 创建持久化账号操作；成功后按邮箱取得 Web Session，幂等写入 `email` 和 `managedAccountEmail`，再清理完成操作 | 立即显示任务项并轮询进度；刷新页面继续读取同一操作；完成后替换为正常子号 view |
 | 编辑本地资料 | 更新 `remark`、顶层 `groupName` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
 | 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
 | 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |

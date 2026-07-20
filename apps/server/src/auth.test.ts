@@ -24,7 +24,7 @@ function decodePayload(token: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
 }
 
-describe('JWT expiration compatibility', () => {
+describe('JWT expiration validation', () => {
   it('accepts a valid access token without exp', () => {
     const now = Math.floor(Date.now() / 1000);
     const token = signTestToken({ sub: 'admin', iss: issuer, typ: 'access', iat: now });
@@ -37,14 +37,14 @@ describe('JWT expiration compatibility', () => {
     });
   });
 
-  it('continues accepting an unexpired legacy token with exp', () => {
+  it('accepts an unexpired access token with exp', () => {
     const now = Math.floor(Date.now() / 1000);
     const token = signTestToken({ sub: 'admin', iss: issuer, typ: 'access', iat: now, exp: now + 3600 });
 
     assert.notEqual(verifyJwt({ token, issuer, tokenType: 'access', secret }), null);
   });
 
-  it('continues rejecting an expired legacy token with exp', () => {
+  it('rejects an expired access token with exp', () => {
     const now = Math.floor(Date.now() / 1000);
     const token = signTestToken({ sub: 'admin', iss: issuer, typ: 'access', iat: now - 3600, exp: now - 1 });
 

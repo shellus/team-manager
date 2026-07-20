@@ -1,10 +1,10 @@
 # 子号管理实现边界
 
-Team Manager 负责保存子号 Web Session、Team 关联和 PAT 凭证，不负责执行 GPT 账号注册。账号注册由独立的 GPT Account Registrar 完成，Team Manager 只创建任务、查询进度并录入最终账号交付。
+Team Manager 负责保存子号 Web Session、Team 关联和 PAT 凭证，不负责执行 GPT 账号注册。账号注册由独立的 GPT Account Manager 完成，Team Manager 只创建账号操作、查询进度并取得最终 Web Session。
 
 ## 子号数据
 
-- `data/subaccounts.json` 保存子号邮箱、本地备注与分组、Web Session、注册资料、Team 关联和 PAT 凭证元数据。
+- `data/subaccounts.json` 保存子号邮箱、本地备注与分组、Web Session、可选 `managedAccountEmail` 引用、Team 关联和 PAT 凭证元数据。
 - `data/subaccount-credentials/<subaccountId>/` 只保存 PAT 凭证文件。
 - PAT 元数据按“子号 × Team workspace”保存，包含 `accountId`、`fileName`、`groupName`、额度缓存和创建时间。
 - 普通子号 view 不返回 PAT 明文；只有显式下载接口返回完整 PAT JSON。
@@ -12,10 +12,10 @@ Team Manager 负责保存子号 Web Session、Team 关联和 PAT 凭证，不负
 
 ## 注册服务对接
 
-运行环境通过以下变量连接独立注册服务：
+运行环境通过以下变量连接 GPT Account Manager：
 
-- `TEAMMGR_REGISTRAR_BASE_URL`
-- `TEAMMGR_REGISTRAR_TOKEN`
+- `TEAMMGR_ACCOUNT_MANAGER_BASE_URL`
+- `TEAMMGR_ACCOUNT_MANAGER_TOKEN`
 
 Team Manager 对外保持稳定的注册任务 API：
 
@@ -25,9 +25,9 @@ Team Manager 对外保持稳定的注册任务 API：
 - `DELETE /api/subaccounts/registration/jobs/:jobId`
 - `GET /api/subaccounts/registration/status`
 
-注册服务成功后返回邮箱、密码、ChatGPT Web Session、注册时间、Cloak profile 和完整事件。Team Manager 使用注册任务 ID 幂等录入子号，将原始交付写入操作日志，然后清理注册服务中的完成任务。
+注册操作成功后，Team Manager 按邮箱账号引用从 Account Manager 显式取得 ChatGPT Web Session，写入 `managedAccountEmail` 后清理已完成操作。密码、Cloak profile 和完整浏览器事件不会进入 Team Manager 数据或日志。
 
-注册进行中、失败和等待人工处理都由注册服务持久化，因此刷新 Team Manager 页面不会丢失任务。Team Manager 不保存 CloakBrowser、GongXi-Mail、Mihomo 或家宽代理配置。
+注册进行中、失败和等待人工处理都由 Account Manager 持久化，因此刷新 Team Manager 页面不会丢失任务。Team Manager 不保存注册密码、CloakBrowser、GongXi-Mail、Mihomo、家宽代理或支付状态。
 
 ## Web Session 与个人设置
 

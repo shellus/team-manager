@@ -8,6 +8,10 @@
 拥有或管理一个 Team workspace 的 GPT 账号。母号记录的续费日期属于 Team workspace 套餐，不表示 GPT 账号自身到期。
 _Avoid_: Team 成员、客户席位
 
+**受管账号引用**:
+可选的规范化邮箱，表示当前母号或子号在 GPT Account Manager 中存在对应受管账号。引用不改变 Team Manager 对 Web Session 和 Team 业务关系的独立所有权。
+_Avoid_: CloakBrowser Profile ID、Account Manager 数据库 UUID、注册任务 ID
+
 **Team 续费**:
 Team workspace 套餐在 `nextRenewalOn` 对应日期发生的续费事件。
 _Avoid_: 母号到期、成员到期

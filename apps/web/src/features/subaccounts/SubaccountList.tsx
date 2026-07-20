@@ -175,11 +175,6 @@ export function SubaccountList({
                     status={failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {waitingManual && (job.cloakProfileName || job.cloakProfileId) && (
-                    <Typography.Text className="record-meta muted" copyable={{ text: job.cloakProfileId }}>
-                      Cloak: {job.cloakProfileName || job.cloakProfileId}
-                    </Typography.Text>
-                  )}
                   {(failed || waitingManual) && (
                     <Space wrap>
                       <Button

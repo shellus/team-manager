@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { SubaccountStore } from './subaccountStore.js';
@@ -25,12 +25,12 @@ function hasOwn(value: object | undefined, key: string): boolean {
   return Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
 }
 
-async function withStore(fn: (store: SubaccountStore) => Promise<void>): Promise<void> {
+async function withStore(fn: (store: SubaccountStore, dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccounts-'));
   try {
     const store = new SubaccountStore(dir);
     await store.init();
-    await fn(store);
+    await fn(store, dir);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -38,7 +38,7 @@ async function withStore(fn: (store: SubaccountStore) => Promise<void>): Promise
 
 describe('SubaccountStore', () => {
   it('imports the single supported ChatGPT session JSON shape', async () => {
-    await withStore(async (store) => {
+    await withStore(async (store, dir) => {
       const saved = await store.importSession({
         user: { email: 'child@example.com' },
         account: { id: 'chatgpt-account-id' },
@@ -55,6 +55,7 @@ describe('SubaccountStore', () => {
       assert.equal(hasOwn(saved, 'hasCodexCredential'), false);
       assert.equal(saved.status, 'session_ready');
       assert.equal(store.list()[0]?.email, 'child@example.com');
+      assert.equal((await stat(join(dir, 'subaccounts.json'))).mode & 0o777, 0o600);
     });
   });
 
@@ -97,27 +98,32 @@ describe('SubaccountStore', () => {
     });
   });
 
-  it('keeps an existing Web Session usable when a later browser migration attempt fails', async () => {
+  it('links an existing Web Session to Account Manager without storing browser credentials', async () => {
     await withStore(async (store) => {
       const saved = await store.importSession({
-        user: { email: 'legacy-child@example.com' },
-        account: { id: 'legacy-account-id' },
-        accessToken: 'legacy-web-access-token',
-        sessionToken: 'legacy-session-token'
+        user: { email: 'managed-child@example.com' },
+        account: { id: 'managed-account-id' },
+        accessToken: 'existing-web-access-token',
+        sessionToken: 'managed-session-token'
       });
 
-      const failedMigration = await store.saveRegisteredSubaccount({
-        email: 'legacy-child@example.com',
-        password: 'saved-registration-password',
-        registrationMethod: 'cloak_browser',
-        status: 'error',
-        lastError: 'chatgpt_auth_session_invalid_200'
+      const linked = await store.saveManagedSubaccount({
+        managedAccountEmail: 'managed-child@example.com',
+        email: 'managed-child@example.com',
+        session: {
+          user: { email: 'managed-child@example.com' },
+          account: { id: 'managed-account-id' },
+          accessToken: 'new-web-access-token',
+          sessionToken: 'managed-session-token'
+        }
       });
 
-      assert.equal(failedMigration.id, saved.id);
-      assert.equal(failedMigration.status, 'session_ready');
-      assert.equal(failedMigration.session?.sessionToken, 'legacy-session-token');
-      assert.equal(failedMigration.lastError, 'chatgpt_auth_session_invalid_200');
+      assert.equal(linked.id, saved.id);
+      assert.equal(linked.managedAccountEmail, 'managed-child@example.com');
+      assert.equal(linked.session?.accessToken, 'new-web-access-token');
+      const stored = store.get(saved.id) as unknown as Record<string, unknown>;
+      assert.equal(Object.hasOwn(stored, 'registrationPassword'), false);
+      assert.equal(Object.hasOwn(stored, 'cloakProfileId'), false);
     });
   });
 
@@ -152,95 +158,6 @@ describe('SubaccountStore', () => {
     });
   });
 
-  it('normalizes legacy duplicate child fields out of the persisted model', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccounts-'));
-    try {
-      await writeFile(
-        join(dir, 'subaccounts.json'),
-        JSON.stringify(
-          [
-            {
-              id: 'child-id',
-              email: 'child@example.com',
-              remark: 'Child',
-              chatgptAccountId: 'child-chatgpt-account-id',
-              webAccessToken: 'web-access-token',
-              status: 'codex_ready',
-              createdAt: 1,
-              updatedAt: 2,
-              codexCredentials: [
-                {
-                  accountId: 'stale-workspace-id',
-                  credential: {
-                    access_token: 'at-legacy',
-                    personal_access_token: 'at-legacy',
-                    account_id: 'real-workspace-id',
-                    last_refresh: '2026-06-18T00:00:00.000Z',
-                    email: 'child@example.com',
-                    type: 'codex',
-                    expired: '2026-07-18T01:00:00.000Z',
-                    plan_type: 'team',
-                    auth_mode: 'personalAccessToken',
-                    credential_source: 'personal_access_token'
-                  },
-                }
-              ],
-              teamLinks: [
-                {
-                  accountId: 'parent-id',
-                  seat: 'usage_based',
-                  status: 'member',
-                  updatedAt: 20
-                }
-              ],
-              lastQuota: {
-                status: 'success',
-                planType: 'team',
-                windows: [{ id: 'code-five-hour', label: '5 小时', usedPercent: 42, resetAt: null }],
-                error: null
-              },
-              lastQuotaAt: 30,
-            }
-          ],
-          null,
-          2
-        ),
-        'utf8'
-      );
-
-      const store = new SubaccountStore(dir);
-      await store.init();
-      const view = store.list()[0]!;
-      const viewRecord = view as unknown as Record<string, unknown>;
-      const migratedFileName = view.codexCredentials[0]!.fileName;
-      const persisted = JSON.parse(await readFile(join(dir, 'subaccounts.json'), 'utf8')) as Array<{
-        codexCredentials: Array<Record<string, unknown>>;
-        teamLinks: Array<Record<string, unknown>>;
-      }>;
-      const migratedCredential = JSON.parse(
-        await readFile(join(dir, 'subaccount-credentials', 'child-id', migratedFileName), 'utf8')
-      ) as { personal_access_token?: string };
-
-      assert.equal(view.codexCredentials[0]!.accountId, 'real-workspace-id');
-      assert.equal(view.remark, 'Child');
-      assert.equal(hasOwn(viewRecord, 'label'), false);
-      assert.equal(typeof migratedFileName, 'string');
-      assert.equal(view.codexCredentials[0]!.groupName, '默认号池');
-      assert.equal(hasOwn(view, 'hasCodexCredential'), false);
-      assert.equal(hasOwn(view, 'lastQuota'), false);
-      assert.equal(hasOwn(view, 'lastQuotaAt'), false);
-      assert.equal(persisted[0]!.codexCredentials[0]!.accountId, 'real-workspace-id');
-      assert.equal(persisted[0]!.codexCredentials[0]!.fileName, migratedFileName);
-      assert.equal(persisted[0]!.codexCredentials[0]!.groupName, '默认号池');
-      assert.equal(persisted[0]!.remark, 'Child');
-      assert.equal(hasOwn(persisted[0], 'label'), false);
-      assert.equal(hasOwn(persisted[0]!.codexCredentials[0], 'credential'), false);
-      assert.equal(migratedCredential.personal_access_token, 'at-legacy');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   it('rejects flat session fields outside the ChatGPT session JSON shape', async () => {
     await withStore(async (store) => {
       await assert.rejects(
@@ -251,7 +168,7 @@ describe('SubaccountStore', () => {
   });
 
   it('stores Codex credentials separately from the redacted view', async () => {
-    await withStore(async (store) => {
+    await withStore(async (store, dir) => {
       const saved = await store.importSession({
         user: { email: 'child@example.com' },
         account: { id: 'chatgpt-account-id' },
@@ -267,6 +184,8 @@ describe('SubaccountStore', () => {
       assert.equal('access_token' in view, false);
       assert.equal(store.getCodexCredential(saved.id)?.personal_access_token, 'at-chatgpt-account-id');
       assert.equal(store.getCodexCredentialForAccount(saved.id, 'chatgpt-account-id')?.personal_access_token, 'at-chatgpt-account-id');
+      const credentialFile = join(dir, 'subaccount-credentials', saved.id, view.codexCredentials[0]!.fileName);
+      assert.equal((await stat(credentialFile)).mode & 0o777, 0o600);
     });
   });
 

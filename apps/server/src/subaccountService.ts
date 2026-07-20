@@ -22,7 +22,7 @@ import {
 } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 import { SubaccountStore } from './subaccountStore.js';
-import { AccountRegistrarError, type AccountRegistrarGateway } from './accountRegistrarClient.js';
+import { AccountManagerError, type AccountManagerGateway } from './accountManagerClient.js';
 
 const CODEX_PAT_NAME = 'team-manager';
 const CODEX_PAT_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -33,7 +33,7 @@ export class SubaccountService {
     private readonly store: SubaccountStore,
     private readonly quotaTransport: Transport = createTransport(),
     private readonly webTransport: Transport = createTransport(),
-    private readonly registrar?: AccountRegistrarGateway
+    private readonly accountManager?: AccountManagerGateway
   ) {}
 
   list(): SubaccountView[] {
@@ -41,8 +41,10 @@ export class SubaccountService {
   }
 
   async listRegistrationJobs(): Promise<SubaccountRegistrationJobView[]> {
-    if (!this.registrar) return [];
-    return this.reconcileRegistrarJobs(await this.callRegistrar(() => this.registrar!.list()));
+    if (!this.accountManager) return [];
+    return this.reconcileAccountManagerOperations(
+      await this.callAccountManager(() => this.accountManager!.listRegistrations())
+    );
   }
 
   async startSubaccountRegistration(input: {
@@ -51,24 +53,24 @@ export class SubaccountService {
     password?: string;
     resumeExisting?: boolean;
   }): Promise<SubaccountRegistrationJobView> {
-    if (!this.registrar) throw new ServiceError(503, '未配置 GPT 账号注册服务');
-    return this.callRegistrar(() => this.registrar!.start(input));
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    return this.callAccountManager(() => this.accountManager!.startRegistration(input));
   }
 
   async retrySubaccountRegistration(jobId: string): Promise<SubaccountRegistrationJobView> {
-    if (!this.registrar) throw new ServiceError(503, '未配置 GPT 账号注册服务');
-    return this.callRegistrar(() => this.registrar!.retry(jobId));
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    return this.callAccountManager(() => this.accountManager!.retryRegistration(jobId));
   }
 
   async removeSubaccountRegistrationJob(jobId: string): Promise<boolean> {
-    if (!this.registrar) throw new ServiceError(503, '未配置 GPT 账号注册服务');
-    return this.callRegistrar(() => this.registrar!.remove(jobId));
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    return this.callAccountManager(() => this.accountManager!.removeOperation(jobId));
   }
 
-  private async reconcileRegistrarJobs(
+  private async reconcileAccountManagerOperations(
     jobs: SubaccountRegistrationJobView[]
   ): Promise<SubaccountRegistrationJobView[]> {
-    if (!this.registrar) return jobs;
+    if (!this.accountManager) return jobs;
     const reconciled: SubaccountRegistrationJobView[] = [];
     for (const job of jobs) {
       if (job.status !== 'succeeded' || !job.email) {
@@ -76,40 +78,31 @@ export class SubaccountService {
         continue;
       }
       const existing = this.store.getByEmail(job.email);
-      if (existing?.registrationJobId === job.id) {
+      if (existing?.managedAccountEmail === job.email.toLowerCase()) {
         reconciled.push({ ...job, subaccountId: existing.id });
         continue;
       }
-      const delivery = await this.callRegistrar(() => this.registrar!.result(job.id));
-      const registered = await this.store.saveRegisteredSubaccount({
-        registrationJobId: job.id,
-        registeredAt: delivery.registeredAt,
-        email: delivery.email,
-        password: delivery.password,
-        session: delivery.session,
-        source: 'gpt-account-registrar',
-        registrationMethod: delivery.registrationMethod,
-        cloakProfileId: delivery.cloakProfileId,
-        cloakProfileName: delivery.cloakProfileName,
-        status: 'session_ready',
-        lastError: delivery.mailboxError
+      const session = await this.callAccountManager(() => this.accountManager!.session(job.email!));
+      const registered = await this.store.saveManagedSubaccount({
+        managedAccountEmail: job.email,
+        email: job.email,
+        session,
+        status: 'session_ready'
       });
       await this.store.appendLog(registered.id, {
-        phase: 'subaccount_registration_delivery',
-        status: delivery.mailboxError ? 'error' : registered.status,
-        message: delivery.mailboxError
-          ? `账号已交付，但邮箱分组转移失败: ${delivery.mailboxError}`
-          : '已从 GPT Account Registrar 导入账号交付',
-        data: delivery as unknown as Record<string, unknown>
+        phase: 'account_manager_session_import',
+        status: registered.status,
+        message: '已从 GPT Account Manager 取得 Web Session 并关联账号引用',
+        data: { managedAccountEmail: registered.managedAccountEmail, operationId: job.id }
       });
       try {
-        await this.callRegistrar(() => this.registrar!.remove(job.id));
+        await this.callAccountManager(() => this.accountManager!.removeOperation(job.id));
       } catch (error) {
         await this.store.appendLog(registered.id, {
-          phase: 'subaccount_registration_job_cleanup',
+          phase: 'account_manager_operation_cleanup',
           status: 'error',
-          message: `账号已导入，但注册服务任务清理失败: ${(error as Error).message}`,
-          data: { registrationJobId: job.id }
+          message: `账号已导入，但 Account Manager 操作清理失败: ${(error as Error).message}`,
+          data: { operationId: job.id }
         });
       }
       reconciled.push({ ...job, subaccountId: registered.id });
@@ -117,31 +110,31 @@ export class SubaccountService {
     return reconciled;
   }
 
-  private async callRegistrar<T>(operation: () => Promise<T>): Promise<T> {
+  private async callAccountManager<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();
     } catch (error) {
-      if (error instanceof AccountRegistrarError) throw new ServiceError(error.status, error.message);
+      if (error instanceof AccountManagerError) throw new ServiceError(error.status, error.message);
       throw error;
     }
   }
 
   async getRegistrationRuntimeStatus(): Promise<SubaccountRegistrationRuntimeStatus> {
-    if (!this.registrar) {
-      return { configured: false, reachable: false, error: '未配置 GPT 账号注册服务' };
+    if (!this.accountManager) {
+      return { configured: false, reachable: false, error: '未配置 GPT Account Manager' };
     }
     try {
-      const health = await this.registrar.health();
+      const health = await this.accountManager.health();
       return {
-        configured: health.registrationConfigured === true,
+        configured: health.accountRegistrationConfigured === true,
         reachable: health.status === 'ok',
-        ...(health.registrationConfigured === true ? {} : { error: 'GPT 账号注册服务运行环境未配置完整' })
+        ...(health.accountRegistrationConfigured === true ? {} : { error: 'GPT Account Manager 注册环境未配置完整' })
       };
     } catch (error) {
       return {
         configured: true,
         reachable: false,
-        error: error instanceof AccountRegistrarError ? error.message : (error as Error).message
+        error: error instanceof AccountManagerError ? error.message : (error as Error).message
       };
     }
   }

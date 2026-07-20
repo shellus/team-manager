@@ -9,8 +9,7 @@ export function subaccountMatchesQuery(subaccount: SubaccountView, query: string
     subaccount.chatgptAccountId,
     subaccount.remoteUsername,
     subaccount.remoteDisplayName,
-    subaccount.cloakProfileName,
-    subaccount.cloakProfileId,
+    subaccount.managedAccountEmail,
     subaccount.status,
     ...subaccount.teamLinks.flatMap((link) => [link.workspaceId, link.workspaceName, link.planType, link.role])
   ], query);
@@ -22,8 +21,6 @@ export function registrationJobMatchesQuery(job: SubaccountRegistrationJobView, 
     job.status,
     job.phase,
     job.message,
-    job.error,
-    job.cloakProfileName,
-    job.cloakProfileId
+    job.error
   ], query);
 }

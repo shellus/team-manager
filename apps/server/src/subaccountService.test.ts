@@ -12,10 +12,9 @@ import type {
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type {
-  AccountRegistrarGateway,
-  AccountRegistrationDelivery,
+  AccountManagerGateway,
   AccountRegistrationRequest
-} from './accountRegistrarClient.js';
+} from './accountManagerClient.js';
 import type { AppConfig } from './config.js';
 import { SubaccountStore } from './subaccountStore.js';
 import type { Transport } from './transport.js';
@@ -338,15 +337,15 @@ function tokenRevokedResponse() {
   };
 }
 
-class FakeAccountRegistrar implements AccountRegistrarGateway {
+class FakeAccountManager implements AccountManagerGateway {
   requests: AccountRegistrationRequest[] = [];
   private jobs: SubaccountRegistrationJobView[] = [];
 
   async health() {
-    return { status: 'ok', registrationConfigured: true };
+    return { status: 'ok', accountRegistrationConfigured: true };
   }
 
-  async start(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
+  async startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
     this.requests.push(input);
     const job: SubaccountRegistrationJobView = {
       id: 'registration-job-1',
@@ -354,7 +353,6 @@ class FakeAccountRegistrar implements AccountRegistrarGateway {
       phase: 'registration_queued',
       message: '已加入账号注册队列',
       progress: 0,
-      registrationMethod: 'cloak_browser',
       createdAt: 1,
       updatedAt: 1
     };
@@ -362,7 +360,7 @@ class FakeAccountRegistrar implements AccountRegistrarGateway {
     return job;
   }
 
-  async list(): Promise<SubaccountRegistrationJobView[]> {
+  async listRegistrations(): Promise<SubaccountRegistrationJobView[]> {
     this.jobs = this.jobs.map((job) => job.status === 'queued' ? {
       ...job,
       status: 'succeeded',
@@ -376,7 +374,7 @@ class FakeAccountRegistrar implements AccountRegistrarGateway {
     return this.jobs;
   }
 
-  async retry(id: string): Promise<SubaccountRegistrationJobView> {
+  async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
     const job = this.jobs.find((item) => item.id === id);
     if (!job) throw new Error('registration job missing');
     const queued = { ...job, status: 'queued' as const, progress: 0, phase: 'registration_queued' };
@@ -384,38 +382,25 @@ class FakeAccountRegistrar implements AccountRegistrarGateway {
     return queued;
   }
 
-  async remove(id: string): Promise<boolean> {
+  async removeOperation(id: string): Promise<boolean> {
     const before = this.jobs.length;
     this.jobs = this.jobs.filter((job) => job.id !== id);
     return this.jobs.length !== before;
   }
 
-  async result(id: string): Promise<AccountRegistrationDelivery> {
-    if (!this.jobs.some((job) => job.id === id)) throw new Error('registration job missing');
+  async session(accountId: string) {
+    if (accountId !== 'registered-child@example.com') throw new Error('managed account missing');
     return {
-      email: 'registered-child@example.com',
-      password: 'generated-child-password',
-      name: 'Alex Miller',
-      birthdate: '1996-05-12',
-      callbackUrl: 'https://chatgpt.com/',
-      session: {
-        user: { email: 'registered-child@example.com' },
-        account: { id: 'registered-child-chatgpt-account-id' },
-        accessToken: chatGptWebAccessToken('registered-child-chatgpt-account-id', 'free'),
-        sessionToken: 'registered-child-session-token'
-      },
-      registrationMethod: 'cloak_browser',
-      cloakProfileId: 'profile-1',
-      cloakProfileName: 'registered-child',
-      registeredAt: 2,
-      mailbox: { email: 'registered-child@example.com', group: 'registered' },
-      events: [{ phase: 'chatgpt_auth_session', status: 200 }]
+      user: { email: 'registered-child@example.com' },
+      account: { id: 'registered-child-chatgpt-account-id' },
+      accessToken: chatGptWebAccessToken('registered-child-chatgpt-account-id', 'free'),
+      sessionToken: 'registered-child-session-token'
     };
   }
 }
 
 
-async function buildTestApp(options: { registrar?: AccountRegistrarGateway } = {}) {
+async function buildTestApp(options: { accountManager?: AccountManagerGateway } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccount-api-'));
   const config: AppConfig = {
     port: 0,
@@ -443,7 +428,7 @@ async function buildTestApp(options: { registrar?: AccountRegistrarGateway } = {
     store,
     subaccountStore,
     subaccountQuotaTransport: quotaTransport,
-    subaccountRegistrar: options.registrar,
+    subaccountAccountManager: options.accountManager,
     teamTransport
   } as Parameters<typeof buildApp>[0]);
 
@@ -694,7 +679,7 @@ describe('Subaccount API', () => {
         })
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
-      await subaccountStore.update(subaccount.id, { status: 'error', lastError: 'earlier migration failed' });
+      await subaccountStore.update(subaccount.id, { status: 'error', lastError: 'earlier operation failed' });
 
       const refreshed = await app.request(`/api/subaccounts/${subaccount.id}/refresh`, {
         method: 'POST',
@@ -848,8 +833,8 @@ describe('Subaccount API', () => {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify([
-          { name: 'legacy-token-0', value: 'session-token-0' },
-          { name: 'legacy-token-1', value: 'session-token-1' }
+          { name: 'session-cookie-0', value: 'session-token-0' },
+          { name: 'session-cookie-1', value: 'session-token-1' }
         ])
       });
       const addedJson = (await added.json()) as ApiResult;
@@ -1002,8 +987,8 @@ describe('Subaccount API', () => {
         body: JSON.stringify({
           remark: '子号备注',
           session: [
-            { name: 'legacy-token-0', value: 'session-token-0' },
-            { name: 'legacy-token-1', value: 'session-token-1' }
+            { name: 'session-cookie-0', value: 'session-token-0' },
+            { name: 'session-cookie-1', value: 'session-token-1' }
           ]
         })
       });
@@ -1237,9 +1222,9 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('imports a completed registrar delivery exactly once and keeps the private raw result', async () => {
-    const registrar = new FakeAccountRegistrar();
-    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ registrar });
+  it('imports an Account Manager session exactly once without copying password or profile data', async () => {
+    const accountManager = new FakeAccountManager();
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ accountManager });
     try {
       const started = await app.request('/api/subaccounts/registration/start', {
         method: 'POST',
@@ -1256,17 +1241,18 @@ describe('Subaccount API', () => {
       assert.equal(registered.status, 'session_ready');
       assert.equal(registered.hasWebSession, true);
       assert.equal(registered.session?.sessionToken, 'registered-child-session-token');
-      assert.equal(registered.registrationPassword, 'generated-child-password');
+      assert.equal(registered.managedAccountEmail, 'registered-child@example.com');
       assert.equal(registered.codexCredentials.length, 0);
-      assert.equal(registrar.requests[0]!.mailGroup, 'clean-outlook');
+      assert.equal(accountManager.requests[0]!.mailGroup, 'clean-outlook');
 
-      const stored = subaccountStore.get(registered.id) as unknown as { registrationPassword?: string };
-      assert.equal(stored.registrationPassword, 'generated-child-password');
+      const stored = subaccountStore.get(registered.id) as unknown as Record<string, unknown>;
+      assert.equal(Object.hasOwn(stored, 'registrationPassword'), false);
+      assert.equal(Object.hasOwn(stored, 'cloakProfileId'), false);
 
       const allLogs = await app.request(`/api/subaccounts/${registered.id}/logs`, { headers: authHeaders });
       const allLogsJson = (await allLogs.json()) as ApiResult<Array<{ phase: string; message: string }>>;
-      assert.ok(allLogsJson.data!.some((log) => log.phase === 'subaccount_registration_delivery'));
-      assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), true);
+      assert.ok(allLogsJson.data!.some((log) => log.phase === 'account_manager_session_import'));
+      assert.equal(JSON.stringify(allLogsJson).includes('generated-child-password'), false);
 
       const jobsAfterImport = await app.request('/api/subaccounts/registration/jobs', { headers: authHeaders });
       const jobsAfterImportJson = (await jobsAfterImport.json()) as ApiResult<SubaccountRegistrationJobView[]>;

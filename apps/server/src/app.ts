@@ -14,9 +14,9 @@ import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
 import {
-  createAccountRegistrarClient,
-  type AccountRegistrarGateway
-} from './accountRegistrarClient.js';
+  createAccountManagerClient,
+  type AccountManagerGateway
+} from './accountManagerClient.js';
 import type { Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
@@ -31,7 +31,7 @@ export interface BuildAppDeps {
   store: AccountStore;
   subaccountStore: SubaccountStore;
   subaccountQuotaTransport?: Transport;
-  subaccountRegistrar?: AccountRegistrarGateway;
+  subaccountAccountManager?: AccountManagerGateway;
   teamTransport?: Transport;
   settingsStore?: AppSettingsStore;
   billingStore?: AccountBillingStore;
@@ -71,7 +71,7 @@ export async function buildApp({
   store,
   subaccountStore,
   subaccountQuotaTransport,
-  subaccountRegistrar,
+  subaccountAccountManager,
   teamTransport,
   settingsStore,
   billingStore
@@ -86,7 +86,7 @@ export async function buildApp({
     subaccountStore,
     subaccountQuotaTransport,
     teamTransport,
-    subaccountRegistrar ?? createAccountRegistrarClient()
+    subaccountAccountManager ?? createAccountManagerClient()
   );
 
   const syncTeamLinksByChildWorkspaces = async (id: string, subaccount: Subaccount) => {

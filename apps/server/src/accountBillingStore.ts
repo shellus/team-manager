@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AccountBillingSnapshot } from '@team-manager/shared';
+import { ensurePrivateDirectory, ensurePrivateFile, writePrivateFile } from './privateDataFile.js';
 
 type BillingSnapshotMap = Record<string, AccountBillingSnapshot>;
 
@@ -38,10 +39,9 @@ export class AccountBillingStore {
   }
 
   async init(): Promise<void> {
-    if (!existsSync(this.dataDir)) {
-      await mkdir(this.dataDir, { recursive: true });
-    }
+    await ensurePrivateDirectory(this.dataDir);
     if (existsSync(this.file)) {
+      await ensurePrivateFile(this.file);
       try {
         const raw = await readFile(this.file, 'utf8');
         const parsed = JSON.parse(raw) as unknown;
@@ -75,6 +75,6 @@ export class AccountBillingStore {
   }
 
   private async persist(): Promise<void> {
-    await writeFile(this.file, JSON.stringify(this.snapshots, null, 2), 'utf8');
+    await writePrivateFile(this.file, JSON.stringify(this.snapshots, null, 2));
   }
 }

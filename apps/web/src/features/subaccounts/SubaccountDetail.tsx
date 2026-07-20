@@ -13,7 +13,7 @@ import { formatDateTime } from '../../components/format.js';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
 import { SubaccountLogPanel } from './SubaccountLogPanel.js';
 import { SubaccountPatCredentialPanel } from './SubaccountPatCredentialPanel.js';
-import { SubaccountRegistrationPanel } from './SubaccountRegistrationPanel.js';
+import { SubaccountAccountManagerPanel } from './SubaccountAccountManagerPanel.js';
 import { SubaccountSettingsPanel } from './SubaccountSettingsPanel.js';
 import { SubaccountTeamLinks } from './SubaccountTeamLinks.js';
 
@@ -112,9 +112,9 @@ export function SubaccountDetail({
             )
           },
           {
-            key: 'registration',
-            label: '注册资料',
-            children: <SubaccountRegistrationPanel subaccount={subaccount} />
+            key: 'account-manager',
+            label: '账号管理',
+            children: <SubaccountAccountManagerPanel subaccount={subaccount} />
           },
           {
             key: 'settings',

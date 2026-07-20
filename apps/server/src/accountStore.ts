@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   type Account,
   type AccountLimitType,
@@ -12,13 +12,13 @@ import {
   type SeatSlotSwapStep,
   type SeatSlotSwapStepKey
 } from '@team-manager/shared';
+import { ensurePrivateDirectory, ensurePrivateFile, writePrivateFile } from './privateDataFile.js';
 
 type StoredAccount = Account & Record<string, unknown>;
 
 const DEFAULT_ACCOUNT_GROUP = '默认分组';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const SEAT_KEY_PATTERN = /^[A-Za-z0-9]{16}$/;
-const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_SLOT_STATUSES = new Set<AccountSeatSlotStatus>(['empty', 'invited', 'member', 'unknown']);
 const SWAP_STATUSES = new Set<SeatSlotSwapState['status']>(['running', 'succeeded', 'failed']);
@@ -77,104 +77,6 @@ function normalizeMembersCache(input: Account['membersCache']): Account['members
   }
 
   return members.length ? members : undefined;
-}
-
-interface LegacyMemberProfile {
-  email: string;
-  remark?: string;
-  expiresOn: string;
-  expireRemove: boolean;
-  expireReminder: boolean;
-  updatedAt: number;
-}
-
-function normalizeLegacyMemberProfiles(input: unknown): LegacyMemberProfile[] {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
-
-  const profiles: LegacyMemberProfile[] = [];
-  for (const [key, rawProfile] of Object.entries(input)) {
-    if (!rawProfile || typeof rawProfile !== 'object' || Array.isArray(rawProfile)) continue;
-    const profile = rawProfile as unknown as Record<string, unknown>;
-    const email = normalizeEmail(profile.email) || normalizeEmail(key);
-    if (!email) continue;
-
-    const expiresOn = typeof profile.expiresOn === 'string' && DATE_ONLY_PATTERN.test(profile.expiresOn)
-      ? profile.expiresOn
-      : undefined;
-    if (!expiresOn) continue;
-
-    const remark = typeof profile.remark === 'string' ? profile.remark.trim() : '';
-    const updatedAt = typeof profile.updatedAt === 'number' && Number.isFinite(profile.updatedAt)
-      ? profile.updatedAt
-      : Date.now();
-
-    profiles.push({
-      email,
-      ...(remark ? { remark } : {}),
-      expiresOn,
-      expireRemove: typeof profile.expireRemove === 'boolean' ? profile.expireRemove : false,
-      expireReminder: typeof profile.expireReminder === 'boolean' ? profile.expireReminder : true,
-      updatedAt
-    });
-  }
-
-  return profiles;
-}
-
-function migrateLegacyMemberProfiles(
-  slots: AccountSeatSlot[] | undefined,
-  profiles: LegacyMemberProfile[],
-  members: Account['membersCache'],
-  invites: Account['pendingInvitesCache']
-): AccountSeatSlot[] | undefined {
-  if (profiles.length === 0) return slots;
-
-  const nextSlots = [...(slots ?? [])];
-  const usedKeys = new Set(nextSlots.map((slot) => slot.seatKey));
-  const occupiedEmails = new Set(nextSlots.flatMap((slot) => slot.email ? [slot.email.toLowerCase()] : []));
-  for (const profile of profiles) {
-    if (occupiedEmails.has(profile.email)) continue;
-    const relation = legacySeatSlotRelation(profile.email, members, invites);
-    nextSlots.push({
-      seatKey: generateSeatKey(usedKeys),
-      email: profile.email,
-      ...(profile.remark ? { remark: profile.remark } : {}),
-      expiresOn: profile.expiresOn,
-      seat: 'default',
-      status: relation.status,
-      ...(relation.currentUserId ? { currentUserId: relation.currentUserId } : {}),
-      ...(relation.currentInviteId ? { currentInviteId: relation.currentInviteId } : {}),
-      expireRemove: profile.expireRemove,
-      expireReminder: profile.expireReminder,
-      updatedAt: profile.updatedAt
-    });
-    occupiedEmails.add(profile.email);
-  }
-  return nextSlots.length > 0 ? nextSlots : undefined;
-}
-
-function legacySeatSlotRelation(
-  email: string,
-  members: Account['membersCache'],
-  invites: Account['pendingInvitesCache']
-): { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string } {
-  const member = members?.find((item) => item.seat === 'default' && item.email.toLowerCase() === email);
-  if (member) return { status: 'member', currentUserId: member.userId };
-  const invite = invites?.find((item) => item.seat === 'default' && item.email.toLowerCase() === email);
-  if (invite) return { status: 'invited', currentInviteId: invite.inviteId };
-  return { status: 'unknown' };
-}
-
-function generateSeatKey(usedKeys: Set<string>): string {
-  for (;;) {
-    const bytes = randomBytes(16);
-    let key = '';
-    for (const byte of bytes) key += SEAT_KEY_ALPHABET[byte % SEAT_KEY_ALPHABET.length];
-    if (!usedKeys.has(key)) {
-      usedKeys.add(key);
-      return key;
-    }
-  }
 }
 
 function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] | undefined {
@@ -311,12 +213,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
   const remark = readTrimmedString(input.remark);
   const membersCache = normalizeMembersCache(input.membersCache);
   const pendingInvitesCache = input.pendingInvitesCache;
-  const seatSlots = migrateLegacyMemberProfiles(
-    normalizeSeatSlots(input.seatSlots),
-    normalizeLegacyMemberProfiles(input.memberProfiles),
-    membersCache,
-    pendingInvitesCache
-  );
+  const seatSlots = normalizeSeatSlots(input.seatSlots);
   const normalized: Account = {
     id: input.id,
     ...(remark ? { remark } : {}),
@@ -369,10 +266,9 @@ export class AccountStore {
   }
 
   async init(): Promise<void> {
-    if (!existsSync(this.dataDir)) {
-      await mkdir(this.dataDir, { recursive: true });
-    }
+    await ensurePrivateDirectory(this.dataDir);
     if (existsSync(this.file)) {
+      await ensurePrivateFile(this.file);
       try {
         const raw = await readFile(this.file, 'utf8');
         const arr = JSON.parse(raw) as StoredAccount[];
@@ -433,6 +329,6 @@ export class AccountStore {
 
   private async persist(): Promise<void> {
     const arr = [...this.accounts.values()];
-    await writeFile(this.file, JSON.stringify(arr, null, 2), 'utf8');
+    await writePrivateFile(this.file, JSON.stringify(arr, null, 2));
   }
 }

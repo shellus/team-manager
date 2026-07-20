@@ -44,7 +44,7 @@
 
 新子号优先使用子号页“自动注册”入口：
 
-1. Team Manager 向独立 GPT Account Registrar 创建任务。
+1. Team Manager 向独立 GPT Account Manager 创建注册操作。
 2. 注册服务从 GongXi-Mail 获取邮箱，使用独立 Cloak profile 完成注册。
 3. 注册成功后，Team Manager 录入邮箱、私有密码和 Web Session。
 4. 若注册阶段遇到人机校验、账号锁定或邮箱异常，按子号状态处理，不把该账号计入可用候选。

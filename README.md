@@ -33,7 +33,7 @@ corepack pnpm docs:build
 - 源码可以公开；运行时持有的 access token、refresh token、sessionToken、Codex credential、管理员口令、代理和部署入口不得进入 git。
 - 运行时数据放在部署环境挂载的 `data/`，环境变量放 `.env` 或部署系统配置。
 - git 管理文件不得写真实域名、IP、端口、账号、token、代理地址或本机部署路径；本机事实记录到 `.codex/AGENTS.md`。
-- GPT Account Registrar 和 curl_cffi worker 连接信息属于运行环境配置；源码不保存真实连接参数。
+- GPT Account Manager 和 curl_cffi worker 连接信息属于运行环境配置；源码不保存真实连接参数。
 - 管理后台普通 view 可返回账号本地保存的 Web session JSON 和代理地址，供本地资料编辑回填；只有显式凭证导出接口才返回 Codex credential JSON。
 - 不要通过编辑 `data/*.json` 执行业务操作。业务变更走 API、UI 或 service/store 方法。
 
@@ -46,7 +46,7 @@ corepack pnpm docs:build
 - **席位位置**：用 `seatSlots` 记录母号下售出的 ChatGPT 固定席位位置，`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
-- **子号池**：录入子号 session，或通过独立 GPT Account Registrar 自动注册并接收账号交付。
+- **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session。
 - **PAT 与额度**：按子号和 Team workspace 创建 PAT，查询并缓存对应 workspace 的 Codex 额度。
 - **子号加入母号**：用子号邮箱邀请加入指定 Team，并同步本地 Team 关系状态。
 
@@ -118,7 +118,7 @@ corepack pnpm docs:build
 
 GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType` 和 `nextRenewalOn`，子号也使用独立的顶层 `groupName` 进行本地分组。母号和子号都可保存 `proxy`，ChatGPT Web 请求、workspace token 换取、子号 PAT 创建和额度刷新会优先使用对应账号的代理；未配置账号代理时才使用运行环境全局代理。本地资料弹窗会回填已保存的分组、session JSON 和代理地址。
 
-系统的 Codex 凭证模型只有 PAT，由当前子号 Web Session 针对目标 workspace 创建。
+通过 GPT Account Manager 创建的子号额外保存 `managedAccountEmail`，其值是规范化邮箱账号引用。Team Manager 不保存注册密码、CloakBrowser profile、浏览器追踪或支付状态。系统的 Codex 凭证模型只有 PAT，由当前子号 Web Session 针对目标 workspace 创建。
 
 ## 开发命令
 
@@ -151,13 +151,14 @@ corepack pnpm docs:build
 - [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：Team、母号、子号、席位类型、Codex 凭证维度和账单红线。涉及这些对象的任务应先读本文件。
 - [`docs/dev-spec/data-model.md`](./docs/dev-spec/data-model.md)：母号、子号、缓存、派生字段和本地资料编辑的数据模型规则。
 - [`docs/dev-spec/subaccount-management.md`](./docs/dev-spec/subaccount-management.md)：子号池、PAT、额度查询和 Team 关联同步的实现边界。
-- [`docs/dev-spec/subaccount-registration-sop.md`](./docs/dev-spec/subaccount-registration-sop.md)：独立注册服务的任务、交付与幂等规则。
+- [`docs/dev-spec/subaccount-registration-sop.md`](./docs/dev-spec/subaccount-registration-sop.md)：Account Manager 注册操作、Session 交付与幂等规则。
 - [`docs/dev-spec/chatgpt-backend-api/README.md`](./docs/dev-spec/chatgpt-backend-api/README.md)：ChatGPT Web backend-api 脱敏样本索引。
 
 ## 当前边界
 
-- 全新 GPT 账号注册由独立 GPT Account Registrar 执行。Team Manager 只创建任务、展示进度并录入邮箱、密码和 ChatGPT Web Session。
+- 全新 GPT 账号注册由独立 GPT Account Manager 执行。Team Manager 只创建账号操作、展示进度、保存邮箱引用和 ChatGPT Web Session。
 - CloakBrowser、GongXi-Mail、Mihomo、家宽 SID、Cloudflare/CAPTCHA 重试和浏览器 trace 都属于注册服务，不进入 Team Manager 源码或运行配置。
+- 两个项目可独立运行：Team Manager 只凭 Web Session 即可管理母号、子号、Team 和 PAT；Account Manager 只凭账号凭据和 CloakBrowser profile 即可执行注册、同步和支付操作。
 - curl_cffi worker 只保留 ChatGPT Web 请求转发，不执行注册或凭证创建。
 - 子号凭证能力只保留 PAT 创建、下载、删除和额度刷新。
 - 系统不对接外部 credential-status 服务，Codex 额度直接由目标 workspace 对应凭证查询。

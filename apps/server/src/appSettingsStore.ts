@@ -1,7 +1,8 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NotificationSettings } from '@team-manager/shared';
+import { ensurePrivateDirectory, ensurePrivateFile, writePrivateFile } from './privateDataFile.js';
 
 const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   advanceReminderDays: 3,
@@ -100,10 +101,9 @@ export class AppSettingsStore {
   }
 
   async init(): Promise<void> {
-    if (!existsSync(this.dataDir)) {
-      await mkdir(this.dataDir, { recursive: true });
-    }
+    await ensurePrivateDirectory(this.dataDir);
     if (existsSync(this.file)) {
+      await ensurePrivateFile(this.file);
       try {
         const raw = await readFile(this.file, 'utf8');
         this.settings = normalizeNotificationSettings(JSON.parse(raw));
@@ -138,6 +138,6 @@ export class AppSettingsStore {
   }
 
   private async persist(): Promise<void> {
-    await writeFile(this.file, JSON.stringify(this.settings, null, 2), 'utf8');
+    await writePrivateFile(this.file, JSON.stringify(this.settings, null, 2));
   }
 }

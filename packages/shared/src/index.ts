@@ -307,9 +307,6 @@ export interface SubaccountRegistrationJobView {
   progress: number;
   email?: string;
   subaccountId?: string;
-  registrationMethod?: 'cloak_browser';
-  cloakProfileId?: string;
-  cloakProfileName?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -326,13 +323,7 @@ export interface Subaccount {
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
   proxy?: string;              // 每子号独立代理
-  registrationPassword?: string; // 自动注册生成的 OpenAI 密码
-  registrationJobId?: string;    // 外部注册服务任务 id，用于幂等交付
-  registeredAt?: number;
-  registrationSource?: string;
-  registrationMethod?: 'cloak_browser';
-  cloakProfileId?: string;
-  cloakProfileName?: string;
+  managedAccountEmail?: string; // GPT Account Manager 的邮箱引用；未关联账号不设置
   chatgptUserId?: string;
   remoteUsername?: string;
   remoteDisplayName?: string;
@@ -365,13 +356,7 @@ export interface SubaccountView {
   groupName?: string;
   chatgptAccountId?: string;
   proxy?: string;
-  registrationPassword?: string;
-  registrationJobId?: string;
-  registeredAt?: number;
-  registrationSource?: string;
-  registrationMethod?: 'cloak_browser';
-  cloakProfileId?: string;
-  cloakProfileName?: string;
+  managedAccountEmail?: string;
   chatgptUserId?: string;
   remoteUsername?: string;
   remoteDisplayName?: string;
@@ -431,7 +416,7 @@ export interface SubaccountCodexCredentialView {
   lastCreatedAt?: number;
 }
 
-/** CPA / Codex 兼容 PAT 凭证 JSON，后端按需显式导出。 */
+/** CPA / Codex PAT 凭证 JSON，后端按需显式导出。 */
 export interface CodexCredentialJson {
   access_token: string;
   personal_access_token: string;

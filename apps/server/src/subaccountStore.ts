@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile, appendFile, unlink } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -13,29 +13,18 @@ import {
   type SubaccountTeamLink,
   type SubaccountView
 } from '@team-manager/shared';
+import {
+  appendPrivateFile,
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFile
+} from './privateDataFile.js';
 
 export interface AppendSubaccountLogInput {
   phase: string;
   status: string;
   message: string;
   data?: Record<string, unknown>;
-}
-
-type LegacySubaccountCodexCredential = SubaccountCodexCredential & {
-  accountId?: unknown;
-  credential?: CodexCredentialJson;
-};
-
-type LegacySubaccount = Subaccount & {
-  codexCredential?: CodexCredentialJson;
-  codexCredentials?: LegacySubaccountCodexCredential[];
-  teamLinks?: SubaccountTeamLink[];
-  lastQuota?: CodexQuotaSnapshot;
-  lastQuotaAt?: number;
-};
-
-function hasOwn(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function codexCredentialAccountId(item: SubaccountCodexCredential): string {
@@ -71,7 +60,7 @@ function normalizeCredentialFileName(input: unknown, email: string, accountId: s
   return safe.endsWith('.json') ? safe : `${safe}.json`;
 }
 
-/** 子号持久化：可信管理后台可查看 Web session 与注册密码；Codex 凭证明文只由显式导出接口返回。 */
+/** 子号持久化：保存 Team 业务需要的 Web Session；账号密码与 CloakBrowser profile 由 Account Manager 持有。 */
 export class SubaccountStore {
   private readonly file: string;
   private readonly logFile: string;
@@ -85,9 +74,9 @@ export class SubaccountStore {
   }
 
   async init(): Promise<void> {
-    if (!existsSync(this.dataDir)) {
-      await mkdir(this.dataDir, { recursive: true });
-    }
+    await ensurePrivateDirectory(this.dataDir);
+    if (existsSync(this.file)) await ensurePrivateFile(this.file);
+    if (existsSync(this.logFile)) await ensurePrivateFile(this.logFile);
     await this.loadSubaccounts();
     await this.loadLogs();
     this.loaded = true;
@@ -203,61 +192,47 @@ export class SubaccountStore {
     return this.toView(next);
   }
 
-  async saveRegisteredSubaccount(input: {
-    registrationJobId?: string;
-    registeredAt?: number;
+  async saveManagedSubaccount(input: {
+    managedAccountEmail: string;
     email: string;
-    password: string;
-    session?: ChatGptSessionInput;
-    source?: string;
-    registrationMethod?: 'cloak_browser';
-    cloakProfileId?: string;
-    cloakProfileName?: string;
+    session: ChatGptSessionInput;
     status?: Subaccount['status'];
     lastError?: string;
   }): Promise<SubaccountView> {
     this.ensureLoaded();
     const email = input.email.trim();
     if (!email) throw new Error('注册结果缺少 email');
-    if (!input.password.trim()) throw new Error('注册结果缺少 password');
-    if (input.session && input.session.user.email.trim().toLowerCase() !== email.toLowerCase()) {
+    const managedAccountEmail = input.managedAccountEmail.trim().toLowerCase();
+    if (managedAccountEmail !== email.toLowerCase()) {
+      throw new Error(`Account Manager 引用与子号邮箱不一致: ${managedAccountEmail} != ${email}`);
+    }
+    if (input.session.user.email.trim().toLowerCase() !== email.toLowerCase()) {
       throw new Error(`注册结果邮箱与 session.user.email 不一致: ${email} != ${input.session.user.email}`);
     }
 
     const now = Date.now();
     const existing = this.findByEmail(email);
-    const failedRegistrationWithExistingSession = !input.session
-      && Boolean(existing?.chatgptAccountId && (existing.webAccessToken || existing.sessionToken))
-      && (input.status === 'error' || input.status === 'verification_required');
     const next: Subaccount = {
       ...existing,
       id: existing?.id ?? randomUUID(),
       email,
       remark: existing?.remark,
       groupName: existing?.groupName,
-      chatgptAccountId: input.session?.account.id ?? existing?.chatgptAccountId,
-      webAccessToken: input.session?.accessToken ?? existing?.webAccessToken,
-      sessionToken: input.session?.sessionToken ?? existing?.sessionToken,
-      sessionTokenStatus: input.session ? 'unknown' : existing?.sessionTokenStatus,
-      sessionTokenCheckedAt: input.session ? undefined : existing?.sessionTokenCheckedAt,
-      webAccessTokenStatus: input.session ? 'unknown' : existing?.webAccessTokenStatus,
-      webAccessTokenCheckedAt: input.session ? undefined : existing?.webAccessTokenCheckedAt,
+      chatgptAccountId: input.session.account.id,
+      webAccessToken: input.session.accessToken,
+      sessionToken: input.session.sessionToken,
+      sessionTokenStatus: 'unknown',
+      sessionTokenCheckedAt: undefined,
+      webAccessTokenStatus: 'unknown',
+      webAccessTokenCheckedAt: undefined,
       proxy: existing?.proxy,
-      registrationPassword: input.password,
-      registrationJobId: input.registrationJobId ?? existing?.registrationJobId,
-      registeredAt: existing?.registeredAt ?? input.registeredAt ?? now,
-      registrationSource: input.source,
-      registrationMethod: input.registrationMethod ?? existing?.registrationMethod,
-      cloakProfileId: input.cloakProfileId ?? existing?.cloakProfileId,
-      cloakProfileName: input.cloakProfileName ?? existing?.cloakProfileName,
+      managedAccountEmail,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,
-      status: failedRegistrationWithExistingSession
-        ? existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'
-        : input.status ?? (existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'),
+      status: input.status ?? (existing?.codexCredentials?.length ? 'codex_ready' : 'session_ready'),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      lastRefreshAt: input.session ? undefined : existing?.lastRefreshAt,
+      lastRefreshAt: undefined,
       lastError: input.lastError
     };
 
@@ -471,7 +446,7 @@ export class SubaccountStore {
       createdAt: Date.now()
     };
     this.logs.push(log);
-    await appendFile(this.logFile, `${JSON.stringify(log)}\n`, 'utf8');
+    await appendPrivateFile(this.logFile, `${JSON.stringify(log)}\n`);
     return log;
   }
 
@@ -496,13 +471,7 @@ export class SubaccountStore {
       groupName: normalizeSubaccountGroupName(account.groupName),
       chatgptAccountId: account.chatgptAccountId,
       proxy: account.proxy,
-      registrationPassword: account.registrationPassword,
-      registrationJobId: account.registrationJobId,
-      registeredAt: account.registeredAt,
-      registrationSource: account.registrationSource,
-      registrationMethod: account.registrationMethod,
-      cloakProfileId: account.cloakProfileId,
-      cloakProfileName: account.cloakProfileName,
+      managedAccountEmail: account.managedAccountEmail,
       chatgptUserId: account.chatgptUserId,
       remoteUsername: account.remoteUsername,
       remoteDisplayName: account.remoteDisplayName,
@@ -569,8 +538,8 @@ export class SubaccountStore {
     const patCredential = parsePersonalAccessTokenCredential(credential);
     if (!patCredential) throw new Error('只允许保存 PAT 凭证');
     const dir = join(this.dataDir, CREDENTIAL_DIR, subaccountId);
-    await mkdir(dir, { recursive: true });
-    await writeFile(this.credentialPath(subaccountId, fileName), JSON.stringify(patCredential, null, 2), 'utf8');
+    await ensurePrivateDirectory(dir);
+    await writePrivateFile(this.credentialPath(subaccountId, fileName), JSON.stringify(patCredential, null, 2));
   }
 
   private readCodexCredential(account: Subaccount, metadata: SubaccountCodexCredential): CodexCredentialJson | undefined {
@@ -584,7 +553,7 @@ export class SubaccountStore {
   }
 
   private async persist(): Promise<void> {
-    await writeFile(this.file, JSON.stringify([...this.subaccounts.values()].map(sanitizeSubaccount), null, 2), 'utf8');
+    await writePrivateFile(this.file, JSON.stringify([...this.subaccounts.values()].map(sanitizeSubaccount), null, 2));
   }
 }
 
@@ -593,24 +562,18 @@ async function normalizeStoredSubaccount(
   dataDir: string
 ): Promise<{ account: Subaccount; changed: boolean } | undefined> {
   if (!raw || typeof raw !== 'object') return undefined;
-  const record = raw as LegacySubaccount;
+  const record = raw as Subaccount;
   if (!record.id) return undefined;
-  let changed =
-    hasOwn(record, 'codexCredential') ||
-    hasOwn(record, 'lastQuota') ||
-    hasOwn(record, 'lastQuotaAt') ||
-    record.groupName !== normalizeSubaccountGroupName(record.groupName);
+  let changed = record.groupName !== normalizeSubaccountGroupName(record.groupName);
   const credentials: SubaccountCodexCredential[] = [];
   for (const item of record.codexCredentials ?? []) {
-    const legacyCredential = parsePersonalAccessTokenCredential(item.credential);
-    const accountId =
-      legacyCredential?.account_id?.trim() || (typeof item.accountId === 'string' ? item.accountId.trim() : '');
+    const accountId = typeof item.accountId === 'string' ? item.accountId.trim() : '';
     if (!accountId) {
       changed = true;
       continue;
     }
-    const fileName = normalizeCredentialFileName(item.fileName, legacyCredential?.email ?? record.email, accountId);
-    const credential = legacyCredential ?? await readPersonalAccessTokenCredentialFile(dataDir, record.id, fileName);
+    const fileName = normalizeCredentialFileName(item.fileName, record.email, accountId);
+    const credential = await readPersonalAccessTokenCredentialFile(dataDir, record.id, fileName);
     if (!credential) {
       changed = true;
       await unlink(join(dataDir, CREDENTIAL_DIR, record.id, fileName)).catch((error: NodeJS.ErrnoException) => {
@@ -618,13 +581,8 @@ async function normalizeStoredSubaccount(
       });
       continue;
     }
-    if (legacyCredential) {
-      await writeCredentialFile(dataDir, record.id, fileName, legacyCredential);
-      changed = true;
-    }
     changed =
       changed ||
-      hasOwn(item, 'credential') ||
       item.accountId !== accountId ||
       item.fileName !== fileName ||
       item.groupName !== normalizeGroupName(item.groupName);
@@ -636,22 +594,6 @@ async function normalizeStoredSubaccount(
       lastQuota: item.lastQuota,
       lastQuotaAt: item.lastQuotaAt,
       lastCreatedAt: item.lastCreatedAt
-    });
-  }
-  const legacySingleCredential = parsePersonalAccessTokenCredential(record.codexCredential);
-  if (legacySingleCredential?.account_id) {
-    changed = true;
-    const accountId = legacySingleCredential.account_id.trim();
-    const fileName = normalizeCredentialFileName(undefined, legacySingleCredential.email || record.email, accountId);
-    await writeCredentialFile(dataDir, record.id, fileName, legacySingleCredential);
-    credentials.push({
-      accountId,
-      fileName,
-      groupName: DEFAULT_CREDENTIAL_GROUP,
-      planType: legacySingleCredential.plan_type,
-      lastQuota: record.lastQuota,
-      lastQuotaAt: record.lastQuotaAt,
-      lastCreatedAt: undefined
     });
   }
   const teamLinks = (record.teamLinks ?? []).map((link) => {
@@ -675,13 +617,7 @@ async function normalizeStoredSubaccount(
     webAccessToken: record.webAccessToken,
     sessionToken: record.sessionToken,
     proxy: record.proxy,
-    registrationPassword: record.registrationPassword,
-    registrationJobId: record.registrationJobId,
-    registeredAt: record.registeredAt,
-    registrationSource: record.registrationSource,
-    registrationMethod: record.registrationMethod,
-    cloakProfileId: record.cloakProfileId,
-    cloakProfileName: record.cloakProfileName,
+    managedAccountEmail: record.managedAccountEmail,
     chatgptUserId: record.chatgptUserId,
     remoteUsername: record.remoteUsername,
     remoteDisplayName: record.remoteDisplayName,
@@ -719,13 +655,7 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     webAccessToken: input.webAccessToken,
     sessionToken: input.sessionToken,
     proxy: input.proxy?.trim() || undefined,
-    registrationPassword: input.registrationPassword,
-    registrationJobId: input.registrationJobId?.trim() || undefined,
-    registeredAt: input.registeredAt,
-    registrationSource: input.registrationSource,
-    registrationMethod: input.registrationMethod,
-    cloakProfileId: input.cloakProfileId,
-    cloakProfileName: input.cloakProfileName,
+    managedAccountEmail: input.managedAccountEmail?.trim().toLowerCase() || undefined,
     chatgptUserId: input.chatgptUserId?.trim() || undefined,
     remoteUsername: input.remoteUsername?.trim() || undefined,
     remoteDisplayName: input.remoteDisplayName?.trim() || undefined,
@@ -824,7 +754,7 @@ function dedupeCodexCredentials(items: SubaccountCodexCredential[]): SubaccountC
 function statusAfterCredentialRemoval(account: Subaccount, credentials: SubaccountCodexCredential[]): Subaccount['status'] {
   if (credentials.length) return 'codex_ready';
   if (account.status === 'account_locked' || account.status === 'verification_required') return account.status;
-  if (account.webAccessToken || account.registrationPassword) return 'session_ready';
+  if (account.webAccessToken || account.sessionToken) return 'session_ready';
   return 'empty';
 }
 
@@ -837,8 +767,8 @@ async function writeCredentialFile(
   const patCredential = parsePersonalAccessTokenCredential(credential);
   if (!patCredential) throw new Error('只允许保存 PAT 凭证');
   const dir = join(dataDir, CREDENTIAL_DIR, subaccountId);
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, fileName), JSON.stringify(patCredential, null, 2), 'utf8');
+  await ensurePrivateDirectory(dir);
+  await writePrivateFile(join(dir, fileName), JSON.stringify(patCredential, null, 2));
 }
 
 async function readPersonalAccessTokenCredentialFile(
@@ -846,9 +776,14 @@ async function readPersonalAccessTokenCredentialFile(
   subaccountId: string,
   fileName: string
 ): Promise<CodexCredentialJson | undefined> {
+  const dir = join(dataDir, CREDENTIAL_DIR, subaccountId);
+  const path = join(dir, fileName);
+  if (!existsSync(path)) return undefined;
   try {
+    await ensurePrivateDirectory(dir);
+    await ensurePrivateFile(path);
     return parsePersonalAccessTokenCredential(
-      JSON.parse(await readFile(join(dataDir, CREDENTIAL_DIR, subaccountId, fileName), 'utf8'))
+      JSON.parse(await readFile(path, 'utf8'))
     );
   } catch {
     return undefined;

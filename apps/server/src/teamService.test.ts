@@ -608,8 +608,8 @@ describe('Parent account local-profile API', () => {
       body: JSON.stringify({
         remark: '数组输入母号',
         session: [
-          { name: 'legacy-token-0', value: 'session-token-0' },
-          { name: 'legacy-token-1', value: 'session-token-1' }
+          { name: 'session-cookie-0', value: 'session-token-0' },
+          { name: 'session-cookie-1', value: 'session-token-1' }
         ]
       })
     });
@@ -825,20 +825,18 @@ describe('AccountStore account sanitation', () => {
       JSON.stringify(
         [
           {
-            id: 'account-legacy',
+            id: 'account-current',
             remark: '母号备注',
             limitType: 'weekly',
             accountId: 'workspace-id',
             email: 'owner@example.com',
             accessToken: 'token',
-            memberCount: 3,
-            chatgptSeatCount: 1,
-            pendingInviteCount: 2,
+            unsupportedField: 'discard me',
             membersCache: [
               {
                 userId: 'user-a',
                 email: 'a@example.com',
-                name: '旧远端显示名',
+                unsupportedField: 'discard me',
                 remoteName: '当前远端显示名',
                 role: 'standard-user',
                 seat: 'default'
@@ -855,16 +853,6 @@ describe('AccountStore account sanitation', () => {
                 isScimManaged: false
               }
             ],
-            memberProfiles: {
-              'legacy@example.com': {
-                email: 'Legacy@Example.com',
-                remark: '旧邮箱资料',
-                expiresOn: '2026-08-01',
-                expireRemove: true,
-                expireReminder: false,
-                updatedAt: 80
-              }
-            },
             seatSlots: [
               {
                 seatKey: 'abcd1234efgh5678',
@@ -876,7 +864,7 @@ describe('AccountStore account sanitation', () => {
                 status: 'member',
                 currentUserId: 'user-a',
                 lastSwap: {
-                  id: 'swap-legacy',
+                  id: 'swap-existing',
                   status: 'succeeded',
                   fromEmail: 'old@example.com',
                   toEmail: 'A@Example.com',
@@ -920,48 +908,35 @@ describe('AccountStore account sanitation', () => {
 
     const store = new AccountStore(tempDir);
     await store.init();
-    const stored = store.get('account-legacy') as Record<string, unknown> | undefined;
+    const stored = store.get('account-current') as Record<string, unknown> | undefined;
     const persisted = JSON.parse(await readFile(join(tempDir, 'accounts.json'), 'utf8')) as Record<string, unknown>[];
     const storedMember = (stored?.membersCache as Record<string, unknown>[] | undefined)?.[0];
     const persistedMember = (persisted[0]?.membersCache as Record<string, unknown>[] | undefined)?.[0];
     const storedSlots = stored?.seatSlots as Record<string, unknown>[] | undefined;
     const persistedSlots = persisted[0]?.seatSlots as Record<string, unknown>[] | undefined;
 
-    assert.equal(hasOwn(stored, 'memberCount'), false);
-    assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
-    assert.equal(hasOwn(stored, 'pendingInviteCount'), false);
-    assert.equal(hasOwn(stored, 'memberProfiles'), false);
+    assert.equal(hasOwn(stored, 'unsupportedField'), false);
     assert.equal(stored?.remark, '母号备注');
     assert.equal(stored?.groupName, '默认分组');
     assert.equal(stored?.limitType, 'weekly');
-    assert.equal(hasOwn(persisted[0], 'memberCount'), false);
-    assert.equal(hasOwn(persisted[0], 'chatgptSeatCount'), false);
-    assert.equal(hasOwn(persisted[0], 'pendingInviteCount'), false);
-    assert.equal(hasOwn(persisted[0], 'memberProfiles'), false);
+    assert.equal(hasOwn(persisted[0], 'unsupportedField'), false);
     assert.equal(persisted[0]!.remark, '母号备注');
     assert.equal(persisted[0]!.groupName, '默认分组');
     assert.equal(persisted[0]!.limitType, 'weekly');
-    assert.equal(hasOwn(storedMember, 'name'), false);
-    assert.equal(hasOwn(persistedMember, 'name'), false);
+    assert.equal(hasOwn(storedMember, 'unsupportedField'), false);
+    assert.equal(hasOwn(persistedMember, 'unsupportedField'), false);
     assert.equal(storedMember?.remoteName, '当前远端显示名');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
-    assert.equal(storedSlots?.length, 2);
-    assert.equal(persistedSlots?.length, 2);
+    assert.equal(storedSlots?.length, 1);
+    assert.equal(persistedSlots?.length, 1);
     assert.equal(storedSlots?.[0]?.seatKey, 'abcd1234efgh5678');
     assert.equal(storedSlots?.[0]?.email, 'a@example.com');
     assert.equal(storedSlots?.[0]?.seat, 'default');
     assert.equal(storedSlots?.[0]?.status, 'member');
     assert.equal((storedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal((persistedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
-    assert.equal(((storedSlots?.[0]?.swapHistory as Record<string, unknown>[] | undefined)?.[0])?.id, 'swap-legacy');
-    const migratedSlot = storedSlots?.find((slot) => slot.email === 'legacy@example.com');
-    assert.match(String(migratedSlot?.seatKey), /^[A-Za-z0-9]{16}$/);
-    assert.equal(migratedSlot?.remark, '旧邮箱资料');
-    assert.equal(migratedSlot?.expiresOn, '2026-08-01');
-    assert.equal(migratedSlot?.status, 'unknown');
-    assert.equal(migratedSlot?.expireRemove, true);
-    assert.equal(migratedSlot?.expireReminder, false);
+    assert.equal(((storedSlots?.[0]?.swapHistory as Record<string, unknown>[] | undefined)?.[0])?.id, 'swap-existing');
   });
 });
 
