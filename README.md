@@ -34,12 +34,12 @@ corepack pnpm docs:build
 - 运行时数据放在部署环境挂载的 `data/`，环境变量放 `.env` 或部署系统配置。
 - git 管理文件不得写真实域名、IP、端口、账号、token、代理地址或本机部署路径；本机事实记录到 `.codex/AGENTS.md`。
 - GPT Account Manager 和 curl_cffi worker 连接信息属于运行环境配置；源码不保存真实连接参数。
-- 管理后台普通 view 可返回账号本地保存的 Web session JSON 和代理地址，供本地资料编辑回填；只有显式凭证导出接口才返回 Codex credential JSON。
+- 母号和子号列表只返回摘要，普通详情不返回 Web Session JSON 或代理地址；编辑本地资料时通过独立 `local-profile` 接口按需读取。只有显式凭证导出接口才返回 Codex credential JSON。
 - 不要通过编辑 `data/*.json` 执行业务操作。业务变更走 API、UI 或 service/store 方法。
 
 ## 功能范围
 
-- **母号管理**：录入、删除、刷新 Team 母号，查看 workspace 状态与本地缓存。
+- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；有 GAM 关联的母号可独立开通 0.52 Codex Workspace 或双席位 Team。0.52 usage-based Workspace 与 Team Workspace 都支持成员、邀请、设置和账单操作；双席位状态只表示是否购买 Team 套餐。所有母号均可通过“同步 Workspace”发现外部开通的 0.52 或 Team 并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；自动点击 Pay 默认关闭。
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号和子号都可按各自顶层 `groupName` 分组；母号另用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。子号顶层分组与 `codexCredentials[].groupName` 的 CPA 凭证号池分组彼此独立。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
@@ -81,7 +81,7 @@ corepack pnpm docs:build
 | `default` | ChatGPT 固定席位，计入 Team 套餐名额 |
 | `usage_based` | Codex/usage-based 席位，不计入固定 ChatGPT 席位 |
 
-账单红线：Team 套餐包含的 ChatGPT 固定席位数量有限。邀请或切换到 `default` 可能增加账单，service 层会返回 HTTP 409，调用方必须显式传 `confirmBillingRisk:true` 后才继续。
+账单边界：Team 套餐包含的 ChatGPT 固定席位数量有限。邀请或切换到 `default` 可能增加账单，系统不再预检或弹出额外确认，操作员根据页面展示的成员和邀请数量自行决定。
 
 数据模型原则：
 
@@ -112,9 +112,9 @@ corepack pnpm docs:build
 
 必需字段是 `user.email`、`account.id` 和 `accessToken`；建议同时包含 `sessionToken`。系统直接保存 `sessionToken`，后续可按目标 workspace 调用 `/api/auth/session` 换取新的 Web access token。数组输入和浏览器导出状态不再支持。
 
-录入或替换母号 session 时，系统不会直接信任输入中的 `account.id`。后端会先调用 `accounts/check`，只把当前 session 可访问且角色为 owner/admin 的 Team workspace 保存为母号 `accountId`；如果输入是个人 session 但包含 `sessionToken`，系统会再通过 `/api/auth/session` 换取目标 Team workspace 的 Web access token。后续母号 backend-api 请求遇到 `token_invalidated` 时，也会用已保存的 `sessionToken` 换取新 Web access token 并重试一次。
+录入或替换母号 session 时，系统不会直接信任输入中的 `account.id`。后端会先调用 `accounts/check`，只把当前 session 可访问且角色为 owner/admin 的 Workspace 保存为母号 `accountId`；如果输入是个人 session 但包含 `sessionToken`，系统会再通过 `/api/auth/session` 换取目标 Workspace 的 Web access token。后续母号 backend-api 请求遇到 `token_invalidated` 时，也会用已保存的 `sessionToken` 换取新 Web access token 并重试一次。
 
-多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。若当前 ChatGPT session 可见多个可管理 Team workspace 且无法从当前/已有 workspace 判断目标，系统会拒绝自动选择，避免把母号绑定到错误 Team。
+多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。若当前 ChatGPT session 可见多个可管理 Workspace 且无法从当前/已有 workspace 判断目标，系统会拒绝自动选择，避免把母号绑定到错误空间。
 
 GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType` 和 `nextRenewalOn`，子号也使用独立的顶层 `groupName` 进行本地分组。母号和子号都可保存 `proxy`，ChatGPT Web 请求、workspace token 换取、子号 PAT 创建和额度刷新会优先使用对应账号的代理；未配置账号代理时才使用运行环境全局代理。本地资料弹窗会回填已保存的分组、session JSON 和代理地址。
 
@@ -152,6 +152,7 @@ corepack pnpm docs:build
 - [`docs/dev-spec/data-model.md`](./docs/dev-spec/data-model.md)：母号、子号、缓存、派生字段和本地资料编辑的数据模型规则。
 - [`docs/dev-spec/subaccount-management.md`](./docs/dev-spec/subaccount-management.md)：子号池、PAT、额度查询和 Team 关联同步的实现边界。
 - [`docs/dev-spec/subaccount-registration-sop.md`](./docs/dev-spec/subaccount-registration-sop.md)：Account Manager 注册操作、Session 交付与幂等规则。
+- [`docs/dev-spec/parent-account-registration.md`](./docs/dev-spec/parent-account-registration.md)：母号自动注册、0.52 开通与 Workspace 导入状态机。
 - [`docs/dev-spec/chatgpt-backend-api/README.md`](./docs/dev-spec/chatgpt-backend-api/README.md)：ChatGPT Web backend-api 脱敏样本索引。
 
 ## 当前边界

@@ -216,6 +216,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
   const seatSlots = normalizeSeatSlots(input.seatSlots);
   const normalized: Account = {
     id: input.id,
+    ...(normalizeEmail(input.managedAccountEmail) ? { managedAccountEmail: normalizeEmail(input.managedAccountEmail) } : {}),
     ...(remark ? { remark } : {}),
     groupName: readTrimmedString(input.groupName) || DEFAULT_ACCOUNT_GROUP,
     limitType: normalizeLimitType(input.limitType),
@@ -300,6 +301,18 @@ export class AccountStore {
   get(id: string): Account | undefined {
     this.ensureLoaded();
     return this.accounts.get(id);
+  }
+
+  getByWorkspaceAccountId(accountId: string): Account | undefined {
+    this.ensureLoaded();
+    const target = accountId.trim();
+    return [...this.accounts.values()].find((account) => account.accountId === target);
+  }
+
+  getByManagedAccountEmail(email: string): Account | undefined {
+    this.ensureLoaded();
+    const target = normalizeEmail(email);
+    return [...this.accounts.values()].find((account) => account.managedAccountEmail === target);
   }
 
   async add(input: Omit<Account, 'id'>): Promise<Account> {

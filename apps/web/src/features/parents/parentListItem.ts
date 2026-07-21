@@ -6,9 +6,11 @@ export function parentListIdentity(account: { remark?: string; email: string }):
 }
 
 export function parentChatGptSeatUsageCount(account: {
+  chatGptSeatUsageCount?: number;
   membersCache?: unknown[];
   pendingInvitesCache?: unknown[];
 }): number | undefined {
+  if (typeof account.chatGptSeatUsageCount === 'number') return account.chatGptSeatUsageCount;
   if (!account.membersCache && !account.pendingInvitesCache) return undefined;
   const memberSeats = account.membersCache?.filter((member) => seatOf(member) === 'default').length ?? 0;
   const invitedSeats = account.pendingInvitesCache?.filter((invite) => seatOf(invite) === 'default').length ?? 0;
@@ -16,9 +18,11 @@ export function parentChatGptSeatUsageCount(account: {
 }
 
 export function parentMemberAndInviteCount(account: {
+  memberAndInviteCount?: number;
   membersCache?: unknown[];
   pendingInvitesCache?: unknown[];
 }): number | undefined {
+  if (typeof account.memberAndInviteCount === 'number') return account.memberAndInviteCount;
   if (!account.membersCache && !account.pendingInvitesCache) return undefined;
   return (account.membersCache?.length ?? 0) + (account.pendingInvitesCache?.length ?? 0);
 }

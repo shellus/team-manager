@@ -1,6 +1,3 @@
-import { BILLING_RISK_CONFIRM_MESSAGE } from '@team-manager/shared';
-import { ApiError } from '../api.js';
-
 export function formatDateTime(value?: number | string): string {
   if (!value) return '暂无';
   const date = new Date(value);
@@ -21,10 +18,6 @@ export function formatRelativeTime(value?: number): string {
 
 export function shortText(value: string, max = 120): string {
   return value.length > max ? `${value.slice(0, max)}...` : value;
-}
-
-export function isBillingRiskError(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409 && error.message === BILLING_RISK_CONFIRM_MESSAGE;
 }
 
 export function parseJsonObject(raw: string): Record<string, unknown> {

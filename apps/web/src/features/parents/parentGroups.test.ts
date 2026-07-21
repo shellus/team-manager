@@ -13,7 +13,9 @@ function account(id: string, groupName: string): AccountView {
     email: `${id}@example.com`,
     groupName,
     limitType: 'unknown',
-    accountId: `workspace-${id}`
+    accountId: `workspace-${id}`,
+    hasTeamSubscription: true,
+    canManageWorkspace: true
   };
 }
 

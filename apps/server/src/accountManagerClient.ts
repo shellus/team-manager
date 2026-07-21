@@ -1,16 +1,43 @@
 import type {
+  AccountManagerOperationStatus,
+  AccountManagerOperationView,
   ChatGptSessionInput,
+  OpenCodexSpaceRequest,
+  OpenTeamSubscriptionRequest,
   SubaccountRegistrationJobStatus,
   SubaccountRegistrationJobView
 } from '@team-manager/shared';
+
+export const ACCOUNT_MANAGER_REQUEST_TAGS = {
+  parent: 'team-manager:parent',
+  subaccount: 'team-manager:subaccount'
+} as const;
 
 export interface AccountRegistrationRequest {
   mailGroup?: string;
   email?: string;
   password?: string;
+  requestTag?: string;
 }
 
-interface AccountOperationResponse {
+export interface ManagedAccountWorkspace {
+  id: string;
+  name?: string;
+  structure: string;
+  planType: string;
+  isDeactivated?: boolean;
+  visible: boolean;
+}
+
+export interface ManagedAccountSummary {
+  id: string;
+  email: string;
+  hasCodexSpace: boolean;
+  hasTeamSubscription: boolean;
+  workspaces: ManagedAccountWorkspace[];
+}
+
+interface RawAccountOperationResponse {
   id: string;
   accountId?: string;
   type: string;
@@ -19,6 +46,9 @@ interface AccountOperationResponse {
   message?: string;
   email?: string;
   progress: number;
+  control?: AccountManagerOperationView['control'];
+  requestSummary?: unknown;
+  result?: unknown;
   errorCode?: string;
   errorMessage?: string;
   createdAt: number;
@@ -26,13 +56,34 @@ interface AccountOperationResponse {
   completedAt?: number;
 }
 
+export interface AccountManagerOperationFilter {
+  type?: string;
+  status?: AccountManagerOperationStatus;
+  requestTag?: string;
+}
+
 export interface AccountManagerGateway {
   health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
-  listRegistrations(): Promise<SubaccountRegistrationJobView[]>;
+  listAccounts?(): Promise<ManagedAccountSummary[]>;
+  listOperations(filter?: AccountManagerOperationFilter): Promise<AccountManagerOperationView[]>;
+  operation(id: string): Promise<AccountManagerOperationView>;
+  listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]>;
+  listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]>;
   startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView>;
   retryRegistration(id: string): Promise<SubaccountRegistrationJobView>;
+  rotateOperationIp(id: string): Promise<AccountManagerOperationView>;
+  terminateOperation(id: string): Promise<AccountManagerOperationView>;
   removeOperation(id: string): Promise<boolean>;
+  account(accountId: string): Promise<ManagedAccountSummary>;
   session(accountId: string): Promise<ChatGptSessionInput>;
+  openCodexSpace(
+    accountId: string,
+    input: OpenCodexSpaceRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
+  openTeamSubscription(
+    accountId: string,
+    input: OpenTeamSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
 }
 
 export class AccountManagerClient implements AccountManagerGateway {
@@ -52,25 +103,98 @@ export class AccountManagerClient implements AccountManagerGateway {
     };
   }
 
-  async listRegistrations(): Promise<SubaccountRegistrationJobView[]> {
-    const operations = await this.request<AccountOperationResponse[]>('GET', '/v1/operations?type=register');
+  listAccounts(): Promise<ManagedAccountSummary[]> {
+    return this.request('GET', '/v1/accounts');
+  }
+
+  async listOperations(filter: AccountManagerOperationFilter = {}): Promise<AccountManagerOperationView[]> {
+    const params = new URLSearchParams();
+    if (filter.type) params.set('type', filter.type);
+    if (filter.status) params.set('status', filter.status);
+    const suffix = params.size ? `?${params.toString()}` : '';
+    const operations = (await this.request<RawAccountOperationResponse[]>('GET', `/v1/operations${suffix}`))
+      .map(toOperation);
+    return filter.requestTag
+      ? operations.filter((operation) => operation.requestSummary?.requestTag === filter.requestTag)
+      : operations;
+  }
+
+  async operation(id: string): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request('GET', `/v1/operations/${encodeURIComponent(id)}`));
+  }
+
+  async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
+    return (await this.request<RawAccountOperationResponse[]>(
+      'GET',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations`
+    )).map(toOperation);
+  }
+
+  async listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]> {
+    const operations = await this.listOperations({ type: 'register', requestTag });
     return operations.map(toRegistrationJob);
   }
 
   async startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
-    return toRegistrationJob(await this.request('POST', '/v1/accounts/register', input));
+    return toRegistrationJob(toOperation(await this.request('POST', '/v1/accounts/register', input)));
   }
 
   async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
-    return toRegistrationJob(await this.request('POST', `/v1/operations/${encodeURIComponent(id)}/retry`, {}));
+    return toRegistrationJob(toOperation(await this.request(
+      'POST',
+      `/v1/operations/${encodeURIComponent(id)}/retry`,
+      {}
+    )));
+  }
+
+  async rotateOperationIp(id: string): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/operations/${encodeURIComponent(id)}/controls/rotate-ip`,
+      {}
+    ));
+  }
+
+  async terminateOperation(id: string): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/operations/${encodeURIComponent(id)}/controls/terminate`,
+      {}
+    ));
   }
 
   removeOperation(id: string): Promise<boolean> {
     return this.request('DELETE', `/v1/operations/${encodeURIComponent(id)}`);
   }
 
+  account(accountId: string): Promise<ManagedAccountSummary> {
+    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}`);
+  }
+
   session(accountId: string): Promise<ChatGptSessionInput> {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/session`);
+  }
+
+  async openCodexSpace(
+    accountId: string,
+    input: OpenCodexSpaceRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-codex-space`,
+      input
+    ));
+  }
+
+  async openTeamSubscription(
+    accountId: string,
+    input: OpenTeamSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-team-subscription`,
+      input
+    ));
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -110,7 +234,28 @@ export function createAccountManagerClient(): AccountManagerClient | undefined {
   return baseUrl && token ? new AccountManagerClient(baseUrl, token) : undefined;
 }
 
-function toRegistrationJob(operation: AccountOperationResponse): SubaccountRegistrationJobView {
+function toOperation(operation: RawAccountOperationResponse): AccountManagerOperationView {
+  return {
+    id: operation.id,
+    ...(operation.accountId ? { accountId: operation.accountId } : {}),
+    type: operation.type,
+    status: normalizeOperationStatus(operation.status),
+    phase: operation.phase,
+    ...(operation.message ? { message: operation.message } : {}),
+    ...(operation.email ? { email: operation.email } : {}),
+    progress: operation.progress,
+    ...(operation.control ? { control: operation.control } : {}),
+    ...(isRecord(operation.requestSummary) ? { requestSummary: operation.requestSummary } : {}),
+    ...(isRecord(operation.result) ? { result: operation.result } : {}),
+    ...(operation.errorCode ? { errorCode: operation.errorCode } : {}),
+    ...(operation.errorMessage ? { errorMessage: operation.errorMessage } : {}),
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    ...(operation.completedAt ? { completedAt: operation.completedAt } : {})
+  };
+}
+
+function toRegistrationJob(operation: AccountManagerOperationView): SubaccountRegistrationJobView {
   const status = normalizeRegistrationStatus(operation.status);
   return {
     id: operation.id,
@@ -126,10 +271,22 @@ function toRegistrationJob(operation: AccountOperationResponse): SubaccountRegis
   };
 }
 
-function normalizeRegistrationStatus(status: string): SubaccountRegistrationJobStatus {
+function normalizeOperationStatus(status: string): AccountManagerOperationStatus {
+  if (
+    status === 'queued' || status === 'running' || status === 'waiting_for_otp' ||
+    status === 'waiting_manual' || status === 'succeeded' || status === 'failed' || status === 'interrupted'
+  ) return status;
+  return 'running';
+}
+
+function normalizeRegistrationStatus(status: AccountManagerOperationStatus): SubaccountRegistrationJobStatus {
   if (
     status === 'queued' || status === 'running' || status === 'waiting_manual' ||
     status === 'succeeded' || status === 'failed' || status === 'interrupted'
   ) return status;
   return 'running';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

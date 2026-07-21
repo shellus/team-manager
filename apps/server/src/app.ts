@@ -13,6 +13,8 @@ import { AppSettingsStore } from './appSettingsStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
+import { ParentAccountManagerService } from './parentAccountManagerService.js';
+import { parseOpenCodexSpaceRequest } from './openCodexSpaceRequest.js';
 import {
   createAccountManagerClient,
   type AccountManagerGateway
@@ -21,9 +23,11 @@ import type { Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
   InviteRequest,
+  OpenTeamSubscriptionRequest,
   PublicSeatSwapRequest,
   SeatType,
-  Subaccount
+  Subaccount,
+  SubaccountTeamLink
 } from '@team-manager/shared';
 
 export interface BuildAppDeps {
@@ -82,12 +86,14 @@ export async function buildApp({
   const service = new TeamService(store, teamTransport, accountBillingStore);
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
+  const accountManager = subaccountAccountManager ?? createAccountManagerClient();
   const subaccountService = new SubaccountService(
     subaccountStore,
     subaccountQuotaTransport,
     teamTransport,
-    subaccountAccountManager ?? createAccountManagerClient()
+    accountManager
   );
+  const parentAccountManagerService = new ParentAccountManagerService(store, service, accountManager);
 
   const syncTeamLinksByChildWorkspaces = async (id: string, subaccount: Subaccount) => {
     if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
@@ -134,88 +140,42 @@ export async function buildApp({
     );
     const matchedLinkIds = new Set<string>();
     const matchedWorkspaceIds = new Set<string>();
-    const errors: Array<{ accountId: string; message: string }> = [];
-    let updated = subaccountStore.list().find((item) => item.id === id);
-    let found = 0;
-    let removed = 0;
-    let unknown = 0;
+    const nextLinks: Array<Omit<SubaccountTeamLink, 'updatedAt'>> = [];
 
     for (const childAccount of childAccounts) {
-      if (!isTeamWorkspaceAccount(childAccount)) continue;
+      if (!isWorkspaceAccount(childAccount)) continue;
       const parent = parentByWorkspaceId.get(childAccount.accountId);
       const linkAccountId = parent?.id ?? childAccount.accountId;
       const existing = existingLinks.get(linkAccountId) ?? existingLinksByWorkspaceId.get(childAccount.accountId);
       matchedLinkIds.add(linkAccountId);
       if (existing) matchedLinkIds.add(existing.accountId);
       matchedWorkspaceIds.add(childAccount.accountId);
-      try {
-        const relation = await service.findSessionEmailRelation(
-          {
-            accountId: childAccount.accountId,
-            accessToken: childWebAccessToken,
-            proxy: subaccount.proxy,
-            sessionToken: subaccount.sessionToken,
-            onAccessTokenRefreshed: updateChildWebAccessToken
-          },
-          subaccount.email
-        );
-        if (relation.status !== 'member') {
-          updated = await subaccountStore.saveTeamLink(id, {
-            accountId: linkAccountId,
-            workspaceId: childAccount.accountId,
-            workspaceName: childAccount.workspaceName,
-            planType: childAccount.planType,
-            role: childAccount.role,
-            seat: existing?.seat ?? 'usage_based',
-            status: 'unknown'
-          });
-          unknown += 1;
-          continue;
-        }
-        updated = await subaccountStore.saveTeamLink(id, {
-          accountId: linkAccountId,
-          workspaceId: childAccount.accountId,
-          workspaceName: childAccount.workspaceName,
-          planType: childAccount.planType,
-          role: childAccount.role,
-          seat: relation.seat ?? existing?.seat ?? 'usage_based',
-          status: 'member'
-        });
-        found += 1;
-      } catch (e) {
-        errors.push({ accountId: linkAccountId, message: (e as Error).message });
-        updated = await subaccountStore.saveTeamLink(id, {
-          accountId: linkAccountId,
-          workspaceId: childAccount.accountId,
-          workspaceName: childAccount.workspaceName,
-          planType: childAccount.planType,
-          role: childAccount.role,
-          seat: existing?.seat ?? 'usage_based',
-          status: 'unknown'
-        });
-        unknown += 1;
-      }
+      nextLinks.push({
+        accountId: linkAccountId,
+        workspaceId: childAccount.accountId,
+        workspaceName: childAccount.workspaceName,
+        planType: childAccount.planType,
+        role: childAccount.role,
+        seat: existing?.seat ?? 'usage_based',
+        status: 'member'
+      });
     }
 
-    for (const existing of existingLinks.values()) {
-      if (matchedLinkIds.has(existing.accountId)) continue;
-      if (existing.workspaceId && matchedWorkspaceIds.has(existing.workspaceId)) continue;
-      updated = await subaccountStore.removeTeamLink(id, existing.workspaceId || existing.accountId);
-      removed += 1;
-    }
+    const removed = [...existingLinks.values()].filter((existing) => (
+      !matchedLinkIds.has(existing.accountId)
+      && (!existing.workspaceId || !matchedWorkspaceIds.has(existing.workspaceId))
+    )).length;
+    const updated = await subaccountStore.replaceTeamLinks(id, nextLinks);
 
     await subaccountStore.appendLog(id, {
       phase: 'team_link_sync',
-      status: errors.length ? 'partial' : 'success',
-      message: `已通过子号可见 workspace 同步 ${found} 个 Team 关联`,
+      status: 'success',
+      message: `已通过子号可见 workspace 同步 ${nextLinks.length} 个 Team 关联`,
       data: {
         source: 'child_accounts_check',
         visibleAccountCount: childAccounts.length,
-        found,
-        removed,
-        unknown,
-        errorCount: errors.length,
-        errors
+        found: nextLinks.length,
+        removed
       }
     });
 
@@ -298,7 +258,7 @@ export async function buildApp({
     return updated ?? subaccountStore.list().find((item) => item.id === id);
   };
 
-  function isTeamWorkspaceAccount(account: {
+  function isWorkspaceAccount(account: {
     accountId: string;
     structure?: string;
     planType?: string;
@@ -399,7 +359,27 @@ export async function buildApp({
   });
 
   // ---- 母号 ----
-  api.get('/accounts', (c) => wrap(c, () => service.listAccounts()));
+  api.get('/accounts/registration/status', (c) =>
+    wrap(c, () => parentAccountManagerService.runtimeStatus())
+  );
+
+  api.get('/accounts/registration/tasks', (c) =>
+    wrap(c, () => parentAccountManagerService.listRegistrationTasks())
+  );
+
+  api.post('/accounts/registration/start', (c) =>
+    wrap(c, () => parentAccountManagerService.startRegistration())
+  );
+
+  api.post('/accounts/registration/tasks/:operationId/retry', (c) =>
+    wrap(c, () => parentAccountManagerService.retryRegistration(c.req.param('operationId')))
+  );
+
+  api.get('/accounts', (c) => wrap(c, () => service.listAccountSummaries()));
+
+  api.get('/accounts/overview', (c) => wrap(c, () => service.listAccountOverview()));
+
+  api.get('/accounts/:id', (c) => wrap(c, () => service.getAccountDetail(c.req.param('id'))));
 
   api.post('/accounts', async (c) => {
     const body = await c.req.json().catch(() => ({}));
@@ -407,6 +387,10 @@ export async function buildApp({
   });
 
   api.delete('/accounts/:id', (c) => wrap(c, () => service.removeAccount(c.req.param('id'))));
+
+  api.get('/accounts/:id/local-profile', (c) =>
+    wrap(c, () => service.getAccountLocalProfile(c.req.param('id')))
+  );
 
   api.patch('/accounts/:id/local-profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -421,6 +405,41 @@ export async function buildApp({
   });
 
   api.post('/accounts/:id/refresh', (c) => wrap(c, () => service.refreshAccount(c.req.param('id'))));
+
+  api.get('/accounts/:id/account-manager/status', (c) =>
+    wrap(c, () => parentAccountManagerService.accountStatus(c.req.param('id')))
+  );
+
+  api.get('/accounts/account-manager/statuses', (c) =>
+    wrap(c, () => parentAccountManagerService.accountStatuses())
+  );
+
+  api.post('/accounts/:id/account-manager/open-codex-space', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => parentAccountManagerService.openAccountCodexSpace(
+      c.req.param('id'),
+      parseOpenCodexSpaceRequest(body)
+    ));
+  });
+
+  api.post('/accounts/:id/account-manager/open-team-subscription', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as OpenTeamSubscriptionRequest;
+    return wrap(c, () => parentAccountManagerService.openAccountTeamSubscription(c.req.param('id'), body));
+  });
+
+  api.post('/accounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
+    wrap(c, () => parentAccountManagerService.rotateAccountOperationIp(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
+  api.post('/accounts/:id/account-manager/operations/:operationId/terminate', (c) =>
+    wrap(c, () => parentAccountManagerService.terminateAccountOperation(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
 
   api.get('/accounts/:id/billing', (c) => wrap(c, () => service.getCachedBillingSnapshot(c.req.param('id'))));
 
@@ -441,7 +460,6 @@ export async function buildApp({
         email: body.email!,
         seat: body.seat!,
         role: body.role,
-        confirmBillingRisk: body.confirmBillingRisk,
         seatSlotProfile: body.seatSlotProfile
       })
     );
@@ -491,11 +509,10 @@ export async function buildApp({
   api.patch('/accounts/:id/members/:userId', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       seat?: SeatType;
-      confirmBillingRisk?: boolean;
     };
     if (!body.seat) return c.json({ ok: false, error: '缺少 seat' }, 400);
     return wrap(c, () =>
-      service.setMemberSeat(c.req.param('id'), c.req.param('userId'), body.seat!, body.confirmBillingRisk)
+      service.setMemberSeat(c.req.param('id'), c.req.param('userId'), body.seat!)
     );
   });
 
@@ -569,7 +586,7 @@ export async function buildApp({
   });
 
   // ---- 子号池 ----
-  api.get('/subaccounts', (c) => wrap(c, () => Promise.resolve(subaccountService.list())));
+  api.get('/subaccounts', (c) => wrap(c, () => Promise.resolve(subaccountService.listSummaries())));
 
   api.get('/subaccounts/registration/jobs', (c) =>
     wrap(c, () => subaccountService.listRegistrationJobs())
@@ -604,6 +621,14 @@ export async function buildApp({
       })
     );
   });
+
+  api.get('/subaccounts/:id', (c) =>
+    wrap(c, () => Promise.resolve(subaccountService.detail(c.req.param('id'))))
+  );
+
+  api.get('/subaccounts/:id/local-profile', (c) =>
+    wrap(c, () => Promise.resolve(subaccountService.localProfile(c.req.param('id'))))
+  );
 
   api.patch('/subaccounts/:id/local-profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -701,7 +726,6 @@ export async function buildApp({
     const body = (await c.req.json().catch(() => ({}))) as {
       accountId?: string;
       seat?: SeatType;
-      confirmBillingRisk?: boolean;
     };
     if (!body.accountId?.trim() || !body.seat) return c.json({ ok: false, error: '缺少 accountId 或 seat' }, 400);
     const subaccount = subaccountStore.get(c.req.param('id'));
@@ -709,8 +733,7 @@ export async function buildApp({
     return wrap(c, async () => {
       await service.invite(body.accountId!, {
         email: subaccount.email,
-        seat: body.seat!,
-        confirmBillingRisk: body.confirmBillingRisk
+        seat: body.seat!
       });
       return subaccountStore.saveTeamLink(c.req.param('id'), {
         accountId: body.accountId!,

@@ -12,7 +12,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { apiClient } from '../../api.js';
 import { ActionPopconfirm } from '../../components/ActionPopconfirm.js';
 import { actionKey } from '../../components/actionBusy.js';
-import { formatRelativeTime, isBillingRiskError } from '../../components/format.js';
+import { formatRelativeTime } from '../../components/format.js';
 import { SeatTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
@@ -29,21 +29,12 @@ function memberRoleRank(member: Member): number {
   return member.role === 'account-owner' ? 0 : 1;
 }
 
-export interface MemberSeatRisk {
-  kind: 'member-seat';
-  userId: string;
-  email: string;
-  seat: SeatType;
-}
-
 export function ParentMembersTable({
   account,
-  onAccountChanged,
-  onBillingRisk
+  onAccountChanged
 }: {
   account: AccountView;
   onAccountChanged: (account: AccountView) => void;
-  onBillingRisk: (risk: MemberSeatRisk) => void;
 }) {
   const [error, setError] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
@@ -66,18 +57,14 @@ export function ParentMembersTable({
     }
   };
 
-  const changeSeat = async (member: Member, seat: SeatType, confirmBillingRisk = false) => {
+  const changeSeat = async (member: Member, seat: SeatType) => {
     const key = actionKey('member-seat', member.userId);
     actionBusy.start(key);
     setError('');
     try {
-      onAccountChanged(await apiClient.setMemberSeat(account.id, member.userId, seat, confirmBillingRisk));
+      onAccountChanged(await apiClient.setMemberSeat(account.id, member.userId, seat));
     } catch (seatError) {
-      if (isBillingRiskError(seatError)) {
-        onBillingRisk({ kind: 'member-seat', userId: member.userId, email: member.email, seat });
-      } else {
-        setError((seatError as Error).message);
-      }
+      setError((seatError as Error).message);
     } finally {
       actionBusy.finish(key);
     }

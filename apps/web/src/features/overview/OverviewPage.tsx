@@ -1,7 +1,8 @@
-import { Card, Empty, Space, Switch, Tag, Typography } from 'antd';
-import type { AccountSeatSlotStatus, AccountView } from '@team-manager/shared';
-import { useMemo, type ReactNode } from 'react';
+import { Alert, Card, Empty, Space, Switch, Tag, Typography } from 'antd';
+import type { AccountOverviewView, AccountSeatSlotStatus } from '@team-manager/shared';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { apiClient } from '../../api.js';
 import { MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
 import {
   buildSeatOverviewItems,
@@ -25,14 +26,11 @@ const POSITION_STATUS_COLOR: Record<AccountSeatSlotStatus, string | undefined> =
   unknown: 'warning'
 };
 
-export function OverviewPage({
-  accounts,
-  loading
-}: {
-  accounts: AccountView[];
-  loading: boolean;
-}) {
+export function OverviewPage({ initialAccounts }: { initialAccounts?: AccountOverviewView[] }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [accounts, setAccounts] = useState<AccountOverviewView[]>(initialAccounts ?? []);
+  const [loading, setLoading] = useState(initialAccounts === undefined);
+  const [error, setError] = useState('');
   const showOwners = searchParams.get('owners') === '1';
   const showCodexSeats = searchParams.get('codex') === '1';
   const allItems = useMemo(() => buildSeatOverviewItems(accounts), [accounts]);
@@ -42,6 +40,28 @@ export function OverviewPage({
   );
   const chatGptCount = items.filter((item) => item.seat === 'default').length;
   const codexCount = items.filter((item) => item.seat === 'usage_based').length;
+
+  useEffect(() => {
+    if (initialAccounts !== undefined) return undefined;
+    let cancelled = false;
+    setLoading(true);
+    void apiClient.listAccountOverview()
+      .then((next) => {
+        if (!cancelled) {
+          setAccounts(next);
+          setError('');
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) setError((loadError as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialAccounts]);
 
   const setFilter = (key: 'owners' | 'codex', checked: boolean) => {
     const next = new URLSearchParams(searchParams);
@@ -55,7 +75,7 @@ export function OverviewPage({
       <div className="overview-header">
         <div>
           <Typography.Title level={2}>概览</Typography.Title>
-          <Typography.Text type="secondary">按到期时间升序列出所有 Team 的成员位置</Typography.Text>
+          <Typography.Text type="secondary">按到期时间升序列出固定 ChatGPT 席位和 Codex 成员位置</Typography.Text>
         </div>
         <div className="overview-header-side">
           <Space className="overview-filters" size={16} wrap>
@@ -75,6 +95,8 @@ export function OverviewPage({
           </Space>
         </div>
       </div>
+
+      {error && <Alert type="error" showIcon message={error} />}
 
       {items.length === 0 ? (
         <Card loading={loading}>

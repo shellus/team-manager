@@ -4,7 +4,7 @@
 
 ## 总原则
 
-- 后端 store 中的对象是本地事实源；前端消费后端返回的 view。可信管理后台 view 可回填账号 Web Session JSON 和代理地址；注册密码、CloakBrowser profile、Codex credential JSON 和运行环境密钥不得进入普通 view。
+- 后端 store 中的对象是本地事实源；前端按用途消费摘要、详情和本地资料 view。列表摘要与普通详情不返回 Web Session JSON 或代理地址；编辑弹窗通过独立 `local-profile` 接口按需读取。注册密码、CloakBrowser profile、Codex credential JSON 和运行环境密钥不得进入这些普通 view。
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
@@ -15,20 +15,21 @@
 
 ## 母号模型
 
-母号持久化对象为 `Account`，前端使用 `AccountView`。管理后台可信，`AccountView.session` 会回填本地保存的 Web session JSON；`refreshToken` 和指纹明文不下发。
+母号持久化对象为 `Account`。列表使用 `AccountSummaryView`，选中记录后读取 `AccountView` 详情，编辑本地资料时再读取 `AccountLocalProfileView`。母号首先表示一个 GPT 账号；通过 GAM 自动注册的母号可以暂时没有 Workspace，此时 `accountId` 保存个人账号上下文，`planType="free"`，Workspace 操作不可用。0.52 或双席位开通后，同一记录可以指向对应的可管理 Workspace。`refreshToken` 和指纹明文不下发。
 
 ### Canonical fields
 
 | 字段 | 来源 | 说明 |
 |---|---|---|
 | `id` | team-manager | 内部 id，所有 UI/API 操作使用该 id 定位母号 |
+| `managedAccountEmail` | Account Manager | 可选的规范化邮箱账号引用；手工录入且未受管的母号不设置 |
 | `remark` | 本地输入 | 母号本地备注，不等同远端 Team 名称 |
 | `groupName` | 本地输入 | 母号本地分组，缺省归入 `默认分组` |
 | `limitType` | 本地输入 | 本地记录的额度窗口类型：`unknown`、`weekly`、`monthly` |
-| `accountId` | `accounts/check` 解析结果 | ChatGPT Team workspace account id，用于 `chatgpt-account-id` 上下文；母号录入和替换 session 时不得直接信任输入 JSON 的 `account.id` |
+| `accountId` | Session 或 `accounts/check` 解析结果 | 可以是个人账号上下文、0.52 usage-based workspace 或 Team workspace；远端操作使用该值作为 `chatgpt-account-id` 上下文 |
 | `email` | session JSON | 母号 owner 邮箱 |
-| `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用；`accessToken` 通过 `AccountView.session` 回填给管理后台，`refreshToken` 不下发 |
-| `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `AccountView.session` 回填给管理后台 |
+| `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用；`accessToken` 只通过 `AccountLocalProfileView.session` 按需回填，`refreshToken` 不下发 |
+| `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token；只通过 `AccountLocalProfileView.session` 按需回填 |
 | `proxy` | 本地输入 | 母号独立代理地址，用于该母号 ChatGPT Web 请求和 workspace token 换取 |
 | `workspaceName` | accounts/check 或远端改名结果 | 远端 Team workspace 名称 |
 | `nextRenewalOn` | accounts/check 自动识别或本地输入 | Team 下次续费日期，格式为 `yyyy-mm-dd` |
@@ -43,6 +44,12 @@
 | `codexDeviceCodeAuthEnabled` / `codexDeviceCodeAuthCachedAt` | settings 刷新或 beta feature 写操作 | “为 Codex CLI 启用设备代码身份验证”缓存 |
 | `codexRemoteControlEnabled` / `codexRemoteControlCachedAt` | settings 刷新或 beta feature 写操作 | “允许成员远程发现并控制设备”缓存 |
 | `seatSlots` | 本地输入或迁移 | 母号下 ChatGPT 固定席位位置资料，按 `seatKey` 定位 |
+
+`AccountView` 与 `AccountSummaryView` 的 `hasTeamSubscription`、`canManageWorkspace` 都从 `planType` 派生，不持久化，但含义不同：`hasTeamSubscription` 只在 `planType="team"` 时为 `true`；`canManageWorkspace` 仅在 `planType="free"` 时为 `false`。因此 0.52 usage-based 历史母号即使没有双席位或 GAM profile，也仍可使用成员、邀请、设置和账单操作。
+
+母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
+
+首页席位概览只为 `hasTeamSubscription=true` 的母号补足两个固定 ChatGPT 位置。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。
 
 ### Seat slots
 
@@ -77,28 +84,28 @@
 - 成员数：从 `membersCache.length` 派生。
 - ChatGPT 席位数：从 `membersCache[].seat === "default"` 派生。
 - pending invite 数：从 `pendingInvitesCache.length` 派生。
-- 列表 item 上的席位标签、状态标签和分组计数：从当前 `AccountView` 派生。
+- 列表 item 上的成员/邀请数、ChatGPT 席位数、席位标签、状态标签和分组计数：生成 `AccountSummaryView` 时从 canonical cache 派生。
 
-`memberCount`、`chatgptSeatCount`、`pendingInviteCount` 不属于 `Account` schema，应通过数据清洗删除。母号不保存 `label`、`note` 或本地 `name`，显示邮箱统一来自 `email`，备注统一来自 `remark`。
+`AccountSummaryView.memberAndInviteCount` 和 `chatGptSeatUsageCount` 只是响应派生值，不进入 `Account` schema。历史 `memberCount`、`chatgptSeatCount`、`pendingInviteCount` 持久化字段应通过数据清洗删除。母号不保存 `label`、`note` 或本地 `name`，显示邮箱统一来自 `email`，备注统一来自 `remark`。
 
 母号 session 录入规则：
 
-- 后端先用输入 session 调用 `accounts/check`，只接受 `structure=workspace` 且角色为 `account-owner` 或 `account-admin` 的 Team workspace。
-- 替换已有母号 session 时，如果新 session 仍可访问原 `accountId`，优先保留原 Team workspace，只更新该 workspace 的 Web access token。
-- 新录入时，如果当前 session 指向某个可管理 Team workspace，保存该 workspace；如果只发现一个可管理 Team workspace，保存该 workspace；如果发现多个候选且无法自动判断目标，返回 409，禁止随机选择。
-- 当目标 Team workspace 与输入 session 的 `account.id` 不一致时，必须存在 `sessionToken`，后端通过 `/api/auth/session` 换取目标 workspace Web access token 后再保存。
+- 后端先用输入 session 调用 `accounts/check`，只接受 `structure=workspace` 且角色为 `account-owner` 或 `account-admin` 的可管理 Workspace。
+- 替换已有母号 session 时，如果新 session 仍可访问原 `accountId`，优先保留原 Workspace，只更新该 Workspace 的 Web access token。
+- 新录入时，如果当前 session 指向某个可管理 Workspace，保存该 Workspace；如果只发现一个可管理 Workspace，保存该 Workspace；如果发现多个候选且无法自动判断目标，返回 409，禁止随机选择。
+- 当目标 Workspace 与输入 session 的 `account.id` 不一致时，必须存在 `sessionToken`，后端通过 `/api/auth/session` 换取目标 Workspace Web access token 后再保存。
 
 母号 backend-api 请求认证规则：
 
 - `ChatGptApi` 是母号远端请求的统一封装。成员、邀请、设置、账单和改名等远端请求都通过该封装发送。
 - 请求遇到 HTTP 401 且远端错误码为 `token_invalidated` 或 `token_revoked` 时，如果账号保存了 `sessionToken`，封装会换取目标 workspace 的新 Web access token，回写 token 并重试一次原请求。
-- 权限不足、目标不存在、账单风险确认等非认证失效错误不得被重试逻辑吞掉。
+- 权限不足、目标不存在等非认证失效错误不得被重试逻辑吞掉。
 
 ## 母号写操作规则
 
 | 操作 | 后端写入规则 | 前端更新规则 |
 |---|---|---|
-| 邀请成员 | 远端邀请成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
+| 邀请成员 | 只等待远端邀请提交；成功后按请求内容本地 upsert `pendingInvitesCache`，不再阻塞等待远端邀请列表 | 合并返回的母号 view |
 | 编辑席位资料 | 按当前邮箱更新或创建对应 `seatSlots[]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
 | 免登录席位换号 | 按 `seatKey` 定位固定席位，刷新母号成员/邀请后只移除或撤销该 slot 当前邮箱，再邀请新邮箱为 `default`，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页重新读取返回的 slot view |
 | 撤销邀请 | 远端撤销成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
@@ -111,8 +118,11 @@
 | 改 Codex 远程控制开关 | 远端修改成功后更新 `codexRemoteControlEnabled` 和缓存时间 | 合并返回的母号 view |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn` 和 `proxy`；提供 session JSON 时先按母号 session 录入规则解析 Team workspace，再更新 `email`、`accountId`、`accessToken`、workspace 元数据和可用的 `sessionToken`，并清空 `lastError` | 合并返回的母号 view，已保存 session 明文回填到 `session` 字段 |
+| 自动注册母号 | 创建带母号用途标记的 Account Manager 注册操作；注册成功后立即保存 `managedAccountEmail` 与个人 Web Session，不触发支付 | 任务卡只展示账号注册；交付完成后立即替换为母号 view |
+| 开通 0.52 Workspace | 只把卡片请求转发给 Account Manager；成功状态由 GAM workspace 派生，不改变母号创建完成状态，也不把 0.52 workspace 当作 Team workspace | 展示独立后台操作状态；未受管或已开通账号的按钮禁用并说明原因 |
+| 开通双席位 Team | 把优惠码、国家、货币和可选卡片转发给 Account Manager；成功后按 Team workspace ID 更新同一 GAM 母号记录 | 展示独立后台操作状态并刷新双席位状态；既有 usage-based Workspace 的管理能力不依赖该动作 |
 
-邀请或升席位到 `default` 可能增加账单。service 层必须先进行账单风险检查，风险存在时返回 HTTP 409；调用方只有显式传 `confirmBillingRisk:true` 才能继续。`default` 邀请成功后，service 会为目标邮箱 upsert 一个 `seatSlots[]` 条目。`usage_based` 邀请不创建 slot。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
+邀请或升席位到 `default` 可能增加账单，service 层不做数量预检、HTTP 409 确认或额外提示。`default` 邀请成功后，service 会在同一次本地更新中为目标邮箱 upsert `pendingInvitesCache` 和 `seatSlots[]`；`usage_based` 邀请只更新 `pendingInvitesCache`。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
 
 `expireRemove` 是本地运营标记，不会在提醒任务中自动移除远端成员。远端移除仍必须由页面、API 或 service 显式调用。
 
@@ -141,7 +151,7 @@
 
 ## 子号模型
 
-子号持久化对象为 `Subaccount`，前端使用 `SubaccountView`。管理后台可信，`SubaccountView.session` 会回填本地保存的 Web session JSON；Codex 凭证明文只在独立凭证文件和显式导出接口中出现。
+子号持久化对象为 `Subaccount`。列表使用 `SubaccountSummaryView`，选中记录后读取 `SubaccountView` 详情，编辑本地资料时再读取 `SubaccountLocalProfileView`。Codex 凭证明文只在独立凭证文件和显式导出接口中出现。
 
 ### Canonical fields
 
@@ -152,8 +162,8 @@
 | `remark` | 本地输入 | 子号本地备注 |
 | `groupName` | 本地输入 | 子号本地分组，缺省为 `默认分组`；与 Codex credential 的 CPA 号池分组无关 |
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
-| `webAccessToken` | session JSON | 子号 ChatGPT Web access token；通过 `SubaccountView.session` 回填给管理后台 |
-| `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；通过 `SubaccountView.session` 回填给管理后台 |
+| `webAccessToken` | session JSON | 子号 ChatGPT Web access token；只通过 `SubaccountLocalProfileView.session` 按需回填 |
+| `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；只通过 `SubaccountLocalProfileView.session` 按需回填 |
 | `proxy` | 本地输入 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT 创建和额度请求 |
 | `sessionTokenStatus` / `sessionTokenCheckedAt` | Web 账号同步 | Session Cookie 最近一次通过 `/api/auth/session` 验证的结果和时间 |
 | `webAccessTokenStatus` / `webAccessTokenCheckedAt` | Web 账号同步 | Web access token 最近一次通过 backend-api 验证的结果和时间 |
@@ -199,7 +209,8 @@ workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其
 
 ### Derived view fields
 
-- `SubaccountView.hasWebSession` 是列表和详情展示用能力位；可编辑的 Web session 明文放在 `SubaccountView.session`。
+- `SubaccountSummaryView.hasWebSession` 和 `SubaccountView.hasWebSession` 是列表与详情展示用能力位；可编辑的 Web session 明文只在 `SubaccountLocalProfileView.session` 中按需返回。
+- `SubaccountSummaryView.codexCredentialCount`、`teamLinkCount` 和搜索文本从当前 `SubaccountView` 派生，不持久化。
 - `SubaccountView.managedAccountEmail` 只表示可选 Account Manager 关联，不复制 Account Manager 的密码、Profile 或支付状态。
 - `SubaccountView.codexCredentials[].accountId` 用于展示和按 workspace 发起操作。
 - `SubaccountView.codexCredentials[].fileName` 和 `groupName` 用于展示凭证独立文件名和所在 CPA 号池。
@@ -216,12 +227,18 @@ workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其
 | 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |
 | 创建 PAT | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
-| 邀请加入母号 | 远端邀请成功后写入 `teamLinks[].status = "invited"`，账单风险沿用母号邀请规则 | 合并返回的子号 view |
-| 同步 Team 关联 | 用子号 `accounts/check` 找可见 workspace，再用子号 Web session 查询匹配 workspace 的 users 列表读取自己的 `seat_type` | 合并返回的子号 view |
+| 邀请加入母号 | 远端邀请成功后写入 `teamLinks[].status = "invited"`；不做账单风险预检 | 合并返回的子号 view |
+| 同步 Team 关联 | 只用子号 `accounts/check` 读取可见 workspace；保留已有 link 的席位类型，新 link 使用 `usage_based`，汇总后一次落盘 | 合并返回的子号 view |
 
 ## 本地资料编辑 API
 
-母号：
+母号读取本地资料：
+
+```http
+GET /api/accounts/:id/local-profile
+```
+
+母号写入本地资料：
 
 ```http
 PATCH /api/accounts/:id/local-profile
@@ -242,7 +259,13 @@ Content-Type: application/json
 }
 ```
 
-子号：
+子号读取本地资料：
+
+```http
+GET /api/subaccounts/:id/local-profile
+```
+
+子号写入本地资料：
 
 ```http
 PATCH /api/subaccounts/:id/local-profile
@@ -261,6 +284,6 @@ Content-Type: application/json
 }
 ```
 
-母号和子号的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。响应 view 会返回已保存的分组、`session` 和 `proxy`，用于管理后台本地资料编辑回填。
+PATCH 请求中的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。编辑弹窗先读取对应 GET 接口，用返回的分组、`session` 和 `proxy` 回填表单。
 
 Codex 凭证只有 PAT，由当前子号 Web Session 针对目标 Team workspace 创建。

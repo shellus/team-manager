@@ -1,12 +1,14 @@
-export type ParentTab = 'members' | 'invites' | 'settings' | 'billing';
+export type ParentTab = 'members' | 'invites' | 'account-manager' | 'settings' | 'billing';
 
 export type ParentModal =
   | ''
   | 'import-parent'
+  | 'register-parent'
+  | 'open-codex-space'
+  | 'open-team-subscription'
   | 'edit-parent-profile'
   | 'delete-parent'
-  | 'invite-member'
-  | 'billing-risk';
+  | 'invite-member';
 
 export type SubaccountTab = 'teams' | 'account-manager' | 'settings' | 'pat' | 'logs';
 
@@ -17,8 +19,7 @@ export type SubaccountModal =
   | 'edit-subaccount-profile'
   | 'delete-subaccount'
   | 'invite-to-team'
-  | 'delete-pat-credential'
-  | 'billing-risk';
+  | 'delete-pat-credential';
 
 export interface ParentSearchState {
   group: string;
@@ -33,17 +34,19 @@ export interface SubaccountSearchState {
   target: string;
 }
 
-export const parentTabs = ['members', 'invites', 'settings', 'billing'] as const satisfies readonly ParentTab[];
+export const parentTabs = ['members', 'invites', 'account-manager', 'settings', 'billing'] as const satisfies readonly ParentTab[];
 export const subaccountTabs = ['teams', 'account-manager', 'settings', 'pat', 'logs'] as const satisfies readonly SubaccountTab[];
 
 const parentTabSet = new Set<ParentTab>(parentTabs);
 const parentModalSet = new Set<ParentModal>([
   '',
   'import-parent',
+  'register-parent',
+  'open-codex-space',
+  'open-team-subscription',
   'edit-parent-profile',
   'delete-parent',
-  'invite-member',
-  'billing-risk'
+  'invite-member'
 ]);
 
 const subaccountTabSet = new Set<SubaccountTab>(subaccountTabs);
@@ -54,8 +57,7 @@ const subaccountModalSet = new Set<SubaccountModal>([
   'edit-subaccount-profile',
   'delete-subaccount',
   'invite-to-team',
-  'delete-pat-credential',
-  'billing-risk'
+  'delete-pat-credential'
 ]);
 
 function readParam(params: URLSearchParams, key: string): string {
@@ -75,16 +77,20 @@ export function parseParentSearchState(params: URLSearchParams): ParentSearchSta
   };
 }
 
+export function resolveParentTabForWorkspace(
+  canManageWorkspace: boolean,
+  requestedTab: ParentTab
+): ParentTab {
+  return canManageWorkspace ? requestedTab : 'account-manager';
+}
+
 export function parseSubaccountSearchState(params: URLSearchParams): SubaccountSearchState {
   const rawTab = readParam(params, 'tab');
   const rawModal = readParam(params, 'modal');
   const modal = subaccountModalSet.has(rawModal as SubaccountModal) ? (rawModal as SubaccountModal) : '';
 
-  const tab = rawTab === 'credential'
-    ? 'pat'
-    : subaccountTabSet.has(rawTab as SubaccountTab) ? (rawTab as SubaccountTab) : 'teams';
   return {
-    tab,
+    tab: subaccountTabSet.has(rawTab as SubaccountTab) ? (rawTab as SubaccountTab) : 'teams',
     modal,
     target: modal ? readParam(params, 'target') : ''
   };

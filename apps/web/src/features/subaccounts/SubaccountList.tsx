@@ -1,7 +1,7 @@
 import type {
-  SubaccountRegistrationRuntimeStatus,
+  AccountManagerRuntimeStatus,
   SubaccountRegistrationJobView,
-  SubaccountView
+  SubaccountSummaryView
 } from '@team-manager/shared';
 import {
   DeleteOutlined,
@@ -49,22 +49,22 @@ export function SubaccountList({
   onOpenEdit,
   onOpenDelete
 }: {
-  subaccounts: SubaccountView[];
+  subaccounts: SubaccountSummaryView[];
   registrationJobs: SubaccountRegistrationJobView[];
   groups: LocalGroupCount[];
   activeGroup: string;
   searchQuery: string;
   selectedId: string;
-  runtimeStatus: SubaccountRegistrationRuntimeStatus | null;
+  runtimeStatus: AccountManagerRuntimeStatus | null;
   isBusy: (key: string) => boolean;
-  onSelect: (subaccount: SubaccountView) => void;
+  onSelect: (subaccount: SubaccountSummaryView) => void;
   onGroupChange: (group: string) => void;
   onSearchChange: (query: string) => void;
   onOpenImportSession: () => void;
   onOpenRegister: () => void;
   onRetryRegistration: (job: SubaccountRegistrationJobView) => void;
-  onOpenEdit: (subaccount: SubaccountView) => void;
-  onOpenDelete: (subaccount: SubaccountView) => void;
+  onOpenEdit: (subaccount: SubaccountSummaryView) => void;
+  onOpenDelete: (subaccount: SubaccountSummaryView) => void;
 }) {
   const subaccountById = new Map(subaccounts.map((subaccount) => [subaccount.id, subaccount]));
   const visibleJobs = registrationJobs.filter((job) => {
@@ -108,7 +108,7 @@ export function SubaccountList({
         </Button>
       </div>
       <KeywordSearchInput
-        placeholder="搜索子号邮箱、备注、分组或 Cloak profile"
+        placeholder="搜索子号邮箱、备注、分组或 Account Manager 引用"
         ariaLabel="搜索子号"
         value={searchQuery}
         onSearchChange={onSearchChange}
@@ -258,10 +258,15 @@ export function SubaccountList({
                 <div className="record-meta">
                   <span>分组 {subaccount.groupName || '默认分组'}</span>
                   <span>{subaccount.hasWebSession ? 'Web Session 已录入' : '无 Web Session'}</span>
-                  <span>Codex 凭证 {subaccount.codexCredentials.length} 份</span>
+                  <span>Codex 凭证 {subaccount.codexCredentialCount} 份</span>
                 </div>
                 <div className="record-meta muted">
                   <span>更新 {formatDateTime(subaccount.updatedAt)}</span>
+                </div>
+                <div className="record-capability-tags" aria-label="子号账号管理状态">
+                  <Tag color={subaccount.managedAccountEmail ? 'blue' : 'default'}>
+                    {subaccount.managedAccountEmail ? 'GAM' : '非 GAM'}
+                  </Tag>
                 </div>
               </Card>
             </List.Item>

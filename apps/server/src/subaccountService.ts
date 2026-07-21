@@ -3,8 +3,10 @@ import type {
   CodexQuotaSnapshot,
   Subaccount,
   SubaccountAuthLog,
+  SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
-  SubaccountRegistrationRuntimeStatus,
+  AccountManagerRuntimeStatus,
+  SubaccountSummaryView,
   SubaccountView
 } from '@team-manager/shared';
 import { fetchCodexQuota } from './codexQuota.js';
@@ -22,7 +24,11 @@ import {
 } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 import { SubaccountStore } from './subaccountStore.js';
-import { AccountManagerError, type AccountManagerGateway } from './accountManagerClient.js';
+import {
+  ACCOUNT_MANAGER_REQUEST_TAGS,
+  AccountManagerError,
+  type AccountManagerGateway
+} from './accountManagerClient.js';
 
 const CODEX_PAT_NAME = 'team-manager';
 const CODEX_PAT_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -40,10 +46,26 @@ export class SubaccountService {
     return this.store.list();
   }
 
+  listSummaries(): SubaccountSummaryView[] {
+    return this.store.listSummaries();
+  }
+
+  detail(id: string): SubaccountView {
+    const subaccount = this.store.detail(id);
+    if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
+    return subaccount;
+  }
+
+  localProfile(id: string): SubaccountLocalProfileView {
+    const profile = this.store.localProfile(id);
+    if (!profile) throw new ServiceError(404, `子号不存在: ${id}`);
+    return profile;
+  }
+
   async listRegistrationJobs(): Promise<SubaccountRegistrationJobView[]> {
     if (!this.accountManager) return [];
     return this.reconcileAccountManagerOperations(
-      await this.callAccountManager(() => this.accountManager!.listRegistrations())
+      await this.callAccountManager(() => this.accountManager!.listRegistrations(ACCOUNT_MANAGER_REQUEST_TAGS.subaccount))
     );
   }
 
@@ -54,17 +76,32 @@ export class SubaccountService {
     resumeExisting?: boolean;
   }): Promise<SubaccountRegistrationJobView> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
-    return this.callAccountManager(() => this.accountManager!.startRegistration(input));
+    return this.callAccountManager(() => this.accountManager!.startRegistration({
+      ...input,
+      requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
+    }));
   }
 
   async retrySubaccountRegistration(jobId: string): Promise<SubaccountRegistrationJobView> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    await this.requireSubaccountRegistration(jobId);
     return this.callAccountManager(() => this.accountManager!.retryRegistration(jobId));
   }
 
   async removeSubaccountRegistrationJob(jobId: string): Promise<boolean> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    await this.requireSubaccountRegistration(jobId);
     return this.callAccountManager(() => this.accountManager!.removeOperation(jobId));
+  }
+
+  private async requireSubaccountRegistration(jobId: string): Promise<void> {
+    const operation = await this.callAccountManager(() => this.accountManager!.operation(jobId));
+    if (
+      operation.type !== 'register' ||
+      operation.requestSummary?.requestTag !== ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
+    ) {
+      throw new ServiceError(404, `子号注册操作不存在: ${jobId}`);
+    }
   }
 
   private async reconcileAccountManagerOperations(
@@ -119,7 +156,7 @@ export class SubaccountService {
     }
   }
 
-  async getRegistrationRuntimeStatus(): Promise<SubaccountRegistrationRuntimeStatus> {
+  async getRegistrationRuntimeStatus(): Promise<AccountManagerRuntimeStatus> {
     if (!this.accountManager) {
       return { configured: false, reachable: false, error: '未配置 GPT Account Manager' };
     }

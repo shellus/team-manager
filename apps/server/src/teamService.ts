@@ -3,9 +3,12 @@ import type {
   AccountBillingSnapshot,
   AccountFingerprint,
   AccountLimitType,
+  AccountLocalProfileView,
+  AccountOverviewView,
   AccountSeatSlot,
   AccountSeatSlotProfileInput,
   AccountSeatSlotStatus,
+  AccountSummaryView,
   AccountView,
   ChatGptSessionInput,
   EditableMemberRole,
@@ -19,8 +22,7 @@ import type {
   SeatSlotSwapStepKey
 } from '@team-manager/shared';
 import {
-  BILLING_RISK_CONFIRM_MESSAGE,
-  MAX_CHATGPT_SEATS,
+  accountSummaryFromView,
   MEMBER_OWNER_RISK_CONFIRM_MESSAGE
 } from '@team-manager/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -70,7 +72,7 @@ interface ChatGptSessionClientInput {
   onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
 }
 
-/** 业务服务：封装母号 client 取用、token 惰性刷新、席位账单风险确认。 */
+/** 业务服务：封装母号 client 取用、token 惰性刷新和 Team 管理写操作。 */
 export class TeamService {
   private readonly seatSlotLocks = new Set<string>();
 
@@ -80,10 +82,18 @@ export class TeamService {
     private readonly billingStore?: AccountBillingStore
   ) {}
 
-  /** 取母号并在 token 临过期时刷新（刷新后回写 store） */
-  private async clientFor(id: string): Promise<{ account: Account; api: ChatGptApi }> {
-    const account = this.store.get(id);
-    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+  /** 取母号；个人态记录先从保存的 Session 发现可管理 Workspace，再处理 token 刷新。 */
+  private async clientFor(id: string): Promise<{
+    account: Account;
+    api: ChatGptApi;
+    discoveredWorkspace?: ChatGptAccountCheckEntry;
+  }> {
+    const stored = this.store.get(id);
+    if (!stored) throw new ServiceError(404, `母号不存在: ${id}`);
+    const resolved: { account: Account; workspace?: ChatGptAccountCheckEntry } = stored.planType === 'free'
+      ? await this.discoverManageableWorkspace(stored)
+      : { account: stored };
+    const account = resolved.account;
 
     if (account.refreshToken && tokenNeedsRefresh(account.accessToken)) {
       try {
@@ -94,14 +104,68 @@ export class TeamService {
           lastRefreshAt: Date.now(),
           lastError: undefined
         });
-        if (updated) return { account: updated, api: this.apiForAccount(updated) };
+        if (updated) {
+          return {
+            account: updated,
+            api: this.apiForAccount(updated),
+            discoveredWorkspace: resolved.workspace
+          };
+        }
       } catch (e) {
         await this.store.update(id, { lastError: `刷新失败: ${(e as Error).message}` });
         // 刷新失败仍用旧 token 尝试（可能尚未真正过期）
       }
     }
     const fresh = this.store.get(id)!;
-    return { account: fresh, api: this.apiForAccount(fresh) };
+    return {
+      account: fresh,
+      api: this.apiForAccount(fresh),
+      discoveredWorkspace: resolved.workspace
+    };
+  }
+
+  private async discoverManageableWorkspace(
+    account: Account
+  ): Promise<{ account: Account; workspace: ChatGptAccountCheckEntry }> {
+    const resolved = await this.resolveParentWorkspaceSession({
+      user: { email: account.email },
+      account: { id: account.accountId },
+      accessToken: account.accessToken,
+      ...(account.sessionToken ? { sessionToken: account.sessionToken } : {})
+    }, undefined, account.proxy);
+    const workspaceChanged = resolved.session.account.id !== account.accountId;
+    const updated = await this.store.update(account.id, {
+      accountId: resolved.session.account.id,
+      accessToken: resolved.session.accessToken,
+      planType: resolved.workspace.planType,
+      role: resolved.workspace.role,
+      workspaceName: resolved.workspace.workspaceName,
+      nextRenewalOn: resolved.workspace.nextRenewalOn ?? account.nextRenewalOn,
+      status: 'unknown',
+      lastError: undefined,
+      ...(workspaceChanged ? {
+        membersCache: undefined,
+        membersCachedAt: undefined,
+        pendingInvitesCache: undefined,
+        pendingInvitesCachedAt: undefined,
+        seatSlots: undefined,
+        defaultSeat: undefined,
+        defaultSeatCachedAt: undefined,
+        workspaceReferralsEnabled: undefined,
+        workspaceReferralsEnabledVisible: undefined,
+        workspaceReferralsEnabledCachedAt: undefined,
+        personalAccessTokensEnabled: undefined,
+        personalAccessTokensCachedAt: undefined,
+        codexLocalAccessEnabled: undefined,
+        codexLocalAccessCachedAt: undefined,
+        codexDeviceCodeAuthEnabled: undefined,
+        codexDeviceCodeAuthCachedAt: undefined,
+        codexRemoteControlEnabled: undefined,
+        codexRemoteControlCachedAt: undefined
+      } : {})
+    });
+    if (!updated) throw new ServiceError(404, `母号不存在: ${account.id}`);
+    return { account: updated, workspace: resolved.workspace };
   }
 
   private apiForAccount(account: Account): ChatGptApi {
@@ -129,8 +193,11 @@ export class TeamService {
   }
 
   private viewFromAccount(account: Account): AccountView {
+    const hasTeamSubscription = account.planType === 'team';
+    const canManageWorkspace = account.planType !== 'free';
     return {
       id: account.id,
+      managedAccountEmail: account.managedAccountEmail,
       remark: account.remark,
       groupName: account.groupName || '默认分组',
       limitType: account.limitType ?? 'unknown',
@@ -167,13 +234,71 @@ export class TeamService {
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       seatSlots: account.seatSlots,
       lastRefreshAt: account.lastRefreshAt,
-      lastError: account.lastError
+      lastError: account.lastError,
+      hasTeamSubscription,
+      canManageWorkspace
+    };
+  }
+
+  private detailViewFromAccount(account: Account): AccountView {
+    const detail = this.viewFromAccount(account);
+    delete detail.proxy;
+    delete detail.session;
+    return detail;
+  }
+
+  private localProfileFromAccount(account: Account): AccountLocalProfileView {
+    const view = this.viewFromAccount(account);
+    return {
+      id: view.id,
+      remark: view.remark,
+      groupName: view.groupName,
+      limitType: view.limitType,
+      nextRenewalOn: view.nextRenewalOn,
+      proxy: view.proxy,
+      session: view.session
+    };
+  }
+
+  private overviewFromAccount(account: Account): AccountOverviewView {
+    const view = this.viewFromAccount(account);
+    return {
+      id: view.id,
+      accountId: view.accountId,
+      email: view.email,
+      remark: view.remark,
+      workspaceName: view.workspaceName,
+      nextRenewalOn: view.nextRenewalOn,
+      hasTeamSubscription: view.hasTeamSubscription,
+      membersCache: view.membersCache,
+      pendingInvitesCache: view.pendingInvitesCache,
+      seatSlots: view.seatSlots
     };
   }
 
   /** 母号列表只读本地缓存，不触发 ChatGPT 慢请求。 */
   async listAccounts(): Promise<AccountView[]> {
     return this.store.list().map((account) => this.viewFromAccount(account));
+  }
+
+  async listAccountSummaries(): Promise<AccountSummaryView[]> {
+    return this.store.list().map((account) => accountSummaryFromView(this.viewFromAccount(account)));
+  }
+
+  async getAccountDetail(id: string): Promise<AccountView> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.detailViewFromAccount(account);
+  }
+
+  async getAccountLocalProfile(id: string): Promise<AccountLocalProfileView> {
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.localProfileFromAccount(account);
+  }
+
+  async listAccountOverview(): Promise<AccountOverviewView[]> {
+    return this.store.list().map((account) => this.overviewFromAccount(account));
   }
 
   async getPublicSeatSlot(seatKey: string): Promise<PublicSeatSlotView> {
@@ -494,22 +619,6 @@ export class TeamService {
     return this.apiForSession(session).checkAccounts();
   }
 
-  async findSessionEmailRelation(
-    session: {
-      accountId: string;
-      accessToken: string;
-      fp?: AccountFingerprint;
-      proxy?: string;
-      sessionToken?: string;
-      onAccessTokenRefreshed?: (accessToken: string) => Promise<void> | void;
-    },
-    email: string
-  ): Promise<{ status: 'member' | 'unknown'; seat?: SeatType }> {
-    const member = await this.apiForSession(session).findMemberByEmail(email);
-    if (!member) return { status: 'unknown' };
-    return { status: 'member', seat: member.seat };
-  }
-
   async removeSessionMember(
     session: {
       accountId: string;
@@ -571,21 +680,21 @@ export class TeamService {
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
 
     try {
-      const { api } = await this.clientFor(id);
-      const check = await api.checkAccount();
+      const { account: activeAccount, api, discoveredWorkspace } = await this.clientFor(id);
+      const check = discoveredWorkspace ?? await api.checkAccount();
       const members = await api.listMembers();
       const pendingInvites = await api.listPendingInvites();
       const now = Date.now();
       const updated = await this.store.update(id, {
-        planType: check.planType ?? account.planType,
-        role: check.role ?? account.role,
-        workspaceName: check.workspaceName ?? account.workspaceName,
-        nextRenewalOn: check.nextRenewalOn ?? account.nextRenewalOn,
+        planType: check.planType ?? activeAccount.planType,
+        role: check.role ?? activeAccount.role,
+        workspaceName: check.workspaceName ?? activeAccount.workspaceName,
+        nextRenewalOn: check.nextRenewalOn ?? activeAccount.nextRenewalOn,
         membersCache: members,
         membersCachedAt: now,
         pendingInvitesCache: pendingInvites,
         pendingInvitesCachedAt: now,
-        seatSlots: this.reconcileSeatSlots(account, members, pendingInvites),
+        seatSlots: this.reconcileSeatSlots(activeAccount, members, pendingInvites),
         status: 'active',
         lastRefreshAt: now,
         lastError: undefined
@@ -625,6 +734,83 @@ export class TeamService {
       nextRenewalOn: input.workspace.nextRenewalOn ?? localFields.nextRenewalOn,
       status: 'unknown'
     });
+  }
+
+  async saveManagedAccountFromSessionInput(
+    managedAccountEmail: string,
+    raw: unknown,
+    preferredAccountId?: string
+  ): Promise<AccountView> {
+    const normalizedManagedEmail = managedAccountEmail.trim().toLowerCase();
+    if (!normalizedManagedEmail) throw new ServiceError(400, 'Account Manager 账号引用不能为空');
+    const createInput = this.parseParentAccountCreateInput(raw);
+    const localFields = this.normalizeParentLocalProfileFields(createInput);
+    const input = await this.resolveParentWorkspaceSession(
+      createInput.session,
+      preferredAccountId,
+      localFields.proxy
+    );
+    if (input.session.user.email.trim().toLowerCase() !== normalizedManagedEmail) {
+      throw new ServiceError(409, 'Account Manager 账号引用与 Session 邮箱不一致');
+    }
+
+    const existing = this.store.getByWorkspaceAccountId(input.session.account.id)
+      ?? this.store.getByManagedAccountEmail(normalizedManagedEmail);
+    const patch: Omit<Account, 'id'> = {
+      ...(existing ?? {}),
+      managedAccountEmail: normalizedManagedEmail,
+      remark: existing?.remark ?? localFields.remark,
+      groupName: existing?.groupName ?? localFields.groupName ?? '默认分组',
+      limitType: existing?.limitType ?? localFields.limitType ?? 'unknown',
+      accountId: input.session.account.id,
+      email: input.session.user.email,
+      accessToken: input.session.accessToken,
+      sessionToken: input.session.sessionToken,
+      proxy: existing?.proxy ?? localFields.proxy,
+      planType: input.workspace.planType,
+      role: input.workspace.role,
+      workspaceName: input.workspace.workspaceName,
+      nextRenewalOn: existing?.nextRenewalOn ?? input.workspace.nextRenewalOn ?? localFields.nextRenewalOn,
+      status: 'unknown'
+    };
+    if (existing) {
+      const updated = await this.store.update(existing.id, patch);
+      return this.viewFromAccount(updated!);
+    }
+    return this.addAccount(patch);
+  }
+
+  async saveManagedParentIdentityFromSessionInput(
+    managedAccountEmail: string,
+    raw: unknown
+  ): Promise<AccountView> {
+    const normalizedManagedEmail = managedAccountEmail.trim().toLowerCase();
+    if (!normalizedManagedEmail) throw new ServiceError(400, 'Account Manager 账号引用不能为空');
+    const input = await this.resolveAccountSessionInput(raw);
+    if (input.session.user.email.trim().toLowerCase() !== normalizedManagedEmail) {
+      throw new ServiceError(409, 'Account Manager 账号引用与 Session 邮箱不一致');
+    }
+    const existing = this.store.getByManagedAccountEmail(normalizedManagedEmail);
+    if (existing && existing.planType !== 'free') return this.viewFromAccount(existing);
+    const patch: Omit<Account, 'id'> = {
+      ...(existing ?? {}),
+      managedAccountEmail: normalizedManagedEmail,
+      remark: existing?.remark,
+      groupName: existing?.groupName ?? '默认分组',
+      limitType: existing?.limitType ?? 'unknown',
+      accountId: input.session.account.id,
+      email: input.session.user.email,
+      accessToken: input.session.accessToken,
+      sessionToken: input.session.sessionToken,
+      proxy: existing?.proxy,
+      planType: 'free',
+      status: 'unknown'
+    };
+    if (existing) {
+      const updated = await this.store.update(existing.id, patch);
+      return this.viewFromAccount(updated!);
+    }
+    return this.addAccount(patch);
   }
 
   private parseParentAccountCreateInput(raw: unknown): {
@@ -765,27 +951,40 @@ export class TeamService {
     return updated.membersCache ?? [];
   }
 
-  /** 邀请前实时统计远端 ChatGPT 席位（default）占用数。 */
-  private async countRemoteChatgptSeats(api: ChatGptApi): Promise<number> {
-    const members = await api.listMembers();
-    return members.filter((m) => m.seat === 'default').length;
-  }
-
-  /** 邀请：若是 ChatGPT 席位且可能增加账单，要求调用方显式确认。 */
+  /** 提交邀请后直接更新本地待处理邀请，不用远端列表刷新阻塞响应。 */
   async invite(id: string, req: InviteRequest): Promise<AccountView> {
     const { api } = await this.clientFor(id);
-    const email = req.email.trim();
+    const email = req.email.trim().toLowerCase();
     if (!email) throw new ServiceError(400, '缺少邀请邮箱');
-    if (req.seat === 'default') {
-      const count = await this.countRemoteChatgptSeats(api);
-      if (count >= MAX_CHATGPT_SEATS && !req.confirmBillingRisk) {
-        throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
-      }
-    }
     await api.invite(email, req.seat, req.role);
-    const updated = await this.refreshPendingInviteCache(id, api);
-    if (req.seat !== 'default') return this.viewFromAccount(updated);
-    return this.updateSeatSlotProfile(id, email, req.seatSlotProfile ?? {});
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    const now = Date.now();
+    const pendingInvite: PendingInvite = {
+      inviteId: `local-${randomUUID()}`,
+      email,
+      role: req.role ?? 'standard-user',
+      status: 1,
+      seat: req.seat,
+      createdTime: new Date(now).toISOString(),
+      isScimManaged: false
+    };
+    const pendingInvites = [
+      ...(account.pendingInvitesCache ?? []).filter((invite) => invite.email.toLowerCase() !== email),
+      pendingInvite
+    ];
+    const accountWithInvite = { ...account, pendingInvitesCache: pendingInvites };
+    const updated = await this.store.update(id, {
+      pendingInvitesCache: pendingInvites,
+      pendingInvitesCachedAt: now,
+      lastRefreshAt: now,
+      lastError: undefined,
+      ...(req.seat === 'default'
+        ? { seatSlots: this.seatSlotsWithProfile(accountWithInvite, email, req.seatSlotProfile ?? {}) }
+        : {})
+    });
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
   }
 
   async updateSeatSlotProfile(
@@ -795,25 +994,35 @@ export class TeamService {
   ): Promise<AccountView> {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
-
-    const normalizedEmail = this.normalizeSeatSlotEmail(email);
-    const existingSlots = account.seatSlots ?? [];
-    const existingSlot = existingSlots.find((slot) => slot.email?.toLowerCase() === normalizedEmail);
-    const usedKeys = new Set(existingSlots.map((slot) => slot.seatKey));
-    const relation = this.seatSlotRelation(normalizedEmail, account.membersCache ?? [], account.pendingInvitesCache ?? []);
-    if (!existingSlot && relation.status === 'unknown') {
-      throw new ServiceError(409, '无法保存席位资料：该邮箱不是当前 Team 的 ChatGPT 固定席位');
-    }
-    const nextSlot = this.buildSeatSlotProfile(normalizedEmail, existingSlot, input, relation, usedKeys);
-    const nextSlots = existingSlot
-      ? existingSlots.map((slot) => (slot.seatKey === existingSlot.seatKey ? nextSlot : slot))
-      : [...existingSlots, nextSlot];
     const updated = await this.store.update(id, {
-      seatSlots: nextSlots,
+      seatSlots: this.seatSlotsWithProfile(account, email, input),
       lastError: undefined
     });
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);
+  }
+
+  private seatSlotsWithProfile(
+    account: Account,
+    email: string,
+    input: AccountSeatSlotProfileInput
+  ): AccountSeatSlot[] {
+    const normalizedEmail = this.normalizeSeatSlotEmail(email);
+    const existingSlots = account.seatSlots ?? [];
+    const existingSlot = existingSlots.find((slot) => slot.email?.toLowerCase() === normalizedEmail);
+    const usedKeys = new Set(existingSlots.map((slot) => slot.seatKey));
+    const relation = this.seatSlotRelation(
+      normalizedEmail,
+      account.membersCache ?? [],
+      account.pendingInvitesCache ?? []
+    );
+    if (!existingSlot && relation.status === 'unknown') {
+      throw new ServiceError(409, '无法保存席位资料：该邮箱不是当前 Team 的 ChatGPT 固定席位');
+    }
+    const nextSlot = this.buildSeatSlotProfile(normalizedEmail, existingSlot, input, relation, usedKeys);
+    return existingSlot
+      ? existingSlots.map((slot) => (slot.seatKey === existingSlot.seatKey ? nextSlot : slot))
+      : [...existingSlots, nextSlot];
   }
 
   private normalizeSeatSlotEmail(email: string): string {
@@ -936,9 +1145,12 @@ export class TeamService {
     if (current) return current;
     if (candidates.length === 1) return candidates[0]!;
     if (candidates.length === 0) {
-      throw new ServiceError(400, '当前 ChatGPT session 未发现可管理的 Team workspace，请确认录入的是母号 owner/admin session');
+      throw new ServiceError(400, '当前 ChatGPT session 未发现可管理的 Workspace，请确认录入的是母号 owner/admin session');
     }
-    throw new ServiceError(409, '当前 ChatGPT session 可见多个 Team workspace，无法自动判断要录入的母号 Team');
+    throw new ServiceError(
+      409,
+      '当前 ChatGPT session 可见多个可管理 Workspace，请在“本地资料”中录入目标 Workspace 的 session 后重试'
+    );
   }
 
   private isParentWorkspaceCandidate(workspace: ChatGptAccountCheckEntry): boolean {
@@ -954,7 +1166,7 @@ export class TeamService {
   ): Promise<string> {
     if (session.account.id === targetAccountId) return session.accessToken;
     if (!session.sessionToken) {
-      throw new ServiceError(400, 'session JSON 缺少 sessionToken，无法切换到目标 Team workspace');
+      throw new ServiceError(400, 'session JSON 缺少 sessionToken，无法切换到目标 Workspace');
     }
     return this.fetchWorkspaceTokenFromSessionToken(session.sessionToken, targetAccountId, proxy);
   }
@@ -1055,12 +1267,11 @@ export class TeamService {
     return this.viewFromAccount(await this.refreshMemberCache(id, api));
   }
 
-  /** 改子号席位：升到 ChatGPT 席位且可能增加账单时要求调用方显式确认。 */
+  /** 修改成员席位，不在本地推断或提示账单风险。 */
   async setMemberSeat(
     id: string,
     userId: string,
-    seat: SeatType,
-    confirmBillingRisk = false
+    seat: SeatType
   ): Promise<AccountView> {
     const { api } = await this.clientFor(id);
     const members = await api.listMembers();
@@ -1070,13 +1281,6 @@ export class TeamService {
       return this.viewFromAccount(await this.saveMemberCache(id, members));
     }
 
-    if (seat === 'default') {
-      const currentDefault = members.filter((m) => m.seat === 'default').length;
-      const projected = currentDefault + 1;
-      if (projected > MAX_CHATGPT_SEATS && !confirmBillingRisk) {
-        throw new ServiceError(409, BILLING_RISK_CONFIRM_MESSAGE);
-      }
-    }
     await api.setMemberSeat(userId, seat);
     return this.viewFromAccount(await this.refreshMemberCache(id, api));
   }

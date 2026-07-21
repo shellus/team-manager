@@ -36,7 +36,7 @@ team-manager 的业务流程围绕四个对象展开：母号、Team workspace�
 | ChatGPT 席位 | `default` | 占用 Team 固定席位，有 Team 额度窗口，可能产生额外账单 |
 | Codex 席位 | `usage_based` | 不占用固定 ChatGPT 席位，不提供 ChatGPT 席位额度 |
 
-邀请成员或把成员切换到 ChatGPT 席位时，如果会超过已购固定席位数量，系统会提示账单风险。只有明确确认后，操作才会继续。
+邀请成员或把成员切换到 ChatGPT 席位时，系统不会预检固定席位数量或显示额外确认。操作员根据当前成员和邀请列表自行判断。
 
 ## 推荐日常顺序
 

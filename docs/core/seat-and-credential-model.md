@@ -24,13 +24,18 @@
 
 ## 二、Team workspace、母号子号与席位类型
 
-1. **Team workspace 是独立空间。**
+1. **母号、可管理 Workspace 和双席位订阅不是同一个对象。**
+   母号表示作为 Workspace 业务主体管理的 GPT 账号，可以在注册完成后尚未拥有 Workspace。0.52 usage-based Workspace 和双席位 Team Workspace 都可以执行成员、邀请、设置和账单操作；`planType="team"` 只表示已经购买双席位套餐。
+
+   “同步 Workspace”是个人态母号发现外部开通 Workspace 的恢复入口，因此不能以本地是否已有 Workspace 或是否购买双席位作为可用条件。
+
+2. **Team workspace 是独立空间。**
    每个 Team 有自己的 workspace `account_id`。母号 owner 在该 Team 下是 `account-owner`，被邀请的子号通常是 `standard-user`。
 
-2. **邀请成员时可以选择席位类型。**
+3. **邀请成员时可以选择席位类型。**
    母号邀请成员加入 Team 时，可以指定 `seat_type`。默认席位只是在未显式指定时使用的兜底值，不会阻止显式邀请 ChatGPT 席位。
 
-3. **席位类型只有两种。**
+4. **席位类型只有两种。**
 
    | 原始值 | 业务含义 |
    |---|---|
@@ -40,19 +45,21 @@
    字段名是 `seat_type`，不是 `seat`。`seat` 只是 team-manager 内部模型字段名。
    OpenAI 自 2026-06-24 起限制新 ChatGPT Business/Team workspace 获得首个 Codex 席位；此前已存在 Codex 席位或 pending invite 的 workspace 仍可继续管理 `usage_based` 席位。
 
-4. **ChatGPT 席位超出已购数量会产生账单风险。**
-   `default` 席位需要预先购买固定数量。邀请或切换成员到 `default` 时，如果同一 Team 内 `default` 成员数超过已购数量，超出的席位会进入后续账单。team-manager service 层会对这类操作做账单风险确认。
+   首页中的“空位”只表示双席位 Team 尚未被成员或邀请占用的固定 ChatGPT 位置。0.52 usage-based Workspace 没有固定位置，因此不能显示空位。
 
-5. **默认加入席位可设置为 Codex 席位来降低误邀风险。**
-   Team owner 可以把新成员默认席位设为 `usage_based`。这样有邀请权限的成员或未显式指定席位的邀请更不容易占用 ChatGPT 固定席位。该设置不能替代账单风险确认，因为显式 `default` 邀请仍可产生额外席位。
+5. **ChatGPT 席位超出已购数量会产生账单风险。**
+   `default` 席位需要预先购买固定数量。邀请或切换成员到 `default` 时，如果同一 Team 内 `default` 成员数超过已购数量，超出的席位会进入后续账单。team-manager 不预检或提示该风险，操作员自行核对席位数量。
 
-6. **普通成员也可能发起邀请。**
-   实际使用中，`standard-user` 也可以邀请别人加入 Team。已确认远端存在 `workspace_referrals_enabled` 设置，页面含义为“允许成员发送 Codex 邀请”；该设置按已观测命名记录，不替代默认席位和账单风险确认。防范手段仍应包含把默认新成员席位设为 `usage_based`，使未显式指定席位的邀请默认不占 ChatGPT 固定席位。
+6. **默认加入席位可设置为 Codex 席位来降低误邀风险。**
+   Team owner 可以把新成员默认席位设为 `usage_based`。这样有邀请权限的成员或未显式指定席位的邀请更不容易占用 ChatGPT 固定席位。显式 `default` 邀请仍可产生额外席位，操作员需要自行判断。
 
-7. **同一 Team 内腾 ChatGPT 席位时优先切席位，不要移除成员。**
+7. **普通成员也可能发起邀请。**
+   实际使用中，`standard-user` 也可以邀请别人加入 Team。已确认远端存在 `workspace_referrals_enabled` 设置，页面含义为“允许成员发送 Codex 邀请”；该设置按已观测命名记录，不替代默认席位管理。可把默认新成员席位设为 `usage_based`，使未显式指定席位的邀请默认不占 ChatGPT 固定席位。
+
+8. **同一 Team 内腾 ChatGPT 席位时优先切席位，不要移除成员。**
    为避免超出已购席位数，应先确认当前 `default` 成员数；需要腾位时，优先把暂时不用额度的成员从 `default` 切到 `usage_based`，再邀请或切换新的成员到 `default`。同一时间 `default` 成员数不超过已购席位数，就不会产生额外席位账单风险。
 
-8. **移除成员不是常规腾席位手段。**
+9. **移除成员不是常规腾席位手段。**
    移除成员会破坏该账号与该 Team 的 membership，可能导致该 Team 下的凭证不可用。移除只适合跨 Team 搬迁等明确需要离开原 Team 的场景。仅为腾出 ChatGPT 席位时，不应使用移除。
 
 ## 三、凭证、Team 位置与额度

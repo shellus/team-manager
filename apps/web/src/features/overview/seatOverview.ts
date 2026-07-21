@@ -1,7 +1,7 @@
 import {
   MAX_CHATGPT_SEATS,
+  type AccountOverviewView,
   type AccountSeatSlotStatus,
-  type AccountView,
   type MemberRole,
   type SeatType
 } from '@team-manager/shared';
@@ -50,7 +50,7 @@ interface Relation {
   source: 'member' | 'invite';
 }
 
-export function buildSeatOverviewItems(accounts: AccountView[]): SeatOverviewItem[] {
+export function buildSeatOverviewItems(accounts: AccountOverviewView[]): SeatOverviewItem[] {
   return accounts.flatMap(buildAccountSeatOverviewItems).sort(compareSeatOverviewItems);
 }
 
@@ -78,7 +78,7 @@ export function seatOverviewCardIdentity(item: SeatOverviewItem): SeatOverviewCa
   };
 }
 
-function buildAccountSeatOverviewItems(account: AccountView): SeatOverviewItem[] {
+function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOverviewItem[] {
   const relations = accountRelations(account);
   const relationByEmail = relationMapByEmail(relations);
   const slotEmails = new Set<string>();
@@ -122,16 +122,18 @@ function buildAccountSeatOverviewItems(account: AccountView): SeatOverviewItem[]
     });
   }
 
-  const chatGptPositionCount = items.filter((item) => item.seat === 'default').length;
-  for (let index = chatGptPositionCount; index < MAX_CHATGPT_SEATS; index += 1) {
-    items.push({
-      ...accountItemBase(account),
-      id: `${account.id}:empty:${index + 1}`,
-      source: 'placeholder',
-      status: 'empty',
-      seat: 'default',
-      ...accountRenewalExpiry(account)
-    });
+  if (account.hasTeamSubscription) {
+    const chatGptPositionCount = items.filter((item) => item.seat === 'default').length;
+    for (let index = chatGptPositionCount; index < MAX_CHATGPT_SEATS; index += 1) {
+      items.push({
+        ...accountItemBase(account),
+        id: `${account.id}:empty:${index + 1}`,
+        source: 'placeholder',
+        status: 'empty',
+        seat: 'default',
+        ...accountRenewalExpiry(account)
+      });
+    }
   }
 
   const usedCodexEmails = new Set<string>();
@@ -155,7 +157,7 @@ function buildAccountSeatOverviewItems(account: AccountView): SeatOverviewItem[]
   return items;
 }
 
-function accountRelations(account: AccountView): Relation[] {
+function accountRelations(account: AccountOverviewView): Relation[] {
   return [
     ...(account.membersCache ?? []).map((member): Relation => ({
       id: member.userId,
@@ -185,7 +187,7 @@ function relationMapByEmail(relations: Relation[]): Map<string, Relation> {
   return byEmail;
 }
 
-function accountItemBase(account: AccountView): Pick<
+function accountItemBase(account: AccountOverviewView): Pick<
   SeatOverviewItem,
   'accountRecordId' | 'workspaceAccountId' | 'teamName' | 'parentEmail'
 > {
@@ -197,7 +199,7 @@ function accountItemBase(account: AccountView): Pick<
   };
 }
 
-function accountRenewalExpiry(account: AccountView): Pick<SeatOverviewItem, 'expiresOn' | 'expiresOnSource'> {
+function accountRenewalExpiry(account: AccountOverviewView): Pick<SeatOverviewItem, 'expiresOn' | 'expiresOnSource'> {
   return account.nextRenewalOn
     ? { expiresOn: account.nextRenewalOn, expiresOnSource: 'team-renewal' }
     : {};

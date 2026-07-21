@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type {
-  AccountView,
-  CodexQuotaSnapshot,
-  SeatType,
-  SubaccountAuthLog,
-  SubaccountRegistrationJobView,
-  SubaccountRegistrationRuntimeStatus,
-  SubaccountView
+import {
+  subaccountSummaryFromView,
+  type AccountSummaryView,
+  type CodexQuotaSnapshot,
+  type SeatType,
+  type SubaccountAuthLog,
+  type SubaccountLocalProfileView,
+  type SubaccountRegistrationJobView,
+  type AccountManagerRuntimeStatus,
+  type SubaccountSummaryView,
+  type SubaccountView
 } from '@team-manager/shared';
 import { Alert, Form, Modal, Select, Space } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -19,9 +22,7 @@ import {
   type SubaccountModal,
   type SubaccountTab
 } from '../../app/routeState.js';
-import { BillingRiskModal } from '../../components/BillingRiskModal.js';
 import { actionKey } from '../../components/actionBusy.js';
-import { isBillingRiskError } from '../../components/format.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
@@ -49,22 +50,16 @@ interface TeamInviteValues {
   seat: SeatType;
 }
 
-interface SubaccountBillingRisk {
-  kind: 'team-invite';
-  accountId: string;
-  seat: SeatType;
-}
-
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
   return value ? `?${value}` : '';
 }
 
-function accountDisplayName(account: AccountView): string {
+function accountDisplayName(account: AccountSummaryView): string {
   return account.remark || account.workspaceName || account.email;
 }
 
-function accountOptionLabel(account: AccountView): string {
+function accountOptionLabel(account: AccountSummaryView): string {
   const primary = accountDisplayName(account);
   return primary === account.email ? primary : `${primary} · ${account.email}`;
 }
@@ -73,7 +68,7 @@ export function SubaccountRoutes({
   accounts,
   onError
 }: {
-  accounts: AccountView[];
+  accounts: AccountSummaryView[];
   onError: (error: unknown) => void;
 }) {
   const navigate = useNavigate();
@@ -83,12 +78,16 @@ export function SubaccountRoutes({
   const searchState = parseSubaccountSearchState(searchParams);
   const [inviteForm] = Form.useForm<TeamInviteValues>();
 
-  const [subaccounts, setSubaccounts] = useState<SubaccountView[]>([]);
+  const [subaccounts, setSubaccounts] = useState<SubaccountSummaryView[]>([]);
+  const [subaccountDetails, setSubaccountDetails] = useState<Record<string, SubaccountView>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState('');
+  const [localProfile, setLocalProfile] = useState<SubaccountLocalProfileView | null>(null);
+  const [localProfileLoading, setLocalProfileLoading] = useState(false);
   const [registrationJobs, setRegistrationJobs] = useState<SubaccountRegistrationJobView[]>([]);
-  const [runtimeStatus, setRuntimeStatus] = useState<SubaccountRegistrationRuntimeStatus | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<AccountManagerRuntimeStatus | null>(null);
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
+  const [logsLoaded, setLogsLoaded] = useState(false);
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
-  const [billingRisk, setBillingRisk] = useState<SubaccountBillingRisk | null>(null);
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState('');
   const actionBusy = useActionBusy();
@@ -104,12 +103,13 @@ export function SubaccountRoutes({
     [activeGroup, matchingSubaccounts]
   );
 
-  const selected = groupedSubaccounts.find((subaccount) => subaccount.id === subaccountId)
+  const selectedSummary = groupedSubaccounts.find((subaccount) => subaccount.id === subaccountId)
     ?? groupedSubaccounts[0]
     ?? null;
+  const selected = selectedSummary ? subaccountDetails[selectedSummary.id] ?? null : null;
   const deleteTarget =
     searchState.modal === 'delete-subaccount'
-      ? resolveSubaccountDeleteTarget(subaccounts, selected, searchState.target)
+      ? resolveSubaccountDeleteTarget(subaccounts, selectedSummary, searchState.target)
       : null;
   const accountOptions = useMemo(
     () =>
@@ -121,11 +121,13 @@ export function SubaccountRoutes({
   );
 
   const mergeSubaccount = useCallback((updated: SubaccountView) => {
+    setSubaccountDetails((current) => ({ ...current, [updated.id]: updated }));
+    const summary = subaccountSummaryFromView(updated);
     setSubaccounts((current) => {
       const exists = current.some((item) => item.id === updated.id);
       const next = exists
-        ? current.map((item) => (item.id === updated.id ? updated : item))
-        : [updated, ...current];
+        ? current.map((item) => (item.id === updated.id ? summary : item))
+        : [summary, ...current];
       return sortSubaccountsForList(next);
     });
   }, []);
@@ -138,12 +140,59 @@ export function SubaccountRoutes({
     [onError]
   );
 
+  useEffect(() => {
+    if (!selectedSummary || selected) return;
+    const id = selectedSummary.id;
+    let cancelled = false;
+    setDetailLoadingId(id);
+    void apiClient.getSubaccount(id)
+      .then((detail) => {
+        if (!cancelled) setSubaccountDetails((current) => ({ ...current, [id]: detail }));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) reportLocalError(error);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoadingId((current) => current === id ? '' : current);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportLocalError, selected, selectedSummary]);
+
+  useEffect(() => {
+    if (searchState.modal !== 'edit-subaccount-profile' || !selectedSummary) {
+      setLocalProfile(null);
+      setLocalProfileLoading(false);
+      return;
+    }
+    const id = selectedSummary.id;
+    let cancelled = false;
+    setLocalProfile(null);
+    setLocalProfileLoading(true);
+    void apiClient.getSubaccountLocalProfile(id)
+      .then((profile) => {
+        if (!cancelled) setLocalProfile(profile);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) reportLocalError(error);
+      })
+      .finally(() => {
+        if (!cancelled) setLocalProfileLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportLocalError, searchState.modal, selectedSummary]);
+
   const loadSubaccounts = useCallback(async () => {
     setLoading(true);
     setLocalError('');
     try {
-      const nextJobs = await apiClient.listSubaccountRegistrationJobs();
-      const nextSubaccounts = await apiClient.listSubaccounts();
+      const [nextJobs, nextSubaccounts] = await Promise.all([
+        apiClient.listSubaccountRegistrationJobs(),
+        apiClient.listSubaccounts()
+      ]);
       setSubaccounts(sortSubaccountsForList(nextSubaccounts));
       setRegistrationJobs(nextJobs);
     } catch (error) {
@@ -167,8 +216,10 @@ export function SubaccountRoutes({
 
   const loadLogs = useCallback(
     async (id: string) => {
+      setLogsLoaded(false);
       try {
         setLogs(await apiClient.listSubaccountLogs(id));
+        setLogsLoaded(true);
       } catch (error) {
         reportLocalError(error);
       }
@@ -191,8 +242,10 @@ export function SubaccountRoutes({
     let timer: number | undefined;
     const poll = async () => {
       try {
-        const nextJobs = await apiClient.listSubaccountRegistrationJobs();
-        const nextSubaccounts = await apiClient.listSubaccounts();
+        const [nextJobs, nextSubaccounts] = await Promise.all([
+          apiClient.listSubaccountRegistrationJobs(),
+          apiClient.listSubaccounts()
+        ]);
         if (!cancelled) {
           setSubaccounts(sortSubaccountsForList(nextSubaccounts));
           setRegistrationJobs(nextJobs);
@@ -223,26 +276,28 @@ export function SubaccountRoutes({
       nextParams.set('tab', searchState.tab);
       changed = true;
     }
-    const nextPath = selected ? `/subaccounts/${selected.id}` : '/subaccounts';
+    const nextPath = selectedSummary ? `/subaccounts/${selectedSummary.id}` : '/subaccounts';
     if (location.pathname !== nextPath || changed) {
       navigate({ pathname: nextPath, search: toSearch(nextParams) }, { replace: true });
     }
-  }, [activeGroup, loading, location.pathname, navigate, searchParams, searchState.modal, searchState.tab, selected, subaccounts.length]);
+  }, [activeGroup, loading, location.pathname, navigate, searchParams, searchState.modal, searchState.tab, selectedSummary, subaccounts.length]);
 
   useEffect(() => {
     setQuota(null);
-    setBillingRisk(null);
     setLocalError('');
-    if (selected?.id) void loadLogs(selected.id);
-    else setLogs([]);
-  }, [loadLogs, selected?.id]);
+  }, [selectedSummary?.id]);
+
+  useEffect(() => {
+    if (searchState.tab === 'logs' && selectedSummary?.id) void loadLogs(selectedSummary.id);
+    else {
+      setLogs([]);
+      setLogsLoaded(false);
+    }
+  }, [loadLogs, searchState.tab, selectedSummary?.id]);
 
   const closeModal = () => {
     const next = clearModalState(searchParams);
-    next.delete('seat');
-    next.delete('risk');
     setSearchParams(next);
-    setBillingRisk(null);
     setLocalError('');
   };
 
@@ -251,7 +306,7 @@ export function SubaccountRoutes({
     setSearchParams(setModalState(searchParams, modal, target));
   };
 
-  const openSubaccountRecordModal = (subaccount: SubaccountView, modal: SubaccountModal) => {
+  const openSubaccountRecordModal = (subaccount: SubaccountSummaryView, modal: SubaccountModal) => {
     setLocalError('');
     navigate({
       pathname: `/subaccounts/${subaccount.id}`,
@@ -259,7 +314,7 @@ export function SubaccountRoutes({
     });
   };
 
-  const selectSubaccount = (subaccount: SubaccountView) => {
+  const selectSubaccount = (subaccount: SubaccountSummaryView) => {
     navigate({ pathname: `/subaccounts/${subaccount.id}`, search: toSearch(searchParams) });
   };
 
@@ -342,11 +397,11 @@ export function SubaccountRoutes({
     proxy?: string;
     session?: unknown;
   }) => {
-    if (!selected) return;
+    if (!selectedSummary) return;
     setLocalError('');
     try {
       await actionBusy.run('edit-subaccount-profile', async () => {
-        const updated = await apiClient.updateSubaccountLocalProfile(selected.id, {
+        const updated = await apiClient.updateSubaccountLocalProfile(selectedSummary.id, {
           remark: payload.remark ?? '',
           groupName: payload.groupName ?? '默认分组',
           proxy: payload.proxy ?? '',
@@ -363,12 +418,12 @@ export function SubaccountRoutes({
   };
 
   const syncSubaccount = async () => {
-    if (!selected) return;
+    if (!selectedSummary) return;
     setLocalError('');
     try {
       await actionBusy.run('subaccount-refresh', async () => {
-        mergeSubaccount(await apiClient.refreshSubaccount(selected.id));
-        await loadLogs(selected.id);
+        mergeSubaccount(await apiClient.refreshSubaccount(selectedSummary.id));
+        if (searchState.tab === 'logs') await loadLogs(selectedSummary.id);
       });
     } catch (error) {
       reportLocalError(error);
@@ -387,9 +442,12 @@ export function SubaccountRoutes({
         await apiClient.removeSubaccount(target.id);
         const nextSelected = subaccountAfterRemoval(subaccounts, target.id);
         const nextParams = clearModalState(searchParams);
-        nextParams.delete('seat');
-        nextParams.delete('risk');
         setSubaccounts((current) => sortSubaccountsForList(current.filter((item) => item.id !== target.id)));
+        setSubaccountDetails((current) => {
+          const next = { ...current };
+          delete next[target.id];
+          return next;
+        });
         navigate(
           {
             pathname: nextSelected ? `/subaccounts/${nextSelected.id}` : '/subaccounts',
@@ -403,58 +461,28 @@ export function SubaccountRoutes({
     }
   };
 
-  const openBillingRisk = (risk: SubaccountBillingRisk) => {
-    setLocalError('');
-    const next = setModalState(searchParams, 'billing-risk', risk.accountId);
-    next.set('risk', risk.kind);
-    next.set('seat', risk.seat);
-    setBillingRisk(risk);
-    setSearchParams(next);
-  };
-
-  const inviteToTeam = async (values: TeamInviteValues, confirmBillingRisk = false) => {
-    if (!selected) return;
+  const inviteToTeam = async (values: TeamInviteValues) => {
+    if (!selectedSummary) return;
     actionBusy.start('invite-to-team');
     setLocalError('');
     try {
-      mergeSubaccount(await apiClient.inviteSubaccountToTeam(selected.id, values.accountId, values.seat, confirmBillingRisk));
+      mergeSubaccount(await apiClient.inviteSubaccountToTeam(selectedSummary.id, values.accountId, values.seat));
       closeModal();
     } catch (error) {
-      if (isBillingRiskError(error)) {
-        openBillingRisk({ kind: 'team-invite', accountId: values.accountId, seat: values.seat });
-      } else {
-        reportLocalError(error);
-      }
+      reportLocalError(error);
     } finally {
       actionBusy.finish('invite-to-team');
     }
   };
 
-  const confirmBillingRisk = async () => {
-    if (!selected || !billingRisk) {
-      closeModal();
-      return;
-    }
-    actionBusy.start('billing-risk');
-    setLocalError('');
-    try {
-      mergeSubaccount(await apiClient.inviteSubaccountToTeam(selected.id, billingRisk.accountId, billingRisk.seat, true));
-      closeModal();
-    } catch (error) {
-      reportLocalError(error);
-    } finally {
-      actionBusy.finish('billing-risk');
-    }
-  };
-
   const createPersonalAccessToken = async (workspaceId: string) => {
-    if (!selected || !workspaceId) return;
+    if (!selectedSummary || !workspaceId) return;
     const key = actionKey('pat-create', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
-        mergeSubaccount(await apiClient.createSubaccountPersonalAccessTokenCredential(selected.id, workspaceId));
-        await loadLogs(selected.id);
+        mergeSubaccount(await apiClient.createSubaccountPersonalAccessTokenCredential(selectedSummary.id, workspaceId));
+        if (searchState.tab === 'logs') await loadLogs(selectedSummary.id);
       });
     } catch (error) {
       reportLocalError(error);
@@ -462,13 +490,13 @@ export function SubaccountRoutes({
   };
 
   const refreshQuota = async (workspaceId: string) => {
-    if (!selected || !workspaceId) return;
+    if (!selectedSummary || !workspaceId) return;
     const key = actionKey('quota-refresh', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
-        setQuota(await apiClient.refreshSubaccountQuota(selected.id, workspaceId));
-        setSubaccounts(sortSubaccountsForList(await apiClient.listSubaccounts()));
+        setQuota(await apiClient.refreshSubaccountQuota(selectedSummary.id, workspaceId));
+        mergeSubaccount(await apiClient.getSubaccount(selectedSummary.id));
       });
     } catch (error) {
       reportLocalError(error);
@@ -476,12 +504,12 @@ export function SubaccountRoutes({
   };
 
   const exportCredential = async (workspaceId: string) => {
-    if (!selected || !workspaceId) return;
+    if (!selected || !selectedSummary || !workspaceId) return;
     const key = actionKey('pat-export', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
-        const credential = await apiClient.getSubaccountCodexCredential(selected.id, workspaceId);
+        const credential = await apiClient.getSubaccountCodexCredential(selectedSummary.id, workspaceId);
         downloadTextFile(buildCredentialDownload(selected, workspaceId, credential));
       });
     } catch (error) {
@@ -490,13 +518,13 @@ export function SubaccountRoutes({
   };
 
   const deleteCredential = async () => {
-    if (!selected || !searchState.target) return;
+    if (!selectedSummary || !searchState.target) return;
     const workspaceId = searchState.target;
     const key = actionKey('pat-delete', workspaceId);
     setLocalError('');
     try {
       await actionBusy.run(key, async () => {
-        mergeSubaccount(await apiClient.removeSubaccountCodexCredential(selected.id, workspaceId));
+        mergeSubaccount(await apiClient.removeSubaccountCodexCredential(selectedSummary.id, workspaceId));
         setQuota(null);
         closeModal();
       });
@@ -513,7 +541,7 @@ export function SubaccountRoutes({
         groups={groups}
         activeGroup={activeGroup}
         searchQuery={searchQuery}
-        selectedId={selected?.id ?? ''}
+        selectedId={selectedSummary?.id ?? ''}
         runtimeStatus={runtimeStatus}
         isBusy={actionBusy.isBusy}
         onSelect={selectSubaccount}
@@ -535,17 +563,19 @@ export function SubaccountRoutes({
         <SubaccountDetail
           subaccount={selected}
           accounts={accounts}
+          loading={Boolean(selectedSummary) && !selected && detailLoadingId === selectedSummary?.id}
           activeTab={searchState.tab}
           logs={logs}
+          logsLoaded={logsLoaded}
           busyState={actionBusy.busyState}
           quota={quota}
           syncing={actionBusy.isBusy('subaccount-refresh')}
           onTabChange={changeTab}
           onSubaccountChanged={mergeSubaccount}
-          onOpenEdit={() => selected && openModal('edit-subaccount-profile', selected.id)}
-          onOpenDelete={() => selected && openModal('delete-subaccount', selected.id)}
+          onOpenEdit={() => selectedSummary && openModal('edit-subaccount-profile', selectedSummary.id)}
+          onOpenDelete={() => selectedSummary && openModal('delete-subaccount', selectedSummary.id)}
           onSync={() => void syncSubaccount()}
-          onOpenInvite={() => openModal('invite-to-team', selected?.id ?? '')}
+          onOpenInvite={() => openModal('invite-to-team', selectedSummary?.id ?? '')}
           onCreatePat={(workspaceId) => void createPersonalAccessToken(workspaceId)}
           onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
           onExportPat={(workspaceId) => void exportCredential(workspaceId)}
@@ -567,16 +597,17 @@ export function SubaccountRoutes({
       />
 
       <LocalProfileModal
-        open={searchState.modal === 'edit-subaccount-profile' && Boolean(selected)}
+        open={searchState.modal === 'edit-subaccount-profile' && Boolean(selectedSummary)}
         mode="subaccount"
         title="编辑子号本地资料"
         description="只更新本系统保存的备注、分组、代理地址和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         initialValues={{
-          remark: selected?.remark ?? '',
-          groupName: selected?.groupName ?? '默认分组',
-          proxy: selected?.proxy ?? '',
-          session: selected?.session
+          remark: localProfile?.remark ?? selectedSummary?.remark ?? '',
+          groupName: localProfile?.groupName ?? selectedSummary?.groupName ?? '默认分组',
+          proxy: localProfile?.proxy ?? '',
+          session: localProfile?.session
         }}
+        loading={localProfileLoading}
         confirmLoading={actionBusy.isBusy('edit-subaccount-profile')}
         onCancel={closeModal}
         onSubmit={updateLocalProfile}
@@ -613,7 +644,7 @@ export function SubaccountRoutes({
       </Modal>
 
       <Modal
-        open={searchState.modal === 'invite-to-team' && Boolean(selected)}
+        open={searchState.modal === 'invite-to-team' && Boolean(selectedSummary)}
         title="邀请子号加入 Team"
         okText="发送邀请"
         cancelText="取消"
@@ -645,7 +676,7 @@ export function SubaccountRoutes({
       </Modal>
 
       <Modal
-        open={searchState.modal === 'delete-pat-credential' && Boolean(selected)}
+        open={searchState.modal === 'delete-pat-credential' && Boolean(selectedSummary)}
         title="删除 PAT 凭证"
         okText="删除 PAT"
         cancelText="取消"
@@ -659,13 +690,6 @@ export function SubaccountRoutes({
         </Space>
       </Modal>
 
-      <BillingRiskModal
-        open={searchState.modal === 'billing-risk'}
-        confirmLoading={actionBusy.isBusy('billing-risk')}
-        error={searchState.modal === 'billing-risk' ? localError : ''}
-        onCancel={closeModal}
-        onConfirm={() => void confirmBillingRisk()}
-      />
     </div>
   );
 }

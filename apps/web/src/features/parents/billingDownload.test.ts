@@ -8,7 +8,9 @@ const account = {
   remark: 'CPA A',
   groupName: 'default',
   limitType: 'unknown',
-  accountId: 'workspace-main'
+  accountId: 'workspace-main',
+  hasTeamSubscription: true,
+  canManageWorkspace: true
 } satisfies AccountView;
 
 describe('billingDownload', () => {

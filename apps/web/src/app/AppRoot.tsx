@@ -1,22 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AccountView } from '@team-manager/shared';
-import { Alert } from 'antd';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { accountSummaryFromView, type AccountSummaryView, type AccountView } from '@team-manager/shared';
+import { Alert, Skeleton } from 'antd';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { apiClient, ApiError, clearToken, getToken, setToken } from '../api.js';
-import { Login } from '../Login.js';
 import { useActionBusy } from '../components/useActionBusy.js';
-import { ParentRoutes } from '../features/parents/ParentRoutes.js';
-import { PublicSeatPage } from '../features/public-seat/PublicSeatPage.js';
-import { OverviewPage } from '../features/overview/OverviewPage.js';
-import { SubaccountRoutes } from '../features/subaccounts/SubaccountRoutes.js';
 import { accountRefreshActionKey, syncingAccountIdsFromBusy } from './accountRefreshBusy.js';
 import { AppShell } from './AppShell.js';
+
+const Login = lazy(async () => ({ default: (await import('../Login.js')).Login }));
+const ParentRoutes = lazy(async () => ({ default: (await import('../features/parents/ParentRoutes.js')).ParentRoutes }));
+const PublicSeatPage = lazy(async () => ({ default: (await import('../features/public-seat/PublicSeatPage.js')).PublicSeatPage }));
+const OverviewPage = lazy(async () => ({ default: (await import('../features/overview/OverviewPage.js')).OverviewPage }));
+const SubaccountRoutes = lazy(async () => ({ default: (await import('../features/subaccounts/SubaccountRoutes.js')).SubaccountRoutes }));
+
+function RouteFallback() {
+  return <Skeleton active paragraph={{ rows: 8 }} />;
+}
 
 export function AppRoot() {
   const navigate = useNavigate();
   const location = useLocation();
   const [authed, setAuthed] = useState(() => Boolean(getToken()));
-  const [accounts, setAccounts] = useState<AccountView[]>([]);
+  const [accounts, setAccounts] = useState<AccountSummaryView[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [error, setError] = useState('');
   const accountRefreshBusy = useActionBusy();
@@ -34,7 +39,7 @@ export function AppRoot() {
     }
   }, [navigate]);
 
-  const mergeAccount = useCallback((updated: AccountView) => {
+  const mergeAccountSummary = useCallback((updated: AccountSummaryView) => {
     setAccounts((current) => {
       const exists = current.some((account) => account.id === updated.id);
       const next = exists
@@ -43,6 +48,10 @@ export function AppRoot() {
       return next;
     });
   }, []);
+
+  const mergeAccount = useCallback((updated: AccountView) => {
+    mergeAccountSummary(accountSummaryFromView(updated));
+  }, [mergeAccountSummary]);
 
   const removeAccount = useCallback((id: string) => {
     setAccounts((current) => current.filter((account) => account.id !== id));
@@ -65,14 +74,18 @@ export function AppRoot() {
   }, [authed, loadAccounts]);
 
   const refreshAccount = useCallback(
-    async (account: AccountView) => {
+    async (account: AccountSummaryView): Promise<AccountView | undefined> => {
       setError('');
       try {
+        let updated: AccountView | undefined;
         await accountRefreshBusy.run(accountRefreshActionKey(account.id), async () => {
-          mergeAccount(await apiClient.refreshAccount(account.id));
+          updated = await apiClient.refreshAccount(account.id);
+          mergeAccount(updated);
         });
+        return updated;
       } catch (refreshError) {
         handleError(refreshError);
+        return undefined;
       }
     },
     [accountRefreshBusy.run, handleError, mergeAccount]
@@ -94,52 +107,56 @@ export function AppRoot() {
 
   if (location.pathname.startsWith('/seat/')) {
     return (
-      <Routes>
-        <Route path="/seat/:seatKey" element={<PublicSeatPage />} />
-        <Route path="*" element={<Navigate to={location.pathname} replace />} />
-      </Routes>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/seat/:seatKey" element={<PublicSeatPage />} />
+          <Route path="*" element={<Navigate to={location.pathname} replace />} />
+        </Routes>
+      </Suspense>
     );
   }
 
   if (!authed) {
     return (
-      <Routes>
-        <Route path="/login" element={<Login onLogin={login} />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/login" element={<Login onLogin={login} />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </Suspense>
     );
   }
 
   return (
     <AppShell onLogout={logout}>
       {error && <Alert className="global-alert" type="error" showIcon message={error} closable onClose={() => setError('')} />}
-      <Routes>
-        <Route
-          path="/overview"
-          element={<OverviewPage accounts={accounts} loading={loadingAccounts} />}
-        />
-        <Route
-          path="/parents/:accountId?"
-          element={
-            <ParentRoutes
-              accounts={accounts}
-              loading={loadingAccounts}
-              globalError={error}
-              syncingIds={syncingIds}
-              onAccountChanged={mergeAccount}
-              onAccountRemoved={removeAccount}
-              onRefreshAccount={(account) => void refreshAccount(account)}
-              onError={handleError}
-            />
-          }
-        />
-        <Route
-          path="/subaccounts/:subaccountId?"
-          element={<SubaccountRoutes accounts={accounts} onError={handleError} />}
-        />
-        <Route path="/login" element={<Navigate to="/parents" replace />} />
-        <Route path="*" element={<Navigate to="/parents" replace />} />
-      </Routes>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/overview" element={<OverviewPage />} />
+          <Route
+            path="/parents/:accountId?"
+            element={
+              <ParentRoutes
+                accounts={accounts}
+                loading={loadingAccounts}
+                globalError={error}
+                syncingIds={syncingIds}
+                onAccountChanged={mergeAccount}
+                onAccountSummaryChanged={mergeAccountSummary}
+                onAccountRemoved={removeAccount}
+                onRefreshAccount={refreshAccount}
+                onError={handleError}
+              />
+            }
+          />
+          <Route
+            path="/subaccounts/:subaccountId?"
+            element={<SubaccountRoutes accounts={accounts} onError={handleError} />}
+          />
+          <Route path="/login" element={<Navigate to="/parents" replace />} />
+          <Route path="*" element={<Navigate to="/parents" replace />} />
+        </Routes>
+      </Suspense>
     </AppShell>
   );
 }

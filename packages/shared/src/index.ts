@@ -3,6 +3,12 @@
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export {
+  billingCurrencyForCountry,
+  CHECKOUT_COUNTRY_CODES,
+  CHECKOUT_CURRENCIES
+} from './checkoutOptions.js';
+
+export {
   getChatGptSessionUserEmail,
   inspectChatGptSessionImportInput,
   parseChatGptSessionImportInput,
@@ -53,6 +59,7 @@ export type MemberRole = EditableMemberRole | string;
 /** 录入的母号（含凭证，仅存后端 data/，绝不下发前端明文） */
 export interface Account {
   id: string;                 // team-manager 内部 id（uuid）
+  managedAccountEmail?: string; // GPT Account Manager 的规范化邮箱引用
   remark?: string;            // 本地备注，不等同远端 Team 名称
   groupName?: string;         // 本地母号分组，缺省由后端归入默认分组
   limitType?: AccountLimitType; // 本地记录的额度窗口类型
@@ -100,6 +107,7 @@ export interface AccountFingerprint {
 /** 下发前端的母号视图。管理后台可信，允许编辑本地保存的 session JSON。 */
 export interface AccountView {
   id: string;
+  managedAccountEmail?: string;
   remark?: string;
   groupName: string;
   limitType: AccountLimitType;
@@ -132,6 +140,111 @@ export interface AccountView {
   seatSlots?: AccountSeatSlot[];
   lastRefreshAt?: number;
   lastError?: string;
+  hasTeamSubscription: boolean;
+  canManageWorkspace: boolean;
+}
+
+/** 母号列表摘要。只包含列表、筛选和操作入口需要的数据，不下发 Session 或详情缓存。 */
+export interface AccountSummaryView {
+  id: string;
+  managedAccountEmail?: string;
+  remark?: string;
+  groupName: string;
+  limitType: AccountLimitType;
+  accountId: string;
+  email: string;
+  planType?: string;
+  workspaceName?: string;
+  nextRenewalOn?: string;
+  status?: 'active' | 'invalid' | 'unknown';
+  defaultSeat?: SeatType;
+  lastRefreshAt?: number;
+  lastError?: string;
+  hasTeamSubscription: boolean;
+  canManageWorkspace: boolean;
+  memberAndInviteCount?: number;
+  chatGptSeatUsageCount?: number;
+  seatSlotCount: number;
+  searchText: string;
+}
+
+/** 母号本地资料。敏感 Session 和代理只在打开编辑弹窗时按需读取。 */
+export interface AccountLocalProfileView {
+  id: string;
+  remark?: string;
+  groupName: string;
+  limitType: AccountLimitType;
+  nextRenewalOn?: string;
+  proxy?: string;
+  session?: ChatGptSessionInput;
+}
+
+/** 概览页构建席位位置需要的母号缓存，不包含 Session、代理和设置。 */
+export type AccountOverviewView = Pick<
+  AccountView,
+  | 'id'
+  | 'accountId'
+  | 'email'
+  | 'remark'
+  | 'workspaceName'
+  | 'nextRenewalOn'
+  | 'hasTeamSubscription'
+  | 'membersCache'
+  | 'pendingInvitesCache'
+  | 'seatSlots'
+>;
+
+export function accountSummaryFromView(account: AccountView): AccountSummaryView {
+  const members = account.membersCache;
+  const invites = account.pendingInvitesCache;
+  const hasRelationCache = Array.isArray(members) || Array.isArray(invites);
+  const memberAndInviteCount = hasRelationCache
+    ? (members?.length ?? 0) + (invites?.length ?? 0)
+    : undefined;
+  const chatGptSeatUsageCount = hasRelationCache
+    ? (members?.filter((member) => member.seat === 'default').length ?? 0)
+      + (invites?.filter((invite) => invite.seat === 'default').length ?? 0)
+    : undefined;
+  const searchText = [
+    account.email,
+    account.remark,
+    account.groupName,
+    account.workspaceName,
+    account.accountId,
+    account.nextRenewalOn,
+    ...(members ?? []).flatMap((member) => [member.email, member.remoteName, member.role]),
+    ...(invites ?? []).flatMap((invite) => [invite.email, invite.role]),
+    ...(account.seatSlots ?? []).flatMap((slot) => [
+      slot.email,
+      slot.remark,
+      slot.expiresOn,
+      slot.price,
+      slot.seatKey
+    ])
+  ].filter((value): value is string => typeof value === 'string' && Boolean(value));
+
+  return {
+    id: account.id,
+    managedAccountEmail: account.managedAccountEmail,
+    remark: account.remark,
+    groupName: account.groupName,
+    limitType: account.limitType,
+    accountId: account.accountId,
+    email: account.email,
+    planType: account.planType,
+    workspaceName: account.workspaceName,
+    nextRenewalOn: account.nextRenewalOn,
+    status: account.status,
+    defaultSeat: account.defaultSeat,
+    lastRefreshAt: account.lastRefreshAt,
+    lastError: account.lastError,
+    hasTeamSubscription: account.hasTeamSubscription,
+    canManageWorkspace: account.canManageWorkspace,
+    memberAndInviteCount,
+    chatGptSeatUsageCount,
+    seatSlotCount: account.seatSlots?.length ?? 0,
+    searchText: searchText.join('\n').toLowerCase()
+  };
 }
 
 /** workspace 成员（GET /accounts/{id}/users → items[]） */
@@ -247,7 +360,6 @@ export interface InviteRequest {
   email: string;
   seat: SeatType;
   role?: MemberRole;          // 默认 standard-user
-  confirmBillingRisk?: boolean;
   seatSlotProfile?: AccountSeatSlotProfileInput;
 }
 
@@ -297,6 +409,104 @@ export type SubaccountRegistrationJobStatus =
   | 'succeeded'
   | 'failed'
   | 'interrupted';
+
+export type AccountManagerOperationStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_for_otp'
+  | 'waiting_manual'
+  | 'succeeded'
+  | 'failed'
+  | 'interrupted';
+
+export interface AccountManagerOperationView {
+  id: string;
+  accountId?: string;
+  type: string;
+  status: AccountManagerOperationStatus;
+  phase: string;
+  message?: string;
+  email?: string;
+  progress: number;
+  control?: {
+    id: string;
+    type: 'rotate_proxy_sid';
+    status: 'queued' | 'executing' | 'succeeded' | 'failed';
+    requestedAt: number;
+    updatedAt: number;
+    completedAt?: number;
+    error?: string;
+  };
+  requestSummary?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export interface OpenCodexSpaceRequest {
+  country: string;
+  currency: string;
+  credits: number;
+  card: {
+    number: string;
+    expiryMonth: number;
+    expiryYear: number;
+    cvc: string;
+  };
+}
+
+export interface OpenTeamSubscriptionRequest {
+  workspaceId?: string;
+  promoCode?: string;
+  country: string;
+  currency: string;
+  autoPay?: boolean;
+  card?: {
+    number: string;
+    expiryMonth: number;
+    expiryYear: number;
+    cvc: string;
+  };
+}
+
+export interface TeamUpgradeWorkspaceOption {
+  id: string;
+  name?: string;
+  planType: string;
+  isDeactivated: boolean;
+}
+
+export type ParentRegistrationStage =
+  | 'registering'
+  | 'waiting_manual'
+  | 'registration_failed'
+  | 'import_failed'
+  | 'completed';
+
+export interface ParentRegistrationTaskView {
+  registration: AccountManagerOperationView;
+  stage: ParentRegistrationStage;
+  email?: string;
+  parent?: AccountSummaryView;
+  error?: string;
+}
+
+export interface ParentAccountManagerStatus {
+  configured: boolean;
+  reachable: boolean;
+  managed: boolean;
+  hasCodexSpace: boolean;
+  hasTeamSubscription: boolean;
+  accountEmail?: string;
+  teamUpgradeWorkspaces?: TeamUpgradeWorkspaceOption[];
+  codexOperation?: AccountManagerOperationView;
+  teamOperation?: AccountManagerOperationView;
+  importedAccounts?: AccountSummaryView[];
+  error?: string;
+}
 
 /** 自动注册后台任务。任务本身不包含密码、Cookie、验证码或 Token。 */
 export interface SubaccountRegistrationJobView {
@@ -383,6 +593,69 @@ export interface SubaccountView {
   lastError?: string;
 }
 
+/** 子号列表摘要。详情、凭证额度、Team 关联和 Session 均在选中记录后按需加载。 */
+export interface SubaccountSummaryView {
+  id: string;
+  email: string;
+  remark?: string;
+  groupName?: string;
+  managedAccountEmail?: string;
+  status: SubaccountStatus;
+  hasWebSession: boolean;
+  codexCredentialCount: number;
+  teamLinkCount: number;
+  createdAt: number;
+  updatedAt: number;
+  lastRefreshAt?: number;
+  lastError?: string;
+  searchText: string;
+}
+
+/** 子号本地资料。敏感 Session 和代理只在打开编辑弹窗时按需读取。 */
+export interface SubaccountLocalProfileView {
+  id: string;
+  remark?: string;
+  groupName?: string;
+  proxy?: string;
+  session?: ChatGptSessionInput;
+}
+
+export function subaccountSummaryFromView(subaccount: SubaccountView): SubaccountSummaryView {
+  const searchText = [
+    subaccount.email,
+    subaccount.remark,
+    subaccount.groupName,
+    subaccount.chatgptAccountId,
+    subaccount.remoteUsername,
+    subaccount.remoteDisplayName,
+    subaccount.managedAccountEmail,
+    subaccount.status,
+    ...subaccount.teamLinks.flatMap((link) => [
+      link.workspaceId,
+      link.workspaceName,
+      link.planType,
+      link.role
+    ])
+  ].filter((value): value is string => typeof value === 'string' && Boolean(value));
+
+  return {
+    id: subaccount.id,
+    email: subaccount.email,
+    remark: subaccount.remark,
+    groupName: subaccount.groupName,
+    managedAccountEmail: subaccount.managedAccountEmail,
+    status: subaccount.status,
+    hasWebSession: subaccount.hasWebSession,
+    codexCredentialCount: subaccount.codexCredentials.length,
+    teamLinkCount: subaccount.teamLinks.length,
+    createdAt: subaccount.createdAt,
+    updatedAt: subaccount.updatedAt,
+    lastRefreshAt: subaccount.lastRefreshAt,
+    lastError: subaccount.lastError,
+    searchText: searchText.join('\n').toLowerCase()
+  };
+}
+
 export interface SubaccountTeamLink {
   accountId: string;             // team-manager 母号内部 id；未录入母号的远端 workspace 使用 workspaceId 作为稳定占位
   workspaceId?: string;          // 远端 ChatGPT workspace account_id
@@ -446,7 +719,7 @@ export interface CodexQuotaSnapshot {
   error: string | null;
 }
 
-export interface SubaccountRegistrationRuntimeStatus {
+export interface AccountManagerRuntimeStatus {
   configured: boolean;
   reachable: boolean;
   error?: string;
@@ -464,9 +737,6 @@ export interface SubaccountAuthLog {
 
 /** 当前套餐包含的 ChatGPT 席位数量；超过后可能产生额外账单。 */
 export const MAX_CHATGPT_SEATS = 2;
-
-export const BILLING_RISK_CONFIRM_MESSAGE =
-  '此操作将会导致超出已有席位数量，可能导致额外的账单，确认吗？（您可以先将现有成员转为Codex席位后安全进行）';
 
 /** 统一 API 响应 */
 export interface ApiResult<T = unknown> {

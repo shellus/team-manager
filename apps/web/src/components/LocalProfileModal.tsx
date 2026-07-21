@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { inspectChatGptSessionImportInput, type AccountLimitType, type ChatGptSessionInput } from '@team-manager/shared';
-import { Alert, Descriptions, Form, Input, Modal, Select } from 'antd';
+import { Alert, Descriptions, Form, Input, Modal, Select, Skeleton } from 'antd';
 import { parseJsonObject } from './format.js';
 import { formatLocalProfileSessionJson, shouldSubmitLocalProfileSession } from './localProfileSession.js';
 import { LIMIT_TYPE_LABEL } from '../labels.js';
@@ -24,6 +24,7 @@ export function LocalProfileModal({
   initialValues,
   submitLabel = '保存',
   requireSession = false,
+  loading = false,
   confirmLoading = false,
   onCancel,
   onSubmit
@@ -42,6 +43,7 @@ export function LocalProfileModal({
   };
   submitLabel?: string;
   requireSession?: boolean;
+  loading?: boolean;
   confirmLoading?: boolean;
   onCancel: () => void;
   onSubmit: (payload: {
@@ -151,81 +153,90 @@ export function LocalProfileModal({
       cancelText="取消"
       width={720}
       confirmLoading={confirmLoading}
+      okButtonProps={{ disabled: loading }}
       onCancel={onCancel}
-      onOk={() => form.submit()}
+      onOk={() => {
+        if (!loading) form.submit();
+      }}
       destroyOnClose
     >
-      <p className="modal-description">{description}</p>
-      <Form<LocalProfileFormValues>
-        form={form}
-        layout="vertical"
-        onFinish={submit}
-        onValuesChange={(_, values) => setRawSession(values.rawSession ?? '')}
-      >
-        <div className="form-grid two">
-          <Form.Item name="remark" label="备注">
-            <Input placeholder="例如用途、客户或订单备注" />
-          </Form.Item>
-          <Form.Item
-            name="groupName"
-            label={mode === 'parent' ? '母号分组' : '子号分组'}
-            rules={[{ required: true, message: '请输入分组' }]}
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 8 }} />
+      ) : (
+        <>
+          <p className="modal-description">{description}</p>
+          <Form<LocalProfileFormValues>
+            form={form}
+            layout="vertical"
+            onFinish={submit}
+            onValuesChange={(_, values) => setRawSession(values.rawSession ?? '')}
           >
-            <Input placeholder="例如默认分组" />
-          </Form.Item>
-          {mode === 'parent' && (
-            <>
-              <Form.Item
-                name="limitType"
-                label="限额类型"
-                rules={[{ required: true, message: '请选择限额类型' }]}
-              >
-                <Select<AccountLimitType>
-                  options={[
-                    { value: 'unknown', label: LIMIT_TYPE_LABEL.unknown },
-                    { value: 'weekly', label: LIMIT_TYPE_LABEL.weekly },
-                    { value: 'monthly', label: LIMIT_TYPE_LABEL.monthly }
-                  ]}
-                />
+            <div className="form-grid two">
+              <Form.Item name="remark" label="备注">
+                <Input placeholder="例如用途、客户或订单备注" />
               </Form.Item>
               <Form.Item
-                name="nextRenewalOn"
-                label="下次续费时间"
-                rules={[
-                  {
-                    pattern: /^$|^\d{4}-\d{2}-\d{2}$/,
-                    message: '请使用 yyyy-mm-dd'
-                  }
-                ]}
+                name="groupName"
+                label={mode === 'parent' ? '母号分组' : '子号分组'}
+                rules={[{ required: true, message: '请输入分组' }]}
               >
-                <Input type="date" />
+                <Input placeholder="例如默认分组" />
               </Form.Item>
-            </>
-          )}
-        </div>
-        <Form.Item name="proxy" label="代理地址">
-          <Input placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080" />
-        </Form.Item>
-        <Form.Item
-          name="rawSession"
-          label="Session JSON"
-          rules={requireSession ? [{ required: true, message: '请粘贴 Session JSON' }] : undefined}
-        >
-          <Input.TextArea
-            rows={8}
-            spellCheck={false}
-            placeholder="粘贴 chatgpt.com session JSON（建议包含 sessionToken）"
-          />
-        </Form.Item>
-        {sessionPreview.inputMessage && (
-          <Alert className="input-detection" type={sessionPreview.inputAlertType} showIcon message={sessionPreview.inputMessage} />
-        )}
-        <Descriptions size="small" column={mode === 'subaccount' ? 1 : 2} bordered>
-          <Descriptions.Item label="识别邮箱">{sessionPreview.email || '暂无'}</Descriptions.Item>
-          <Descriptions.Item label="workspace account_id">{sessionPreview.accountId || '暂无'}</Descriptions.Item>
-        </Descriptions>
-      </Form>
-      {error && <Alert className="modal-error" type="error" showIcon message={error} />}
+              {mode === 'parent' && (
+                <>
+                  <Form.Item
+                    name="limitType"
+                    label="限额类型"
+                    rules={[{ required: true, message: '请选择限额类型' }]}
+                  >
+                    <Select<AccountLimitType>
+                      options={[
+                        { value: 'unknown', label: LIMIT_TYPE_LABEL.unknown },
+                        { value: 'weekly', label: LIMIT_TYPE_LABEL.weekly },
+                        { value: 'monthly', label: LIMIT_TYPE_LABEL.monthly }
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    name="nextRenewalOn"
+                    label="下次续费时间"
+                    rules={[
+                      {
+                        pattern: /^$|^\d{4}-\d{2}-\d{2}$/,
+                        message: '请使用 yyyy-mm-dd'
+                      }
+                    ]}
+                  >
+                    <Input type="date" />
+                  </Form.Item>
+                </>
+              )}
+            </div>
+            <Form.Item name="proxy" label="代理地址">
+              <Input placeholder="http://proxy-host:port 或 socks5://proxy-host:port" />
+            </Form.Item>
+            <Form.Item
+              name="rawSession"
+              label="Session JSON"
+              rules={requireSession ? [{ required: true, message: '请粘贴 Session JSON' }] : undefined}
+            >
+              <Input.TextArea
+                rows={8}
+                spellCheck={false}
+                placeholder="粘贴 chatgpt.com session JSON（建议包含 sessionToken）"
+              />
+            </Form.Item>
+            {sessionPreview.inputMessage && (
+              <Alert className="input-detection" type={sessionPreview.inputAlertType} showIcon message={sessionPreview.inputMessage} />
+            )}
+            <Descriptions size="small" column={mode === 'subaccount' ? 1 : 2} bordered>
+              <Descriptions.Item label="识别邮箱">{sessionPreview.email || '暂无'}</Descriptions.Item>
+              <Descriptions.Item label="workspace account_id">{sessionPreview.accountId || '暂无'}</Descriptions.Item>
+            </Descriptions>
+          </Form>
+          {error && <Alert className="modal-error" type="error" showIcon message={error} />}
+        </>
+      )}
     </Modal>
   );
 }

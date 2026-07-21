@@ -1,5 +1,5 @@
 import type {
-  AccountView,
+  AccountSummaryView,
   CodexQuotaSnapshot,
   SubaccountAuthLog,
   SubaccountView
@@ -9,19 +9,21 @@ import { Button, Card, Empty, Space, Tabs, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { SubaccountTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
+import { AccountManagerAssociationPanel } from '../../components/AccountManagerAssociationPanel.js';
 import { formatDateTime } from '../../components/format.js';
 import { SubaccountStatusTag } from '../../components/StatusTag.js';
 import { SubaccountLogPanel } from './SubaccountLogPanel.js';
 import { SubaccountPatCredentialPanel } from './SubaccountPatCredentialPanel.js';
-import { SubaccountAccountManagerPanel } from './SubaccountAccountManagerPanel.js';
 import { SubaccountSettingsPanel } from './SubaccountSettingsPanel.js';
 import { SubaccountTeamLinks } from './SubaccountTeamLinks.js';
 
 export function SubaccountDetail({
   subaccount,
   accounts,
+  loading,
   activeTab,
   logs,
+  logsLoaded,
   busyState,
   quota,
   syncing,
@@ -37,9 +39,11 @@ export function SubaccountDetail({
   onOpenDeletePat
 }: {
   subaccount: SubaccountView | null;
-  accounts: AccountView[];
+  accounts: AccountSummaryView[];
+  loading: boolean;
   activeTab: SubaccountTab;
   logs: SubaccountAuthLog[];
+  logsLoaded: boolean;
   busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
   syncing: boolean;
@@ -54,6 +58,8 @@ export function SubaccountDetail({
   onExportPat: (workspaceId: string) => void;
   onOpenDeletePat: (workspaceId: string) => void;
 }) {
+  if (loading) return <Card className="detail-pane" loading />;
+
   if (!subaccount) {
     return (
       <Card className="detail-pane">
@@ -64,7 +70,7 @@ export function SubaccountDetail({
 
   const teamLinkCount = subaccount.teamLinks.length;
   const credentialCount = subaccount.codexCredentials.length;
-  const logCount = logs.length;
+  const logCount = logsLoaded ? logs.length : undefined;
 
   return (
     <Card className="detail-pane">
@@ -114,7 +120,12 @@ export function SubaccountDetail({
           {
             key: 'account-manager',
             label: '账号管理',
-            children: <SubaccountAccountManagerPanel subaccount={subaccount} />
+            children: (
+              <AccountManagerAssociationPanel
+                recordLabel="子号"
+                managedAccountEmail={subaccount.managedAccountEmail}
+              />
+            )
           },
           {
             key: 'settings',

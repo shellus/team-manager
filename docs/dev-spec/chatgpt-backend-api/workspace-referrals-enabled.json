@@ -41,6 +41,6 @@
   "notes": [
     "The captured curl command used --data-raw with no explicit -X flag, so curl sends POST.",
     "This setting is shown in ChatGPT Web as '允许成员发送 Codex 邀请'.",
-    "This setting is independent from default_seat_type; callers must keep seat and billing-risk checks in place."
+    "This setting is independent from default_seat_type."
   ]
 }

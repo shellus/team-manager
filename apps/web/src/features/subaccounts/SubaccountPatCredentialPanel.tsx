@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type {
-  AccountView,
+  AccountSummaryView,
   CodexQuotaSnapshot,
   SubaccountCodexCredentialView,
   SubaccountTeamLink,
@@ -20,7 +20,7 @@ interface PatTeamRow {
   credential?: SubaccountCodexCredentialView;
 }
 
-function accountDisplayName(account: AccountView | undefined, fallback: string): string {
+function accountDisplayName(account: AccountSummaryView | undefined, fallback: string): string {
   return account?.remark || account?.workspaceName || account?.email || fallback;
 }
 
@@ -46,7 +46,7 @@ export function SubaccountPatCredentialPanel({
   onOpenDelete
 }: {
   subaccount: SubaccountView;
-  accounts: AccountView[];
+  accounts: AccountSummaryView[];
   busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
   onCreate: (workspaceId: string) => void;

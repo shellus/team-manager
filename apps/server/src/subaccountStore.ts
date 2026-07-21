@@ -4,12 +4,15 @@ import { basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   parseChatGptSessionInput,
+  subaccountSummaryFromView,
   type ChatGptSessionInput,
   type CodexCredentialJson,
   type CodexQuotaSnapshot,
   type Subaccount,
   type SubaccountAuthLog,
   type SubaccountCodexCredential,
+  type SubaccountLocalProfileView,
+  type SubaccountSummaryView,
   type SubaccountTeamLink,
   type SubaccountView
 } from '@team-manager/shared';
@@ -125,6 +128,37 @@ export class SubaccountStore {
     return [...this.subaccounts.values()]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((account) => this.toView(account));
+  }
+
+  listSummaries(): SubaccountSummaryView[] {
+    this.ensureLoaded();
+    return [...this.subaccounts.values()]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((account) => subaccountSummaryFromView(this.toView(account)));
+  }
+
+  detail(id: string): SubaccountView | undefined {
+    this.ensureLoaded();
+    const account = this.subaccounts.get(id);
+    if (!account) return undefined;
+    const detail = this.toView(account);
+    delete detail.proxy;
+    delete detail.session;
+    return detail;
+  }
+
+  localProfile(id: string): SubaccountLocalProfileView | undefined {
+    this.ensureLoaded();
+    const account = this.subaccounts.get(id);
+    if (!account) return undefined;
+    const view = this.toView(account);
+    return {
+      id: view.id,
+      remark: view.remark,
+      groupName: view.groupName,
+      proxy: view.proxy,
+      session: view.session
+    };
   }
 
   get(id: string): Subaccount | undefined {
@@ -374,6 +408,41 @@ export class SubaccountStore {
       ...existing,
       teamLinks: links,
       updatedAt: now,
+      lastError: undefined
+    };
+    this.subaccounts.set(id, merged);
+    await this.persist();
+    return this.toView(merged);
+  }
+
+  async replaceTeamLinks(
+    id: string,
+    links: Array<Omit<SubaccountTeamLink, 'updatedAt'>>
+  ): Promise<SubaccountView | undefined> {
+    this.ensureLoaded();
+    const existing = this.subaccounts.get(id);
+    if (!existing) return undefined;
+    const now = Date.now();
+    const normalized = new Map<string, SubaccountTeamLink>();
+    for (const link of links) {
+      const accountId = link.accountId.trim();
+      const workspaceId = link.workspaceId?.trim() || undefined;
+      if (!accountId) continue;
+      normalized.set(workspaceId || accountId, {
+        ...link,
+        accountId,
+        workspaceId,
+        workspaceName: link.workspaceName?.trim() || undefined,
+        planType: link.planType?.trim() || undefined,
+        role: link.role?.trim() || undefined,
+        updatedAt: now
+      });
+    }
+    const merged: Subaccount = {
+      ...existing,
+      teamLinks: [...normalized.values()],
+      updatedAt: now,
+      lastRefreshAt: now,
       lastError: undefined
     };
     this.subaccounts.set(id, merged);

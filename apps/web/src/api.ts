@@ -1,19 +1,29 @@
 import type {
   AccountBillingSnapshot,
+  AccountManagerOperationView,
+  AccountManagerRuntimeStatus,
   AccountLimitType,
+  AccountLocalProfileView,
+  AccountOverviewView,
   AccountSeatSlotProfileInput,
+  AccountSummaryView,
   AccountView,
   EditableMemberRole,
   Member,
   NotificationSettings,
+  OpenCodexSpaceRequest,
+  OpenTeamSubscriptionRequest,
+  ParentAccountManagerStatus,
+  ParentRegistrationTaskView,
   PublicSeatSlotView,
   PendingInvite,
   SeatType,
   ApiResult,
   SubaccountAuthLog,
+  SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
+  SubaccountSummaryView,
   SubaccountView,
-  SubaccountRegistrationRuntimeStatus,
   CodexCredentialJson,
   CodexQuotaSnapshot
 } from '@team-manager/shared';
@@ -82,7 +92,41 @@ export const apiClient = {
     publicCall<PublicSeatSlotView>('POST', `/seat-slots/${encodeURIComponent(seatKey)}/swap`, { email }),
   login: (username: string, password: string) =>
     call<{ token: string }>('POST', '/auth/login', { username, password }),
-  listAccounts: () => call<AccountView[]>('GET', '/accounts'),
+  listAccounts: () => call<AccountSummaryView[]>('GET', '/accounts'),
+  listAccountOverview: () => call<AccountOverviewView[]>('GET', '/accounts/overview'),
+  getAccount: (id: string) => call<AccountView>('GET', `/accounts/${id}`),
+  getAccountLocalProfile: (id: string) =>
+    call<AccountLocalProfileView>('GET', `/accounts/${id}/local-profile`),
+  getParentRegistrationRuntimeStatus: () =>
+    call<AccountManagerRuntimeStatus>('GET', '/accounts/registration/status'),
+  listParentRegistrationTasks: () =>
+    call<ParentRegistrationTaskView[]>('GET', '/accounts/registration/tasks'),
+  registerParentAccount: () =>
+    call<AccountManagerOperationView>('POST', '/accounts/registration/start'),
+  retryParentRegistration: (operationId: string) =>
+    call<AccountManagerOperationView>('POST', `/accounts/registration/tasks/${operationId}/retry`),
+  getParentAccountManagerStatus: (id: string) =>
+    call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
+  getParentAccountManagerStatuses: () =>
+    call<Record<string, ParentAccountManagerStatus>>('GET', '/accounts/account-manager/statuses'),
+  openParentCodexSpace: (id: string, payload: OpenCodexSpaceRequest) =>
+    call<AccountManagerOperationView>('POST', `/accounts/${id}/account-manager/open-codex-space`, payload),
+  openParentTeamSubscription: (id: string, payload: OpenTeamSubscriptionRequest) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/accounts/${id}/account-manager/open-team-subscription`,
+      payload
+    ),
+  rotateParentOperationIp: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/accounts/${id}/account-manager/operations/${operationId}/rotate-ip`
+    ),
+  terminateParentOperation: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/accounts/${id}/account-manager/operations/${operationId}/terminate`
+    ),
   refreshAccount: (id: string) => call<AccountView>('POST', `/accounts/${id}/refresh`),
   renameTeam: (id: string, name: string) => call<AccountView>('PATCH', `/accounts/${id}/name`, { name }),
   updateAccountLocalProfile: (
@@ -105,10 +149,9 @@ export const apiClient = {
     id: string,
     email: string,
     seat: SeatType,
-    seatSlotProfile: AccountSeatSlotProfileInput | undefined,
-    confirmBillingRisk = false
+    seatSlotProfile: AccountSeatSlotProfileInput | undefined
   ) =>
-    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, seatSlotProfile, confirmBillingRisk }),
+    call<AccountView>('POST', `/accounts/${id}/invites`, { email, seat, seatSlotProfile }),
   listPendingInvites: (id: string) => call<PendingInvite[]>('GET', `/accounts/${id}/invites`),
   refreshPendingInvites: (id: string) => call<AccountView>('POST', `/accounts/${id}/invites/refresh`),
   revokePendingInvite: (id: string, email: string) =>
@@ -118,8 +161,8 @@ export const apiClient = {
     payload: { email: string } & AccountSeatSlotProfileInput
   ) => call<AccountView>('PATCH', `/accounts/${id}/seat-slots/profile`, payload),
   removeMember: (id: string, userId: string) => call<AccountView>('DELETE', `/accounts/${id}/members/${userId}`),
-  setMemberSeat: (id: string, userId: string, seat: SeatType, confirmBillingRisk = false) =>
-    call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat, confirmBillingRisk }),
+  setMemberSeat: (id: string, userId: string, seat: SeatType) =>
+    call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat }),
   setMemberRole: (
     id: string,
     userId: string,
@@ -148,7 +191,10 @@ export const apiClient = {
   getNotificationSettings: () => call<NotificationSettings>('GET', '/settings/notifications'),
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
-  listSubaccounts: () => call<SubaccountView[]>('GET', '/subaccounts'),
+  listSubaccounts: () => call<SubaccountSummaryView[]>('GET', '/subaccounts'),
+  getSubaccount: (id: string) => call<SubaccountView>('GET', `/subaccounts/${id}`),
+  getSubaccountLocalProfile: (id: string) =>
+    call<SubaccountLocalProfileView>('GET', `/subaccounts/${id}/local-profile`),
   importSubaccountSession: (payload: {
     session: unknown;
     remark?: string;
@@ -178,7 +224,7 @@ export const apiClient = {
     call<SubaccountView>('PATCH', `/subaccounts/${id}/personal-settings`, payload),
   removeSubaccount: (id: string) => call<boolean>('DELETE', `/subaccounts/${id}`),
   getSubaccountRegistrationRuntimeStatus: () =>
-    call<SubaccountRegistrationRuntimeStatus>('GET', '/subaccounts/registration/status'),
+    call<AccountManagerRuntimeStatus>('GET', '/subaccounts/registration/status'),
   createSubaccountPersonalAccessTokenCredential: (id: string, chatgptAccountId?: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/pat-credentials`, { chatgptAccountId }),
   getSubaccountCodexCredential: (id: string, chatgptAccountId?: string) => {
@@ -194,8 +240,8 @@ export const apiClient = {
     call<CodexQuotaSnapshot>('POST', `/subaccounts/${id}/quota/refresh`, { chatgptAccountId }),
   listSubaccountLogs: (id: string) => call<SubaccountAuthLog[]>('GET', `/subaccounts/${id}/logs`),
   listAllSubaccountLogs: () => call<SubaccountAuthLog[]>('GET', '/subaccounts/logs'),
-  inviteSubaccountToTeam: (id: string, accountId: string, seat: SeatType, confirmBillingRisk = false) =>
-    call<SubaccountView>('POST', `/subaccounts/${id}/team-invites`, { accountId, seat, confirmBillingRisk }),
+  inviteSubaccountToTeam: (id: string, accountId: string, seat: SeatType) =>
+    call<SubaccountView>('POST', `/subaccounts/${id}/team-invites`, { accountId, seat }),
   leaveSubaccountTeam: (id: string, chatgptAccountId: string) =>
     call<SubaccountView>('DELETE', `/subaccounts/${id}/team-links/${encodeURIComponent(chatgptAccountId)}`),
   syncSubaccountTeamLinks: (id: string) => call<SubaccountView>('POST', `/subaccounts/${id}/team-links/sync`)

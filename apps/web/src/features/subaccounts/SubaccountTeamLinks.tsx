@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { AccountView, SeatType, SubaccountTeamLink, SubaccountView } from '@team-manager/shared';
+import type { AccountSummaryView, SeatType, SubaccountTeamLink, SubaccountView } from '@team-manager/shared';
 import { LinkOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Alert, Button, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -10,16 +10,16 @@ import { SeatTag, TeamLinkStatusTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { visibleTeamLinks } from './subaccountTeamLinks.js';
 
-function accountDisplayName(account: AccountView | undefined, fallback: string): string {
+function accountDisplayName(account: AccountSummaryView | undefined, fallback: string): string {
   if (!account) return fallback;
   return account.remark || account.workspaceName || account.email;
 }
 
-function teamLinkDisplayName(link: SubaccountTeamLink, account: AccountView | undefined): string {
+function teamLinkDisplayName(link: SubaccountTeamLink, account: AccountSummaryView | undefined): string {
   return accountDisplayName(account, link.workspaceName || link.workspaceId || link.accountId);
 }
 
-function teamLinkWorkspaceId(link: SubaccountTeamLink, account: AccountView | undefined): string {
+function teamLinkWorkspaceId(link: SubaccountTeamLink, account: AccountSummaryView | undefined): string {
   return link.workspaceId || account?.accountId || link.accountId;
 }
 
@@ -30,7 +30,7 @@ export function SubaccountTeamLinks({
   onOpenInvite
 }: {
   subaccount: SubaccountView;
-  accounts: AccountView[];
+  accounts: AccountSummaryView[];
   onSubaccountChanged: (subaccount: SubaccountView) => void;
   onOpenInvite: () => void;
 }) {

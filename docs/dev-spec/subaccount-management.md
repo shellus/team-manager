@@ -41,7 +41,7 @@ Team Manager 对外保持稳定的注册任务 API：
 ## Team 关联
 
 - `POST /api/subaccounts/:id/team-invites` 使用子号邮箱邀请加入本地母号对应的 Team。
-- `POST /api/subaccounts/:id/team-links/sync` 使用子号 Web Session 读取当前可见 workspace，并查询该子号在各 Team 中的成员与席位状态。
+- `POST /api/subaccounts/:id/team-links/sync` 只使用子号 Web Session 的一次 `accounts/check` 读取当前可见 workspace。同步保留已有 link 的席位类型，新 link 使用 `usage_based`，最终一次写入完整关联列表。
 - `DELETE /api/subaccounts/:id/team-links/:accountId` 使用子号 Web Session 退出目标 Team。
 - `teamLinks` 是本地缓存，不是远端唯一事实源。
 

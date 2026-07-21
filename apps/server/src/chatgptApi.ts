@@ -239,24 +239,6 @@ export class ChatGptApi {
     }
     return all;
   }
-  /** 用当前 session 在目标 workspace 查询某个邮箱的成员记录。普通成员可用来读取自己的 seat_type。 */
-  async findMemberByEmail(email: string): Promise<Member | undefined> {
-    const target = email.trim().toLowerCase();
-    if (!target) return undefined;
-    const path = `/backend-api/accounts/${this.account.accountId}/users?offset=0&limit=25&query=${encodeURIComponent(target)}`;
-    const data = await this.request<{ items?: RawMember[] }>('GET', path);
-    const item = (data.items ?? []).find((member) => member.email?.toLowerCase() === target);
-    if (!item) return undefined;
-    return {
-      userId: item.id,
-      email: item.email,
-      remoteName: item.name,
-      role: item.role,
-      seat: (item.seat_type as SeatType) ?? 'default',
-      status: item.status
-    };
-  }
-
   /** 邀请新成员 */
   async invite(email: string, seat: SeatType, role: MemberRole = 'standard-user'): Promise<unknown> {
     const path = `/backend-api/accounts/${this.account.accountId}/invites`;

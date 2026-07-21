@@ -200,6 +200,79 @@ body {
   width: 100%;
 }
 
+.team-subscription-modal .ant-modal-body {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.codex-space-modal .ant-modal-body {
+  max-height: calc(100dvh - 190px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.compact-modal-description {
+  margin-bottom: 0;
+  line-height: 1.45;
+}
+
+.codex-order-summary.ant-alert {
+  padding: 7px 10px;
+}
+
+.codex-space-form .ant-form-item {
+  margin-bottom: 10px;
+}
+
+.codex-space-form .ant-form-item-label {
+  padding-bottom: 3px;
+}
+
+.compact-form-section + .compact-form-section {
+  margin-top: 2px;
+}
+
+.compact-form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 8px;
+}
+
+.compact-form-section-title::after {
+  flex: 1;
+  border-block-start: 1px solid var(--color-border-subtle);
+  content: '';
+}
+
+.codex-order-field-row,
+.codex-card-field-row {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+}
+
+.codex-order-field-row {
+  grid-template-columns: minmax(0, 1.3fr) minmax(110px, 0.75fr) minmax(100px, 0.55fr);
+}
+
+.codex-card-field-row {
+  grid-template-columns: minmax(0, 1.6fr) minmax(130px, 0.7fr) minmax(90px, 0.45fr);
+}
+
+.codex-order-field-row .ant-form-item,
+.codex-card-field-row .ant-form-item {
+  min-width: 0;
+  width: 100%;
+}
+
+.payment-security-note {
+  display: block;
+  margin-top: -2px;
+  line-height: 1.4;
+}
+
 .content-pane {
   min-width: 0;
 }
@@ -437,7 +510,7 @@ body {
 
 .side-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
 }
 
@@ -533,6 +606,59 @@ body {
 
 .record-meta.muted {
   opacity: 0.85;
+}
+
+.record-capability-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.record-capability-tags .ant-tag {
+  margin-inline-end: 0;
+}
+
+.account-operation-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-control-track);
+}
+
+.account-operation-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.account-operation-progress-head .ant-tag {
+  flex: none;
+  margin-inline-end: 0;
+}
+
+.account-operation-progress-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-operation-progress .ant-progress-text {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.account-operation-actions {
+  margin-top: 2px;
+}
+
+.account-manager-association-panel h5.ant-typography {
+  margin: 0;
 }
 
 .record-meta-line {
@@ -680,6 +806,10 @@ body {
   margin: 12px 0 0;
 }
 
+.detail-operation-alert {
+  margin-bottom: 16px;
+}
+
 @media (max-width: 720px) {
   .personal-profile-summary {
     grid-template-columns: minmax(0, 1fr);
@@ -690,11 +820,19 @@ body {
   }
 }
 
-.floating-primary-action {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 10;
+.payment-field-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1.4fr) minmax(120px, 0.6fr);
+  gap: 12px;
+}
+
+.payment-field-row .ant-form-item {
+  width: 100%;
+}
+
+.field-full-width {
+  width: 100%;
 }
 
 @media (max-width: 1200px) {
@@ -764,12 +902,18 @@ body {
 
   .form-grid.two,
   .form-grid.three,
-  .quota-row {
+  .quota-row,
+  .payment-field-row {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 640px) {
+  .codex-order-field-row,
+  .codex-card-field-row {
+    grid-template-columns: 1fr;
+  }
+
   .seat-overview-grid {
     grid-template-columns: 1fr;
   }

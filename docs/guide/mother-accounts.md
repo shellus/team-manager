@@ -1,8 +1,25 @@
 # 母号与 Team 管理
 
-母号是 Team workspace 的管理入口。系统通过母号 session 调用 ChatGPT Web backend-api，完成成员、邀请、默认席位和 Team 名称相关操作。
+母号是作为 Workspace 业务主体管理的 GPT 账号。母号注册完成时可以尚未拥有 Workspace；0.52 usage-based Workspace 和双席位 Team Workspace 都可以通过母号 session 管理成员、邀请、设置和账单。
 
 ## 录入母号
+
+母号页面提供“自动注册”和“录入母号”两个入口。
+
+自动注册只负责创建 GPT 账号：
+
+1. GPT Account Manager 注册新 GPT 账号并交付 Web Session。
+2. Team Manager 按邮箱保存 GAM 关联并立即录入母号。
+3. 新母号可以尚未拥有 Workspace；0.52 和双席位在母号详情中独立开通。
+
+注册和开通任务都由 Account Manager 持久化，刷新页面不会丢失进度。完整卡号和 CVC 只会转发给 Account Manager 当前进程，不写入 Team Manager 数据或日志。
+
+自动付款不能确认成功或付款页面需要人工检查时，对应的 0.52 或双席位操作进入“等待人工处理”。Account Manager 保留原 Hosted Checkout 页面并继续监听；当前进程仍持有付款资料时，Checkout 页面首次进入或刷新后会自动补填一次，操作员可在提交前修改。操作员在对应 CloakBrowser profile 中完成处理后，无需重新提交 Team Manager 表单。服务重启只恢复页面监听，不恢复付款资料，也不会再次提交付款。
+
+开通任务处于排队、自动执行或等待人工处理时，母号列表提供两个控制按钮：
+
+- “更换IP”：保留当前 profile、Chromium、VNC 和页面，只轮换其上游住宅代理 SID，并断开该 SID 的旧代理连接。Pay 已触发或 Workspace 正在收尾时不可使用。
+- “终止任务”：结束当前任务并停止对应 profile。终止后任务不会自动继续，需要重新发起开通操作。
 
 母号录入只支持 chatgpt.com `/api/auth/session` 输出的 session JSON：
 
@@ -19,17 +36,49 @@
 }
 ```
 
-录入母号时，系统会通过 `accounts/check` 识别当前 session 可管理的 Team workspace，不直接信任输入里的 `account.id`。只有当前 session 可访问且角色为 owner/admin 的 Team workspace 会被保存为母号 `accountId`。
+录入母号时，系统会通过 `accounts/check` 识别当前 session 可管理的 Workspace，不直接信任输入里的 `account.id`。只有当前 session 可访问且角色为 owner/admin 的 Workspace 会被保存为母号 `accountId`。
 
-`sessionToken` 可用于按目标 workspace 换取 Web access token。旧导出内容如果没有该字段，只有在输入本身已经指向目标 Team workspace 时才可录入；如果输入是个人 session 或其他 workspace session，则必须提供 `sessionToken`，系统才能切换到目标 Team workspace 并保存正确的 access token。录入后先创建本地记录。ChatGPT 远端状态需要在母号详情页点击“刷新”获取。
+`sessionToken` 可用于按目标 workspace 换取 Web access token。输入本身已指向目标 Workspace 时可直接录入；输入是个人 session 或其他 workspace session 时，必须提供 `sessionToken`，系统才能切换到目标 Workspace 并保存正确的 access token。录入后先创建本地记录。ChatGPT 远端状态需要在母号详情页点击“同步 Workspace”获取。
 
-母号后续所有 ChatGPT Web backend-api 请求会复用统一认证封装。若远端返回 401 且错误码为 `token_invalidated`，并且本地保存了 `sessionToken`，系统会通过 `/api/auth/session` 换取目标 Team workspace 的新 Web access token，回写本地记录并重试一次原请求。
+母号后续所有 ChatGPT Web backend-api 请求会复用统一认证封装。若远端返回 401 且错误码为 `token_invalidated`，并且本地保存了 `sessionToken`，系统会通过 `/api/auth/session` 换取目标 Workspace 的新 Web access token，回写本地记录并重试一次原请求。
 
 新母号默认进入 `默认分组`。母号列表会默认选中第一个分组，只显示该分组中的母号；可在列表顶部切换其他分组。
 
-## 刷新 Team 状态
+## 开通 0.52 Codex 空间
 
-母号详情页的“刷新”会更新 workspace 状态和本地缓存。成员列表、待处理邀请和默认席位各有独立刷新入口，页面会先显示已有缓存，再由操作员手动刷新。
+母号详情页始终显示“开通 0.52”操作。只有同邮箱账号已由 GPT Account Manager 管理且尚未开通时才可点击；未受管账号会显示禁用原因。
+
+开通表单允许选择订单国家、账单货币和积分数量，默认值为意大利、欧元和 16 Credits。信用卡既可分别填写卡号、有效期和 CVC，也可粘贴 `卡号----有效期----CVC` 一次填充；有效期支持 `MM/YY` 和 `MM/YYYY`。
+
+开通操作是持久化后台任务。页面会展示运行状态；成功后母号列表显示 `0.52` 标记。0.52 Workspace 不会被误标为双席位 Team，但它与 Team Workspace 一样属于可管理 Workspace，可执行成员、邀请、设置和账单操作。已开通账号的按钮显示“已开通 0.52”，不重复发起付款。
+
+## 开通双席位 Team
+
+有 GPT Account Manager 关联的母号可以执行“开通双席位”。该动作创建两个固定席位的 Team 月付订单，与 0.52 是否已开通无关。
+
+表单支持：
+
+- 可选目标 Workspace。留空时新建 Team；选择后把该 GAM 账号下的指定空间升级为 Team。
+- 优惠码，可直接粘贴 `优惠码|国家|货币`。
+- 订单国家和账单货币。
+- 可选信用卡。留空时尝试复用 Stripe 已保存的支付方式。
+- “自动支付”开关，默认关闭。关闭时只准备 Stripe 页面，由操作员核对并点击 Pay；后台继续监听支付和 Workspace 状态。
+
+创建订单时，Account Manager 会把该账号的 1024 代理临时切到所选国家。订单链接生成后立即恢复原出口，再继续 Stripe 支付；因此所选国家只作用于创建订单阶段。选择既有 Workspace 时，订单携带该空间 ID，付款后按原 ID 确认升级结果，不进入新空间命名流程。付款等待人工点击或无法自动确认时，页面保留并进入人工接管。既有 usage-based Workspace 在升级前后都保留管理能力；开通成功只改变双席位套餐状态。
+
+母号列表同时显示 `GAM`、`0.52` 和 `双席位` 三项状态，三者彼此独立。
+
+`双席位` 状态直接从母号当前 `planType` 派生；历史母号不需要补建 GAM profile。`planType="team"` 显示为已开通，usage-based Workspace 显示为未开通，但不影响其成员、邀请、设置和账单入口。
+
+首页“空位”只统计双席位 Team 的两个固定 ChatGPT 位置。仅有 0.52 usage-based Workspace 的母号不会产生空位；开启“显示 Codex 席位”后仍可查看其实际 Codex 成员或邀请。
+
+## 同步 Workspace 状态
+
+“同步 Workspace”对所有母号开放，不以当前双席位或本地 `planType` 为前提。它会读取已保存 Session 当前可见的 owner/admin Workspace：个人态母号如果在其他地方开通了 0.52 或 Team，会自动切换本地 `accountId`、Web access token 和套餐状态；已有 Workspace 的母号会更新远端状态和本地缓存。
+
+个人 Session 切换到目标 Workspace 时需要已保存的 `sessionToken`。如果当前 Session 同时可管理多个 Workspace 且现有记录不能确定目标，系统不会猜测，操作员需要在“本地资料”中录入目标 Workspace 的 session 后再次同步。
+
+成员列表、待处理邀请和默认席位各有独立刷新入口，页面会先显示已有缓存，再由操作员手动刷新。
 
 刷新后的缓存用于派生以下展示：
 
@@ -44,7 +93,7 @@
 
 母号详情页右上角菜单进入“修改默认席位”。默认席位建议设为 Codex 席位。
 
-默认席位只影响未显式指定席位的邀请。显式邀请 ChatGPT 席位仍可能占用固定席位并触发账单风险确认。
+默认席位只影响未显式指定席位的邀请。显式邀请 ChatGPT 席位仍可能占用固定席位，系统不做额外风险确认。
 
 ## 设置 Codex 邀请权限
 
@@ -76,7 +125,9 @@
 - Codex 席位：适合作为默认安全选择，不占用固定 ChatGPT 席位。
 - ChatGPT 席位：会占用固定席位，可能产生额外账单。
 
-邀请 ChatGPT 席位或切换成员到 ChatGPT 席位时，如果当前 ChatGPT 席位已达到限制，页面会显示账单风险确认。取消后不执行远端操作；确认后才继续。
+邀请 ChatGPT 席位或切换成员到 ChatGPT 席位时，系统直接执行请求，不查询当前席位数量，也不显示额外账单提示。操作员需要自行确认是否有可用固定席位。
+
+发送邀请时，前台只等待一次远端邀请提交。提交成功后，Team Manager 根据本次请求立即更新本地待处理邀请列表和固定席位资料，不再等待远端邀请列表刷新。
 
 邀请 ChatGPT 固定席位时还可填写客户席位资料；Codex 席位不使用这些字段：
 
@@ -97,7 +148,7 @@ ChatGPT 固定席位的待处理邀请支持编辑客户席位资料。编辑只
 
 ## 成员席位和移出成员
 
-成员列表支持修改单个成员席位。将成员切到 ChatGPT 席位时适用同一账单风险确认规则。
+成员列表支持修改单个成员席位。系统不检查切换后的固定席位数量，由操作员自行判断。
 
 移出成员不是常规腾 ChatGPT 席位手段。为避免破坏该账号在目标 Team 下已有凭证，腾位应优先把成员从 ChatGPT 席位切到 Codex 席位。
 
@@ -121,7 +172,7 @@ ChatGPT 固定席位成员支持编辑客户席位资料。`到期移除` 只是
 
 Team 改名修改远端 workspace 名称。GPT 账号显示名统一来自 `email`，备注使用 `remark`，两者都不修改 ChatGPT 远端 Team 名称。
 
-编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn` 和独立代理地址 `proxy`，也可同时替换 session。替换 session 只支持 chatgpt.com session JSON；session JSON 中的 `sessionToken` 会被保存，用于后续换取 workspace Web access token。系统会优先保留当前母号绑定的 Team workspace：新 session 仍可访问该 Team 时，只更新该 Team 的 Web access token；否则按可管理 Team workspace 规则重新识别目标。系统会用新 session 的 `user.email` 更新 `email`。本地资料弹窗会回填已保存的 session JSON 和代理地址。
+编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn` 和独立代理地址 `proxy`，也可同时替换 session。替换 session 只支持 chatgpt.com session JSON；session JSON 中的 `sessionToken` 会被保存，用于后续换取 workspace Web access token。系统会优先保留当前母号绑定的 Workspace：新 session 仍可访问该空间时，只更新该空间的 Web access token；否则按可管理 Workspace 规则重新识别目标。系统会用新 session 的 `user.email` 更新 `email`。本地资料弹窗会回填已保存的 session JSON 和代理地址。
 
 分组用于区分自用、已出租车位等运营集合。分组只是本地展示和筛选字段，不影响远端 Team workspace。
 

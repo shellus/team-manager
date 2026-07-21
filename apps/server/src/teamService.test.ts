@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { AccountView, ApiResult, NotificationSettings, PublicSeatSlotView } from '@team-manager/shared';
+import type {
+  AccountLocalProfileView,
+  AccountSummaryView,
+  AccountView,
+  ApiResult,
+  NotificationSettings,
+  PublicSeatSlotView
+} from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
@@ -284,6 +291,22 @@ describe('Parent account local-profile API', () => {
       account: { id: 'workspace-old' },
       accessToken: 'old-token'
     });
+
+    const listed = await app.request('/api/accounts', { headers: authHeaders });
+    const summaries = ((await listed.json()) as ApiResult<AccountSummaryView[]>).data!;
+    assert.equal(summaries[0]!.id, account.id);
+    assert.equal(Object.hasOwn(summaries[0]!, 'session'), false);
+    assert.equal(Object.hasOwn(summaries[0]!, 'proxy'), false);
+
+    const detailResponse = await app.request(`/api/accounts/${account.id}`, { headers: authHeaders });
+    const detail = ((await detailResponse.json()) as ApiResult<AccountView>).data!;
+    assert.equal(Object.hasOwn(detail, 'session'), false);
+    assert.equal(Object.hasOwn(detail, 'proxy'), false);
+
+    const profileResponse = await app.request(`/api/accounts/${account.id}/local-profile`, { headers: authHeaders });
+    const profile = ((await profileResponse.json()) as ApiResult<AccountLocalProfileView>).data!;
+    assert.equal(profile.proxy, 'http://parent-proxy.example:8080');
+    assert.equal(profile.session?.accessToken, 'old-token');
 
     const refreshed = await app.request(`/api/accounts/${account.id}/members/refresh`, {
       method: 'POST',
@@ -826,6 +849,7 @@ describe('AccountStore account sanitation', () => {
         [
           {
             id: 'account-current',
+            managedAccountEmail: 'OWNER@EXAMPLE.COM',
             remark: '母号备注',
             limitType: 'weekly',
             accountId: 'workspace-id',
@@ -917,10 +941,12 @@ describe('AccountStore account sanitation', () => {
 
     assert.equal(hasOwn(stored, 'unsupportedField'), false);
     assert.equal(stored?.remark, '母号备注');
+    assert.equal(stored?.managedAccountEmail, 'owner@example.com');
     assert.equal(stored?.groupName, '默认分组');
     assert.equal(stored?.limitType, 'weekly');
     assert.equal(hasOwn(persisted[0], 'unsupportedField'), false);
     assert.equal(persisted[0]!.remark, '母号备注');
+    assert.equal(persisted[0]!.managedAccountEmail, 'owner@example.com');
     assert.equal(persisted[0]!.groupName, '默认分组');
     assert.equal(persisted[0]!.limitType, 'weekly');
     assert.equal(hasOwn(storedMember, 'unsupportedField'), false);
@@ -982,6 +1008,8 @@ describe('TeamService account listing', () => {
     assert.equal(fetchCalls, 0);
     assert.equal(accounts.length, 1);
     assert.equal(accounts[0].email, 'owner@example.com');
+    assert.equal(accounts[0].hasTeamSubscription, true);
+    assert.equal(accounts[0].canManageWorkspace, true);
     assert.equal(accounts[0].membersCache?.length, 2);
     assert.equal(hasOwn(accounts[0], 'memberCount'), false);
     assert.equal(hasOwn(accounts[0], 'chatgptSeatCount'), false);
@@ -1039,10 +1067,119 @@ describe('TeamService account listing', () => {
     const view = await service.refreshAccount(account.id);
 
     assert.equal(view.workspaceName, 'Workspace');
+    assert.equal(view.hasTeamSubscription, true);
     assert.equal(view.nextRenewalOn, '2026-07-16');
     assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-16');
     assert.deepEqual(view.pendingInvitesCache, []);
     assert.equal(requests.length, 3);
+  });
+
+  it('discovers an externally opened usage-based Workspace while refreshing a personal parent', async () => {
+    const requests: HttpRequest[] = [];
+    const personalAccessToken = chatGptWebAccessToken('personal-account-id', 'free');
+    const workspaceAccessToken = chatGptWebAccessToken(
+      'workspace-usage-id',
+      'self_serve_business_usage_based'
+    );
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'personal-account-id': {
+                  account: {
+                    account_id: 'personal-account-id',
+                    account_user_role: 'account-owner',
+                    name: 'Personal',
+                    plan_type: 'free',
+                    structure: 'personal'
+                  },
+                  can_access_with_session: true
+                },
+                'workspace-usage-id': {
+                  account: {
+                    account_id: 'workspace-usage-id',
+                    account_user_role: 'account-owner',
+                    name: 'Codex Workspace',
+                    plan_type: 'self_serve_business_usage_based',
+                    structure: 'workspace'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['personal-account-id', 'workspace-usage-id']
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/api/auth/session')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              user: { email: 'owner@example.com' },
+              account: { id: 'workspace-usage-id' },
+              accessToken: workspaceAccessToken
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-usage-id/users')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [{
+                id: 'owner-user-id',
+                email: 'owner@example.com',
+                name: 'Owner',
+                role: 'account-owner',
+                seat_type: 'usage_based'
+              }]
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-usage-id/invites')) {
+          return { status: 200, body: JSON.stringify({ items: [] }) };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'personal-account-id',
+      email: 'owner@example.com',
+      accessToken: personalAccessToken,
+      sessionToken: 'parent-session-json-token',
+      planType: 'free',
+      status: 'unknown'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.refreshAccount(account.id);
+    const stored = store.get(account.id);
+
+    assert.equal(view.accountId, 'workspace-usage-id');
+    assert.equal(view.planType, 'self_serve_business_usage_based');
+    assert.equal(view.workspaceName, 'Codex Workspace');
+    assert.equal(view.hasTeamSubscription, false);
+    assert.equal(view.canManageWorkspace, true);
+    assert.equal(view.status, 'active');
+    assert.equal(view.membersCache?.length, 1);
+    assert.equal(stored?.accessToken, workspaceAccessToken);
+    assert.equal(
+      requests.filter((request) => request.path.startsWith('/backend-api/accounts/check/')).length,
+      1
+    );
+    assert.equal(
+      requests.some((request) =>
+        request.path.startsWith('/api/auth/session')
+        && (request.headers.cookie ?? '').includes('_account=workspace-usage-id')
+      ),
+      true
+    );
   });
 });
 
@@ -1415,6 +1552,7 @@ describe('TeamService member cache', () => {
       accountId: 'workspace-id',
       email: 'owner@example.com',
       accessToken: 'token',
+      planType: 'self_serve_business_usage_based',
       status: 'active'
     });
 
@@ -1426,6 +1564,8 @@ describe('TeamService member cache', () => {
     assert.equal(requests[0].method, 'GET');
     assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/users?offset=0&limit=25');
     assert.equal(view.membersCache?.length, 2);
+    assert.equal(view.hasTeamSubscription, false);
+    assert.equal(view.canManageWorkspace, true);
     assert.deepEqual(stored?.membersCache, view.membersCache);
     assert.equal(hasOwn(stored, 'memberCount'), false);
     assert.equal(hasOwn(stored, 'chatgptSeatCount'), false);
@@ -1962,34 +2102,7 @@ describe('TeamService member seat changes', () => {
     assert.equal(requests[0].method, 'GET');
   });
 
-  it('requires confirmation before ChatGPT seat changes that may exceed the two-seat limit', async () => {
-    const requests: HttpRequest[] = [];
-    const transport: Transport = {
-      async fetch(req) {
-        requests.push(req);
-        return {
-          status: 200,
-          body: JSON.stringify({
-            items: [
-              { id: 'user-a', email: 'a@example.com', name: 'A', role: 'standard-user', seat_type: 'default' },
-              { id: 'user-c', email: 'c@example.com', name: 'C', role: 'standard-user', seat_type: 'default' },
-              { id: 'user-b', email: 'b@example.com', name: 'B', role: 'standard-user', seat_type: 'usage_based' }
-            ]
-          })
-        };
-      }
-    };
-    const { account, service } = await createServiceWithTransport(transport);
-
-    await assert.rejects(
-      () => service.setMemberSeat(account.id, 'user-b', 'default'),
-      /此操作将会导致超出已有席位数量/
-    );
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].method, 'GET');
-  });
-
-  it('allows a confirmed ChatGPT seat change when it may exceed the two-seat limit', async () => {
+  it('changes a ChatGPT seat without checking or prompting for billing risk', async () => {
     const requests: HttpRequest[] = [];
     let listCalls = 0;
     const transport: Transport = {
@@ -2020,7 +2133,7 @@ describe('TeamService member seat changes', () => {
     };
     const { account, service } = await createServiceWithTransport(transport);
 
-    const view = await service.setMemberSeat(account.id, 'user-b', 'default', true);
+    const view = await service.setMemberSeat(account.id, 'user-b', 'default');
 
     assert.equal(requests.length, 3);
     assert.equal(requests[1].method, 'PATCH');
@@ -2569,66 +2682,11 @@ describe('TeamService invites', () => {
     return { account, store, service: new TeamService(store, transport) };
   }
 
-  it('requires confirmation before inviting a ChatGPT seat when current usage is at the included seat count', async () => {
+  it('submits one remote invite request and updates the local pending invite cache', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
-        return {
-          status: 200,
-          body: JSON.stringify({
-            items: [
-              { id: 'user-a', email: 'a@example.com', name: 'A', role: 'standard-user', seat_type: 'default' },
-              { id: 'user-b', email: 'b@example.com', name: 'B', role: 'standard-user', seat_type: 'default' }
-            ]
-          })
-        };
-      }
-    };
-    const { account, service } = await createServiceWithTransport(transport);
-
-    await assert.rejects(
-      () => service.invite(account.id, { email: 'new@example.com', seat: 'default' }),
-      /此操作将会导致超出已有席位数量/
-    );
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].method, 'GET');
-  });
-
-  it('allows a confirmed ChatGPT seat invite when current usage is at the included seat count', async () => {
-    const requests: HttpRequest[] = [];
-    const transport: Transport = {
-      async fetch(req) {
-        requests.push(req);
-        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
-          return {
-            status: 200,
-            body: JSON.stringify({
-              items: [
-                { id: 'user-a', email: 'a@example.com', name: 'A', role: 'standard-user', seat_type: 'default' },
-                { id: 'user-b', email: 'b@example.com', name: 'B', role: 'standard-user', seat_type: 'default' }
-              ]
-            })
-          };
-        }
-        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
-          return {
-            status: 200,
-            body: JSON.stringify({
-              items: [
-                {
-                  id: 'invite-new',
-                  email_address: 'new@example.com',
-                  role: 'standard-user',
-                  status: 1,
-                  seat_type: 'default',
-                  created_time: '2026-06-18T00:00:00Z',
-                  is_scim_managed: false
-                }
-              ]
-            })
-          };
-        }
         return { status: 200, body: '{"success":true}' };
       }
     };
@@ -2636,21 +2694,20 @@ describe('TeamService invites', () => {
 
     const view = await service.invite(account.id, {
       email: 'new@example.com',
-      seat: 'default',
-      confirmBillingRisk: true
+      seat: 'default'
     });
 
-    assert.equal(requests.length, 3);
-    assert.equal(requests[1].method, 'POST');
-    assert.equal(requests[1].path, '/backend-api/accounts/workspace-id/invites');
-    assert.deepEqual(JSON.parse(requests[1].body ?? '{}'), {
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/invites');
+    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), {
       email_addresses: ['new@example.com'],
       role: 'standard-user',
       seat_type: 'default',
       resend_emails: true
     });
-    assert.equal(requests[2].method, 'GET');
     assert.equal(view.pendingInvitesCache?.[0]?.email, 'new@example.com');
+    assert.match(view.pendingInvitesCache?.[0]?.inviteId ?? '', /^local-/);
     assert.equal(store.get(account.id)?.pendingInvitesCache?.[0]?.email, 'new@example.com');
     assert.equal(hasOwn(store.get(account.id), 'pendingInviteCount'), false);
   });
@@ -2660,24 +2717,6 @@ describe('TeamService invites', () => {
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
-        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
-          return {
-            status: 200,
-            body: JSON.stringify({
-              items: [
-                {
-                  id: 'invite-new',
-                  email_address: 'new@example.com',
-                  role: 'standard-user',
-                  status: 1,
-                  seat_type: 'default',
-                  created_time: '2026-06-18T00:00:00Z',
-                  is_scim_managed: false
-                }
-              ]
-            })
-          };
-        }
         return { status: 200, body: '{"success":true}' };
       }
     };
@@ -2695,10 +2734,10 @@ describe('TeamService invites', () => {
     });
 
     const slot = view.seatSlots?.find((item) => item.email === 'new@example.com');
-    assert.equal(requests.length, 3);
-    assert.equal(requests[1].method, 'POST');
-    assert.deepEqual(JSON.parse(requests[1].body ?? '{}'), {
-      email_addresses: ['New@Example.COM'],
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'POST');
+    assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), {
+      email_addresses: ['new@example.com'],
       role: 'standard-user',
       seat_type: 'default',
       resend_emails: true
@@ -2708,7 +2747,7 @@ describe('TeamService invites', () => {
     assert.equal(slot?.expireRemove, true);
     assert.equal(slot?.expireReminder, false);
     assert.equal(slot?.status, 'invited');
-    assert.equal(slot?.currentInviteId, 'invite-new');
+    assert.match(slot?.currentInviteId ?? '', /^local-/);
     assert.match(slot?.seatKey ?? '', /^[A-Za-z0-9]{16}$/);
     assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
   });
@@ -2718,24 +2757,6 @@ describe('TeamService invites', () => {
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
-        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
-          return {
-            status: 200,
-            body: JSON.stringify({
-              items: [
-                {
-                  id: 'invite-new',
-                  email_address: 'new@example.com',
-                  role: 'standard-user',
-                  status: 1,
-                  seat_type: 'default',
-                  created_time: '2026-06-18T00:00:00Z',
-                  is_scim_managed: false
-                }
-              ]
-            })
-          };
-        }
         return { status: 200, body: '{"success":true}' };
       }
     };

@@ -19,7 +19,7 @@
 
 ## 本地资料与设置
 
-子号本地资料可编辑备注、分组、代理和 Web Session。注册资料单独显示自动注册密码、注册时间、来源和 Cloak profile。
+子号本地资料可编辑备注、分组、代理和 Web Session。自动注册子号只额外显示规范化邮箱账号引用；注册密码、CloakBrowser Profile 和浏览器事件由 GPT Account Manager 管理。
 
 “设置”页提供：
 
@@ -31,7 +31,7 @@
 
 ## Team 关联
 
-邀请子号加入 Team 后，在“Team 关联”页刷新。系统使用子号自己的 Web Session 读取可见 workspace 和席位状态，不使用母号凭证代查。
+邀请子号加入 Team 后，在“Team 关联”页刷新。系统只使用子号自己的 Web Session 请求一次可见 workspace 列表，不使用母号凭证，也不逐 Workspace 查询成员。已有关联保留原席位类型，新发现的 Workspace 默认按 Codex 席位展示。
 
 一个子号可以加入多个 Team。PAT 和额度都按“子号 × Team workspace”分别保存。
 

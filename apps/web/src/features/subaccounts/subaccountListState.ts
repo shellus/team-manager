@@ -1,23 +1,24 @@
-import type { SubaccountView } from '@team-manager/shared';
 import { compareRecordSortName } from '../../components/recordSort.js';
 
-export function sortSubaccountsForList(subaccounts: readonly SubaccountView[]): SubaccountView[] {
+type SubaccountListRecord = { id: string; email: string; remark?: string };
+
+export function sortSubaccountsForList<T extends SubaccountListRecord>(subaccounts: readonly T[]): T[] {
   return [...subaccounts].sort(compareRecordSortName);
 }
 
-export function resolveSubaccountDeleteTarget(
-  subaccounts: readonly SubaccountView[],
-  selected: SubaccountView | null,
+export function resolveSubaccountDeleteTarget<T extends SubaccountListRecord>(
+  subaccounts: readonly T[],
+  selected: T | null,
   targetId: string
-): SubaccountView | null {
+): T | null {
   const target = targetId.trim();
   if (!target) return selected;
   return subaccounts.find((subaccount) => subaccount.id === target) ?? null;
 }
 
-export function subaccountAfterRemoval(
-  subaccounts: readonly SubaccountView[],
+export function subaccountAfterRemoval<T extends SubaccountListRecord>(
+  subaccounts: readonly T[],
   removedId: string
-): SubaccountView | null {
+): T | null {
   return subaccounts.find((subaccount) => subaccount.id !== removedId) ?? null;
 }

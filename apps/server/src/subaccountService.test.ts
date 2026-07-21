@@ -5,8 +5,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type {
   ApiResult,
+  AccountManagerOperationView,
   CodexCredentialJson,
+  OpenCodexSpaceRequest,
+  SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
+  SubaccountSummaryView,
   SubaccountView
 } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
@@ -340,6 +344,7 @@ function tokenRevokedResponse() {
 class FakeAccountManager implements AccountManagerGateway {
   requests: AccountRegistrationRequest[] = [];
   private jobs: SubaccountRegistrationJobView[] = [];
+  private requestTags = new Map<string, string>();
 
   async health() {
     return { status: 'ok', accountRegistrationConfigured: true };
@@ -357,10 +362,11 @@ class FakeAccountManager implements AccountManagerGateway {
       updatedAt: 1
     };
     this.jobs = [job];
+    if (input.requestTag) this.requestTags.set(job.id, input.requestTag);
     return job;
   }
 
-  async listRegistrations(): Promise<SubaccountRegistrationJobView[]> {
+  async listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]> {
     this.jobs = this.jobs.map((job) => job.status === 'queued' ? {
       ...job,
       status: 'succeeded',
@@ -371,7 +377,23 @@ class FakeAccountManager implements AccountManagerGateway {
       completedAt: 2,
       updatedAt: 2
     } : job);
-    return this.jobs;
+    return requestTag
+      ? this.jobs.filter((job) => this.requestTags.get(job.id) === requestTag)
+      : this.jobs;
+  }
+
+  async listOperations(): Promise<AccountManagerOperationView[]> {
+    return this.jobs.map((job) => this.operationFromJob(job));
+  }
+
+  async operation(id: string): Promise<AccountManagerOperationView> {
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job) throw new Error('registration operation missing');
+    return this.operationFromJob(job);
+  }
+
+  async listAccountOperations(): Promise<AccountManagerOperationView[]> {
+    return [];
   }
 
   async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
@@ -395,6 +417,43 @@ class FakeAccountManager implements AccountManagerGateway {
       account: { id: 'registered-child-chatgpt-account-id' },
       accessToken: chatGptWebAccessToken('registered-child-chatgpt-account-id', 'free'),
       sessionToken: 'registered-child-session-token'
+    };
+  }
+
+  async account(accountId: string) {
+    return { id: accountId, email: accountId, hasCodexSpace: false, workspaces: [] };
+  }
+
+  async openCodexSpace(
+    accountId: string,
+    _input: OpenCodexSpaceRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return {
+      id: 'codex-operation',
+      accountId,
+      type: 'open_codex_space',
+      status: 'queued',
+      phase: 'codex_queued',
+      progress: 0,
+      createdAt: 1,
+      updatedAt: 1
+    };
+  }
+
+  private operationFromJob(job: SubaccountRegistrationJobView): AccountManagerOperationView {
+    return {
+      id: job.id,
+      ...(job.email ? { accountId: job.email, email: job.email } : {}),
+      type: 'register',
+      status: job.status,
+      phase: job.phase,
+      message: job.message,
+      progress: job.progress,
+      requestSummary: { requestTag: this.requestTags.get(job.id) },
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      ...(job.completedAt ? { completedAt: job.completedAt } : {}),
+      ...(job.error ? { errorMessage: job.error } : {})
     };
   }
 }
@@ -455,9 +514,10 @@ async function waitForRegistrationJob(
     const jobs = ((await jobsResponse.json()) as ApiResult<SubaccountRegistrationJobView[]>).data ?? [];
     const job = jobs.find((item) => item.id === jobId);
     if (job && !['queued', 'running'].includes(job.status)) {
-      const subaccountsResponse = await app.request('/api/subaccounts', { headers: authHeaders });
-      const subaccounts = ((await subaccountsResponse.json()) as ApiResult<SubaccountView[]>).data ?? [];
-      return { job, subaccount: job.subaccountId ? subaccounts.find((item) => item.id === job.subaccountId) : undefined };
+      if (!job.subaccountId) return { job };
+      const subaccountResponse = await app.request(`/api/subaccounts/${job.subaccountId}`, { headers: authHeaders });
+      const subaccount = ((await subaccountResponse.json()) as ApiResult<SubaccountView>).data;
+      return { job, subaccount };
     }
     if (Date.now() >= deadline) throw new Error(`等待自动注册任务超时: ${jobId}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -489,10 +549,14 @@ describe('Subaccount API', () => {
       });
 
       const listed = await app.request('/api/subaccounts', { headers: authHeaders });
-      const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
+      const listedJson = (await listed.json()) as ApiResult<SubaccountSummaryView[]>;
       assert.equal(listedJson.data!.length, 1);
       assert.equal(listedJson.data![0]!.status, 'session_ready');
-      assert.equal(listedJson.data![0]!.session?.accessToken, 'child-web-access-token');
+      assert.equal(Object.hasOwn(listedJson.data![0]!, 'session'), false);
+
+      const profile = await app.request(`/api/subaccounts/${addedJson.data!.id}/local-profile`, { headers: authHeaders });
+      const profileJson = (await profile.json()) as ApiResult<SubaccountLocalProfileView>;
+      assert.equal(profileJson.data!.session?.accessToken, 'child-web-access-token');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -695,10 +759,10 @@ describe('Subaccount API', () => {
       assert.match(json.data!.lastError ?? '', /token_invalidated/);
       assert.equal(typeof json.data!.lastRefreshAt, 'number');
 
-      const listed = await app.request('/api/subaccounts', { headers: authHeaders });
-      const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
-      assert.equal(listedJson.data![0]!.sessionTokenStatus, 'valid');
-      assert.equal(listedJson.data![0]!.webAccessTokenStatus, 'invalid');
+      const detail = await app.request(`/api/subaccounts/${subaccount.id}`, { headers: authHeaders });
+      const detailJson = (await detail.json()) as ApiResult<SubaccountView>;
+      assert.equal(detailJson.data!.sessionTokenStatus, 'valid');
+      assert.equal(detailJson.data!.webAccessTokenStatus, 'invalid');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -763,16 +827,6 @@ describe('Subaccount API', () => {
           can_access_with_session: true
         }
       });
-      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'usage_based',
-          status: 'active'
-        }
-      ]);
       const added = await app.request('/api/subaccounts/session', {
         method: 'POST',
         headers: authHeaders,
@@ -816,10 +870,10 @@ describe('Subaccount API', () => {
 
       assert.equal(synced.status, 200);
       assert.equal(syncedJson.data!.teamLinks.find((link) => link.accountId === mother.id)?.status, 'member');
-      assert.equal(teamTransport.requests.length, 2);
+      assert.equal(teamTransport.requests.length, 1);
       assert.deepEqual(
         teamTransport.requests.map((request) => (request as any).proxy),
-        ['socks5://child-proxy.example:1080', 'socks5://child-proxy.example:1080']
+        ['socks5://child-proxy.example:1080']
       );
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -1213,10 +1267,10 @@ describe('Subaccount API', () => {
       assert.equal(quotaTransport.requests[0]!.headers['Chatgpt-Account-Id'], 'workspace-account-id');
       assert.equal((quotaTransport.requests[0] as any).proxy, 'http://quota-proxy.example:8080');
 
-      const listed = await app.request('/api/subaccounts', { headers: authHeaders });
-      const listedJson = (await listed.json()) as ApiResult<SubaccountView[]>;
-      assert.equal(listedJson.data![0]!.codexCredentials[0]!.lastQuota?.windows[0]!.usedPercent, 28);
-      assert.equal(typeof listedJson.data![0]!.codexCredentials[0]!.lastQuotaAt, 'number');
+      const detail = await app.request(`/api/subaccounts/${subaccount.id}`, { headers: authHeaders });
+      const detailJson = (await detail.json()) as ApiResult<SubaccountView>;
+      assert.equal(detailJson.data!.codexCredentials[0]!.lastQuota?.windows[0]!.usedPercent, 28);
+      assert.equal(typeof detailJson.data!.codexCredentials[0]!.lastQuotaAt, 'number');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1240,10 +1294,14 @@ describe('Subaccount API', () => {
       assert.equal(registered.email, 'registered-child@example.com');
       assert.equal(registered.status, 'session_ready');
       assert.equal(registered.hasWebSession, true);
-      assert.equal(registered.session?.sessionToken, 'registered-child-session-token');
+      assert.equal(Object.hasOwn(registered, 'session'), false);
       assert.equal(registered.managedAccountEmail, 'registered-child@example.com');
       assert.equal(registered.codexCredentials.length, 0);
       assert.equal(accountManager.requests[0]!.mailGroup, 'clean-outlook');
+
+      const profileResponse = await app.request(`/api/subaccounts/${registered.id}/local-profile`, { headers: authHeaders });
+      const profile = ((await profileResponse.json()) as ApiResult<SubaccountLocalProfileView>).data!;
+      assert.equal(profile.session?.sessionToken, 'registered-child-session-token');
 
       const stored = subaccountStore.get(registered.id) as unknown as Record<string, unknown>;
       assert.equal(Object.hasOwn(stored, 'registrationPassword'), false);
@@ -1302,6 +1360,7 @@ describe('Subaccount API', () => {
         seat_type: 'usage_based',
         resend_emails: true
       });
+      assert.equal(teamTransport.requests.length, 1);
       assert.equal(invitedJson.data!.teamLinks[0]!.accountId, mother.id);
       assert.deepEqual(Object.keys(invitedJson.data!.teamLinks[0]!).sort(), [
         'accountId',
@@ -1400,27 +1459,6 @@ describe('Subaccount API', () => {
           }
         }
       });
-      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'usage_based',
-          status: 'active'
-        }
-      ]);
-      teamTransport.membersByWorkspaceId.set('workspace-account-b', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'default',
-          status: 'active'
-        }
-      ]);
-
       const added = await app.request('/api/subaccounts/session', {
         method: 'POST',
         headers: authHeaders,
@@ -1447,23 +1485,11 @@ describe('Subaccount API', () => {
       assert.deepEqual(
         teamTransport.requests.map((request) => request.path),
         [
-          '/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480',
-          '/backend-api/accounts/workspace-account-id/users?offset=0&limit=25&query=child%40example.com',
-          '/backend-api/accounts/workspace-account-b/users?offset=0&limit=25&query=child%40example.com'
+          '/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480'
         ]
       );
       assert.equal(teamTransport.requests[0]!.headers.Authorization, 'Bearer child-web-access-token');
       assert.equal(teamTransport.requests[0]!.headers['chatgpt-account-id'], 'child-chatgpt-account-id');
-      const userRequests = teamTransport.requests.filter((request) => request.path.includes('/users?'));
-      assert.equal(userRequests.length, 2);
-      assert.deepEqual(
-        userRequests.map((request) => request.headers.Authorization),
-        ['Bearer child-web-access-token', 'Bearer child-web-access-token']
-      );
-      assert.deepEqual(
-        userRequests.map((request) => request.headers['chatgpt-account-id']),
-        ['workspace-account-id', 'workspace-account-b']
-      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1490,27 +1516,6 @@ describe('Subaccount API', () => {
           }
         }
       });
-      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'usage_based',
-          status: 'active'
-        }
-      ]);
-      teamTransport.membersByWorkspaceId.set('external-workspace-id', [
-        {
-          id: 'member-child-external',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'default',
-          status: 'active'
-        }
-      ]);
-
       const added = await app.request('/api/subaccounts/session', {
         method: 'POST',
         headers: authHeaders,
@@ -1536,7 +1541,7 @@ describe('Subaccount API', () => {
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.workspaceName, 'External Team');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.planType, 'team');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.role, 'standard-user');
-      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.seat, 'default');
+      assert.equal(linksByWorkspaceId.get('external-workspace-id')!.seat, 'usage_based');
       assert.equal(linksByWorkspaceId.get('external-workspace-id')!.status, 'member');
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -1559,17 +1564,6 @@ describe('Subaccount API', () => {
           }
         }
       });
-      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'default',
-          status: 'active'
-        }
-      ]);
-
       const added = await app.request('/api/subaccounts/session', {
         method: 'POST',
         headers: authHeaders,
@@ -1596,7 +1590,7 @@ describe('Subaccount API', () => {
 
       assert.equal(synced.status, 200, body);
       assert.equal(syncedJson.data!.teamLinks.find((link) => link.accountId === mother.id)?.status, 'member');
-      assert.equal(syncedJson.data!.teamLinks.find((link) => link.accountId === mother.id)?.seat, 'default');
+      assert.equal(syncedJson.data!.teamLinks.find((link) => link.accountId === mother.id)?.seat, 'usage_based');
       assert.equal(accountsCheckRequests.length, 2);
       assert.equal(accountsCheckRequests[0]!.headers.Authorization, 'Bearer stale-child-web-access-token');
       assert.equal(accountsCheckRequests[1]!.headers.Authorization, `Bearer ${refreshedToken}`);
@@ -1609,8 +1603,8 @@ describe('Subaccount API', () => {
     }
   });
 
-  it('refreshes child-visible Team link seats with the child Web session users query', async () => {
-    const { app, dir, store, authHeaders, mother, teamTransport } = await buildTestApp();
+  it('preserves cached Team link seats while refreshing only the child workspace list', async () => {
+    const { app, dir, store, subaccountStore, authHeaders, mother, teamTransport } = await buildTestApp();
     try {
       const linkedMother = await store.add({
         accountId: 'workspace-account-b',
@@ -1635,27 +1629,6 @@ describe('Subaccount API', () => {
           }
         }
       });
-      teamTransport.membersByWorkspaceId.set('workspace-account-id', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'default',
-          status: 'active'
-        }
-      ]);
-      teamTransport.membersByWorkspaceId.set('workspace-account-b', [
-        {
-          id: 'member-child',
-          email: 'child@example.com',
-          name: 'Child',
-          role: 'standard-user',
-          seat_type: 'default',
-          status: 'active'
-        }
-      ]);
-
       const added = await app.request('/api/subaccounts/session', {
         method: 'POST',
         headers: authHeaders,
@@ -1666,6 +1639,18 @@ describe('Subaccount API', () => {
         })
       });
       const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      await subaccountStore.saveTeamLink(subaccount.id, {
+        accountId: mother.id,
+        workspaceId: 'workspace-account-id',
+        seat: 'default',
+        status: 'member'
+      });
+      await subaccountStore.saveTeamLink(subaccount.id, {
+        accountId: linkedMother.id,
+        workspaceId: 'workspace-account-b',
+        seat: 'default',
+        status: 'member'
+      });
 
       const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
         method: 'POST',
@@ -1680,15 +1665,8 @@ describe('Subaccount API', () => {
       assert.equal(links.get(linkedMother.id)!.status, 'member');
       assert.equal(links.get(linkedMother.id)!.seat, 'default');
       const userRequests = teamTransport.requests.filter((request) => request.path.includes('/users?'));
-      assert.equal(userRequests.length, 2);
-      assert.deepEqual(
-        userRequests.map((request) => request.headers.Authorization),
-        ['Bearer child-web-access-token', 'Bearer child-web-access-token']
-      );
-      assert.equal(
-        userRequests.some((request) => request.headers.Authorization === 'Bearer mother-access-token'),
-        false
-      );
+      assert.equal(userRequests.length, 0);
+      assert.equal(teamTransport.requests.length, 1);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

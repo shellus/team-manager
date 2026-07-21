@@ -1,4 +1,3 @@
-import type { AccountView } from '@team-manager/shared';
 import {
   ALL_LOCAL_GROUP,
   ALL_LOCAL_GROUP_LABEL,
@@ -14,11 +13,11 @@ export const ALL_PARENT_GROUP_LABEL = ALL_LOCAL_GROUP_LABEL;
 
 export type ParentGroupCount = LocalGroupCount;
 
-export function parentGroupName(account: AccountView): string {
+export function parentGroupName(account: { groupName?: string }): string {
   return localGroupName(account);
 }
 
-export function countParentGroups(accounts: AccountView[]): ParentGroupCount[] {
+export function countParentGroups<T extends { groupName?: string }>(accounts: T[]): ParentGroupCount[] {
   return countLocalGroups(accounts);
 }
 
@@ -26,6 +25,6 @@ export function resolveParentGroup(requestedGroup: string, groups: ParentGroupCo
   return resolveLocalGroup(requestedGroup, groups);
 }
 
-export function filterParentsByGroup(accounts: AccountView[], activeGroup: string): AccountView[] {
+export function filterParentsByGroup<T extends { groupName?: string }>(accounts: T[], activeGroup: string): T[] {
   return filterByLocalGroup(accounts, activeGroup);
 }

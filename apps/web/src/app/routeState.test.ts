@@ -3,6 +3,7 @@ import {
   clearModalState,
   parseParentSearchState,
   parseSubaccountSearchState,
+  resolveParentTabForWorkspace,
   setModalState,
   setSearchValue
 } from './routeState.js';
@@ -32,16 +33,34 @@ describe('routeState', () => {
     });
   });
 
-  test('maps the former credential tab to PAT and parses the PAT delete modal', () => {
+  test('rejects an unsupported child tab while keeping only a current modal', () => {
     const state = parseSubaccountSearchState(
-      new URLSearchParams('tab=credential&modal=delete-pat-credential&target=acct-1')
+      new URLSearchParams('tab=unsupported&modal=delete-pat-credential&target=acct-1')
     );
 
     expect(state).toEqual({
-      tab: 'pat',
+      tab: 'teams',
       modal: 'delete-pat-credential',
       target: 'acct-1'
     });
+  });
+
+  test('persists the parent 0.52 modal and target in the route', () => {
+    const state = parseParentSearchState(
+      new URLSearchParams('tab=members&modal=open-codex-space&target=account-1')
+    );
+
+    expect(state.modal).toBe('open-codex-space');
+    expect(state.target).toBe('account-1');
+  });
+
+  test('persists the parent two-seat Team modal and target in the route', () => {
+    const state = parseParentSearchState(
+      new URLSearchParams('tab=members&modal=open-team-subscription&target=account-1')
+    );
+
+    expect(state.modal).toBe('open-team-subscription');
+    expect(state.target).toBe('account-1');
   });
 
   test('does not persist the child Team leave action as a blocking route modal', () => {
@@ -75,6 +94,17 @@ describe('routeState', () => {
     const state = parseParentSearchState(new URLSearchParams('group=A&tab=billing'));
 
     expect(state.tab).toBe('billing');
+  });
+
+  test('accepts the parent account manager tab from search params', () => {
+    const state = parseParentSearchState(new URLSearchParams('group=A&tab=account-manager'));
+
+    expect(state.tab).toBe('account-manager');
+  });
+
+  test('routes a parent without workspace capabilities to account management', () => {
+    expect(resolveParentTabForWorkspace(false, 'members')).toBe('account-manager');
+    expect(resolveParentTabForWorkspace(true, 'members')).toBe('members');
   });
 
   test('sets and clears modal state while preserving route params', () => {

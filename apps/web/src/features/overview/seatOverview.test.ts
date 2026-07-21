@@ -15,6 +15,8 @@ function account(input: Partial<AccountView> & Pick<AccountView, 'id'>): Account
     limitType: 'unknown',
     accountId: `workspace-${id}`,
     email: `${id}@example.com`,
+    hasTeamSubscription: true,
+    canManageWorkspace: true,
     ...rest
   };
 }
@@ -31,6 +33,30 @@ describe('buildSeatOverviewItems', () => {
     expect(items.every((item) => item.seat === 'default')).toBe(true);
     expect(items.every((item) => item.status === 'empty')).toBe(true);
     expect(items.every((item) => item.expiresOn === '2026-08-01')).toBe(true);
+  });
+
+  test('does not create empty ChatGPT positions for a usage-based Workspace', () => {
+    const items = buildSeatOverviewItems([
+      account({
+        id: 'codex-only',
+        planType: 'self_serve_business_usage_based',
+        hasTeamSubscription: false,
+        membersCache: [{
+          userId: 'owner-user',
+          email: 'owner@example.com',
+          role: 'account-owner',
+          seat: 'usage_based'
+        }]
+      })
+    ]);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual(expect.objectContaining({
+      source: 'member',
+      seat: 'usage_based',
+      email: 'owner@example.com'
+    }));
+    expect(items.some((item) => item.source === 'placeholder')).toBe(false);
   });
 
   test('keeps a Codex admin position separate from two ChatGPT seat slots', () => {

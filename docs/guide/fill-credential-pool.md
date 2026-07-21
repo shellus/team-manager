@@ -69,7 +69,7 @@
 
 1. 使用母号邀请新子号邮箱加入 Team。
 2. 席位选择 `default`，让该子号获得 ChatGPT Team 额度窗口。
-3. 若邀请或切换到 `default` 触发账单风险确认，先确认当前 `default` 成员数量和席位归属，再显式确认。
+3. 邀请或切换到 `default` 前，人工确认当前 `default` 成员数量和席位归属；系统不会额外检查或提示。
 4. 邀请完成后刷新母号成员和 pending invite。
 5. 到子号页刷新 Team 关联，确认该子号在目标 Team 下是 `member` 或至少处于可创建 PAT 的 `invited` 状态。
 
