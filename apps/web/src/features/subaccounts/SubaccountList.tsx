@@ -27,7 +27,9 @@ import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccoun
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
   if (job.status === 'failed') return '注册未完成，可使用原邮箱和密码重试';
   if (job.status === 'interrupted') return '任务因服务重启中断，可继续重试';
-  if (job.status === 'waiting_manual') return '需要在 CloakBrowser 完成人机验证后继续';
+  if (job.status === 'waiting_manual') {
+    return job.message || '可以人工处理验证；系统会持续监听并在通过后自动继续';
+  }
   return job.message;
 }
 
@@ -175,7 +177,7 @@ export function SubaccountList({
                     status={failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {(failed || waitingManual) && (
+                  {failed && (
                     <Space wrap>
                       <Button
                         size="small"
@@ -186,7 +188,7 @@ export function SubaccountList({
                           onRetryRegistration(job);
                         }}
                       >
-                        {waitingManual ? '人工验证后继续' : job.email ? '重试此邮箱' : '重新开始'}
+                        {job.email ? '重试此邮箱' : '重新开始'}
                       </Button>
                     </Space>
                   )}
@@ -260,13 +262,11 @@ export function SubaccountList({
                   <span>{subaccount.hasWebSession ? 'Web Session 已录入' : '无 Web Session'}</span>
                   <span>Codex 凭证 {subaccount.codexCredentialCount} 份</span>
                 </div>
-                <div className="record-meta muted">
-                  <span>更新 {formatDateTime(subaccount.updatedAt)}</span>
-                </div>
-                <div className="record-capability-tags" aria-label="子号账号管理状态">
+                <div className="record-meta record-status-meta" aria-label="子号账号管理状态">
                   <Tag color={subaccount.managedAccountEmail ? 'blue' : 'default'}>
                     {subaccount.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
+                  <span className="record-status-time">更新 {formatDateTime(subaccount.updatedAt)}</span>
                 </div>
               </Card>
             </List.Item>

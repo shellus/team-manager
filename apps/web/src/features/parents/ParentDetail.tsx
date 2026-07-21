@@ -2,7 +2,6 @@ import type { AccountView, ParentAccountManagerStatus } from '@team-manager/shar
 import { Alert, Button, Card, Empty, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import {
   CreditCardOutlined,
-  DeleteOutlined,
   EditOutlined,
   ReloadOutlined,
   ShoppingCartOutlined,
@@ -12,7 +11,7 @@ import type { ParentTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { AccountManagerAssociationPanel } from '../../components/AccountManagerAssociationPanel.js';
 import { AccountStatusTag, DefaultSeatTag } from '../../components/StatusTag.js';
-import { formatRelativeTime } from '../../components/format.js';
+import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentBillingPanel } from './ParentBillingPanel.js';
 import { ParentMembersTable } from './ParentMembersTable.js';
@@ -31,7 +30,6 @@ export function ParentDetail({
   onOpenInvite,
   onOpenCodexSpace,
   onOpenTeamSubscription,
-  onOpenDelete,
   onOpenLocalProfile,
   onAccountChanged
 }: {
@@ -46,7 +44,6 @@ export function ParentDetail({
   onOpenInvite: () => void;
   onOpenCodexSpace: () => void;
   onOpenTeamSubscription: () => void;
-  onOpenDelete: () => void;
   onOpenLocalProfile: () => void;
   onAccountChanged: (account: AccountView) => void;
 }) {
@@ -70,6 +67,7 @@ export function ParentDetail({
   const codexWaitingManual = codexOperation?.status === 'waiting_manual';
   const teamOpening = teamOperation?.status === 'queued' || teamOperation?.status === 'running';
   const teamWaitingManual = teamOperation?.status === 'waiting_manual';
+  const hasCodexSpace = accountManagerStatus?.hasCodexSpace === true;
   const accountManagerUnavailable = accountManagerLoading
     || !accountManagerStatus
     || accountManagerStatus?.configured === false
@@ -77,12 +75,9 @@ export function ParentDetail({
     || accountManagerStatus?.managed === false;
   const codexButtonDisabled = accountManagerLoading
     || accountManagerUnavailable
-    || accountManagerStatus?.hasCodexSpace === true
     || codexOpening
     || codexWaitingManual;
-  const codexButtonTitle = accountManagerStatus?.hasCodexSpace
-    ? '该 GPT 账号已开通 0.52 Codex 空间'
-    : accountManagerStatus?.managed === false
+  const codexButtonTitle = accountManagerStatus?.managed === false
       ? accountManagerStatus.error || '该邮箱未由 GPT Account Manager 管理'
       : codexWaitingManual
         ? codexOperation?.message || '付款页面等待人工处理，系统会继续监听'
@@ -116,19 +111,18 @@ export function ParentDetail({
             )}
             <Typography.Text type="secondary">默认席位</Typography.Text>
             <DefaultSeatTag seat={account.defaultSeat} />
-            <Tag color={account.managedAccountEmail ? 'blue' : 'default'}>
-              {account.managedAccountEmail ? 'GAM' : '非 GAM'}
-            </Tag>
-            <Tag color={accountManagerStatus?.hasCodexSpace ? 'green' : 'default'}>
-              {accountManagerStatus?.hasCodexSpace ? '0.52' : '未开 0.52'}
-            </Tag>
-            <Tag color={hasTeamSubscription ? 'green' : 'default'}>
-              {hasTeamSubscription ? '双席位' : '未开双席位'}
-            </Tag>
+            <Space size={4} wrap={false} className="detail-capability-tags">
+              <Tag color={account.managedAccountEmail ? 'blue' : 'default'}>
+                {account.managedAccountEmail ? 'GAM' : '非 GAM'}
+              </Tag>
+              <WorkspaceOpeningStatusTags
+                hasCodexSpace={hasCodexSpace}
+                hasTeamSubscription={hasTeamSubscription}
+              />
+            </Space>
           </Space>
         </div>
-        <Space wrap>
-          <Typography.Text type="secondary">同步 {formatRelativeTime(account.lastRefreshAt)}</Typography.Text>
+        <Space wrap className="detail-actions">
           <Button
             aria-label="邀请 Workspace 成员"
             icon={<UserAddOutlined />}
@@ -138,26 +132,26 @@ export function ParentDetail({
           >
             邀请成员
           </Button>
-          <Tooltip title={codexButtonTitle}>
-            <span>
-              <Button
-                icon={<CreditCardOutlined />}
-                loading={accountManagerLoading || codexOpening}
-                disabled={codexButtonDisabled}
-                onClick={onOpenCodexSpace}
-              >
-                {accountManagerStatus?.hasCodexSpace
-                  ? '已开通 0.52'
-                  : codexOpening
+          {!hasCodexSpace && (
+            <Tooltip title={codexButtonTitle}>
+              <span>
+                <Button
+                  icon={<CreditCardOutlined />}
+                  loading={accountManagerLoading || codexOpening}
+                  disabled={codexButtonDisabled}
+                  onClick={onOpenCodexSpace}
+                >
+                  {codexOpening
                     ? '开通中'
                     : codexWaitingManual
                       ? '等待人工处理'
-                    : codexFailed
-                      ? '重新开通 0.52'
-                      : '开通 0.52'}
-              </Button>
-            </span>
-          </Tooltip>
+                      : codexFailed
+                        ? '重新开通 0.52'
+                        : '开通 0.52'}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Tooltip title={teamButtonTitle}>
             <span>
               <Button
@@ -193,9 +187,6 @@ export function ParentDetail({
               同步 Workspace
             </Button>
           </Tooltip>
-          <Button danger icon={<DeleteOutlined />} onClick={onOpenDelete}>
-            删除母号
-          </Button>
         </Space>
       </div>
 

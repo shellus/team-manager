@@ -23,6 +23,7 @@ import {
   type SubaccountTab
 } from '../../app/routeState.js';
 import { actionKey } from '../../components/actionBusy.js';
+import { registrationStatusNeedsPolling } from '../../components/registrationPolling.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
@@ -31,7 +32,9 @@ import {
   countLocalGroups,
   filterByLocalGroup,
   localGroupName,
-  resolveLocalGroup
+  readLocalGroupPreference,
+  rememberLocalGroupPreference,
+  resolvePreferredLocalGroup
 } from '../../components/recordGroups.js';
 import { SEAT_LABEL } from '../../labels.js';
 import { buildCredentialDownload, downloadTextFile } from './credentialDownload.js';
@@ -49,6 +52,8 @@ interface TeamInviteValues {
   accountId: string;
   seat: SeatType;
 }
+
+const SUBACCOUNT_GROUP_PREFERENCE_KEY = 'team-manager:subaccounts:last-group';
 
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
@@ -96,8 +101,12 @@ export function SubaccountRoutes({
     () => subaccounts.filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery)),
     [searchQuery, subaccounts]
   );
-  const groups = useMemo(() => countLocalGroups(matchingSubaccounts), [matchingSubaccounts]);
-  const activeGroup = resolveLocalGroup(searchParams.get('group')?.trim() ?? '', groups);
+  const groups = useMemo(() => countLocalGroups(subaccounts), [subaccounts]);
+  const activeGroup = resolvePreferredLocalGroup(
+    searchParams.has('group') ? searchParams.get('group')?.trim() ?? ALL_LOCAL_GROUP : undefined,
+    readLocalGroupPreference(SUBACCOUNT_GROUP_PREFERENCE_KEY),
+    groups
+  );
   const groupedSubaccounts = useMemo(
     () => filterByLocalGroup(matchingSubaccounts, activeGroup),
     [activeGroup, matchingSubaccounts]
@@ -233,7 +242,7 @@ export function SubaccountRoutes({
   }, [loadRuntimeStatus, loadSubaccounts]);
 
   const hasActiveRegistration = registrationJobs.some(
-    (job) => job.status === 'queued' || job.status === 'running'
+    (job) => registrationStatusNeedsPolling(job.status)
   );
 
   useEffect(() => {
@@ -265,6 +274,7 @@ export function SubaccountRoutes({
 
   useEffect(() => {
     if (loading || subaccounts.length === 0 || searchState.modal) return;
+    rememberLocalGroupPreference(SUBACCOUNT_GROUP_PREFERENCE_KEY, activeGroup);
     const nextParams = new URLSearchParams(searchParams);
     let changed = false;
     if ((searchParams.get('group')?.trim() ?? '') !== activeGroup) {
@@ -329,6 +339,7 @@ export function SubaccountRoutes({
   };
 
   const changeGroup = (group: string) => {
+    rememberLocalGroupPreference(SUBACCOUNT_GROUP_PREFERENCE_KEY, group);
     const firstInGroup = group === ALL_LOCAL_GROUP
       ? matchingSubaccounts[0]
       : matchingSubaccounts.find((subaccount) => localGroupName(subaccount) === group);

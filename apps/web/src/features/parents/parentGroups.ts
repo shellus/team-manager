@@ -1,6 +1,7 @@
 import {
   ALL_LOCAL_GROUP,
   ALL_LOCAL_GROUP_LABEL,
+  DEFAULT_LOCAL_GROUP,
   countLocalGroups,
   filterByLocalGroup,
   localGroupName,
@@ -10,6 +11,7 @@ import {
 
 export const ALL_PARENT_GROUP = ALL_LOCAL_GROUP;
 export const ALL_PARENT_GROUP_LABEL = ALL_LOCAL_GROUP_LABEL;
+export const DEFAULT_PARENT_GROUP = DEFAULT_LOCAL_GROUP;
 
 export type ParentGroupCount = LocalGroupCount;
 

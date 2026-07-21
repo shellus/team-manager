@@ -419,6 +419,8 @@ body {
 }
 
 .detail-header {
+  flex-direction: column;
+  align-items: stretch;
   margin-bottom: 16px;
 }
 
@@ -428,7 +430,7 @@ body {
 }
 
 .detail-header > .ant-space {
-  flex: 0 0 auto;
+  width: 100%;
 }
 
 .detail-header > div:first-child > .ant-space {
@@ -443,6 +445,18 @@ body {
 .detail-meta-row.ant-space {
   display: flex;
   max-width: 100%;
+}
+
+.detail-capability-tags.ant-space {
+  flex: none;
+}
+
+.detail-capability-tags .ant-tag {
+  margin-inline-end: 0;
+}
+
+.detail-actions.ant-space {
+  justify-content: flex-start;
 }
 
 .detail-meta-row > .ant-space-item:first-child {
@@ -608,15 +622,23 @@ body {
   opacity: 0.85;
 }
 
-.record-capability-tags {
-  display: flex;
-  flex-wrap: wrap;
+.record-status-meta {
+  flex-wrap: nowrap;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
-.record-capability-tags .ant-tag {
-  margin-inline-end: 0;
+.record-status-meta > .ant-tag,
+.record-status-meta > .record-meta-tag {
+  flex: none;
+}
+
+.record-status-time {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .account-operation-progress {
@@ -640,6 +662,18 @@ body {
 .account-operation-progress-head .ant-tag {
   flex: none;
   margin-inline-end: 0;
+}
+
+.operation-dismiss-button.ant-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  color: var(--color-text-secondary);
+}
+
+.operation-dismiss-button.ant-btn:hover {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
 
 .account-operation-progress-message {

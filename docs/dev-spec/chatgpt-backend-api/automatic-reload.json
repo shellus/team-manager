@@ -1,0 +1,61 @@
+{
+  "page": "https://chatgpt.com/admin/billing",
+  "operation": "read_and_toggle_automatic_reload",
+  "captured_at": "2026-07-21",
+  "records": [
+    {
+      "method": "GET",
+      "path": "/backend-api/subscriptions/auto_top_up/settings",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "is_enabled": true,
+          "recharge_threshold": "125",
+          "recharge_target": "250",
+          "recharge_monthly_limit": null,
+          "recharge_monthly_remaining": null,
+          "auto_reload_credit_discount_policy": "none",
+          "immediate_top_up_status": null,
+          "immediate_top_up_message": null,
+          "payment_method": null
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend-api/subscriptions/auto_top_up/disable",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "is_enabled": false,
+          "recharge_threshold": "125",
+          "recharge_target": "250",
+          "recharge_monthly_limit": null,
+          "recharge_monthly_remaining": null
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend-api/subscriptions/auto_top_up/enable",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "is_enabled": true,
+          "recharge_threshold": "125",
+          "recharge_target": "250",
+          "recharge_monthly_limit": null,
+          "recharge_monthly_remaining": null,
+          "payment_method": {
+            "payment_method_id": "<redacted>",
+            "payment_type": "card",
+            "card_last4": "<redacted>"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -55,6 +55,7 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
       onRetryRegistration={() => undefined}
       onRotateOperationIp={() => undefined}
       onTerminateOperation={() => undefined}
+      onDismissOperation={() => undefined}
       {...overrides}
     />
   );
@@ -105,6 +106,7 @@ describe('ParentList', () => {
     expect(html).toContain('非 GAM');
     expect(html).toContain('双席位');
     expect(html).not.toContain('未开双席位');
+    expect(html).not.toContain('未开 0.52');
   });
 
   test('shows workspace data for a legacy usage-based parent without marking it as Team', () => {
@@ -206,6 +208,7 @@ describe('ParentList', () => {
     expect(html).toContain('操作失败');
     expect(html).toContain('Discount code is not eligible');
     expect(html).toContain('100%');
+    expect(html).toContain('aria-label="清除开通错误"');
     expect(html).not.toContain('更换IP');
     expect(html).not.toContain('终止任务');
   });

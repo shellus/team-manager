@@ -79,7 +79,10 @@ class FakeAccountManager implements AccountManagerGateway {
       phase: 'registration_queued',
       message: '已加入注册队列',
       progress: 0,
-      requestSummary: { requestTag: input.requestTag },
+      requestSummary: {
+        requestTag: input.requestTag,
+        clientReference: input.clientReference
+      },
       createdAt: 1,
       updatedAt: 1
     };
@@ -230,14 +233,24 @@ class FakeAccountManager implements AccountManagerGateway {
 }
 
 class FakeTeamService {
-  saved: Array<{ kind: 'identity' | 'workspace'; email: string; preferredAccountId?: string }> = [];
+  saved: Array<{
+    kind: 'identity' | 'workspace';
+    email: string;
+    preferredAccountId?: string;
+    groupName?: string;
+  }> = [];
+  teamSubscriptionIds = new Set<string>();
 
-  async saveManagedParentIdentityFromSessionInput(email: string): Promise<AccountView> {
-    this.saved.push({ kind: 'identity', email });
+  hasTeamSubscription(id: string): boolean {
+    return this.teamSubscriptionIds.has(id);
+  }
+
+  async saveManagedParentIdentityFromSessionInput(email: string, _raw: unknown, groupName?: string): Promise<AccountView> {
+    this.saved.push({ kind: 'identity', email, groupName });
     return {
       id: 'parent-personal',
       managedAccountEmail: email,
-      groupName: '默认分组',
+      groupName: groupName || '默认分组',
       limitType: 'unknown',
       accountId: 'personal-account',
       email,
@@ -289,14 +302,19 @@ async function withService(run: (
 describe('ParentAccountManagerService', () => {
   it('finishes parent registration immediately without requiring 0.52', async () => {
     await withService(async (service, accountManager, teamService) => {
-      const started = await service.startRegistration();
+      const started = await service.startRegistration(' 客户 A ');
       assert.equal(started.requestSummary?.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.parent);
+      assert.equal(started.requestSummary?.clientReference, '客户 A');
 
       accountManager.completeRegistration('parent@example.com');
       const completed = await service.listRegistrationTasks();
       assert.equal(completed[0]!.stage, 'completed');
       assert.equal(completed[0]!.parent?.accountId, 'personal-account');
-      assert.deepEqual(teamService.saved, [{ kind: 'identity', email: 'parent@example.com' }]);
+      assert.deepEqual(teamService.saved, [{
+        kind: 'identity',
+        email: 'parent@example.com',
+        groupName: '客户 A'
+      }]);
       assert.equal(accountManager.operations.length, 0);
     });
   });
@@ -368,6 +386,62 @@ describe('ParentAccountManagerService', () => {
     });
   });
 
+  it('reflects a successful 0.52 operation before the batched account summary catches up', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        managedAccountEmail: 'owner@example.com',
+        accountId: 'personal-account',
+        email: 'owner@example.com',
+        accessToken: 'web-access-token',
+        planType: 'free'
+      });
+      accountManager.accounts.set('owner@example.com', {
+        id: 'owner@example.com',
+        email: 'owner@example.com',
+        hasCodexSpace: false,
+        hasTeamSubscription: false,
+        workspaces: []
+      });
+      accountManager.operations.push({
+        id: 'codex-succeeded',
+        accountId: 'owner@example.com',
+        type: 'open_codex_space',
+        status: 'succeeded',
+        phase: 'complete',
+        progress: 100,
+        requestSummary: { requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent },
+        result: { workspaces: [{ id: 'codex-workspace' }] },
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2
+      });
+
+      const pendingReconciliation = await service.accountStatuses();
+
+      assert.equal(pendingReconciliation[parent.id]!.hasCodexSpace, true);
+      assert.equal(pendingReconciliation[parent.id]!.codexOperation?.id, 'codex-succeeded');
+
+      accountManager.accounts.set('owner@example.com', {
+        id: 'owner@example.com',
+        email: 'owner@example.com',
+        hasCodexSpace: true,
+        hasTeamSubscription: false,
+        workspaces: [{
+          id: 'codex-workspace',
+          structure: 'workspace',
+          planType: 'self_serve_business_usage_based',
+          visible: true
+        }]
+      });
+
+      const reconciled = await service.accountStatuses();
+
+      assert.equal(reconciled[parent.id]!.hasCodexSpace, true);
+      assert.equal(reconciled[parent.id]!.codexOperation, undefined);
+      assert.equal(accountManager.operations.length, 0);
+    });
+  });
+
   it('opens a two-seat Team order with an optional saved Stripe card and imports the Team workspace', async () => {
     await withService(async (service, accountManager, teamService, store) => {
       const parent = await store.add({
@@ -411,6 +485,43 @@ describe('ParentAccountManagerService', () => {
       assert.deepEqual(teamService.saved, [{
         kind: 'workspace', email: 'owner@example.com', preferredAccountId: 'codex-workspace'
       }]);
+    });
+  });
+
+  it('rejects a duplicate Team order when local billing already recognized the subscription', async () => {
+    await withService(async (service, accountManager, teamService, store) => {
+      const parent = await store.add({
+        managedAccountEmail: 'owner@example.com',
+        accountId: 'upgraded-workspace',
+        email: 'owner@example.com',
+        accessToken: 'web-access-token',
+        planType: 'self_serve_business_usage_based',
+        hasTeamSubscription: true
+      });
+      teamService.teamSubscriptionIds.add(parent.id);
+      accountManager.accounts.set('owner@example.com', {
+        id: 'owner@example.com',
+        email: 'owner@example.com',
+        hasCodexSpace: true,
+        hasTeamSubscription: false,
+        workspaces: [{
+          id: 'upgraded-workspace',
+          structure: 'workspace',
+          planType: 'self_serve_business_usage_based',
+          visible: true
+        }]
+      });
+
+      await assert.rejects(
+        () => service.openAccountTeamSubscription(parent.id, {
+          workspaceId: 'upgraded-workspace',
+          country: 'GB',
+          currency: 'GBP',
+          autoPay: false
+        }),
+        { status: 409, message: '该账号已开通双席位 Team' }
+      );
+      assert.equal(accountManager.openedTeam, undefined);
     });
   });
 
@@ -468,6 +579,8 @@ describe('ParentAccountManagerService', () => {
       const terminated = await service.terminateAccountOperation(parent.id, 'codex-control-1');
 
       assert.equal(terminated.status, 'interrupted');
+      assert.equal(await service.dismissAccountOperation(parent.id, 'codex-control-1'), true);
+      assert.equal(accountManager.operations.some((operation) => operation.id === 'codex-control-1'), false);
       assert.deepEqual(accountManager.controls, [
         'rotate:codex-control-1',
         'terminate:codex-control-1'

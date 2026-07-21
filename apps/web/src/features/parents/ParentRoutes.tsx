@@ -30,6 +30,12 @@ import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { OpenCodexSpaceModal } from '../../components/OpenCodexSpaceModal.js';
 import { OpenTeamSubscriptionModal } from '../../components/OpenTeamSubscriptionModal.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
+import { parentRegistrationStageNeedsPolling } from '../../components/registrationPolling.js';
+import {
+  readLocalGroupPreference,
+  rememberLocalGroupPreference,
+  resolvePreferredLocalGroup
+} from '../../components/recordGroups.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import { SEAT_LABEL } from '../../labels.js';
 import { defaultSeatSlotExpiresOn, SeatSlotProfileFields } from './SeatSlotProfileModal.js';
@@ -39,9 +45,9 @@ import { canManageParentWorkspace } from './parentWorkspaceCapability.js';
 import {
   ALL_PARENT_GROUP,
   countParentGroups,
+  DEFAULT_PARENT_GROUP,
   filterParentsByGroup,
-  parentGroupName,
-  resolveParentGroup
+  parentGroupName
 } from './parentGroups.js';
 
 interface InviteValues {
@@ -53,9 +59,42 @@ interface InviteValues {
   expireReminder: boolean;
 }
 
+const PARENT_GROUP_PREFERENCE_KEY = 'team-manager:parents:last-group';
+
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
   return value ? `?${value}` : '';
+}
+
+export function buildParentDeleteLocation(
+  params: URLSearchParams,
+  account: Pick<AccountSummaryView, 'id' | 'groupName'>,
+  activeGroup: string,
+  tab: ParentTab
+) {
+  let next = setSearchValue(
+    params,
+    'group',
+    activeGroup === ALL_PARENT_GROUP ? ALL_PARENT_GROUP : parentGroupName(account)
+  );
+  next = setSearchValue(next, 'tab', tab);
+  next = setModalState(next, 'delete-parent', account.id);
+  return { pathname: `/parents/${account.id}`, search: toSearch(next) };
+}
+
+export function parentAccountManagerStatusNeedsPolling(status: ParentAccountManagerStatus): boolean {
+  const operationNeedsPolling = (
+    operation: ParentAccountManagerStatus['codexOperation'],
+    reflectedInAccountStatus: boolean
+  ) => Boolean(operation && (
+    operation.status === 'queued'
+    || operation.status === 'running'
+    || operation.status === 'waiting_for_otp'
+    || operation.status === 'waiting_manual'
+    || (operation.status === 'succeeded' && !reflectedInAccountStatus)
+  ));
+  return operationNeedsPolling(status.codexOperation, status.hasCodexSpace)
+    || operationNeedsPolling(status.teamOperation, status.hasTeamSubscription);
 }
 
 function accountMatchesQuery(account: AccountSummaryView, query: string): boolean {
@@ -122,16 +161,19 @@ export function ParentRoutes({
   const [accountManagerStatusError, setAccountManagerStatusError] = useState('');
   const actionBusy = useActionBusy();
   const searchQuery = searchParams.get('q') ?? '';
+  const sortedAccounts = useMemo(() => [...accounts].sort(compareRecordSortName), [accounts]);
   const filteredAccounts = useMemo(
-    () => accounts.filter((account) => accountMatchesQuery(account, searchQuery)).sort(compareRecordSortName),
-    [accounts, searchQuery]
+    () => sortedAccounts.filter((account) => accountMatchesQuery(account, searchQuery)),
+    [searchQuery, sortedAccounts]
   );
   const accountIdsKey = accounts.map((account) => account.id).sort().join('|');
 
-  const groups = useMemo(() => {
-    return countParentGroups(filteredAccounts);
-  }, [filteredAccounts]);
-  const activeGroup = resolveParentGroup(searchState.group, groups);
+  const groups = useMemo(() => countParentGroups(sortedAccounts), [sortedAccounts]);
+  const activeGroup = resolvePreferredLocalGroup(
+    searchParams.has('group') ? searchState.group : undefined,
+    readLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY),
+    groups
+  );
   const visibleAccounts = useMemo(
     () => filterParentsByGroup(filteredAccounts, activeGroup),
     [filteredAccounts, activeGroup]
@@ -240,6 +282,7 @@ export function ParentRoutes({
 
   useEffect(() => {
     if (loading || accounts.length === 0) return;
+    rememberLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY, activeGroup);
     const nextParams = new URLSearchParams(searchParams);
     let changed = false;
     if (searchState.group !== activeGroup) {
@@ -291,14 +334,10 @@ export function ParentRoutes({
   }, [accountIdsKey, accounts.length, loadAccountManagerStatuses, loading]);
 
   const hasActiveRegistrationTask = registrationTasks.some((task) =>
-    task.stage === 'registering'
+    parentRegistrationStageNeedsPolling(task.stage)
   );
-  const hasActiveAccountOperation = Object.values(accountManagerStatuses).some((status) =>
-    [status.codexOperation, status.teamOperation].some((operation) =>
-      operation?.status === 'queued'
-        || operation?.status === 'running'
-        || operation?.status === 'waiting_manual'
-    )
+  const hasActiveAccountOperation = Object.values(accountManagerStatuses).some(
+    parentAccountManagerStatusNeedsPolling
   );
   const hasManagedParent = accounts.some((account) => Boolean(account.managedAccountEmail));
   const hasUnavailableAccountManagerStatus = Object.values(accountManagerStatuses).some((status) =>
@@ -363,7 +402,9 @@ export function ParentRoutes({
     setLocalError('');
     try {
       await actionBusy.run('register-parent', async () => {
-        await apiClient.registerParentAccount();
+        await apiClient.registerParentAccount({
+          groupName: activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup
+        });
         closeModal();
         await loadRegistrationTasks();
         await loadRuntimeStatus();
@@ -458,6 +499,23 @@ export function ParentRoutes({
     }
   };
 
+  const dismissOperation = async (
+    account: AccountSummaryView,
+    operation: ParentAccountManagerStatus['codexOperation']
+  ) => {
+    if (!operation) return;
+    const key = `dismiss-operation-${operation.id}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.dismissParentOperation(account.id, operation.id);
+        await loadAccountManagerStatuses();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const deleteParent = async () => {
     if (!selectedSummary) return;
     setLocalError('');
@@ -527,6 +585,7 @@ export function ParentRoutes({
   };
 
   const changeGroup = (group: string) => {
+    rememberLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY, group);
     const firstInGroup =
       group === ALL_PARENT_GROUP
         ? filteredAccounts[0]
@@ -543,6 +602,11 @@ export function ParentRoutes({
       activeGroup === ALL_PARENT_GROUP ? ALL_PARENT_GROUP : parentGroupName(account)
     );
     navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
+  };
+
+  const openDeleteParent = (account: AccountSummaryView) => {
+    setLocalError('');
+    navigate(buildParentDeleteLocation(searchParams, account, activeGroup, searchState.tab));
   };
 
   const changeSearchQuery = (query: string) => {
@@ -580,12 +644,10 @@ export function ParentRoutes({
         onRetryRegistration={(task) => void retryParentRegistration(task)}
         onRotateOperationIp={(account, operation) => void rotateOperationIp(account, operation)}
         onTerminateOperation={(account, operation) => void terminateOperation(account, operation)}
+        onDismissOperation={(account, operation) => void dismissOperation(account, operation)}
         onSelect={selectAccount}
         onRefreshAccount={(account) => void refreshAccount(account)}
-        onOpenDelete={(account) => {
-          selectAccount(account);
-          openModal('delete-parent', account.id);
-        }}
+        onOpenDelete={openDeleteParent}
       />
 
       <Space direction="vertical" size={12} className="content-pane">
@@ -604,7 +666,6 @@ export function ParentRoutes({
           onOpenInvite={() => openModal('invite-member', selectedSummary?.id ?? '')}
           onOpenCodexSpace={() => selectedSummary && openCodexModal(selectedSummary.id)}
           onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
-          onOpenDelete={() => selectedSummary && openModal('delete-parent', selectedSummary.id)}
           onOpenLocalProfile={() => selectedSummary && openModal('edit-parent-profile', selectedSummary.id)}
           onAccountChanged={mergeAccountView}
         />
@@ -619,7 +680,7 @@ export function ParentRoutes({
         requireSession
         initialValues={{
           remark: '',
-          groupName: activeGroup === ALL_PARENT_GROUP ? '默认分组' : activeGroup,
+          groupName: activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup,
           limitType: 'unknown',
           nextRenewalOn: '',
           proxy: ''
@@ -658,7 +719,11 @@ export function ParentRoutes({
         onOk={() => void registerParent()}
       >
         <Space direction="vertical" size={12} className="panel-stack">
-          <span>系统会通过 GPT Account Manager 注册新 GPT 账号。账号创建并交付 Session 后立即录入母号；0.52 和双席位可稍后独立开通。</span>
+          <span>
+            系统会通过 GPT Account Manager 注册新 GPT 账号，并录入到「
+            {activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup}
+            」分组。账号创建并交付 Session 后立即完成；0.52 和双席位可稍后独立开通。
+          </span>
           <ModalErrorAlert message={searchState.modal === 'register-parent' ? localError : ''} />
         </Space>
       </Modal>
@@ -682,7 +747,7 @@ export function ParentRoutes({
       />
 
       <Modal
-        open={searchState.modal === 'delete-parent' && Boolean(selectedSummary)}
+        open={searchState.modal === 'delete-parent' && searchState.target === selectedSummary?.id}
         title="删除母号"
         okText="删除母号"
         cancelText="取消"

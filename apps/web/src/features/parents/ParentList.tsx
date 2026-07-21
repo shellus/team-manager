@@ -7,6 +7,7 @@ import type {
 } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import {
+  CloseOutlined,
   DeleteOutlined,
   MoreOutlined,
   PlusOutlined,
@@ -15,11 +16,12 @@ import {
   StopOutlined,
   SwapOutlined
 } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Popconfirm, Progress, Space, Tag, Typography } from 'antd';
+import { Button, Card, Dropdown, List, Popconfirm, Progress, Space, Tag, Tooltip, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
 import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import { LimitTypeTag } from '../../components/StatusTag.js';
+import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 import {
   parentChatGptSeatUsageCount,
@@ -31,7 +33,9 @@ import { canManageParentWorkspace } from './parentWorkspaceCapability.js';
 
 function taskSummary(task: ParentRegistrationTaskView): string {
   if (task.stage === 'registration_failed') return task.error || '注册未完成，可按原邮箱重试';
-  if (task.stage === 'waiting_manual') return '需要在 CloakBrowser 完成人机验证后继续';
+  if (task.stage === 'waiting_manual') {
+    return task.registration.message || '可以人工处理验证；系统会持续监听并在通过后自动继续';
+  }
   if (task.stage === 'import_failed') return task.error || '账号已创建，但录入母号失败';
   return task.registration.message || '正在自动注册账号';
 }
@@ -72,6 +76,10 @@ function operationIsActive(operation: AccountManagerOperationView): boolean {
   return ['queued', 'running', 'waiting_manual'].includes(operation.status);
 }
 
+function operationCanDismiss(operation: AccountManagerOperationView): boolean {
+  return operation.status === 'failed' || operation.status === 'interrupted';
+}
+
 function operationControlRunning(operation: AccountManagerOperationView): boolean {
   return operation.control?.status === 'queued' || operation.control?.status === 'executing';
 }
@@ -103,6 +111,7 @@ export function ParentList({
   onRetryRegistration,
   onRotateOperationIp,
   onTerminateOperation,
+  onDismissOperation,
   onSelect,
   onRefreshAccount,
   onOpenDelete
@@ -124,6 +133,7 @@ export function ParentList({
   onRetryRegistration: (task: ParentRegistrationTaskView) => void;
   onRotateOperationIp: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onTerminateOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
+  onDismissOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onSelect: (account: AccountSummaryView) => void;
   onRefreshAccount: (account: AccountSummaryView) => void;
   onOpenDelete: (account: AccountSummaryView) => void;
@@ -215,16 +225,14 @@ export function ParentList({
                     format={(percent) => `${percent ?? 0}%`}
                   />
                   <Space wrap>
-                    {(task.stage === 'registration_failed' || task.stage === 'waiting_manual' || task.stage === 'import_failed') && (
+                    {(task.stage === 'registration_failed' || task.stage === 'import_failed') && (
                       <Button
                         size="small"
                         icon={<ReloadOutlined />}
                         loading={isBusy(`retry-parent-registration-${task.registration.id}`)}
                         onClick={() => onRetryRegistration(task)}
                       >
-                        {task.stage === 'waiting_manual'
-                          ? '人工验证后继续'
-                          : task.stage === 'import_failed'
+                        {task.stage === 'import_failed'
                             ? '重试导入'
                             : '重试注册'}
                       </Button>
@@ -236,6 +244,7 @@ export function ParentList({
           }
           const account = record.account;
           const managerStatus = accountManagerStatuses[account.id];
+          const hasTeamSubscription = managerStatus?.hasTeamSubscription || account.hasTeamSubscription;
           const canManageWorkspace = canManageParentWorkspace(account, managerStatus);
           const workspaceOperation = visibleWorkspaceOperation(managerStatus);
           const memberCount = parentMemberAndInviteCount(account);
@@ -305,35 +314,50 @@ export function ParentList({
                     : <span>尚无可管理 Workspace</span>}
                   {account.nextRenewalOn && <span>续费 {account.nextRenewalOn}</span>}
                 </div>
-                <div className="record-meta muted">
+                <div className="record-meta record-status-meta" aria-label="母号状态">
                   <span className="record-meta-tag"><LimitTypeTag limitType={account.limitType} /></span>
-                  <span>同步 {formatRelativeTime(account.lastRefreshAt)}</span>
-                </div>
-                <div className="record-capability-tags" aria-label="母号开通状态">
                   <Tag color={account.managedAccountEmail ? 'blue' : 'default'}>
                     {account.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
-                  <Tag color={managerStatus?.hasCodexSpace ? 'green' : 'default'}>
-                    {managerStatus?.hasCodexSpace ? '0.52' : '未开 0.52'}
-                  </Tag>
-                  <Tag color={managerStatus?.hasTeamSubscription || account.hasTeamSubscription ? 'green' : 'default'}>
-                    {managerStatus?.hasTeamSubscription || account.hasTeamSubscription ? '双席位' : '未开双席位'}
-                  </Tag>
+                  <WorkspaceOpeningStatusTags
+                    hasCodexSpace={managerStatus?.hasCodexSpace === true}
+                    hasTeamSubscription={hasTeamSubscription}
+                  />
+                  <span className="record-status-time">同步 {formatRelativeTime(account.lastRefreshAt)}</span>
                 </div>
                 {workspaceOperation && (
                   <div className="account-operation-progress" aria-live="polite">
                     <div className="account-operation-progress-head">
                       <Typography.Text strong>{workspaceOperation.label} 开通</Typography.Text>
-                      <Tag color={
-                        workspaceOperation.operation.status === 'waiting_manual'
-                          ? 'warning'
-                          : workspaceOperation.operation.status === 'failed'
-                            || workspaceOperation.operation.status === 'interrupted'
-                            ? 'error'
-                            : 'processing'
-                      }>
-                        {operationStatusLabel(workspaceOperation.operation)}
-                      </Tag>
+                      <Space size={2}>
+                        <Tag color={
+                          workspaceOperation.operation.status === 'waiting_manual'
+                            ? 'warning'
+                            : workspaceOperation.operation.status === 'failed'
+                              || workspaceOperation.operation.status === 'interrupted'
+                              ? 'error'
+                              : 'processing'
+                        }>
+                          {operationStatusLabel(workspaceOperation.operation)}
+                        </Tag>
+                        {operationCanDismiss(workspaceOperation.operation) && (
+                          <Tooltip title="清除错误">
+                            <Button
+                              className="operation-dismiss-button"
+                              type="text"
+                              size="small"
+                              shape="circle"
+                              aria-label="清除开通错误"
+                              icon={<CloseOutlined />}
+                              loading={isBusy(`dismiss-operation-${workspaceOperation.operation.id}`)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDismissOperation(account, workspaceOperation.operation);
+                              }}
+                            />
+                          </Tooltip>
+                        )}
+                      </Space>
                     </div>
                     <Typography.Text
                       className="account-operation-progress-message"

@@ -72,6 +72,7 @@ export interface Account {
   proxy?: string;             // 每母号独立代理
   // 运行时状态（聚合 accounts/check）
   planType?: string;
+  hasTeamSubscription?: boolean; // 当前 Workspace 是否存在有效的双席位 Team 订阅缓存
   role?: MemberRole;
   workspaceName?: string;
   nextRenewalOn?: string;     // 下次续费日期，yyyy-mm-dd
@@ -91,6 +92,8 @@ export interface Account {
   codexDeviceCodeAuthCachedAt?: number;
   codexRemoteControlEnabled?: boolean; // 允许成员远程发现并控制设备
   codexRemoteControlCachedAt?: number;
+  automaticReloadEnabled?: boolean; // Credits 余额不足时自动补款
+  automaticReloadCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   seatSlots?: AccountSeatSlot[]; // 母号下的固定 ChatGPT 席位位置，本地运营主模型
@@ -135,6 +138,8 @@ export interface AccountView {
   codexDeviceCodeAuthCachedAt?: number;
   codexRemoteControlEnabled?: boolean;
   codexRemoteControlCachedAt?: number;
+  automaticReloadEnabled?: boolean;
+  automaticReloadCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
   seatSlots?: AccountSeatSlot[];

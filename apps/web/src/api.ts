@@ -101,8 +101,8 @@ export const apiClient = {
     call<AccountManagerRuntimeStatus>('GET', '/accounts/registration/status'),
   listParentRegistrationTasks: () =>
     call<ParentRegistrationTaskView[]>('GET', '/accounts/registration/tasks'),
-  registerParentAccount: () =>
-    call<AccountManagerOperationView>('POST', '/accounts/registration/start'),
+  registerParentAccount: (payload: { groupName: string }) =>
+    call<AccountManagerOperationView>('POST', '/accounts/registration/start', payload),
   retryParentRegistration: (operationId: string) =>
     call<AccountManagerOperationView>('POST', `/accounts/registration/tasks/${operationId}/retry`),
   getParentAccountManagerStatus: (id: string) =>
@@ -127,6 +127,8 @@ export const apiClient = {
       'POST',
       `/accounts/${id}/account-manager/operations/${operationId}/terminate`
     ),
+  dismissParentOperation: (id: string, operationId: string) =>
+    call<boolean>('DELETE', `/accounts/${id}/account-manager/operations/${operationId}`),
   refreshAccount: (id: string) => call<AccountView>('POST', `/accounts/${id}/refresh`),
   renameTeam: (id: string, name: string) => call<AccountView>('PATCH', `/accounts/${id}/name`, { name }),
   updateAccountLocalProfile: (
@@ -188,6 +190,8 @@ export const apiClient = {
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { codexDeviceCodeAuthEnabled }),
   setCodexRemoteControlEnabled: (id: string, codexRemoteControlEnabled: boolean) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { codexRemoteControlEnabled }),
+  setAutomaticReloadEnabled: (id: string, automaticReloadEnabled: boolean) =>
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { automaticReloadEnabled }),
   getNotificationSettings: () => call<NotificationSettings>('GET', '/settings/notifications'),
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),

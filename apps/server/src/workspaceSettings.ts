@@ -14,6 +14,8 @@ export interface WorkspaceSettingsCache {
   codexDeviceCodeAuthCachedAt?: number;
   codexRemoteControlEnabled?: boolean;
   codexRemoteControlCachedAt?: number;
+  automaticReloadEnabled?: boolean;
+  automaticReloadCachedAt?: number;
   lastRefreshAt?: number;
   lastError?: string;
 }
@@ -24,6 +26,7 @@ export interface WorkspaceSettingsFallback {
   personalAccessTokensEnabled?: boolean;
   codexDeviceCodeAuthEnabled?: boolean;
   codexRemoteControlEnabled?: boolean;
+  automaticReloadEnabled?: boolean;
 }
 
 export function workspaceSettingsFromCache(account: WorkspaceSettingsCache): Record<string, unknown> {
@@ -46,6 +49,9 @@ export function workspaceSettingsFromCache(account: WorkspaceSettingsCache): Rec
   }
   if (typeof account.codexRemoteControlEnabled === 'boolean') {
     settings.codex_remote_control = account.codexRemoteControlEnabled;
+  }
+  if (typeof account.automaticReloadEnabled === 'boolean') {
+    settings.automatic_reload_enabled = account.automaticReloadEnabled;
   }
   return settings;
 }
@@ -112,6 +118,13 @@ export function workspaceSettingsPatchFromResponse(
   if (typeof codexRemoteControlEnabled === 'boolean') {
     patch.codexRemoteControlEnabled = codexRemoteControlEnabled;
     patch.codexRemoteControlCachedAt = now;
+  }
+
+  const automaticReloadEnabled =
+    settings.automatic_reload_enabled ?? fallback.automaticReloadEnabled;
+  if (typeof automaticReloadEnabled === 'boolean') {
+    patch.automaticReloadEnabled = automaticReloadEnabled;
+    patch.automaticReloadCachedAt = now;
   }
 
   return patch;

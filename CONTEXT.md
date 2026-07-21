@@ -13,7 +13,7 @@ _Avoid_: Team workspace、Team 成员、客户席位
 _Avoid_: 双席位 Team、Team 套餐状态
 
 **同步 Workspace**:
-母号主动重新确认当前可管理 Workspace 的校准动作。个人态母号可用它发现外部开通的 0.52 或 Team Workspace，已有 Workspace 的母号可用它刷新远端状态。
+母号主动重新确认当前可管理 Workspace 的校准动作。个人态母号可用它发现外部开通的 0.52 或 Team Workspace；未发现 Workspace 表示尚未开通空间，是正常空状态。
 _Avoid_: 同步双席位、开通 Team、同步套餐
 
 **固定 ChatGPT 席位容量**:
@@ -32,6 +32,10 @@ _Avoid_: 母号注册第二阶段、Team 套餐
 母号购买两个固定席位的 Team 月付套餐，并新建 Team workspace 或升级指定既有 Workspace 的独立支付动作。
 _Avoid_: 0.52 开通、增加两个成员
 
+**双席位订阅状态**:
+Workspace 当前是否存在有效的 Team 月付订阅。该状态独立于 Workspace 种类和当前成员数量，以当前有效的月付关系为准。
+_Avoid_: Workspace 类型、两个默认席位成员、0.52 状态
+
 **双席位开通目标**:
 一次双席位开通作用的 GPT workspace。未选择目标表示创建新 Team workspace；选择目标表示升级该 GAM 母号下的指定既有空间。
 _Avoid_: 母号记录、任意 Team workspace
@@ -39,6 +43,10 @@ _Avoid_: 母号记录、任意 Team workspace
 **自动支付**:
 双席位开通在 Stripe 页面准备完成后是否自动点击 Pay 的显式选项。默认关闭；关闭时进入人工处理并继续监听付款结果。
 _Avoid_: 自动填卡、自动创建订单
+
+**Automatic reload**:
+Workspace 的 Credits 余额低于远端阈值时，自动使用默认支付方式补充 Credits 的开关。它不表示 Team 套餐续费，也不等同于开通流程的自动支付。
+_Avoid_: Team 自动续费、自动支付
 
 **Team 续费**:
 Team workspace 套餐在 `nextRenewalOn` 对应日期发生的续费事件。

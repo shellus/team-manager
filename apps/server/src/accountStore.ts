@@ -228,6 +228,9 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     fp: input.fp,
     ...(readTrimmedString(input.proxy) ? { proxy: readTrimmedString(input.proxy) } : {}),
     ...(readTrimmedString(input.planType) ? { planType: readTrimmedString(input.planType) } : {}),
+    ...(typeof input.hasTeamSubscription === 'boolean'
+      ? { hasTeamSubscription: input.hasTeamSubscription }
+      : {}),
     role: input.role,
     ...(readTrimmedString(input.workspaceName) ? { workspaceName: readTrimmedString(input.workspaceName) } : {}),
     ...(normalizeDateOnly(input.nextRenewalOn) ? { nextRenewalOn: normalizeDateOnly(input.nextRenewalOn) } : {}),
@@ -247,6 +250,8 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     codexDeviceCodeAuthCachedAt: input.codexDeviceCodeAuthCachedAt,
     codexRemoteControlEnabled: input.codexRemoteControlEnabled,
     codexRemoteControlCachedAt: input.codexRemoteControlCachedAt,
+    automaticReloadEnabled: input.automaticReloadEnabled,
+    automaticReloadCachedAt: input.automaticReloadCachedAt,
     pendingInvitesCache,
     pendingInvitesCachedAt: input.pendingInvitesCachedAt,
     seatSlots,

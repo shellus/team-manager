@@ -6,11 +6,17 @@ Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT 
 
 ## 自动注册
 
-1. `POST /api/accounts/registration/start` 创建用途标记为 `team-manager:parent` 的注册操作。
+1. `POST /api/accounts/registration/start` 创建用途标记为 `team-manager:parent` 的注册操作，并把当前母号分组作为 Account Manager 的调用方关联值持久化。
 2. `GET /api/accounts/registration/tasks` 返回注册、人工验证、失败或导入状态。
-3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session，按规范化邮箱幂等保存 GAM 母号。
+3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session，按规范化邮箱幂等保存 GAM 母号，并写入发起任务时选中的母号分组。
 4. 新母号在尚无 Team workspace 时保存个人账号上下文，并立即从注册任务切换为正常母号列表项。
 5. 完成导入后清理注册操作；0.52 和双席位按钮在母号详情中独立提供。
+
+Account Manager 已完成注册、Session 校验和账号同步，因此导入成功的个人母号直接保存为 `active`。没有 Workspace 只影响成员、邀请、设置和账单能力，不得把账号标记为“待同步”；后续 0.52、双席位、本地资料和 Workspace 同步入口仍可使用。
+
+注册中出现 Cloudflare 挑战页时，Account Manager 先保持 `running` 并等待中间页自动通过。最后一次 profile 中挑战持续存在时才进入 `waiting_manual`；Team Manager 把该状态视为活跃任务并继续轮询。挑战通过后自动回到 `running`，并从当前邮箱、密码、验证码或资料页继续。输入框因导航或 DOM 替换而消失时，Account Manager 重新识别当前阶段；资料页按姓名字段优先识别，年龄数字框不参与验证码判断。验证码或资料提交后仍停在原 DOM 时停止重复提交，进入活跃监听，DOM 推进后再回到 `running`。最终仍无法识别时保留 profile 并短暂等待后自动复用。Account Manager 重启后也会复用保留的 profile 恢复监听。
+
+母号和子号页面分别保存最后一次选中的分组。进入页面时优先恢复该选择；若该分组已不存在，选中第一个实际分组；只有没有任何实际分组时才回退到“所有”。明确带 `group` 的 URL 仍优先于本地偏好。
 
 ## 开通 0.52
 
@@ -44,9 +50,9 @@ Account Manager 执行以下顺序：
 
 - `GAM`：是否保存 `managedAccountEmail`。
 - `0.52`：Account Manager 是否存在可见的 `self_serve_business_usage_based` workspace。
-- `双席位`：Account Manager 是否存在可见的 `team` workspace，或当前母号本身已经使用 Team workspace。
+- `双席位`：Account Manager 是否存在可见的 `team` workspace，或当前母号同步到有效的 Team 月付订阅。
 
-这些标记均为关联状态派生值，不写入 Team Manager 的母号持久化对象。
+`0.52` 继续由 Account Manager 关联状态派生；双席位状态会缓存到母号记录，并兼容 `planType="team"`。当双席位为已开通且 0.52 为未开通时，界面省略“未开 0.52”负面标签。
 
 ## 运行中任务控制
 
@@ -55,6 +61,7 @@ Account Manager 执行以下顺序：
 - “更换IP”保持 profile 的 Mihomo 本地 SID 不变，只替换对应的上游住宅 SID，并通过 Mihomo 控制端关闭该本地 SID 的现有连接。排队任务在开始前执行；自动阶段轮换后重试当前步骤；人工接管阶段保留当前 profile、VNC 和 Checkout 页面并恢复监听，不停止或重新启动 profile。
 - Pay 已触发或 Workspace 正在自动收尾时拒绝更换IP，避免重复扣款或中断已确认的 onboarding。
 - “终止任务”把任务置为 `interrupted`，取消尚未开始的调度，停止活跃 profile，并阻止后续异步回调把终止结果覆盖成普通失败或成功。
+- `failed` 或 `interrupted` 操作保留错误摘要，并提供纯图标清除入口。清除只删除该终态操作记录，不修改母号、Workspace、账单或 Profile。
 - 同一任务同时只执行一个出口轮换指令。指令的排队、执行、成功和失败状态随操作进度返回。
 
 ## 安全与幂等

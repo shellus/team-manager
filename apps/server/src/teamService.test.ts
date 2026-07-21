@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type {
+  AccountBillingSnapshot,
   AccountLocalProfileView,
   AccountSummaryView,
   AccountView,
@@ -234,6 +235,40 @@ describe('Parent account local-profile API', () => {
 
     assert.equal(getResponse.status, 200);
     assert.deepEqual(getJson.data, refreshJson.data);
+  });
+
+  it('keeps the billing snapshot when no upcoming invoice exists', async () => {
+    const transport: Transport = {
+      async fetch(req) {
+        if (req.path === '/backend-api/invoices/upcoming?account_id=workspace-old') {
+          return { status: 500, body: '{"detail":"Error fetching upcoming invoice"}' };
+        }
+        if (req.path === '/backend-api/invoices?limit=10&account_id=workspace-old') {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              data: [{ billing_reason: 'manual', status: 'paid', amount_paid: 52, currency: 'eur' }],
+              has_more: false
+            })
+          };
+        }
+        return { status: 200, body: '{}' };
+      }
+    };
+    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+
+    const response = await app.request(`/api/accounts/${account.id}/billing/refresh`, {
+      method: 'POST',
+      headers: authHeaders
+    });
+    const json = (await response.json()) as ApiResult<AccountBillingSnapshot>;
+
+    assert.equal(response.status, 200);
+    assert.equal(json.data!.raw.upcomingInvoice, null);
+    assert.deepEqual(json.data!.raw.invoices, {
+      data: [{ billing_reason: 'manual', status: 'paid', amount_paid: 52, currency: 'eur' }],
+      has_more: false
+    });
   });
 
   it('updates only the local remark, group, limit type and renewal date without calling ChatGPT', async () => {
@@ -1074,6 +1109,154 @@ describe('TeamService account listing', () => {
     assert.equal(requests.length, 3);
   });
 
+  it('recognizes an upgraded usage-based Workspace from its active Team subscription', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'workspace-id': {
+                  account: {
+                    account_id: 'workspace-id',
+                    account_user_role: 'account-owner',
+                    name: 'Upgraded Workspace',
+                    plan_type: 'self_serve_business_usage_based',
+                    structure: 'workspace'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['workspace-id']
+            })
+          };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
+          return { status: 200, body: JSON.stringify({ items: [] }) };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/invites')) {
+          return { status: 200, body: JSON.stringify({ items: [] }) };
+        }
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/invoices/upcoming')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              subscription: 'sub_current',
+              lines: { data: [{ type: 'subscription', quantity: 2 }] }
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      planType: 'self_serve_business_usage_based'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.refreshAccount(account.id);
+
+    assert.equal(view.planType, 'self_serve_business_usage_based');
+    assert.equal(view.hasTeamSubscription, true);
+    assert.equal(store.get(account.id)?.hasTeamSubscription, true);
+    assert.equal(requests.length, 4);
+  });
+
+  it('keeps a personal parent healthy when no manageable Workspace exists', async () => {
+    const requests: HttpRequest[] = [];
+    const personalAccessToken = chatGptWebAccessToken('personal-account-id', 'free');
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              accounts: {
+                'personal-account-id': {
+                  account: {
+                    account_id: 'personal-account-id',
+                    account_user_role: 'account-owner',
+                    name: 'Personal',
+                    plan_type: 'free',
+                    structure: 'personal'
+                  },
+                  can_access_with_session: true
+                }
+              },
+              account_ordering: ['personal-account-id']
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'personal-account-id',
+      email: 'owner@example.com',
+      accessToken: personalAccessToken,
+      planType: 'free',
+      status: 'invalid',
+      lastError: '旧同步错误'
+    });
+    const service = new TeamService(store, transport);
+
+    const view = await service.refreshAccount(account.id);
+
+    assert.equal(view.status, 'active');
+    assert.equal(view.planType, 'free');
+    assert.equal(view.canManageWorkspace, false);
+    assert.equal(view.hasTeamSubscription, false);
+    assert.equal(view.lastError, undefined);
+    assert.equal(store.get(account.id)?.lastError, undefined);
+    assert.equal(requests.length, 1);
+  });
+
+  it('saves a newly registered managed parent in the requested local group', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const service = new TeamService(store, recordingTransport());
+    const session = {
+      user: { email: 'new-parent@example.com' },
+      account: { id: 'personal-account-id' },
+      accessToken: chatGptWebAccessToken('personal-account-id', 'free')
+    };
+
+    const created = await service.saveManagedParentIdentityFromSessionInput(
+      'new-parent@example.com',
+      session,
+      ' 客户 A '
+    );
+    const updated = await service.saveManagedParentIdentityFromSessionInput(
+      'new-parent@example.com',
+      session,
+      '客户 B'
+    );
+
+    assert.equal(created.groupName, '客户 A');
+    assert.equal(updated.groupName, '客户 A');
+    assert.equal(created.status, 'active');
+    assert.equal(updated.status, 'active');
+    assert.equal(typeof created.lastRefreshAt, 'number');
+    assert.equal(typeof updated.lastRefreshAt, 'number');
+    assert.equal(store.get(created.id)?.groupName, '客户 A');
+  });
+
   it('discovers an externally opened usage-based Workspace while refreshing a personal parent', async () => {
     const requests: HttpRequest[] = [];
     const personalAccessToken = chatGptWebAccessToken('personal-account-id', 'free');
@@ -1879,7 +2062,9 @@ describe('TeamService settings cache', () => {
       codexDeviceCodeAuthEnabled: false,
       codexDeviceCodeAuthCachedAt: 123,
       codexRemoteControlEnabled: true,
-      codexRemoteControlCachedAt: 123
+      codexRemoteControlCachedAt: 123,
+      automaticReloadEnabled: true,
+      automaticReloadCachedAt: 123
     });
 
     const service = new TeamService(store, transport);
@@ -1892,7 +2077,8 @@ describe('TeamService settings cache', () => {
       personal_access_tokens: true,
       wham_local_access: true,
       codex_device_code_auth: false,
-      codex_remote_control: true
+      codex_remote_control: true,
+      automatic_reload_enabled: true
     });
     assert.equal(requests.length, 0);
   });
@@ -1923,6 +2109,12 @@ describe('TeamService settings cache', () => {
               },
               account_ordering: ['workspace-id']
             })
+          };
+        }
+        if (req.method === 'GET' && req.path === '/backend-api/subscriptions/auto_top_up/settings') {
+          return {
+            status: 200,
+            body: JSON.stringify({ is_enabled: true })
           };
         }
         return {
@@ -1960,11 +2152,13 @@ describe('TeamService settings cache', () => {
     const view = await service.refreshSettings(account.id);
     const stored = store.get(account.id);
 
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 3);
     assert.equal(requests[0].method, 'GET');
     assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/settings');
     assert.equal(requests[1].method, 'GET');
-    assert.equal(requests[1].path.startsWith('/backend-api/accounts/check/'), true);
+    assert.equal(requests[1].path, '/backend-api/subscriptions/auto_top_up/settings');
+    assert.equal(requests[2].method, 'GET');
+    assert.equal(requests[2].path.startsWith('/backend-api/accounts/check/'), true);
     assert.equal(view.defaultSeat, 'default');
     assert.equal(view.nextRenewalOn, '2026-07-17');
     assert.equal(view.workspaceReferralsEnabled, false);
@@ -1973,6 +2167,7 @@ describe('TeamService settings cache', () => {
     assert.equal(view.codexLocalAccessEnabled, true);
     assert.equal(view.codexDeviceCodeAuthEnabled, true);
     assert.equal(view.codexRemoteControlEnabled, false);
+    assert.equal(view.automaticReloadEnabled, true);
     assert.equal(stored?.defaultSeat, 'default');
     assert.equal(stored?.nextRenewalOn, '2026-07-17');
     assert.equal(stored?.workspaceReferralsEnabled, false);
@@ -1981,12 +2176,14 @@ describe('TeamService settings cache', () => {
     assert.equal(stored?.codexLocalAccessEnabled, true);
     assert.equal(stored?.codexDeviceCodeAuthEnabled, true);
     assert.equal(stored?.codexRemoteControlEnabled, false);
+    assert.equal(stored?.automaticReloadEnabled, true);
     assert.equal(typeof stored?.defaultSeatCachedAt, 'number');
     assert.equal(typeof stored?.workspaceReferralsEnabledCachedAt, 'number');
     assert.equal(typeof stored?.personalAccessTokensCachedAt, 'number');
     assert.equal(typeof stored?.codexLocalAccessCachedAt, 'number');
     assert.equal(typeof stored?.codexDeviceCodeAuthCachedAt, 'number');
     assert.equal(typeof stored?.codexRemoteControlCachedAt, 'number');
+    assert.equal(typeof stored?.automaticReloadCachedAt, 'number');
   });
 });
 
@@ -2665,6 +2862,55 @@ describe('TeamService Codex local access setting changes', () => {
     });
     assert.equal(view.codexRemoteControlEnabled, false);
     assert.equal(store.get(account.id)?.codexRemoteControlEnabled, false);
+  });
+});
+
+describe('TeamService Automatic reload setting changes', () => {
+  it('posts the no-body enable and disable endpoints and caches the returned state', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return {
+          status: 200,
+          body: JSON.stringify({ is_enabled: req.path.endsWith('/enable') })
+        };
+      }
+    };
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active'
+    });
+    const service = new TeamService(store, transport);
+
+    const enabled = await service.setAutomaticReloadEnabled(account.id, true);
+    const disabled = await service.setAutomaticReloadEnabled(account.id, false);
+
+    assert.deepEqual(requests.map((request) => ({
+      method: request.method,
+      path: request.path,
+      body: request.body
+    })), [
+      {
+        method: 'POST',
+        path: '/backend-api/subscriptions/auto_top_up/enable',
+        body: undefined
+      },
+      {
+        method: 'POST',
+        path: '/backend-api/subscriptions/auto_top_up/disable',
+        body: undefined
+      }
+    ]);
+    assert.equal(enabled.automaticReloadEnabled, true);
+    assert.equal(disabled.automaticReloadEnabled, false);
+    assert.equal(store.get(account.id)?.automaticReloadEnabled, false);
+    assert.equal(typeof store.get(account.id)?.automaticReloadCachedAt, 'number');
   });
 });
 

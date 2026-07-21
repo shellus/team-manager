@@ -42,6 +42,7 @@ import {
 } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 import { workspaceSettingsFromCache, workspaceSettingsPatchFromResponse } from './workspaceSettings.js';
+import { upcomingInvoiceHasTeamSubscription } from './teamSubscription.js';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
@@ -144,6 +145,7 @@ export class TeamService {
       status: 'unknown',
       lastError: undefined,
       ...(workspaceChanged ? {
+        hasTeamSubscription: undefined,
         membersCache: undefined,
         membersCachedAt: undefined,
         pendingInvitesCache: undefined,
@@ -161,7 +163,9 @@ export class TeamService {
         codexDeviceCodeAuthEnabled: undefined,
         codexDeviceCodeAuthCachedAt: undefined,
         codexRemoteControlEnabled: undefined,
-        codexRemoteControlCachedAt: undefined
+        codexRemoteControlCachedAt: undefined,
+        automaticReloadEnabled: undefined,
+        automaticReloadCachedAt: undefined
       } : {})
     });
     if (!updated) throw new ServiceError(404, `母号不存在: ${account.id}`);
@@ -193,7 +197,10 @@ export class TeamService {
   }
 
   private viewFromAccount(account: Account): AccountView {
-    const hasTeamSubscription = account.planType === 'team';
+    const cachedUpcomingInvoice = this.billingStore?.get(account.id)?.raw.upcomingInvoice;
+    const hasTeamSubscription = account.planType === 'team'
+      || account.hasTeamSubscription === true
+      || upcomingInvoiceHasTeamSubscription(cachedUpcomingInvoice);
     const canManageWorkspace = account.planType !== 'free';
     return {
       id: account.id,
@@ -230,6 +237,8 @@ export class TeamService {
       codexDeviceCodeAuthCachedAt: account.codexDeviceCodeAuthCachedAt,
       codexRemoteControlEnabled: account.codexRemoteControlEnabled,
       codexRemoteControlCachedAt: account.codexRemoteControlCachedAt,
+      automaticReloadEnabled: account.automaticReloadEnabled,
+      automaticReloadCachedAt: account.automaticReloadCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
       seatSlots: account.seatSlots,
@@ -289,6 +298,11 @@ export class TeamService {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.detailViewFromAccount(account);
+  }
+
+  hasTeamSubscription(id: string): boolean {
+    const account = this.store.get(id);
+    return account ? this.viewFromAccount(account).hasTeamSubscription : false;
   }
 
   async getAccountLocalProfile(id: string): Promise<AccountLocalProfileView> {
@@ -682,11 +696,17 @@ export class TeamService {
     try {
       const { account: activeAccount, api, discoveredWorkspace } = await this.clientFor(id);
       const check = discoveredWorkspace ?? await api.checkAccount();
-      const members = await api.listMembers();
-      const pendingInvites = await api.listPendingInvites();
+      const [members, pendingInvites, detectedTeamSubscription] = await Promise.all([
+        api.listMembers(),
+        api.listPendingInvites(),
+        check.planType === 'team'
+          ? Promise.resolve(true)
+          : api.hasTeamSubscription().catch(() => undefined)
+      ]);
       const now = Date.now();
       const updated = await this.store.update(id, {
         planType: check.planType ?? activeAccount.planType,
+        hasTeamSubscription: detectedTeamSubscription ?? activeAccount.hasTeamSubscription,
         role: check.role ?? activeAccount.role,
         workspaceName: check.workspaceName ?? activeAccount.workspaceName,
         nextRenewalOn: check.nextRenewalOn ?? activeAccount.nextRenewalOn,
@@ -701,6 +721,14 @@ export class TeamService {
       });
       return this.viewFromAccount(updated!);
     } catch (e) {
+      if (e instanceof NoManageableWorkspaceError) {
+        const updated = await this.store.update(id, {
+          status: 'active',
+          lastRefreshAt: Date.now(),
+          lastError: undefined
+        });
+        return this.viewFromAccount(updated!);
+      }
       const updated = await this.store.update(id, {
         status: 'invalid',
         lastRefreshAt: Date.now(),
@@ -719,6 +747,7 @@ export class TeamService {
     const createInput = this.parseParentAccountCreateInput(raw);
     const localFields = this.normalizeParentLocalProfileFields(createInput);
     const input = await this.resolveParentWorkspaceSession(createInput.session, undefined, localFields.proxy);
+    const verifiedAt = Date.now();
     return this.addAccount({
       remark: localFields.remark,
       groupName: localFields.groupName ?? '默认分组',
@@ -729,10 +758,13 @@ export class TeamService {
       sessionToken: input.session.sessionToken,
       proxy: localFields.proxy,
       planType: input.workspace.planType,
+      hasTeamSubscription: input.workspace.planType === 'team',
       role: input.workspace.role,
       workspaceName: input.workspace.workspaceName,
       nextRenewalOn: input.workspace.nextRenewalOn ?? localFields.nextRenewalOn,
-      status: 'unknown'
+      status: 'active',
+      lastRefreshAt: verifiedAt,
+      lastError: undefined
     });
   }
 
@@ -756,6 +788,8 @@ export class TeamService {
 
     const existing = this.store.getByWorkspaceAccountId(input.session.account.id)
       ?? this.store.getByManagedAccountEmail(normalizedManagedEmail);
+    const workspaceChanged = Boolean(existing && existing.accountId !== input.session.account.id);
+    const verifiedAt = Date.now();
     const patch: Omit<Account, 'id'> = {
       ...(existing ?? {}),
       managedAccountEmail: normalizedManagedEmail,
@@ -768,10 +802,14 @@ export class TeamService {
       sessionToken: input.session.sessionToken,
       proxy: existing?.proxy ?? localFields.proxy,
       planType: input.workspace.planType,
+      hasTeamSubscription: input.workspace.planType === 'team'
+        || (!workspaceChanged && existing?.hasTeamSubscription === true),
       role: input.workspace.role,
       workspaceName: input.workspace.workspaceName,
       nextRenewalOn: existing?.nextRenewalOn ?? input.workspace.nextRenewalOn ?? localFields.nextRenewalOn,
-      status: 'unknown'
+      status: 'active',
+      lastRefreshAt: verifiedAt,
+      lastError: undefined
     };
     if (existing) {
       const updated = await this.store.update(existing.id, patch);
@@ -782,7 +820,8 @@ export class TeamService {
 
   async saveManagedParentIdentityFromSessionInput(
     managedAccountEmail: string,
-    raw: unknown
+    raw: unknown,
+    groupName?: string
   ): Promise<AccountView> {
     const normalizedManagedEmail = managedAccountEmail.trim().toLowerCase();
     if (!normalizedManagedEmail) throw new ServiceError(400, 'Account Manager 账号引用不能为空');
@@ -792,11 +831,12 @@ export class TeamService {
     }
     const existing = this.store.getByManagedAccountEmail(normalizedManagedEmail);
     if (existing && existing.planType !== 'free') return this.viewFromAccount(existing);
+    const verifiedAt = Date.now();
     const patch: Omit<Account, 'id'> = {
       ...(existing ?? {}),
       managedAccountEmail: normalizedManagedEmail,
       remark: existing?.remark,
-      groupName: existing?.groupName ?? '默认分组',
+      groupName: existing?.groupName ?? (groupName?.trim() || '默认分组'),
       limitType: existing?.limitType ?? 'unknown',
       accountId: input.session.account.id,
       email: input.session.user.email,
@@ -804,7 +844,10 @@ export class TeamService {
       sessionToken: input.session.sessionToken,
       proxy: existing?.proxy,
       planType: 'free',
-      status: 'unknown'
+      hasTeamSubscription: false,
+      status: 'active',
+      lastRefreshAt: verifiedAt,
+      lastError: undefined
     };
     if (existing) {
       const updated = await this.store.update(existing.id, patch);
@@ -885,15 +928,20 @@ export class TeamService {
     if (input.session !== undefined) {
       const proxy = Object.prototype.hasOwnProperty.call(patch, 'proxy') ? patch.proxy : existing.proxy;
       const { session, workspace } = await this.resolveParentWorkspaceSession(input.session, existing.accountId, proxy);
+      const workspaceChanged = session.account.id !== existing.accountId;
       patch.email = session.user.email;
       patch.accountId = session.account.id;
       patch.accessToken = session.accessToken;
       patch.sessionToken = session.sessionToken;
       patch.planType = workspace.planType;
+      patch.hasTeamSubscription = workspace.planType === 'team'
+        || (!workspaceChanged && existing.hasTeamSubscription === true);
       patch.role = workspace.role;
       patch.workspaceName = workspace.workspaceName;
       patch.nextRenewalOn = workspace.nextRenewalOn;
-      patch.status = 'unknown';
+      patch.status = 'active';
+      patch.lastRefreshAt = Date.now();
+      patch.lastError = undefined;
     }
 
     const updated = await this.store.update(id, patch);
@@ -1145,7 +1193,7 @@ export class TeamService {
     if (current) return current;
     if (candidates.length === 1) return candidates[0]!;
     if (candidates.length === 0) {
-      throw new ServiceError(400, '当前 ChatGPT session 未发现可管理的 Workspace，请确认录入的是母号 owner/admin session');
+      throw new NoManageableWorkspaceError();
     }
     throw new ServiceError(
       409,
@@ -1324,7 +1372,10 @@ export class TeamService {
 
   async refreshSettings(id: string): Promise<AccountView> {
     const { account, api } = await this.clientFor(id);
-    const settings = await api.getSettings();
+    const [settings, automaticReload] = await Promise.all([
+      api.getSettings(),
+      api.getAutomaticReloadSettings().catch(() => undefined)
+    ]);
     const now = Date.now();
     let accountPatch: Partial<Account> = {};
     try {
@@ -1339,7 +1390,12 @@ export class TeamService {
       accountPatch = {};
     }
     const patch: Partial<Account> = {
-      ...workspaceSettingsPatchFromResponse(settings, now),
+      ...workspaceSettingsPatchFromResponse({
+        ...settings,
+        ...(typeof automaticReload?.is_enabled === 'boolean'
+          ? { automatic_reload_enabled: automaticReload.is_enabled }
+          : {})
+      }, now),
       ...accountPatch
     };
     const updated = await this.store.update(id, patch);
@@ -1361,12 +1417,17 @@ export class TeamService {
   async refreshBillingSnapshot(id: string): Promise<AccountBillingSnapshot> {
     const { account, api } = await this.clientFor(id);
     const raw = await api.getBillingSnapshotRaw();
-    return this.requireBillingStore().save({
+    const snapshot = await this.requireBillingStore().save({
       accountId: account.id,
       workspaceAccountId: account.accountId,
       refreshedAt: Date.now(),
       raw
     });
+    await this.store.update(id, {
+      hasTeamSubscription: account.planType === 'team'
+        || upcomingInvoiceHasTeamSubscription(raw.upcomingInvoice)
+    });
+    return snapshot;
   }
 
   private requireBillingStore(): AccountBillingStore {
@@ -1431,6 +1492,21 @@ export class TeamService {
     return this.viewFromAccount(updated);
   }
 
+  async setAutomaticReloadEnabled(id: string, enabled: boolean): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.setAutomaticReloadEnabled(enabled);
+    const now = Date.now();
+    const updated = await this.store.update(
+      id,
+      workspaceSettingsPatchFromResponse({
+        automatic_reload_enabled:
+          typeof settings.is_enabled === 'boolean' ? settings.is_enabled : enabled
+      }, now, { automaticReloadEnabled: enabled })
+    );
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
   async renameTeam(id: string, name: string): Promise<AccountView> {
     const trimmed = name.trim();
     if (!trimmed) throw new ServiceError(400, '缺少 Team 名称');
@@ -1463,5 +1539,12 @@ export class ServiceError extends Error {
   ) {
     super(message);
     this.name = 'ServiceError';
+  }
+}
+
+class NoManageableWorkspaceError extends ServiceError {
+  constructor() {
+    super(400, '当前 ChatGPT session 未发现可管理的 Workspace');
+    this.name = 'NoManageableWorkspaceError';
   }
 }

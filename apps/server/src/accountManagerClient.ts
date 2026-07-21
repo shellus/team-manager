@@ -18,6 +18,7 @@ export interface AccountRegistrationRequest {
   email?: string;
   password?: string;
   requestTag?: string;
+  clientReference?: string;
 }
 
 export interface ManagedAccountWorkspace {

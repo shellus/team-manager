@@ -25,7 +25,7 @@
 ## 二、Team workspace、母号子号与席位类型
 
 1. **母号、可管理 Workspace 和双席位订阅不是同一个对象。**
-   母号表示作为 Workspace 业务主体管理的 GPT 账号，可以在注册完成后尚未拥有 Workspace。0.52 usage-based Workspace 和双席位 Team Workspace 都可以执行成员、邀请、设置和账单操作；`planType="team"` 只表示已经购买双席位套餐。
+   母号表示作为 Workspace 业务主体管理的 GPT 账号，可以在注册完成后尚未拥有 Workspace。0.52 usage-based Workspace 和双席位 Team Workspace 都可以执行成员、邀请、设置和账单操作。既有 usage-based Workspace 升级 Team 后，`accounts/check` 的 `planType` 仍可能保留原值，因此双席位状态以当前有效 Team 月付订阅为准，`planType="team"` 只作为兼容信号。
 
    “同步 Workspace”是个人态母号发现外部开通 Workspace 的恢复入口，因此不能以本地是否已有 Workspace 或是否购买双席位作为可用条件。
 

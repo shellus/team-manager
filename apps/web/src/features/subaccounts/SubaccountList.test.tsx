@@ -41,10 +41,14 @@ function renderList(subaccount: SubaccountView) {
 
 describe('SubaccountList', () => {
   test('marks a managed child account with the GAM label', () => {
-    expect(renderList({
+    const html = renderList({
       ...baseSubaccount,
       managedAccountEmail: baseSubaccount.email
-    })).toContain('GAM');
+    });
+
+    expect(html).toContain('GAM');
+    expect(html).toContain('record-status-meta');
+    expect(html).not.toContain('record-capability-tags');
   });
 
   test('marks an independently imported child account as non-GAM', () => {

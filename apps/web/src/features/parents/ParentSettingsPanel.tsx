@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AccountView, SeatType } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import { EditOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Switch, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, Modal, Select, Space, Switch, Typography } from 'antd';
 import { apiClient } from '../../api.js';
 import { formatRelativeTime } from '../../components/format.js';
 import { DefaultSeatTag, LimitTypeTag } from '../../components/StatusTag.js';
@@ -48,6 +48,20 @@ export function ParentSettingsPanel({
     void run('team-name', () => apiClient.renameTeam(account.id, name));
   };
 
+  const changeAutomaticReload = (checked: boolean) => {
+    if (!checked) {
+      void run('automatic-reload', () => apiClient.setAutomaticReloadEnabled(account.id, false));
+      return;
+    }
+    Modal.confirm({
+      title: '开启 Automatic reload？',
+      content: 'Credits 余额低于远端阈值时会自动使用默认支付方式补款；当前余额已低于阈值时可能立即扣款。',
+      okText: '开启自动补款',
+      cancelText: '取消',
+      onOk: () => run('automatic-reload', () => apiClient.setAutomaticReloadEnabled(account.id, true))
+    });
+  };
+
   return (
     <Space direction="vertical" size={16} className="panel-stack">
       {error && <Alert type="error" showIcon message={error} />}
@@ -85,6 +99,26 @@ export function ParentSettingsPanel({
             <DefaultSeatTag seat={account.defaultSeat} />
           </Descriptions.Item>
         </Descriptions>
+      </Card>
+
+      <Card title="Credits">
+        <div className="setting-row">
+          <div>
+            <Typography.Text strong>Automatic reload</Typography.Text>
+            <Typography.Paragraph type="secondary">
+              Credits 余额不足时自动使用默认支付方式补款。上次刷新{' '}
+              {formatRelativeTime(account.automaticReloadCachedAt)}
+            </Typography.Paragraph>
+          </div>
+          <Switch
+            checked={Boolean(account.automaticReloadEnabled)}
+            checkedChildren="开启"
+            unCheckedChildren="关闭"
+            disabled={actionBusy.isBusy('automatic-reload')}
+            loading={actionBusy.isBusy('automatic-reload')}
+            onChange={changeAutomaticReload}
+          />
+        </div>
       </Card>
 
       <Card title="Team 名称">

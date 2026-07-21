@@ -37,7 +37,6 @@ describe('ParentDetail', () => {
         onOpenInvite={() => undefined}
         onOpenCodexSpace={() => undefined}
         onOpenTeamSubscription={() => undefined}
-        onOpenDelete={() => undefined}
         onOpenLocalProfile={() => undefined}
         onAccountChanged={() => undefined}
       />
@@ -52,6 +51,10 @@ describe('ParentDetail', () => {
     expect(html).toContain('账单');
     expect(html).toContain('邀请成员');
     expect(html).toContain('同步 Workspace');
+    expect(html).toContain('detail-capability-tags');
+    expect(html).not.toContain('已开通 0.52');
+    expect(html).not.toContain('删除母号');
+    expect(html).not.toMatch(/同步\s+(刚刚|\d|暂无)/);
     expect(html).not.toMatch(/<button(?=[^>]*aria-label="邀请 Workspace 成员")[^>]*disabled/);
     expect(html).not.toMatch(/<button(?=[^>]*aria-label="同步 Workspace")[^>]*disabled/);
   });
@@ -77,7 +80,6 @@ describe('ParentDetail', () => {
         onOpenInvite={() => undefined}
         onOpenCodexSpace={() => undefined}
         onOpenTeamSubscription={() => undefined}
-        onOpenDelete={() => undefined}
         onOpenLocalProfile={() => undefined}
         onAccountChanged={() => undefined}
       />
@@ -113,7 +115,6 @@ describe('ParentDetail', () => {
         onOpenInvite={() => undefined}
         onOpenCodexSpace={() => undefined}
         onOpenTeamSubscription={() => undefined}
-        onOpenDelete={() => undefined}
         onOpenLocalProfile={() => undefined}
         onAccountChanged={() => undefined}
       />
@@ -125,5 +126,39 @@ describe('ParentDetail', () => {
     expect(html).toContain('账单');
     expect(html).toContain('邀请成员');
     expect(html).toContain('同步 Workspace');
+  });
+
+  test('hides the negative 0.52 tag after Team is recognized', () => {
+    const html = renderToStaticMarkup(
+      <ParentDetail
+        account={{
+          ...parent,
+          planType: 'self_serve_business_usage_based',
+          hasTeamSubscription: true,
+          canManageWorkspace: true
+        }}
+        loading={false}
+        activeTab="members"
+        syncing={false}
+        accountManagerStatus={{
+          configured: true,
+          reachable: true,
+          managed: false,
+          hasCodexSpace: false,
+          hasTeamSubscription: true
+        }}
+        accountManagerLoading={false}
+        onTabChange={() => undefined}
+        onSync={() => undefined}
+        onOpenInvite={() => undefined}
+        onOpenCodexSpace={() => undefined}
+        onOpenTeamSubscription={() => undefined}
+        onOpenLocalProfile={() => undefined}
+        onAccountChanged={() => undefined}
+      />
+    );
+
+    expect(html).toContain('双席位');
+    expect(html).not.toContain('未开 0.52');
   });
 });

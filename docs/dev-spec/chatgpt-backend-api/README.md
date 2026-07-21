@@ -27,6 +27,7 @@
 | 改 Codex 邀请权限 | [workspace-referrals-enabled.json](./workspace-referrals-enabled.json) | 使用 `POST /backend-api/accounts/{account_id}/settings/workspace_referrals_enabled`，body `{value}` |
 | 改个人访问令牌权限 | [personal-access-tokens.json](./personal-access-tokens.json) | 使用 `POST /backend-api/accounts/{account_id}/beta_features`，body `{"feature":"personal_access_tokens","value":boolean}` |
 | 改 Codex Local 相关权限 | [codex-local-settings.json](./codex-local-settings.json) | `codex_device_code_auth`、`codex_remote_control` 使用 `/beta_features` 写入，`wham_local_access` 从完整 settings 读取 |
+| 改 Automatic reload | [automatic-reload.json](./automatic-reload.json) | 读取 `/settings`，开启和关闭分别调用无 body 的 `/enable`、`/disable` |
 | 创建 Codex 个人访问令牌 | [codex-personal-access-token.json](./codex-personal-access-token.json) | 使用子号 Web token 调 `POST /backend-api/wham/auth-credentials`，返回 `at-...` PAT |
 
 > 席位样本的 `records[].body` 可能为空，因为 Playwright 原生 request 事件没有读取页面 `Request` 对象 body；以同文件 `browser_request_log[].body` 为准。

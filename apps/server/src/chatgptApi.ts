@@ -10,6 +10,7 @@ import type {
   MemberRole
 } from '@team-manager/shared';
 import type { Transport } from './transport.js';
+import { upcomingInvoiceHasTeamSubscription } from './teamSubscription.js';
 
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OAUTH_CLIENT_ID = 'app_2SKx67EdpoN0G6j64rFvigXD';
@@ -79,6 +80,16 @@ export interface ChatGptRateLimitResetCreditsResponse extends Record<string, unk
   credits?: unknown[];
   available_count?: number;
   total_earned_count?: number;
+}
+
+export interface AutomaticReloadSettingsResponse extends Record<string, unknown> {
+  is_enabled?: boolean;
+  recharge_threshold?: string | null;
+  recharge_target?: string | null;
+  recharge_monthly_limit?: string | null;
+  recharge_monthly_remaining?: string | null;
+  immediate_top_up_status?: string | null;
+  immediate_top_up_message?: string | null;
 }
 
 /**
@@ -334,10 +345,7 @@ export class ChatGptApi {
   async getBillingSnapshotRaw(): Promise<AccountBillingSnapshot['raw']> {
     const workspaceAccountId = encodeURIComponent(this.account.accountId);
     const invoices = await this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${workspaceAccountId}`);
-    const upcomingInvoice = await this.request<unknown>(
-      'GET',
-      `/backend-api/invoices/upcoming?account_id=${workspaceAccountId}`
-    );
+    const upcomingInvoice = await this.getUpcomingInvoiceOrNull(workspaceAccountId);
     const paymentMethods = await this.request<unknown>(
       'GET',
       `/backend-api/payments/payment_methods?account_id=${workspaceAccountId}`
@@ -351,6 +359,31 @@ export class ChatGptApi {
       `/backend-api/accounts/${this.account.accountId}/users/seat_type_counts`
     );
     return { invoices, upcomingInvoice, paymentMethods, billingInfo, seatTypeCounts };
+  }
+
+  async hasTeamSubscription(): Promise<boolean> {
+    const workspaceAccountId = encodeURIComponent(this.account.accountId);
+    return upcomingInvoiceHasTeamSubscription(await this.getUpcomingInvoiceOrNull(workspaceAccountId));
+  }
+
+  async getAutomaticReloadSettings(): Promise<AutomaticReloadSettingsResponse> {
+    return this.request('GET', '/backend-api/subscriptions/auto_top_up/settings');
+  }
+
+  async setAutomaticReloadEnabled(enabled: boolean): Promise<AutomaticReloadSettingsResponse> {
+    return this.request('POST', `/backend-api/subscriptions/auto_top_up/${enabled ? 'enable' : 'disable'}`);
+  }
+
+  private async getUpcomingInvoiceOrNull(workspaceAccountId: string): Promise<unknown> {
+    try {
+      return await this.request<unknown>(
+        'GET',
+        `/backend-api/invoices/upcoming?account_id=${workspaceAccountId}`
+      );
+    } catch (error) {
+      if (isMissingUpcomingInvoice(error)) return null;
+      throw error;
+    }
   }
 
   /** 改“允许用户创建个人访问令牌”开关 */
@@ -456,6 +489,18 @@ export class ChatGptApiError extends Error {
   ) {
     super(`backend-api ${status} @ ${context}: ${body.slice(0, 200)}`);
     this.name = 'ChatGptApiError';
+  }
+}
+
+function isMissingUpcomingInvoice(error: unknown): boolean {
+  if (!(error instanceof ChatGptApiError)) return false;
+  if (error.status === 404) return true;
+  if (error.status !== 500) return false;
+  try {
+    const body = JSON.parse(error.body) as { detail?: unknown };
+    return body.detail === 'Error fetching upcoming invoice';
+  } catch {
+    return false;
   }
 }
 

@@ -367,9 +367,10 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.listRegistrationTasks())
   );
 
-  api.post('/accounts/registration/start', (c) =>
-    wrap(c, () => parentAccountManagerService.startRegistration())
-  );
+  api.post('/accounts/registration/start', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { groupName?: unknown };
+    return wrap(c, () => parentAccountManagerService.startRegistration(body.groupName));
+  });
 
   api.post('/accounts/registration/tasks/:operationId/retry', (c) =>
     wrap(c, () => parentAccountManagerService.retryRegistration(c.req.param('operationId')))
@@ -436,6 +437,13 @@ export async function buildApp({
 
   api.post('/accounts/:id/account-manager/operations/:operationId/terminate', (c) =>
     wrap(c, () => parentAccountManagerService.terminateAccountOperation(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
+  api.delete('/accounts/:id/account-manager/operations/:operationId', (c) =>
+    wrap(c, () => parentAccountManagerService.dismissAccountOperation(
       c.req.param('id'),
       c.req.param('operationId')
     ))
@@ -550,6 +558,7 @@ export async function buildApp({
       personalAccessTokensEnabled?: boolean;
       codexDeviceCodeAuthEnabled?: boolean;
       codexRemoteControlEnabled?: boolean;
+      automaticReloadEnabled?: boolean;
     };
     if (body.defaultSeat) return wrap(c, () => service.setDefaultSeat(c.req.param('id'), body.defaultSeat!));
     if (typeof body.workspaceReferralsEnabled === 'boolean') {
@@ -572,10 +581,15 @@ export async function buildApp({
         service.setCodexRemoteControlEnabled(c.req.param('id'), body.codexRemoteControlEnabled!)
       );
     }
+    if (typeof body.automaticReloadEnabled === 'boolean') {
+      return wrap(c, () =>
+        service.setAutomaticReloadEnabled(c.req.param('id'), body.automaticReloadEnabled!)
+      );
+    }
     return c.json({
       ok: false,
       error:
-        '缺少 defaultSeat、workspaceReferralsEnabled、personalAccessTokensEnabled、codexDeviceCodeAuthEnabled 或 codexRemoteControlEnabled'
+        '缺少 defaultSeat、workspaceReferralsEnabled、personalAccessTokensEnabled、codexDeviceCodeAuthEnabled、codexRemoteControlEnabled 或 automaticReloadEnabled'
     }, 400);
   });
 

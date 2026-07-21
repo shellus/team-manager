@@ -1,5 +1,6 @@
 import type { ParentAccountManagerStatus } from '@team-manager/shared';
 import { Descriptions, Empty, Space, Tag, Typography } from 'antd';
+import { WorkspaceOpeningStatusTags } from './WorkspaceOpeningStatusTags.js';
 
 export function AccountManagerAssociationPanel({
   recordLabel,
@@ -34,12 +35,10 @@ export function AccountManagerAssociationPanel({
         {status?.managed && (
           <Descriptions.Item label="开通状态">
             <Space size={6} wrap>
-              <Tag color={status.hasCodexSpace ? 'green' : 'default'}>
-                {status.hasCodexSpace ? '0.52' : '未开 0.52'}
-              </Tag>
-              <Tag color={status.hasTeamSubscription ? 'green' : 'default'}>
-                {status.hasTeamSubscription ? '双席位' : '未开双席位'}
-              </Tag>
+              <WorkspaceOpeningStatusTags
+                hasCodexSpace={status.hasCodexSpace}
+                hasTeamSubscription={status.hasTeamSubscription}
+              />
             </Space>
           </Descriptions.Item>
         )}

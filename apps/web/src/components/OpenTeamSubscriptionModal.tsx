@@ -155,7 +155,7 @@ export function OpenTeamSubscriptionModal({
               <Input inputMode="numeric" autoComplete="cc-exp" placeholder="MM/YY 或 MM/YYYY" maxLength={7} />
             </Form.Item>
             <Form.Item name="cvc" label="CVC" dependencies={['number', 'expiry']} rules={[{ validator: () => cardValidator('cvc') }]}>
-              <Input.Password inputMode="numeric" autoComplete="cc-csc" placeholder="CVC" maxLength={4} />
+              <Input inputMode="numeric" autoComplete="cc-csc" placeholder="CVC" maxLength={4} />
             </Form.Item>
           </div>
         </Form>

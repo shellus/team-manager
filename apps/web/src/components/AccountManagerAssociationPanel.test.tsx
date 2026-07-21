@@ -32,4 +32,23 @@ describe('AccountManagerAssociationPanel', () => {
 
     expect(html).toContain('该母号独立录入，未关联 GPT Account Manager');
   });
+
+  test('does not show a missing 0.52 state for a Team subscription', () => {
+    const html = renderToStaticMarkup(
+      <AccountManagerAssociationPanel
+        recordLabel="母号"
+        managedAccountEmail="owner@example.com"
+        status={{
+          configured: true,
+          reachable: true,
+          managed: true,
+          hasCodexSpace: false,
+          hasTeamSubscription: true
+        }}
+      />
+    );
+
+    expect(html).toContain('双席位');
+    expect(html).not.toContain('未开 0.52');
+  });
 });

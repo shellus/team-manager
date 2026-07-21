@@ -34,6 +34,7 @@
 | `workspaceName` | accounts/check 或远端改名结果 | 远端 Team workspace 名称 |
 | `nextRenewalOn` | accounts/check 自动识别或本地输入 | Team 下次续费日期，格式为 `yyyy-mm-dd` |
 | `planType` / `role` / `status` / `lastError` | refresh 结果 | 远端状态与错误摘要 |
+| `hasTeamSubscription` | Workspace 同步或账单刷新 | 当前 Workspace 是否存在有效双席位 Team 月付订阅的缓存；有效 recurring upcoming invoice 为主信号，`planType="team"` 为兼容信号 |
 | `membersCache` / `membersCachedAt` | 成员刷新或成员写操作 | 成员列表本地缓存 |
 | `pendingInvitesCache` / `pendingInvitesCachedAt` | 邀请刷新或邀请写操作 | pending invite 本地缓存 |
 | `defaultSeat` / `defaultSeatCachedAt` | settings 刷新或默认席位写操作 | 新成员默认席位缓存 |
@@ -43,11 +44,12 @@
 | `codexLocalAccessEnabled` / `codexLocalAccessCachedAt` | settings 刷新 | “允许成员使用 Codex Local”缓存，来自 `beta_settings.wham_local_access` |
 | `codexDeviceCodeAuthEnabled` / `codexDeviceCodeAuthCachedAt` | settings 刷新或 beta feature 写操作 | “为 Codex CLI 启用设备代码身份验证”缓存 |
 | `codexRemoteControlEnabled` / `codexRemoteControlCachedAt` | settings 刷新或 beta feature 写操作 | “允许成员远程发现并控制设备”缓存 |
+| `automaticReloadEnabled` / `automaticReloadCachedAt` | Automatic reload 刷新或写操作 | Credits 自动补款开关缓存 |
 | `seatSlots` | 本地输入或迁移 | 母号下 ChatGPT 固定席位位置资料，按 `seatKey` 定位 |
 
-`AccountView` 与 `AccountSummaryView` 的 `hasTeamSubscription`、`canManageWorkspace` 都从 `planType` 派生，不持久化，但含义不同：`hasTeamSubscription` 只在 `planType="team"` 时为 `true`；`canManageWorkspace` 仅在 `planType="free"` 时为 `false`。因此 0.52 usage-based 历史母号即使没有双席位或 GAM profile，也仍可使用成员、邀请、设置和账单操作。
+`AccountView` 与 `AccountSummaryView` 的 `hasTeamSubscription` 优先读取当前订阅缓存，并兼容 `planType="team"` 和账单缓存中的 recurring upcoming invoice。既有 usage-based Workspace 升级 Team 后，`accounts/check` 可能仍返回 `self_serve_business_usage_based`，不能再只依赖 `planType` 判断双席位。`canManageWorkspace` 仍从 `planType` 派生，仅在 `planType="free"` 时为 `false`。因此 0.52 usage-based 历史母号即使没有双席位或 GAM profile，也仍可使用成员、邀请、设置和账单操作。
 
-母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
+母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；已有 Workspace 在同步成员和邀请时并行读取当前 upcoming invoice，用有效 recurring subscription 更新 `hasTeamSubscription`。未发现候选时保持 `planType="free"`，将本次同步记为成功并清除旧错误，不请求成员、邀请或订阅接口；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
 
 首页席位概览只为 `hasTeamSubscription=true` 的母号补足两个固定 ChatGPT 位置。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。
 
@@ -116,6 +118,8 @@
 | 改个人访问令牌开关 | 远端修改成功后更新 `personalAccessTokensEnabled` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 设备代码身份验证开关 | 远端修改成功后更新 `codexDeviceCodeAuthEnabled` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 远程控制开关 | 远端修改成功后更新 `codexRemoteControlEnabled` 和缓存时间 | 合并返回的母号 view |
+| 改 Automatic reload 开关 | 远端修改成功后更新 `automaticReloadEnabled` 和缓存时间；开启可能立即触发补款 | 合并返回的母号 view |
+| 刷新账单 | 保存完整账单快照，并根据 recurring upcoming invoice 同步更新 `hasTeamSubscription` | 更新账单面板；后续列表和详情使用最新双席位状态 |
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `remark`、`groupName`、`limitType`、`nextRenewalOn` 和 `proxy`；提供 session JSON 时先按母号 session 录入规则解析 Team workspace，再更新 `email`、`accountId`、`accessToken`、workspace 元数据和可用的 `sessionToken`，并清空 `lastError` | 合并返回的母号 view，已保存 session 明文回填到 `session` 字段 |
 | 自动注册母号 | 创建带母号用途标记的 Account Manager 注册操作；注册成功后立即保存 `managedAccountEmail` 与个人 Web Session，不触发支付 | 任务卡只展示账号注册；交付完成后立即替换为母号 view |

@@ -126,8 +126,9 @@ export function OpenCodexSpaceModal({
                 ? '已填充下面三个卡片字段'
                 : '格式：卡号----有效期----CVC，支持 MM/YY 和 MM/YYYY'}
             >
-              <Input.Password
+              <Input
                 autoComplete="off"
+                spellCheck={false}
                 placeholder="4242424242424242----07/28----123"
                 onChange={(event) => {
                   const parsed = parseCardQuickInput(event.target.value);
@@ -184,7 +185,7 @@ export function OpenCodexSpaceModal({
                   { pattern: /^\d{3,4}$/, message: 'CVC 应为 3 或 4 位数字' }
                 ]}
               >
-                <Input.Password inputMode="numeric" autoComplete="cc-csc" placeholder="CVC" maxLength={4} />
+                <Input inputMode="numeric" autoComplete="cc-csc" placeholder="CVC" maxLength={4} />
               </Form.Item>
             </div>
             <Typography.Text type="secondary" className="payment-security-note">
