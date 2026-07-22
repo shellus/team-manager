@@ -76,6 +76,7 @@ export interface AccountManagerGateway {
   terminateOperation(id: string): Promise<AccountManagerOperationView>;
   removeOperation(id: string): Promise<boolean>;
   account(accountId: string): Promise<ManagedAccountSummary>;
+  syncAccount(accountId: string): Promise<ManagedAccountSummary>;
   session(accountId: string): Promise<ChatGptSessionInput>;
   openCodexSpace(
     accountId: string,
@@ -133,15 +134,15 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   async listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]> {
     const operations = await this.listOperations({ type: 'register', requestTag });
-    return operations.map(toRegistrationJob);
+    return operations.map(registrationJobFromOperation);
   }
 
   async startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
-    return toRegistrationJob(toOperation(await this.request('POST', '/v1/accounts/register', input)));
+    return registrationJobFromOperation(toOperation(await this.request('POST', '/v1/accounts/register', input)));
   }
 
   async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
-    return toRegistrationJob(toOperation(await this.request(
+    return registrationJobFromOperation(toOperation(await this.request(
       'POST',
       `/v1/operations/${encodeURIComponent(id)}/retry`,
       {}
@@ -170,6 +171,10 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   account(accountId: string): Promise<ManagedAccountSummary> {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}`);
+  }
+
+  syncAccount(accountId: string): Promise<ManagedAccountSummary> {
+    return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
   }
 
   session(accountId: string): Promise<ChatGptSessionInput> {
@@ -256,7 +261,9 @@ function toOperation(operation: RawAccountOperationResponse): AccountManagerOper
   };
 }
 
-function toRegistrationJob(operation: AccountManagerOperationView): SubaccountRegistrationJobView {
+export function registrationJobFromOperation(
+  operation: AccountManagerOperationView
+): SubaccountRegistrationJobView {
   const status = normalizeRegistrationStatus(operation.status);
   return {
     id: operation.id,

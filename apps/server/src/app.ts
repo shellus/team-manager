@@ -376,6 +376,10 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.retryRegistration(c.req.param('operationId')))
   );
 
+  api.post('/accounts/registration/tasks/:operationId/rotate-ip', (c) =>
+    wrap(c, () => parentAccountManagerService.rotateRegistrationIp(c.req.param('operationId')))
+  );
+
   api.get('/accounts', (c) => wrap(c, () => service.listAccountSummaries()));
 
   api.get('/accounts/overview', (c) => wrap(c, () => service.listAccountOverview()));
@@ -405,7 +409,9 @@ export async function buildApp({
     return wrap(c, () => service.updateLocalProfile(c.req.param('id'), body));
   });
 
-  api.post('/accounts/:id/refresh', (c) => wrap(c, () => service.refreshAccount(c.req.param('id'))));
+  api.post('/accounts/:id/refresh', (c) => wrap(c, () => (
+    parentAccountManagerService.refreshAccount(c.req.param('id'))
+  )));
 
   api.get('/accounts/:id/account-manager/status', (c) =>
     wrap(c, () => parentAccountManagerService.accountStatus(c.req.param('id')))
@@ -608,6 +614,10 @@ export async function buildApp({
 
   api.post('/subaccounts/registration/jobs/:jobId/retry', (c) =>
     wrap(c, () => subaccountService.retrySubaccountRegistration(c.req.param('jobId')))
+  );
+
+  api.post('/subaccounts/registration/jobs/:jobId/rotate-ip', (c) =>
+    wrap(c, () => subaccountService.rotateSubaccountRegistrationIp(c.req.param('jobId')))
   );
 
   api.delete('/subaccounts/registration/jobs/:jobId', (c) =>

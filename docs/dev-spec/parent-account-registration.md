@@ -20,7 +20,7 @@ Account Manager 已完成注册、Session 校验和账号同步，因此导入�
 
 ## 开通 0.52
 
-`POST /api/accounts/:id/account-manager/open-codex-space` 只使用母号显式保存的 `managedAccountEmail`。请求包含两位国家代码、三位货币代码、正整数 Credits 数量和完整卡片字段；默认表单值为 `IT`、`EUR`、`16`。Team Manager 只负责校验和转发，不保存完整卡号、CVC、CloakBrowser profile 或付款状态。
+`POST /api/accounts/:id/account-manager/open-codex-space` 只使用母号显式保存的 `managedAccountEmail`。请求包含两位国家代码、三位货币代码、正整数 Credits 数量和完整卡片字段。前端订单配置初始为空，必须由操作员先选择一种快捷配置才能提交：“美区”为 `US`、`USD`、13 Credits，“欧区”为 `IT`、`EUR`、16 Credits；选择后可以继续调整单个字段。后端拒绝缺省值，不静默补默认配置。Team Manager 只负责校验和转发，不保存完整卡号、CVC、CloakBrowser profile 或付款状态。
 
 Account Manager 把国家、货币和 Credits 数量写入任务公开参数，卡片只保留在当前进程私有请求中。扩展使用这些参数构造 usage-based Checkout；付款前校准 Checkout Session 的货币和 Credits 数量，不再依赖固定的 `US`、`USD`、13 Credits 或 52 分金额。
 

@@ -56,7 +56,7 @@
 
 母号尚未开通 0.52 时，详情页显示“开通 0.52”操作；未受管账号会显示禁用原因。已经开通后只保留 `0.52` 状态标签，不再显示“已开通 0.52”禁用按钮。
 
-开通表单允许选择订单国家、账单货币和积分数量，默认值为意大利、欧元和 16 Credits。信用卡既可分别填写卡号、有效期和 CVC，也可粘贴 `卡号----有效期----CVC` 一次填充；有效期支持 `MM/YY` 和 `MM/YYYY`。
+开通表单的订单国家、账单货币和积分数量初始为空，必须先选择一种快捷配置才能提交：“美区”填写美国、美元和 13 Credits，“欧区”填写意大利、欧元和 16 Credits；快捷填写后仍可调整单个字段。信用卡既可分别填写卡号、有效期和 CVC，也可粘贴 `卡号----有效期----CVC` 一次填充；有效期支持 `MM/YY` 和 `MM/YYYY`。
 
 开通操作是持久化后台任务。页面会展示运行状态；成功后母号列表显示 `0.52` 标记。0.52 Workspace 不会被误标为双席位 Team，但它与 Team Workspace 一样属于可管理 Workspace，可执行成员、邀请、设置和账单操作。已开通账号不再显示开通按钮，也不会重复发起付款。
 
@@ -84,7 +84,7 @@
 
 ## 同步 Workspace 状态
 
-“同步 Workspace”对所有母号开放，不以当前双席位或本地 `planType` 为前提。它会读取已保存 Session 当前可见的 owner/admin Workspace：个人态母号如果在其他地方开通了 0.52 或 Team，会自动切换本地 `accountId` 和 Web access token；已有 Workspace 会并行刷新成员、邀请和当前 Team 月付订阅状态。这样即使 `accounts/check` 仍返回 usage-based `planType`，也能识别已升级的双席位 Workspace。
+“同步 Workspace”对所有母号开放，不以当前双席位或本地 `planType` 为前提。它会读取已保存 Session 当前可见的 owner/admin Workspace：个人态母号如果在其他地方开通了 0.52 或 Team，会自动切换本地 `accountId` 和 Web access token；已有 Workspace 会并行刷新成员、邀请和当前 Team 月付订阅状态。关联 GAM 的母号还会在同一次操作中请求 GPT Account Manager 同步账号 Workspace。只要本地识别到 `self_serve_business_usage_based` Workspace，就会标记为已开 0.52，不依赖付款任务必须以成功状态结束；这样人工终止了异常跳转后的任务，也不会丢失已经成功创建的空间状态。即使 `accounts/check` 仍返回 usage-based `planType`，系统也能另外识别已升级的双席位 Workspace。
 
 如果当前 Session 没有任何可管理 Workspace，同步仍视为成功。页面继续显示“未开 0.52”和“未开双席位”，不会额外显示错误。
 

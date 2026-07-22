@@ -106,7 +106,7 @@ describe('ParentDetail', () => {
           configured: true,
           reachable: true,
           managed: false,
-          hasCodexSpace: true,
+          hasCodexSpace: false,
           hasTeamSubscription: false
         }}
         accountManagerLoading={false}
@@ -126,6 +126,8 @@ describe('ParentDetail', () => {
     expect(html).toContain('账单');
     expect(html).toContain('邀请成员');
     expect(html).toContain('同步 Workspace');
+    expect(html).toContain('0.52');
+    expect(html).not.toContain('开通 0.52');
   });
 
   test('hides the negative 0.52 tag after Team is recognized', () => {

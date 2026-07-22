@@ -29,7 +29,7 @@ import {
   parentMemberAndInviteCount,
   parentSeatUsageClass
 } from './parentListItem.js';
-import { canManageParentWorkspace } from './parentWorkspaceCapability.js';
+import { canManageParentWorkspace, hasParentCodexSpace } from './parentWorkspaceCapability.js';
 
 function taskSummary(task: ParentRegistrationTaskView): string {
   if (task.stage === 'registration_failed') return task.error || '注册未完成，可按原邮箱重试';
@@ -109,6 +109,7 @@ export function ParentList({
   onOpenRegister,
   onOpenImport,
   onRetryRegistration,
+  onRotateRegistrationIp,
   onRotateOperationIp,
   onTerminateOperation,
   onDismissOperation,
@@ -131,6 +132,7 @@ export function ParentList({
   onOpenRegister: () => void;
   onOpenImport: () => void;
   onRetryRegistration: (task: ParentRegistrationTaskView) => void;
+  onRotateRegistrationIp: (task: ParentRegistrationTaskView) => void;
   onRotateOperationIp: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onTerminateOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onDismissOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
@@ -225,6 +227,23 @@ export function ParentList({
                     format={(percent) => `${percent ?? 0}%`}
                   />
                   <Space wrap>
+                    {waiting && (
+                      <Popconfirm
+                        title="更换当前注册任务的出口IP？"
+                        description="系统会保留当前 profile 和页面，轮换上游住宅 SID 并断开旧代理连接。"
+                        okText="更换IP"
+                        cancelText="取消"
+                        onConfirm={() => onRotateRegistrationIp(task)}
+                      >
+                        <Button
+                          size="small"
+                          icon={<SwapOutlined />}
+                          loading={isBusy(`rotate-parent-registration-ip-${task.registration.id}`)}
+                        >
+                          更换IP
+                        </Button>
+                      </Popconfirm>
+                    )}
                     {(task.stage === 'registration_failed' || task.stage === 'import_failed') && (
                       <Button
                         size="small"
@@ -320,7 +339,7 @@ export function ParentList({
                     {account.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
                   <WorkspaceOpeningStatusTags
-                    hasCodexSpace={managerStatus?.hasCodexSpace === true}
+                    hasCodexSpace={hasParentCodexSpace(account, managerStatus)}
                     hasTeamSubscription={hasTeamSubscription}
                   />
                   <span className="record-status-time">同步 {formatRelativeTime(account.lastRefreshAt)}</span>

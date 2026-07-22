@@ -16,7 +16,7 @@ import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentBillingPanel } from './ParentBillingPanel.js';
 import { ParentMembersTable } from './ParentMembersTable.js';
 import { ParentSettingsPanel } from './ParentSettingsPanel.js';
-import { canManageParentWorkspace } from './parentWorkspaceCapability.js';
+import { canManageParentWorkspace, hasParentCodexSpace } from './parentWorkspaceCapability.js';
 
 export function ParentDetail({
   account,
@@ -67,7 +67,7 @@ export function ParentDetail({
   const codexWaitingManual = codexOperation?.status === 'waiting_manual';
   const teamOpening = teamOperation?.status === 'queued' || teamOperation?.status === 'running';
   const teamWaitingManual = teamOperation?.status === 'waiting_manual';
-  const hasCodexSpace = accountManagerStatus?.hasCodexSpace === true;
+  const hasCodexSpace = hasParentCodexSpace(account, accountManagerStatus);
   const accountManagerUnavailable = accountManagerLoading
     || !accountManagerStatus
     || accountManagerStatus?.configured === false
@@ -84,6 +84,9 @@ export function ParentDetail({
         : accountManagerStatus?.error || '开通 13 Credits Workspace';
   const codexFailed = codexOperation?.status === 'failed' || codexOperation?.status === 'interrupted';
   const hasTeamSubscription = accountManagerStatus?.hasTeamSubscription || account.hasTeamSubscription;
+  const effectiveAccountManagerStatus = accountManagerStatus
+    ? { ...accountManagerStatus, hasCodexSpace, hasTeamSubscription }
+    : accountManagerStatus;
   const canManageWorkspace = canManageParentWorkspace(account, accountManagerStatus);
   const teamButtonDisabled = accountManagerUnavailable || hasTeamSubscription || teamOpening || teamWaitingManual;
   const teamButtonTitle = hasTeamSubscription
@@ -243,7 +246,7 @@ export function ParentDetail({
               <AccountManagerAssociationPanel
                 recordLabel="母号"
                 managedAccountEmail={account.managedAccountEmail}
-                status={accountManagerStatus}
+                status={effectiveAccountManagerStatus}
                 loading={accountManagerLoading}
               />
             )
@@ -271,7 +274,7 @@ export function ParentDetail({
             <AccountManagerAssociationPanel
               recordLabel="母号"
               managedAccountEmail={account.managedAccountEmail}
-              status={accountManagerStatus}
+              status={effectiveAccountManagerStatus}
               loading={accountManagerLoading}
             />
           )

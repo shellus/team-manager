@@ -49,7 +49,7 @@
 
 `AccountView` 与 `AccountSummaryView` 的 `hasTeamSubscription` 优先读取当前订阅缓存，并兼容 `planType="team"` 和账单缓存中的 recurring upcoming invoice。既有 usage-based Workspace 升级 Team 后，`accounts/check` 可能仍返回 `self_serve_business_usage_based`，不能再只依赖 `planType` 判断双席位。`canManageWorkspace` 仍从 `planType` 派生，仅在 `planType="free"` 时为 `false`。因此 0.52 usage-based 历史母号即使没有双席位或 GAM profile，也仍可使用成员、邀请、设置和账单操作。
 
-母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；已有 Workspace 在同步成员和邀请时并行读取当前 upcoming invoice，用有效 recurring subscription 更新 `hasTeamSubscription`。未发现候选时保持 `planType="free"`，将本次同步记为成功并清除旧错误，不请求成员、邀请或订阅接口；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
+母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；已有 Workspace 在同步成员和邀请时并行读取当前 upcoming invoice，用有效 recurring subscription 更新 `hasTeamSubscription`。关联 GAM 的母号在同一次 Team Manager 请求中并行触发 Account Manager 账号同步，但 GAM 同步失败不得抹掉本地已经确认的 Workspace；如果该账号仍有运行中或等待人工处理的 Workspace 开通任务，则跳过 GAM profile 同步，避免打断付款现场。`planType="self_serve_business_usage_based"` 本身就是 `hasCodexSpace` 的有效证据，不能只依赖付款操作成功状态。未发现候选时保持 `planType="free"`，将本次同步记为成功并清除旧错误，不请求成员、邀请或订阅接口；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
 
 首页席位概览只为 `hasTeamSubscription=true` 的母号补足两个固定 ChatGPT 位置。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。
 

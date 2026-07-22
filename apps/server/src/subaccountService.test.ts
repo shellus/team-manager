@@ -15,9 +15,10 @@ import type {
 } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
-import type {
-  AccountManagerGateway,
-  AccountRegistrationRequest
+import {
+  ACCOUNT_MANAGER_REQUEST_TAGS,
+  type AccountManagerGateway,
+  type AccountRegistrationRequest
 } from './accountManagerClient.js';
 import type { AppConfig } from './config.js';
 import { SubaccountStore } from './subaccountStore.js';
@@ -343,6 +344,7 @@ function tokenRevokedResponse() {
 
 class FakeAccountManager implements AccountManagerGateway {
   requests: AccountRegistrationRequest[] = [];
+  controls: string[] = [];
   private jobs: SubaccountRegistrationJobView[] = [];
   private requestTags = new Map<string, string>();
 
@@ -404,6 +406,40 @@ class FakeAccountManager implements AccountManagerGateway {
     return queued;
   }
 
+  seedWaitingManualRegistration(): SubaccountRegistrationJobView {
+    const job: SubaccountRegistrationJobView = {
+      id: 'registration-manual-1',
+      status: 'waiting_manual',
+      phase: 'registration_stage_waiting_manual',
+      message: '页面提交后暂未推进',
+      progress: 95,
+      email: 'manual-child@example.com',
+      createdAt: 1,
+      updatedAt: 1
+    };
+    this.jobs = [job];
+    this.requestTags.set(job.id, ACCOUNT_MANAGER_REQUEST_TAGS.subaccount);
+    return job;
+  }
+
+  async rotateOperationIp(id: string): Promise<AccountManagerOperationView> {
+    const job = this.jobs.find((item) => item.id === id);
+    if (!job) throw new Error('registration job missing');
+    this.controls.push(`rotate:${id}`);
+    const rotated = {
+      ...job,
+      phase: 'registration_manual_proxy_rotation_complete',
+      message: 'IP已更换，正在继续监听当前页面',
+      updatedAt: job.updatedAt + 1
+    };
+    this.jobs = [rotated];
+    return this.operationFromJob(rotated);
+  }
+
+  async terminateOperation(id: string): Promise<AccountManagerOperationView> {
+    throw new Error(`unexpected terminate: ${id}`);
+  }
+
   async removeOperation(id: string): Promise<boolean> {
     const before = this.jobs.length;
     this.jobs = this.jobs.filter((job) => job.id !== id);
@@ -422,6 +458,10 @@ class FakeAccountManager implements AccountManagerGateway {
 
   async account(accountId: string) {
     return { id: accountId, email: accountId, hasCodexSpace: false, workspaces: [] };
+  }
+
+  async syncAccount(accountId: string) {
+    return this.account(accountId);
   }
 
   async openCodexSpace(
@@ -1325,6 +1365,26 @@ describe('Subaccount API', () => {
       const jobsAfterDelete = await app.request('/api/subaccounts/registration/jobs', { headers: authHeaders });
       const jobsAfterDeleteJson = (await jobsAfterDelete.json()) as ApiResult<SubaccountRegistrationJobView[]>;
       assert.equal(jobsAfterDeleteJson.data!.some((job) => job.id === completed.job.id), false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rotates IP for a child registration waiting at any manual stage', async () => {
+    const accountManager = new FakeAccountManager();
+    const job = accountManager.seedWaitingManualRegistration();
+    const { app, dir, authHeaders } = await buildTestApp({ accountManager });
+    try {
+      const response = await app.request(`/api/subaccounts/registration/jobs/${job.id}/rotate-ip`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const body = (await response.json()) as ApiResult<SubaccountRegistrationJobView>;
+
+      assert.equal(response.status, 200);
+      assert.equal(body.data!.status, 'waiting_manual');
+      assert.equal(body.data!.phase, 'registration_manual_proxy_rotation_complete');
+      assert.deepEqual(accountManager.controls, [`rotate:${job.id}`]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

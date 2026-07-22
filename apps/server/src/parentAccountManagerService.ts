@@ -2,6 +2,7 @@ import type {
   AccountManagerOperationView,
   AccountManagerRuntimeStatus,
   AccountSummaryView,
+  AccountView,
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
@@ -18,6 +19,7 @@ import {
 import { ServiceError, TeamService } from './teamService.js';
 
 const TEAM_PLAN = 'team';
+const CODEX_SPACE_PLAN = 'self_serve_business_usage_based';
 
 export class ParentAccountManagerService {
   constructor(
@@ -75,16 +77,27 @@ export class ParentAccountManagerService {
     return this.callAccountManager(() => this.accountManager!.operation(operation.id));
   }
 
+  async rotateRegistrationIp(operationId: string): Promise<ParentRegistrationTaskView> {
+    const operation = await this.requireParentRegistration(operationId);
+    if (operation.status !== 'waiting_manual') {
+      throw new ServiceError(409, '只有等待人工处理的母号注册任务可以更换IP');
+    }
+    return this.reconcileRegistration(
+      await this.callAccountManager(() => this.accountManager!.rotateOperationIp(operation.id))
+    );
+  }
+
   async accountStatus(accountId: string): Promise<ParentAccountManagerStatus> {
     const local = this.store.get(accountId);
     if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
+    const localHasCodexSpace = local.planType === CODEX_SPACE_PLAN;
     const localHasTeamSubscription = this.teamService.hasTeamSubscription(local.id);
     if (!this.accountManager) {
       return {
         configured: false,
         reachable: false,
         managed: false,
-        hasCodexSpace: false,
+        hasCodexSpace: localHasCodexSpace,
         hasTeamSubscription: localHasTeamSubscription,
         error: '未配置 GPT Account Manager'
       };
@@ -94,7 +107,7 @@ export class ParentAccountManagerService {
         configured: true,
         reachable: true,
         managed: false,
-        hasCodexSpace: false,
+        hasCodexSpace: localHasCodexSpace,
         hasTeamSubscription: localHasTeamSubscription,
         error: '该母号未关联 GPT Account Manager'
       };
@@ -134,7 +147,8 @@ export class ParentAccountManagerService {
           (operation): operation is AccountManagerOperationView => Boolean(operation)
         ),
         importedAccounts,
-        localHasTeamSubscription
+        localHasTeamSubscription,
+        localHasCodexSpace
       );
     } catch (error) {
       if (error instanceof AccountManagerError && error.status === 404) {
@@ -142,7 +156,7 @@ export class ParentAccountManagerService {
           configured: true,
           reachable: true,
           managed: false,
-          hasCodexSpace: false,
+          hasCodexSpace: localHasCodexSpace,
           hasTeamSubscription: localHasTeamSubscription,
           accountEmail: email,
           error: '该邮箱尚未由 GPT Account Manager 管理'
@@ -152,7 +166,7 @@ export class ParentAccountManagerService {
         configured: true,
         reachable: false,
         managed: false,
-        hasCodexSpace: false,
+        hasCodexSpace: localHasCodexSpace,
         hasTeamSubscription: localHasTeamSubscription,
         accountEmail: email,
         error: error instanceof AccountManagerError ? error.message : (error as Error).message
@@ -188,11 +202,19 @@ export class ParentAccountManagerService {
       }
 
       const entries = await Promise.all(accounts.map(async (local) => {
+        const localHasCodexSpace = local.planType === CODEX_SPACE_PLAN;
         const localHasTeamSubscription = this.teamService.hasTeamSubscription(local.id);
         const email = local.managedAccountEmail?.trim().toLowerCase();
-        if (!email) return [local.id, unmanagedLocalParentStatus(localHasTeamSubscription)] as const;
+        if (!email) {
+          return [local.id, unmanagedLocalParentStatus(localHasTeamSubscription, localHasCodexSpace)] as const;
+        }
         const managed = managedByEmail.get(email);
-        if (!managed) return [local.id, missingManagedParentStatus(email, localHasTeamSubscription)] as const;
+        if (!managed) {
+          return [
+            local.id,
+            missingManagedParentStatus(email, localHasTeamSubscription, localHasCodexSpace)
+          ] as const;
+        }
         const operations = (operationsByEmail.get(email) ?? []).sort((a, b) => b.createdAt - a.createdAt);
         const codexOperation = operations.find(isParentCodexOperation);
         const teamOperation = operations.find(isParentTeamOperation);
@@ -205,7 +227,14 @@ export class ParentAccountManagerService {
           local.id,
           needsReconciliation
             ? await this.accountStatus(local.id)
-            : managedParentStatus(email, managed, operations, [], localHasTeamSubscription)
+            : managedParentStatus(
+              email,
+              managed,
+              operations,
+              [],
+              localHasTeamSubscription,
+              localHasCodexSpace
+            )
         ] as const;
       }));
       return Object.fromEntries(entries);
@@ -217,11 +246,28 @@ export class ParentAccountManagerService {
           ? unreachableManagedParentStatus(
             account.managedAccountEmail,
             message,
-            this.teamService.hasTeamSubscription(account.id)
+            this.teamService.hasTeamSubscription(account.id),
+            account.planType === CODEX_SPACE_PLAN
           )
-          : unmanagedLocalParentStatus(this.teamService.hasTeamSubscription(account.id))
+          : unmanagedLocalParentStatus(
+            this.teamService.hasTeamSubscription(account.id),
+            account.planType === CODEX_SPACE_PLAN
+          )
       ]));
     }
+  }
+
+  async refreshAccount(accountId: string): Promise<AccountView> {
+    const local = this.store.get(accountId);
+    if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
+    const managedSync = local.managedAccountEmail && this.accountManager
+      ? this.syncManagedAccountIfIdle(local.managedAccountEmail).catch(() => undefined)
+      : Promise.resolve(undefined);
+    const [refreshed] = await Promise.all([
+      this.teamService.refreshAccount(accountId),
+      managedSync
+    ]);
+    return refreshed;
   }
 
   async openAccountCodexSpace(
@@ -232,6 +278,7 @@ export class ParentAccountManagerService {
     if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
     if (!local.managedAccountEmail) throw new ServiceError(409, '该母号未关联 GPT Account Manager');
+    if (local.planType === CODEX_SPACE_PLAN) throw new ServiceError(409, '该账号已开通 0.52 Codex 空间');
     const email = local.managedAccountEmail;
     const managed = await this.callAccountManager(() => this.accountManager!.account(email));
     if (managed.hasCodexSpace) throw new ServiceError(409, '该账号已开通 0.52 Codex 空间');
@@ -394,6 +441,16 @@ export class ParentAccountManagerService {
     return this.removeFailedOperations(email, isParentCodexOperation);
   }
 
+  private async syncManagedAccountIfIdle(email: string): Promise<void> {
+    const operations = await this.accountManager!.listAccountOperations(email);
+    const hasActiveWorkspacePurchase = operations.some((operation) =>
+      isParentWorkspacePurchaseOperation(operation)
+      && ['queued', 'running', 'waiting_for_otp', 'waiting_manual'].includes(operation.status)
+    );
+    if (hasActiveWorkspacePurchase) return;
+    await this.accountManager!.syncAccount(email);
+  }
+
   private async removeFailedOperations(
     email: string,
     predicate: (operation: AccountManagerOperationView) => boolean
@@ -441,7 +498,8 @@ function managedParentStatus(
   managed: ManagedAccountSummary,
   operations: AccountManagerOperationView[],
   importedAccounts: AccountSummaryView[] = [],
-  localHasTeamSubscription = false
+  localHasTeamSubscription = false,
+  localHasCodexSpace = false
 ): ParentAccountManagerStatus {
   const codexOperation = operations.find(isParentCodexOperation);
   const teamOperation = operations.find(isParentTeamOperation);
@@ -449,7 +507,7 @@ function managedParentStatus(
     configured: true,
     reachable: true,
     managed: true,
-    hasCodexSpace: managed.hasCodexSpace || codexOperation?.status === 'succeeded',
+    hasCodexSpace: localHasCodexSpace || managed.hasCodexSpace || codexOperation?.status === 'succeeded',
     hasTeamSubscription: managed.hasTeamSubscription || localHasTeamSubscription,
     accountEmail: email,
     teamUpgradeWorkspaces: managed.workspaces
@@ -471,23 +529,30 @@ function managedParentStatus(
   };
 }
 
-function unmanagedLocalParentStatus(hasTeamSubscription: boolean): ParentAccountManagerStatus {
+function unmanagedLocalParentStatus(
+  hasTeamSubscription: boolean,
+  hasCodexSpace = false
+): ParentAccountManagerStatus {
   return {
     configured: true,
     reachable: true,
     managed: false,
-    hasCodexSpace: false,
+    hasCodexSpace,
     hasTeamSubscription,
     error: '该母号未关联 GPT Account Manager'
   };
 }
 
-function missingManagedParentStatus(email: string, hasTeamSubscription: boolean): ParentAccountManagerStatus {
+function missingManagedParentStatus(
+  email: string,
+  hasTeamSubscription: boolean,
+  hasCodexSpace = false
+): ParentAccountManagerStatus {
   return {
     configured: true,
     reachable: true,
     managed: false,
-    hasCodexSpace: false,
+    hasCodexSpace,
     hasTeamSubscription,
     accountEmail: email,
     error: '该邮箱尚未由 GPT Account Manager 管理'
@@ -497,13 +562,14 @@ function missingManagedParentStatus(email: string, hasTeamSubscription: boolean)
 function unreachableManagedParentStatus(
   email: string,
   error: string,
-  hasTeamSubscription: boolean
+  hasTeamSubscription: boolean,
+  hasCodexSpace = false
 ): ParentAccountManagerStatus {
   return {
     configured: true,
     reachable: false,
     managed: false,
-    hasCodexSpace: false,
+    hasCodexSpace,
     hasTeamSubscription,
     accountEmail: email.trim().toLowerCase(),
     error

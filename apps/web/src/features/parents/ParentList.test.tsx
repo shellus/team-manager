@@ -53,6 +53,7 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
       onOpenRegister={() => undefined}
       onOpenImport={() => undefined}
       onRetryRegistration={() => undefined}
+      onRotateRegistrationIp={() => undefined}
       onRotateOperationIp={() => undefined}
       onTerminateOperation={() => undefined}
       onDismissOperation={() => undefined}
@@ -69,6 +70,24 @@ describe('ParentList', () => {
     expect(html).toContain('录入母号');
     expect(html).toContain('parent@example.com');
     expect(html).not.toContain('开通 0.52');
+  });
+
+  test('allows changing IP from any parent registration manual stage', () => {
+    const html = renderList({
+      registrationTasks: [{
+        ...registeringTask,
+        registration: {
+          ...registeringTask.registration,
+          status: 'waiting_manual',
+          phase: 'registration_stage_waiting_manual',
+          message: '页面提交后暂未推进'
+        },
+        stage: 'waiting_manual'
+      }]
+    });
+
+    expect(html).toContain('等待人工');
+    expect(html).toContain('更换IP');
   });
 
   test('marks GAM, 0.52 and two-seat Team state on each parent row', () => {
@@ -128,6 +147,8 @@ describe('ParentList', () => {
 
     expect(html).toContain('成员/邀请 1');
     expect(html).toContain('0.52 Workspace');
+    expect(html).toContain('0.52');
+    expect(html).not.toContain('未开 0.52');
     expect(html).not.toContain('ChatGPT 0 / 2');
     expect(html).toContain('未开双席位');
     expect(html).not.toContain('尚无可管理 Workspace');

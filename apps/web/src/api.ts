@@ -105,6 +105,8 @@ export const apiClient = {
     call<AccountManagerOperationView>('POST', '/accounts/registration/start', payload),
   retryParentRegistration: (operationId: string) =>
     call<AccountManagerOperationView>('POST', `/accounts/registration/tasks/${operationId}/retry`),
+  rotateParentRegistrationIp: (operationId: string) =>
+    call<ParentRegistrationTaskView>('POST', `/accounts/registration/tasks/${operationId}/rotate-ip`),
   getParentAccountManagerStatus: (id: string) =>
     call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
   getParentAccountManagerStatuses: () =>
@@ -210,6 +212,8 @@ export const apiClient = {
     call<SubaccountRegistrationJobView[]>('GET', '/subaccounts/registration/jobs'),
   retrySubaccountRegistration: (jobId: string) =>
     call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/retry`),
+  rotateSubaccountRegistrationIp: (jobId: string) =>
+    call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/rotate-ip`),
   registerSubaccount: (payload: { mailGroup?: string } = {}) =>
     call<SubaccountRegistrationJobView>('POST', '/subaccounts/registration/start', payload),
   updateSubaccountLocalProfile: (

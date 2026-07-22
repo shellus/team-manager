@@ -402,6 +402,19 @@ export function SubaccountRoutes({
     }
   };
 
+  const rotateRegistrationIp = async (job: SubaccountRegistrationJobView) => {
+    const key = `rotate-registration-ip-${job.id}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        const rotated = await apiClient.rotateSubaccountRegistrationIp(job.id);
+        setRegistrationJobs((current) => current.map((item) => (item.id === rotated.id ? rotated : item)));
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const updateLocalProfile = async (payload: {
     remark?: string;
     groupName?: string;
@@ -561,6 +574,7 @@ export function SubaccountRoutes({
         onOpenImportSession={() => openModal('import-session')}
         onOpenRegister={() => openModal('register-subaccount')}
         onRetryRegistration={(job) => void retryRegistration(job)}
+        onRotateRegistrationIp={(job) => void rotateRegistrationIp(job)}
         onOpenEdit={(subaccount) => {
           openSubaccountRecordModal(subaccount, 'edit-subaccount-profile');
         }}

@@ -429,6 +429,21 @@ export function ParentRoutes({
     }
   };
 
+  const rotateParentRegistrationIp = async (task: ParentRegistrationTaskView) => {
+    const key = `rotate-parent-registration-ip-${task.registration.id}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        const rotated = await apiClient.rotateParentRegistrationIp(task.registration.id);
+        setRegistrationTasks((current) => current.map((item) => (
+          item.registration.id === rotated.registration.id ? rotated : item
+        )));
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const openCodexModal = (target: string) => {
     const next = setModalState(searchParams, 'open-codex-space', target);
     setLocalError('');
@@ -642,6 +657,7 @@ export function ParentRoutes({
         onOpenRegister={() => openModal('register-parent')}
         onOpenImport={() => openModal('import-parent')}
         onRetryRegistration={(task) => void retryParentRegistration(task)}
+        onRotateRegistrationIp={(task) => void rotateParentRegistrationIp(task)}
         onRotateOperationIp={(account, operation) => void rotateOperationIp(account, operation)}
         onTerminateOperation={(account, operation) => void terminateOperation(account, operation)}
         onDismissOperation={(account, operation) => void dismissOperation(account, operation)}

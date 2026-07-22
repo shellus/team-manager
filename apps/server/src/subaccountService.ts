@@ -27,6 +27,7 @@ import { SubaccountStore } from './subaccountStore.js';
 import {
   ACCOUNT_MANAGER_REQUEST_TAGS,
   AccountManagerError,
+  registrationJobFromOperation,
   type AccountManagerGateway
 } from './accountManagerClient.js';
 
@@ -88,13 +89,24 @@ export class SubaccountService {
     return this.callAccountManager(() => this.accountManager!.retryRegistration(jobId));
   }
 
+  async rotateSubaccountRegistrationIp(jobId: string): Promise<SubaccountRegistrationJobView> {
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    const operation = await this.requireSubaccountRegistration(jobId);
+    if (operation.status !== 'waiting_manual') {
+      throw new ServiceError(409, '只有等待人工处理的子号注册任务可以更换IP');
+    }
+    return registrationJobFromOperation(
+      await this.callAccountManager(() => this.accountManager!.rotateOperationIp(jobId))
+    );
+  }
+
   async removeSubaccountRegistrationJob(jobId: string): Promise<boolean> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
     await this.requireSubaccountRegistration(jobId);
     return this.callAccountManager(() => this.accountManager!.removeOperation(jobId));
   }
 
-  private async requireSubaccountRegistration(jobId: string): Promise<void> {
+  private async requireSubaccountRegistration(jobId: string) {
     const operation = await this.callAccountManager(() => this.accountManager!.operation(jobId));
     if (
       operation.type !== 'register' ||
@@ -102,6 +114,7 @@ export class SubaccountService {
     ) {
       throw new ServiceError(404, `子号注册操作不存在: ${jobId}`);
     }
+    return operation;
   }
 
   private async reconcileAccountManagerOperations(

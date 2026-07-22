@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
-import { subaccountSummaryFromView, type SubaccountSummaryView, type SubaccountView } from '@team-manager/shared';
+import {
+  subaccountSummaryFromView,
+  type SubaccountRegistrationJobView,
+  type SubaccountSummaryView,
+  type SubaccountView
+} from '@team-manager/shared';
 import { SubaccountList } from './SubaccountList.js';
 
 const baseSubaccount: SubaccountView = {
@@ -15,12 +20,15 @@ const baseSubaccount: SubaccountView = {
   updatedAt: 2
 };
 
-function renderList(subaccount: SubaccountView) {
+function renderList(
+  subaccount: SubaccountView,
+  registrationJobs: SubaccountRegistrationJobView[] = []
+) {
   const summary: SubaccountSummaryView = subaccountSummaryFromView(subaccount);
   return renderToStaticMarkup(
     <SubaccountList
       subaccounts={[summary]}
-      registrationJobs={[]}
+      registrationJobs={registrationJobs}
       groups={[]}
       activeGroup=""
       searchQuery=""
@@ -33,6 +41,7 @@ function renderList(subaccount: SubaccountView) {
       onOpenImportSession={() => undefined}
       onOpenRegister={() => undefined}
       onRetryRegistration={() => undefined}
+      onRotateRegistrationIp={() => undefined}
       onOpenEdit={() => undefined}
       onOpenDelete={() => undefined}
     />
@@ -53,5 +62,20 @@ describe('SubaccountList', () => {
 
   test('marks an independently imported child account as non-GAM', () => {
     expect(renderList(baseSubaccount)).toContain('非 GAM');
+  });
+
+  test('allows changing IP from any child registration manual stage', () => {
+    const html = renderList(baseSubaccount, [{
+      id: 'registration-1',
+      status: 'waiting_manual',
+      phase: 'registration_stage_waiting_manual',
+      message: '页面提交后暂未推进',
+      progress: 95,
+      createdAt: 1,
+      updatedAt: 2
+    }]);
+
+    expect(html).toContain('等待人工处理');
+    expect(html).toContain('更换IP');
   });
 });

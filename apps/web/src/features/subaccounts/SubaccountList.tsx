@@ -9,9 +9,10 @@ import {
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
-  RobotOutlined
+  RobotOutlined,
+  SwapOutlined
 } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Progress, Space, Tag, Typography } from 'antd';
+import { Button, Card, Dropdown, List, Popconfirm, Progress, Space, Tag, Typography } from 'antd';
 import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import {
@@ -48,6 +49,7 @@ export function SubaccountList({
   onOpenImportSession,
   onOpenRegister,
   onRetryRegistration,
+  onRotateRegistrationIp,
   onOpenEdit,
   onOpenDelete
 }: {
@@ -65,6 +67,7 @@ export function SubaccountList({
   onOpenImportSession: () => void;
   onOpenRegister: () => void;
   onRetryRegistration: (job: SubaccountRegistrationJobView) => void;
+  onRotateRegistrationIp: (job: SubaccountRegistrationJobView) => void;
   onOpenEdit: (subaccount: SubaccountSummaryView) => void;
   onOpenDelete: (subaccount: SubaccountSummaryView) => void;
 }) {
@@ -177,19 +180,39 @@ export function SubaccountList({
                     status={failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {failed && (
+                  {(failed || waitingManual) && (
                     <Space wrap>
-                      <Button
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        loading={isBusy(`retry-registration-${job.id}`)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRetryRegistration(job);
-                        }}
-                      >
-                        {job.email ? '重试此邮箱' : '重新开始'}
-                      </Button>
+                      {waitingManual && (
+                        <Popconfirm
+                          title="更换当前注册任务的出口IP？"
+                          description="系统会保留当前 profile 和页面，轮换上游住宅 SID 并断开旧代理连接。"
+                          okText="更换IP"
+                          cancelText="取消"
+                          onConfirm={() => onRotateRegistrationIp(job)}
+                        >
+                          <Button
+                            size="small"
+                            icon={<SwapOutlined />}
+                            loading={isBusy(`rotate-registration-ip-${job.id}`)}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            更换IP
+                          </Button>
+                        </Popconfirm>
+                      )}
+                      {failed && (
+                        <Button
+                          size="small"
+                          icon={<ReloadOutlined />}
+                          loading={isBusy(`retry-registration-${job.id}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRetryRegistration(job);
+                          }}
+                        >
+                          {job.email ? '重试此邮箱' : '重新开始'}
+                        </Button>
+                      )}
                     </Space>
                   )}
                 </Card>
