@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import type {
   ApiResult,
   AccountManagerOperationView,
+  AccountManagerProfileView,
   CodexCredentialJson,
   OpenCodexSpaceRequest,
   SubaccountLocalProfileView,
@@ -347,6 +348,8 @@ class FakeAccountManager implements AccountManagerGateway {
   controls: string[] = [];
   private jobs: SubaccountRegistrationJobView[] = [];
   private requestTags = new Map<string, string>();
+  profileControls: string[] = [];
+  profiles = new Map<string, AccountManagerProfileView>();
 
   async health() {
     return { status: 'ok', accountRegistrationConfigured: true };
@@ -464,6 +467,26 @@ class FakeAccountManager implements AccountManagerGateway {
     return this.account(accountId);
   }
 
+  async accountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    return this.profiles.get(accountId) ?? { accountId, status: 'stopped', updatedAt: 1 };
+  }
+
+  async startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    this.profileControls.push(`start:${accountId}`);
+    const profile = {
+      accountId, status: 'running' as const, profileId: 'runtime-profile', updatedAt: 2
+    };
+    this.profiles.set(accountId, profile);
+    return profile;
+  }
+
+  async stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    this.profileControls.push(`stop:${accountId}`);
+    const profile = { accountId, status: 'stopped' as const, updatedAt: 3 };
+    this.profiles.set(accountId, profile);
+    return profile;
+  }
+
   async openCodexSpace(
     accountId: string,
     _input: OpenCodexSpaceRequest & { requestTag?: string }
@@ -565,6 +588,44 @@ async function waitForRegistrationJob(
 }
 
 describe('Subaccount API', () => {
+  it('proxies managed subaccount Profile lifecycle through Account Manager', async () => {
+    const accountManager = new FakeAccountManager();
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ accountManager });
+    try {
+      const subaccount = await subaccountStore.saveManagedSubaccount({
+        managedAccountEmail: 'child@example.com',
+        email: 'child@example.com',
+        session: {
+          user: { email: 'child@example.com' },
+          account: { id: 'personal-account' },
+          accessToken: 'web-access-token',
+          sessionToken: 'session-token'
+        }
+      });
+
+      const initial = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/profile`, {
+        headers: authHeaders
+      });
+      assert.equal(((await initial.json()) as ApiResult<AccountManagerProfileView>).data?.status, 'stopped');
+
+      const started = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/profile/start`, {
+        method: 'POST', headers: authHeaders
+      });
+      assert.equal(((await started.json()) as ApiResult<AccountManagerProfileView>).data?.profileId, 'runtime-profile');
+
+      const stopped = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/profile/stop`, {
+        method: 'POST', headers: authHeaders
+      });
+      assert.equal(((await stopped.json()) as ApiResult<AccountManagerProfileView>).data?.status, 'stopped');
+      assert.deepEqual(accountManager.profileControls, [
+        'start:child@example.com',
+        'stop:child@example.com'
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('imports child session JSON and returns editable Web session views', async () => {
     const { app, dir, authHeaders } = await buildTestApp();
     try {

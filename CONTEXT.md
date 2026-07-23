@@ -24,6 +24,10 @@ _Avoid_: Workspace 成员数、Codex 席位、可管理 Workspace
 可选的规范化邮箱，表示当前母号或子号在 GPT Account Manager 中存在对应受管账号。引用不改变 Team Manager 对 Web Session 和 Team 业务关系的独立所有权。
 _Avoid_: CloakBrowser Profile ID、Account Manager 数据库 UUID、注册任务 ID
 
+**Profile 控制**:
+Team Manager 使用受管账号引用请求 GPT Account Manager 启动或关闭该账号的运行 Profile。Team Manager 不拥有 Profile、浏览器身份或租约，也不负责打开浏览器或提供 VNC。
+_Avoid_: Profile 管理、打开浏览器、浏览器会话、直接调用 CloakBrowser
+
 **0.52 开通**:
 母号通过 GPT Account Manager 创建 13 Credits usage-based workspace 的独立支付动作。它不是母号注册完成或双席位开通的前置条件。
 _Avoid_: 母号注册第二阶段、Team 套餐

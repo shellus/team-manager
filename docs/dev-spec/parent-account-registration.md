@@ -4,6 +4,8 @@
 
 Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT Account Manager 创建受管账号；账号与 Web Session 交付完成即结束注册流程。0.52 Codex 空间和双席位 Team 是注册后的两个独立动作，互不作为前置条件。
 
+母号的账号管理页通过 `GET /api/accounts/:id/account-manager/profile`、`POST /api/accounts/:id/account-manager/profile/start` 和 `POST /api/accounts/:id/account-manager/profile/stop` 转发运行 Profile 控制。Team Manager 只展示运行状态和临时 Profile ID，不生成查看地址，也不连接 CloakBrowser。
+
 ## 自动注册
 
 1. `POST /api/accounts/registration/start` 创建用途标记为 `team-manager:parent` 的注册操作，并把当前母号分组作为 Account Manager 的调用方关联值持久化。

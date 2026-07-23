@@ -1,6 +1,7 @@
 import type {
   AccountBillingSnapshot,
   AccountManagerOperationView,
+  AccountManagerProfileView,
   AccountManagerRuntimeStatus,
   AccountLimitType,
   AccountLocalProfileView,
@@ -111,6 +112,12 @@ export const apiClient = {
     call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
   getParentAccountManagerStatuses: () =>
     call<Record<string, ParentAccountManagerStatus>>('GET', '/accounts/account-manager/statuses'),
+  getParentAccountProfile: (id: string) =>
+    call<AccountManagerProfileView>('GET', `/accounts/${id}/account-manager/profile`),
+  startParentAccountProfile: (id: string) =>
+    call<AccountManagerProfileView>('POST', `/accounts/${id}/account-manager/profile/start`),
+  stopParentAccountProfile: (id: string) =>
+    call<AccountManagerProfileView>('POST', `/accounts/${id}/account-manager/profile/stop`),
   openParentCodexSpace: (id: string, payload: OpenCodexSpaceRequest) =>
     call<AccountManagerOperationView>('POST', `/accounts/${id}/account-manager/open-codex-space`, payload),
   openParentTeamSubscription: (id: string, payload: OpenTeamSubscriptionRequest) =>
@@ -199,6 +206,12 @@ export const apiClient = {
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
   listSubaccounts: () => call<SubaccountSummaryView[]>('GET', '/subaccounts'),
   getSubaccount: (id: string) => call<SubaccountView>('GET', `/subaccounts/${id}`),
+  getSubaccountAccountProfile: (id: string) =>
+    call<AccountManagerProfileView>('GET', `/subaccounts/${id}/account-manager/profile`),
+  startSubaccountAccountProfile: (id: string) =>
+    call<AccountManagerProfileView>('POST', `/subaccounts/${id}/account-manager/profile/start`),
+  stopSubaccountAccountProfile: (id: string) =>
+    call<AccountManagerProfileView>('POST', `/subaccounts/${id}/account-manager/profile/stop`),
   getSubaccountLocalProfile: (id: string) =>
     call<SubaccountLocalProfileView>('GET', `/subaccounts/${id}/local-profile`),
   importSubaccountSession: (payload: {

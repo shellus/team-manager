@@ -2,6 +2,8 @@
 
 Team Manager 负责保存子号 Web Session、Team 关联和 PAT 凭证，不负责执行 GPT 账号注册。账号注册由独立的 GPT Account Manager 完成，Team Manager 只创建账号操作、查询进度并取得最终 Web Session。
 
+已保存 `managedAccountEmail` 的子号可通过账号管理页启动或关闭 Account Manager 运行 Profile。Team Manager 只转发控制请求并展示状态，不保存 Profile ID、不提供浏览器查看能力，也不绕过 Account Manager 调用 CloakBrowser。
+
 ## 子号数据
 
 - `data/subaccounts.json` 保存子号邮箱、本地备注与分组、Web Session、可选 `managedAccountEmail` 引用、Team 关联和 PAT 凭证元数据。

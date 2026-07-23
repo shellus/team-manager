@@ -1,6 +1,7 @@
 import type {
   AccountManagerOperationStatus,
   AccountManagerOperationView,
+  AccountManagerProfileView,
   ChatGptSessionInput,
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
@@ -77,6 +78,9 @@ export interface AccountManagerGateway {
   removeOperation(id: string): Promise<boolean>;
   account(accountId: string): Promise<ManagedAccountSummary>;
   syncAccount(accountId: string): Promise<ManagedAccountSummary>;
+  accountProfile(accountId: string): Promise<AccountManagerProfileView>;
+  startAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
+  stopAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
   session(accountId: string): Promise<ChatGptSessionInput>;
   openCodexSpace(
     accountId: string,
@@ -175,6 +179,18 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   syncAccount(accountId: string): Promise<ManagedAccountSummary> {
     return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
+  }
+
+  accountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/profile`);
+  }
+
+  startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/profile/start`, {});
+  }
+
+  stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/profile/stop`, {});
   }
 
   session(accountId: string): Promise<ChatGptSessionInput> {

@@ -6,6 +6,7 @@ import type {
   SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
   AccountManagerRuntimeStatus,
+  AccountManagerProfileView,
   SubaccountSummaryView,
   SubaccountView
 } from '@team-manager/shared';
@@ -187,6 +188,21 @@ export class SubaccountService {
         error: error instanceof AccountManagerError ? error.message : (error as Error).message
       };
     }
+  }
+
+  async accountProfile(id: string): Promise<AccountManagerProfileView> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.accountProfile(email));
+  }
+
+  async startAccountProfile(id: string): Promise<AccountManagerProfileView> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.startAccountProfile(email));
+  }
+
+  async stopAccountProfile(id: string): Promise<AccountManagerProfileView> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.stopAccountProfile(email));
   }
 
   async importSession(raw: unknown): Promise<SubaccountView> {
@@ -738,6 +754,13 @@ export class SubaccountService {
     const subaccount = this.store.get(id);
     if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
     return subaccount;
+  }
+
+  private requireManagedAccountEmail(id: string): string {
+    const subaccount = this.requireSubaccount(id);
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    if (!subaccount.managedAccountEmail) throw new ServiceError(409, '该子号未关联 GPT Account Manager');
+    return subaccount.managedAccountEmail;
   }
 }
 

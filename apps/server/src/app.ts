@@ -417,6 +417,18 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.accountStatus(c.req.param('id')))
   );
 
+  api.get('/accounts/:id/account-manager/profile', (c) =>
+    wrap(c, () => parentAccountManagerService.accountProfile(c.req.param('id')))
+  );
+
+  api.post('/accounts/:id/account-manager/profile/start', (c) =>
+    wrap(c, () => parentAccountManagerService.startAccountProfile(c.req.param('id')))
+  );
+
+  api.post('/accounts/:id/account-manager/profile/stop', (c) =>
+    wrap(c, () => parentAccountManagerService.stopAccountProfile(c.req.param('id')))
+  );
+
   api.get('/accounts/account-manager/statuses', (c) =>
     wrap(c, () => parentAccountManagerService.accountStatuses())
   );
@@ -648,6 +660,18 @@ export async function buildApp({
 
   api.get('/subaccounts/:id', (c) =>
     wrap(c, () => Promise.resolve(subaccountService.detail(c.req.param('id'))))
+  );
+
+  api.get('/subaccounts/:id/account-manager/profile', (c) =>
+    wrap(c, () => subaccountService.accountProfile(c.req.param('id')))
+  );
+
+  api.post('/subaccounts/:id/account-manager/profile/start', (c) =>
+    wrap(c, () => subaccountService.startAccountProfile(c.req.param('id')))
+  );
+
+  api.post('/subaccounts/:id/account-manager/profile/stop', (c) =>
+    wrap(c, () => subaccountService.stopAccountProfile(c.req.param('id')))
   );
 
   api.get('/subaccounts/:id/local-profile', (c) =>

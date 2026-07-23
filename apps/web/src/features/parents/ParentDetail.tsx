@@ -245,6 +245,7 @@ export function ParentDetail({
             children: (
               <AccountManagerAssociationPanel
                 recordLabel="母号"
+                recordId={account.id}
                 managedAccountEmail={account.managedAccountEmail}
                 status={effectiveAccountManagerStatus}
                 loading={accountManagerLoading}
@@ -273,6 +274,7 @@ export function ParentDetail({
           children: (
             <AccountManagerAssociationPanel
               recordLabel="母号"
+              recordId={account.id}
               managedAccountEmail={account.managedAccountEmail}
               status={effectiveAccountManagerStatus}
               loading={accountManagerLoading}

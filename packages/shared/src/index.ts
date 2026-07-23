@@ -451,6 +451,16 @@ export interface AccountManagerOperationView {
   completedAt?: number;
 }
 
+export type AccountManagerProfileStatus = 'stopped' | 'queued' | 'running' | 'stopping' | 'failed';
+
+export interface AccountManagerProfileView {
+  accountId: string;
+  status: AccountManagerProfileStatus;
+  profileId?: string;
+  error?: string;
+  updatedAt: number;
+}
+
 export interface OpenCodexSpaceRequest {
   country: string;
   currency: string;

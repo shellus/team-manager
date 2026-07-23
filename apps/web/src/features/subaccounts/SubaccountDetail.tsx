@@ -123,6 +123,7 @@ export function SubaccountDetail({
             children: (
               <AccountManagerAssociationPanel
                 recordLabel="子号"
+                recordId={subaccount.id}
                 managedAccountEmail={subaccount.managedAccountEmail}
               />
             )

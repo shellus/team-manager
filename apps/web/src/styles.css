@@ -695,6 +695,11 @@ body {
   margin: 0;
 }
 
+.account-profile-error {
+  display: block;
+  margin-top: 6px;
+}
+
 .record-meta-line {
   flex-wrap: nowrap;
 }

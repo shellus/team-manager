@@ -39,14 +39,14 @@ corepack pnpm docs:build
 
 ## 功能范围
 
-- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；有 GAM 关联的母号可独立开通 0.52 Codex Workspace 或双席位 Team。0.52 usage-based Workspace 与 Team Workspace 都支持成员、邀请、设置和账单操作；双席位状态只表示是否购买 Team 套餐。所有母号均可通过“同步 Workspace”发现外部开通的 0.52 或 Team 并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；自动点击 Pay 默认关闭。
+- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；有 GAM 关联的母号可独立启动或关闭账号运行 Profile，并可开通 0.52 Codex Workspace 或双席位 Team。0.52 usage-based Workspace 与 Team Workspace 都支持成员、邀请、设置和账单操作；双席位状态只表示是否购买 Team 套餐。所有母号均可通过“同步 Workspace”发现外部开通的 0.52 或 Team 并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；自动点击 Pay 默认关闭。
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号和子号都可按各自顶层 `groupName` 分组；母号另用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。子号顶层分组与 `codexCredentials[].groupName` 的 CPA 凭证号池分组彼此独立。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **席位位置**：用 `seatSlots` 记录母号下售出的 ChatGPT 固定席位位置，`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
-- **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session。
+- **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；有 GAM 关联的子号可启动或关闭账号运行 Profile。
 - **PAT 与额度**：按子号和 Team workspace 创建 PAT，查询并缓存对应 workspace 的 Codex 额度。
 - **子号加入母号**：用子号邮箱邀请加入指定 Team，并同步本地 Team 关系状态。
 

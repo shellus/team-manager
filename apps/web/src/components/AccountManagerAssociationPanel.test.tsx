@@ -7,6 +7,7 @@ describe('AccountManagerAssociationPanel', () => {
     const html = renderToStaticMarkup(
       <AccountManagerAssociationPanel
         recordLabel="母号"
+        recordId="parent-1"
         managedAccountEmail="owner@example.com"
         status={{
           configured: true,
@@ -23,6 +24,8 @@ describe('AccountManagerAssociationPanel', () => {
     expect(html).toContain('GAM');
     expect(html).toContain('0.52');
     expect(html).toContain('未开双席位');
+    expect(html).toContain('启动 Profile');
+    expect(html).toContain('关闭 Profile');
   });
 
   test('explains when a parent account is not associated with GAM', () => {

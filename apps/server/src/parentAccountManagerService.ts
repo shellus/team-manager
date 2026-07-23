@@ -1,5 +1,6 @@
 import type {
   AccountManagerOperationView,
+  AccountManagerProfileView,
   AccountManagerRuntimeStatus,
   AccountSummaryView,
   AccountView,
@@ -270,6 +271,21 @@ export class ParentAccountManagerService {
     return refreshed;
   }
 
+  async accountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.accountProfile(email));
+  }
+
+  async startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.startAccountProfile(email));
+  }
+
+  async stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.stopAccountProfile(email));
+  }
+
   async openAccountCodexSpace(
     accountId: string,
     input: OpenCodexSpaceRequest
@@ -417,6 +433,14 @@ export class ParentAccountManagerService {
       throw new ServiceError(404, `母号注册操作不存在: ${operationId}`);
     }
     return operation;
+  }
+
+  private requireManagedAccountEmail(accountId: string): string {
+    const local = this.store.get(accountId);
+    if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    if (!local.managedAccountEmail) throw new ServiceError(409, '该母号未关联 GPT Account Manager');
+    return local.managedAccountEmail;
   }
 
   private async requireParentWorkspacePurchase(

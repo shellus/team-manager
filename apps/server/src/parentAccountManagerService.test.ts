@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type {
   AccountManagerOperationView,
+  AccountManagerProfileView,
   AccountView,
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
@@ -32,6 +33,8 @@ class FakeAccountManager implements AccountManagerGateway {
   listAccountsCalls = 0;
   accountCalls = 0;
   listAccountOperationsCalls = 0;
+  profileControls: string[] = [];
+  profiles = new Map<string, AccountManagerProfileView>();
 
   async health() { return { status: 'ok', accountRegistrationConfigured: true }; }
 
@@ -147,6 +150,26 @@ class FakeAccountManager implements AccountManagerGateway {
   async syncAccount(accountId: string) {
     this.syncCalls.push(accountId);
     return this.account(accountId);
+  }
+
+  async accountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    return this.profiles.get(accountId) ?? { accountId, status: 'stopped', updatedAt: 1 };
+  }
+
+  async startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    this.profileControls.push(`start:${accountId}`);
+    const profile = {
+      accountId, status: 'running' as const, profileId: 'runtime-profile', updatedAt: 2
+    };
+    this.profiles.set(accountId, profile);
+    return profile;
+  }
+
+  async stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
+    this.profileControls.push(`stop:${accountId}`);
+    const profile = { accountId, status: 'stopped' as const, updatedAt: 3 };
+    this.profiles.set(accountId, profile);
+    return profile;
   }
 
   async session(accountId: string) {
@@ -314,6 +337,25 @@ async function withService(run: (
 }
 
 describe('ParentAccountManagerService', () => {
+  it('proxies managed parent Profile lifecycle without calling CloakBrowser directly', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        managedAccountEmail: 'owner@example.com',
+        accountId: 'personal-account',
+        email: 'owner@example.com',
+        accessToken: 'web-access-token'
+      });
+
+      assert.equal((await service.accountProfile(parent.id)).status, 'stopped');
+      assert.equal((await service.startAccountProfile(parent.id)).profileId, 'runtime-profile');
+      assert.equal((await service.stopAccountProfile(parent.id)).status, 'stopped');
+      assert.deepEqual(accountManager.profileControls, [
+        'start:owner@example.com',
+        'stop:owner@example.com'
+      ]);
+    });
+  });
+
   it('finishes parent registration immediately without requiring 0.52', async () => {
     await withService(async (service, accountManager, teamService) => {
       const started = await service.startRegistration(' 客户 A ');
