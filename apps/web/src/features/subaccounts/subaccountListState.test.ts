@@ -22,12 +22,19 @@ describe('subaccount list state', () => {
   test('sorts subaccounts by the same remark-or-email rule as parents', () => {
     const sorted = sortSubaccountsForList([
       subaccount({ id: 'updated-last', email: 'zeta@example.com', updatedAt: 300 }),
+      subaccount({ id: 'banned-last', email: 'aardvark@example.com', isBanned: true, updatedAt: 500 }),
       subaccount({ id: 'remark-first', email: 'child-b@example.com', remark: 'team 2', updatedAt: 100 }),
       subaccount({ id: 'email-middle', email: 'alpha@example.com', updatedAt: 200 }),
       subaccount({ id: 'numeric-after', email: 'child-a@example.com', remark: 'team 10', updatedAt: 400 })
     ]);
 
-    expect(sorted.map((item) => item.id)).toEqual(['email-middle', 'remark-first', 'numeric-after', 'updated-last']);
+    expect(sorted.map((item) => item.id)).toEqual([
+      'email-middle',
+      'remark-first',
+      'numeric-after',
+      'updated-last',
+      'banned-last'
+    ]);
   });
 
   test('binds the delete dialog to the route target instead of the next selected row', () => {

@@ -9,14 +9,8 @@ export function WorkspaceOpeningStatusTags({
 }) {
   return (
     <>
-      {(hasCodexSpace || !hasTeamSubscription) && (
-        <Tag color={hasCodexSpace ? 'green' : 'default'}>
-          {hasCodexSpace ? '0.52' : '未开 0.52'}
-        </Tag>
-      )}
-      <Tag color={hasTeamSubscription ? 'green' : 'default'}>
-        {hasTeamSubscription ? '双席位' : '未开双席位'}
-      </Tag>
+      {hasCodexSpace && <Tag color="green">0.52</Tag>}
+      {hasTeamSubscription && <Tag color="green">双席位</Tag>}
     </>
   );
 }

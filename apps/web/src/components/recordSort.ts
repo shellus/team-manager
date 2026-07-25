@@ -3,8 +3,10 @@ const recordSortCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivi
 export interface SortableRecordName {
   email: string;
   remark?: string;
+  isBanned?: boolean;
 }
 
 export function compareRecordSortName(a: SortableRecordName, b: SortableRecordName): number {
-  return recordSortCollator.compare(a.remark || a.email, b.remark || b.email);
+  return Number(Boolean(a.isBanned)) - Number(Boolean(b.isBanned))
+    || recordSortCollator.compare(a.remark || a.email, b.remark || b.email);
 }

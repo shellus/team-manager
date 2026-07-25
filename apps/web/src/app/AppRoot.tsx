@@ -12,6 +12,7 @@ const ParentRoutes = lazy(async () => ({ default: (await import('../features/par
 const PublicSeatPage = lazy(async () => ({ default: (await import('../features/public-seat/PublicSeatPage.js')).PublicSeatPage }));
 const OverviewPage = lazy(async () => ({ default: (await import('../features/overview/OverviewPage.js')).OverviewPage }));
 const SubaccountRoutes = lazy(async () => ({ default: (await import('../features/subaccounts/SubaccountRoutes.js')).SubaccountRoutes }));
+const TeamOrdersPage = lazy(async () => ({ default: (await import('../features/team-orders/TeamOrdersPage.js')).TeamOrdersPage }));
 
 function RouteFallback() {
   return <Skeleton active paragraph={{ rows: 8 }} />;
@@ -133,6 +134,7 @@ export function AppRoot() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/overview" element={<OverviewPage />} />
+          <Route path="/team-orders" element={<TeamOrdersPage onError={handleError} />} />
           <Route
             path="/parents/:accountId?"
             element={

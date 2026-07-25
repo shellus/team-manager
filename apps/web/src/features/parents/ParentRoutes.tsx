@@ -41,6 +41,15 @@ import { SEAT_LABEL } from '../../labels.js';
 import { defaultSeatSlotExpiresOn, SeatSlotProfileFields } from './SeatSlotProfileModal.js';
 import { ParentDetail } from './ParentDetail.js';
 import { ParentList } from './ParentList.js';
+import {
+  PARENT_QUICK_FILTER_PARAM,
+  parentMatchesQuickFilters,
+  parseParentQuickFilters,
+  readParentQuickFilterPreference,
+  rememberParentQuickFilterPreference,
+  serializeParentQuickFilters,
+  type ParentQuickFilter
+} from './parentQuickFilters.js';
 import { canManageParentWorkspace } from './parentWorkspaceCapability.js';
 import {
   ALL_PARENT_GROUP,
@@ -159,14 +168,53 @@ export function ParentRoutes({
   const [accountManagerStatuses, setAccountManagerStatuses] = useState<Record<string, ParentAccountManagerStatus>>({});
   const [accountManagerLoading, setAccountManagerLoading] = useState(false);
   const [accountManagerStatusError, setAccountManagerStatusError] = useState('');
+  const [maintainedAccountIds, setMaintainedAccountIds] = useState<Set<string>>(new Set());
   const actionBusy = useActionBusy();
   const searchQuery = searchParams.get('q') ?? '';
+  const quickFilters = useMemo(
+    () => searchParams.has(PARENT_QUICK_FILTER_PARAM)
+      ? parseParentQuickFilters(searchParams.get(PARENT_QUICK_FILTER_PARAM))
+      : readParentQuickFilterPreference(),
+    [searchParams]
+  );
   const sortedAccounts = useMemo(() => [...accounts].sort(compareRecordSortName), [accounts]);
   const filteredAccounts = useMemo(
-    () => sortedAccounts.filter((account) => accountMatchesQuery(account, searchQuery)),
-    [searchQuery, sortedAccounts]
+    () => sortedAccounts.filter((account) => (
+      accountMatchesQuery(account, searchQuery)
+      && parentMatchesQuickFilters(
+        account,
+        accountManagerStatuses[account.id],
+        maintainedAccountIds,
+        quickFilters
+      )
+    )),
+    [accountManagerStatuses, maintainedAccountIds, quickFilters, searchQuery, sortedAccounts]
   );
   const accountIdsKey = accounts.map((account) => account.id).sort().join('|');
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMaintainedAccounts = async () => {
+      try {
+        const dashboard = await apiClient.getTeamOrderDashboard();
+        if (!cancelled) {
+          setMaintainedAccountIds(new Set(
+            dashboard.items
+              .filter((item) => item.maintenance.status === 'active')
+              .map((item) => item.account.id)
+          ));
+        }
+      } catch {
+        // 母号主工作台不因辅助维护标签加载失败而阻塞。
+      }
+    };
+    void loadMaintainedAccounts();
+    const timer = window.setInterval(() => void loadMaintainedAccounts(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [accountIdsKey]);
 
   const groups = useMemo(() => countParentGroups(sortedAccounts), [sortedAccounts]);
   const activeGroup = resolvePreferredLocalGroup(
@@ -281,6 +329,10 @@ export function ParentRoutes({
   }, [onAccountSummaryChanged]);
 
   useEffect(() => {
+    rememberParentQuickFilterPreference(quickFilters);
+  }, [quickFilters]);
+
+  useEffect(() => {
     if (loading || accounts.length === 0) return;
     rememberLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY, activeGroup);
     const nextParams = new URLSearchParams(searchParams);
@@ -300,6 +352,16 @@ export function ParentRoutes({
       nextParams.set('tab', targetTab);
       changed = true;
     }
+    const serializedQuickFilters = serializeParentQuickFilters(quickFilters);
+    if (serializedQuickFilters) {
+      if (searchParams.get(PARENT_QUICK_FILTER_PARAM) !== serializedQuickFilters) {
+        nextParams.set(PARENT_QUICK_FILTER_PARAM, serializedQuickFilters);
+        changed = true;
+      }
+    } else if (searchParams.has(PARENT_QUICK_FILTER_PARAM)) {
+      nextParams.delete(PARENT_QUICK_FILTER_PARAM);
+      changed = true;
+    }
     const nextPath = selectedSummary ? `/parents/${selectedSummary.id}` : '/parents';
     if (location.pathname !== nextPath || changed) {
       navigate({ pathname: nextPath, search: toSearch(nextParams) }, { replace: true });
@@ -311,6 +373,7 @@ export function ParentRoutes({
     loading,
     location.pathname,
     navigate,
+    quickFilters,
     searchParams,
     searchState.group,
     searchState.tab,
@@ -554,6 +617,7 @@ export function ParentRoutes({
     remark?: string;
     groupName?: string;
     limitType?: AccountLimitType;
+    isBanned?: boolean;
     nextRenewalOn?: string;
     proxy?: string;
     session?: unknown;
@@ -566,6 +630,7 @@ export function ParentRoutes({
           remark?: string;
           groupName?: string;
           limitType?: AccountLimitType;
+          isBanned?: boolean;
           nextRenewalOn?: string;
           proxy?: string;
           session?: unknown;
@@ -630,6 +695,17 @@ export function ParentRoutes({
     setSearchParams(next);
   };
 
+  const changeQuickFilters = (filters: ParentQuickFilter[]) => {
+    rememberParentQuickFilterPreference(filters);
+    const next = setSearchValue(
+      searchParams,
+      PARENT_QUICK_FILTER_PARAM,
+      serializeParentQuickFilters(filters)
+    );
+    next.set('tab', searchState.tab);
+    setSearchParams(next);
+  };
+
   const changeTab = (tab: ParentTab) => {
     setSearchParams(setSearchValue(searchParams, 'tab', tab));
   };
@@ -647,13 +723,16 @@ export function ParentRoutes({
         accounts={visibleAccounts}
         accountManagerStatuses={accountManagerStatuses}
         registrationTasks={registrationTasks}
+        maintainedAccountIds={maintainedAccountIds}
         searchQuery={searchQuery}
+        quickFilters={quickFilters}
         selectedId={selectedSummary?.id ?? ''}
         syncingIds={syncingIds}
         runtimeStatus={runtimeStatus}
         isBusy={actionBusy.isBusy}
         onGroupChange={changeGroup}
         onSearchChange={changeSearchQuery}
+        onQuickFiltersChange={changeQuickFilters}
         onOpenRegister={() => openModal('register-parent')}
         onOpenImport={() => openModal('import-parent')}
         onRetryRegistration={(task) => void retryParentRegistration(task)}
@@ -698,6 +777,7 @@ export function ParentRoutes({
           remark: '',
           groupName: activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup,
           limitType: 'unknown',
+          isBanned: false,
           nextRenewalOn: '',
           proxy: ''
         }}
@@ -710,11 +790,12 @@ export function ParentRoutes({
         open={searchState.modal === 'edit-parent-profile' && Boolean(selectedSummary)}
         mode="parent"
         title="编辑母号本地资料"
-        description="只更新本系统内的备注、分组、限额类型、下次续费时间、代理地址和 session，不修改远端 Team 名称。"
+        description="只更新本系统内的备注、分组、封号标记、限额类型、下次续费时间、代理地址和 session，不修改远端 Team 名称。"
         initialValues={{
           remark: localProfile?.remark ?? selectedSummary?.remark ?? '',
           groupName: localProfile?.groupName || selectedSummary?.groupName || '默认分组',
           limitType: localProfile?.limitType ?? selectedSummary?.limitType ?? 'unknown',
+          isBanned: localProfile?.isBanned ?? selectedSummary?.isBanned ?? false,
           nextRenewalOn: localProfile?.nextRenewalOn ?? selectedSummary?.nextRenewalOn ?? '',
           proxy: localProfile?.proxy ?? '',
           session: localProfile?.session

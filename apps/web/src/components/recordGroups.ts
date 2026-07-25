@@ -1,3 +1,5 @@
+import { readLocalPreference, rememberLocalPreference } from './localPreference.js';
+
 export const ALL_LOCAL_GROUP = '';
 export const ALL_LOCAL_GROUP_LABEL = '所有';
 export const DEFAULT_LOCAL_GROUP = '默认分组';
@@ -37,21 +39,11 @@ export function resolvePreferredLocalGroup(
 }
 
 export function readLocalGroupPreference(storageKey: string): string | undefined {
-  if (typeof window === 'undefined') return undefined;
-  try {
-    return window.localStorage.getItem(storageKey) ?? undefined;
-  } catch {
-    return undefined;
-  }
+  return readLocalPreference(storageKey);
 }
 
 export function rememberLocalGroupPreference(storageKey: string, group: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(storageKey, group);
-  } catch {
-    // 浏览器禁用本地存储时，URL 中的分组状态仍然可用。
-  }
+  rememberLocalPreference(storageKey, group);
 }
 
 export function filterByLocalGroup<T extends { groupName?: string }>(records: T[], activeGroup: string): T[] {

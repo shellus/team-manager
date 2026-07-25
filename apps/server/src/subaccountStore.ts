@@ -156,6 +156,7 @@ export class SubaccountStore {
       id: view.id,
       remark: view.remark,
       groupName: view.groupName,
+      isBanned: view.isBanned,
       proxy: view.proxy,
       session: view.session
     };
@@ -187,13 +188,14 @@ export class SubaccountStore {
 
   async importSession(
     raw: unknown,
-    options: { remark?: unknown; groupName?: unknown; proxy?: unknown } = {}
+    options: { remark?: unknown; groupName?: unknown; isBanned?: unknown; proxy?: unknown } = {}
   ): Promise<SubaccountView> {
     this.ensureLoaded();
     const session = parseChatGptSessionInput(raw);
     if ('error' in session) throw new Error(session.error);
     const hasRemark = Object.prototype.hasOwnProperty.call(options, 'remark');
     const hasGroupName = Object.prototype.hasOwnProperty.call(options, 'groupName');
+    const hasIsBanned = Object.prototype.hasOwnProperty.call(options, 'isBanned');
     const hasProxy = Object.prototype.hasOwnProperty.call(options, 'proxy');
 
     const now = Date.now();
@@ -204,6 +206,7 @@ export class SubaccountStore {
       email: session.user.email,
       remark: hasRemark ? normalizeOptionalString(options.remark) : existing?.remark,
       groupName: hasGroupName ? normalizeSubaccountGroupName(options.groupName) : existing?.groupName,
+      isBanned: hasIsBanned ? options.isBanned === true : existing?.isBanned,
       chatgptAccountId: session.account.id,
       webAccessToken: session.accessToken,
       sessionToken: session.sessionToken,
@@ -277,7 +280,7 @@ export class SubaccountStore {
 
   async updateLocalProfile(
     id: string,
-    input: { remark?: string; groupName?: string; proxy?: string; session?: ChatGptSessionInput }
+    input: { remark?: string; groupName?: string; isBanned?: boolean; proxy?: string; session?: ChatGptSessionInput }
   ): Promise<SubaccountView | undefined> {
     this.ensureLoaded();
     const existing = this.subaccounts.get(id);
@@ -289,6 +292,7 @@ export class SubaccountStore {
       groupName: Object.prototype.hasOwnProperty.call(input, 'groupName')
         ? normalizeSubaccountGroupName(input.groupName)
         : existing.groupName,
+      isBanned: Object.prototype.hasOwnProperty.call(input, 'isBanned') ? input.isBanned : existing.isBanned,
       email: input.session?.user.email ?? existing.email,
       chatgptAccountId: input.session?.account.id ?? existing.chatgptAccountId,
       webAccessToken: input.session?.accessToken ?? existing.webAccessToken,
@@ -538,6 +542,7 @@ export class SubaccountStore {
       email: account.email,
       remark: account.remark,
       groupName: normalizeSubaccountGroupName(account.groupName),
+      isBanned: account.isBanned === true,
       chatgptAccountId: account.chatgptAccountId,
       proxy: account.proxy,
       managedAccountEmail: account.managedAccountEmail,
@@ -682,6 +687,7 @@ async function normalizeStoredSubaccount(
     email: record.email,
     remark: record.remark,
     groupName: record.groupName,
+    isBanned: record.isBanned === true,
     chatgptAccountId: record.chatgptAccountId,
     webAccessToken: record.webAccessToken,
     sessionToken: record.sessionToken,
@@ -720,6 +726,7 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     email: input.email,
     remark: input.remark?.trim() || undefined,
     groupName: normalizeSubaccountGroupName(input.groupName),
+    isBanned: input.isBanned === true,
     chatgptAccountId: input.chatgptAccountId,
     webAccessToken: input.webAccessToken,
     sessionToken: input.sessionToken,

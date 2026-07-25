@@ -1,4 +1,4 @@
-export type ParentTab = 'members' | 'invites' | 'account-manager' | 'settings' | 'billing';
+export type ParentTab = 'members' | 'invites' | 'account-manager' | 'order-maintenance' | 'settings' | 'billing';
 
 export type ParentModal =
   | ''
@@ -34,7 +34,7 @@ export interface SubaccountSearchState {
   target: string;
 }
 
-export const parentTabs = ['members', 'invites', 'account-manager', 'settings', 'billing'] as const satisfies readonly ParentTab[];
+export const parentTabs = ['members', 'invites', 'account-manager', 'order-maintenance', 'settings', 'billing'] as const satisfies readonly ParentTab[];
 export const subaccountTabs = ['teams', 'account-manager', 'settings', 'pat', 'logs'] as const satisfies readonly SubaccountTab[];
 
 const parentTabSet = new Set<ParentTab>(parentTabs);

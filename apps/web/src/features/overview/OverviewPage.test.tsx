@@ -60,4 +60,33 @@ describe('OverviewPage role tags', () => {
     expect(html).not.toContain('空位');
     expect(html).toContain('还没有可展示的位置');
   });
+
+  test('marks occupied positions from a banned parent without rendering its empty position', () => {
+    const account: AccountOverviewView = {
+      id: 'banned-team',
+      accountId: 'workspace-banned-team',
+      email: 'banned-owner@example.com',
+      workspaceName: 'Banned Team',
+      isBanned: true,
+      hasTeamSubscription: true,
+      membersCache: [{
+        userId: 'banned-member',
+        email: 'member@example.com',
+        role: 'standard-user',
+        seat: 'default'
+      }]
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(
+        StaticRouter,
+        { location: '/' },
+        createElement(OverviewPage, { initialAccounts: [account] })
+      )
+    );
+
+    expect(html).toContain('母号封号');
+    expect(html).toContain('member@example.com');
+    expect(html).not.toContain('空位');
+  });
 });

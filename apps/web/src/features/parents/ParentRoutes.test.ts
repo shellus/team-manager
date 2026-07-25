@@ -7,7 +7,7 @@ import {
 describe('buildParentDeleteLocation', () => {
   test('selects the parent and opens its delete modal in one navigation', () => {
     const location = buildParentDeleteLocation(
-      new URLSearchParams('q=owner&tab=billing'),
+      new URLSearchParams('q=owner&tags=gam%2Ccodex%2Cteam&tab=billing'),
       { id: 'parent-1', groupName: '客户 A' },
       '客户 A',
       'billing'
@@ -20,6 +20,7 @@ describe('buildParentDeleteLocation', () => {
     expect(params.get('modal')).toBe('delete-parent');
     expect(params.get('target')).toBe('parent-1');
     expect(params.get('q')).toBe('owner');
+    expect(params.get('tags')).toBe('gam,codex,team');
   });
 });
 

@@ -197,6 +197,70 @@ describe('buildSeatOverviewItems', () => {
     expect(items[1]).toEqual(expect.objectContaining({ seatKey: 'late-slot' }));
     expect(items.at(-1)?.expiresOn).toBeUndefined();
   });
+
+  test('excludes empty positions from banned parents and sorts their occupied positions last', () => {
+    const items = buildSeatOverviewItems([
+      account({
+        id: 'banned',
+        isBanned: true,
+        workspaceName: 'Banned Team',
+        seatSlots: [
+          {
+            seatKey: 'banned-member',
+            email: 'banned-member@example.com',
+            expiresOn: '2026-07-01',
+            seat: 'default',
+            status: 'member',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          },
+          {
+            seatKey: 'banned-empty',
+            expiresOn: '2026-07-02',
+            seat: 'default',
+            status: 'empty',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          }
+        ]
+      }),
+      account({
+        id: 'normal',
+        workspaceName: 'Normal Team',
+        seatSlots: [
+          {
+            seatKey: 'normal-member',
+            email: 'normal-member@example.com',
+            expiresOn: '2026-08-01',
+            seat: 'default',
+            status: 'member',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          },
+          {
+            seatKey: 'normal-empty',
+            expiresOn: '2026-08-02',
+            seat: 'default',
+            status: 'empty',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          }
+        ]
+      })
+    ]);
+
+    expect(items.map((item) => item.seatKey)).toEqual([
+      'normal-member',
+      'normal-empty',
+      'banned-member'
+    ]);
+    expect(items.at(-1)).toEqual(expect.objectContaining({ parentIsBanned: true }));
+    expect(items.some((item) => item.seatKey === 'banned-empty')).toBe(false);
+  });
 });
 
 describe('filterSeatOverviewItems', () => {

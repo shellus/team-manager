@@ -63,6 +63,7 @@ export interface Account {
   remark?: string;            // 本地备注，不等同远端 Team 名称
   groupName?: string;         // 本地母号分组，缺省由后端归入默认分组
   limitType?: AccountLimitType; // 本地记录的额度窗口类型
+  isBanned?: boolean;         // 人工封号标记；独立于远端账号状态
   accountId: string;          // workspace account_id（chatgpt-account-id 头）
   email: string;              // owner 邮箱
   accessToken: string;        // JWT，发请求用
@@ -114,6 +115,7 @@ export interface AccountView {
   remark?: string;
   groupName: string;
   limitType: AccountLimitType;
+  isBanned?: boolean;
   accountId: string;
   email: string;
   proxy?: string;
@@ -156,6 +158,7 @@ export interface AccountSummaryView {
   remark?: string;
   groupName: string;
   limitType: AccountLimitType;
+  isBanned?: boolean;
   accountId: string;
   email: string;
   planType?: string;
@@ -179,6 +182,7 @@ export interface AccountLocalProfileView {
   remark?: string;
   groupName: string;
   limitType: AccountLimitType;
+  isBanned?: boolean;
   nextRenewalOn?: string;
   proxy?: string;
   session?: ChatGptSessionInput;
@@ -191,6 +195,7 @@ export type AccountOverviewView = Pick<
   | 'accountId'
   | 'email'
   | 'remark'
+  | 'isBanned'
   | 'workspaceName'
   | 'nextRenewalOn'
   | 'hasTeamSubscription'
@@ -198,6 +203,74 @@ export type AccountOverviewView = Pick<
   | 'pendingInvitesCache'
   | 'seatSlots'
 >;
+
+/** Team 升级订单的全局配置；母号可逐字段覆盖，空值表示继承全局。 */
+export interface TeamOrderConfig {
+  promoCode: string;
+  country: string;
+  currency: string;
+}
+
+export type TeamOrderConfigOverrides = Partial<TeamOrderConfig>;
+
+export type TeamOrderMaintenanceStatus = 'active' | 'paused';
+
+/** 独立于母号状态的订单维护池记录。 */
+export interface TeamOrderMaintenance {
+  accountId: string;
+  status: TeamOrderMaintenanceStatus;
+  overrides: TeamOrderConfigOverrides;
+  nextRunAt: number;
+  pauseReason?: string;
+  lastSuccessAt?: number;
+  lastError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type TeamOrderStatus = 'queued' | 'running' | 'ready' | 'failed';
+export type TeamOrderSource = 'scheduled' | 'manual' | 'manual_all';
+
+/** 一次 TeamCode 订单维护任务及其最终支付链接。 */
+export interface MaintainedTeamOrder {
+  id: string;
+  accountId: string;
+  source: TeamOrderSource;
+  status: TeamOrderStatus;
+  scheduledFor: number;
+  workspaceId: string;
+  workspaceName: string;
+  config: TeamOrderConfig;
+  attemptCount: number;
+  taskId?: string;
+  payUrl?: string;
+  stripeCreatedAt?: number;
+  expiresAt?: number;
+  retryAt?: number;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+/** 订单状态维护页面的一行，包含母号摘要、维护配置和最近订单。 */
+export interface TeamOrderMaintenanceView {
+  account: AccountSummaryView;
+  maintenance: TeamOrderMaintenance;
+  effectiveConfig: TeamOrderConfig;
+  orders: MaintainedTeamOrder[];
+}
+
+export interface TeamOrderDashboardView {
+  configured: boolean;
+  globalConfig: TeamOrderConfig;
+  items: TeamOrderMaintenanceView[];
+}
+
+export interface TeamOrderBatchResult {
+  queued: number;
+  skipped: number;
+}
 
 export function accountSummaryFromView(account: AccountView): AccountSummaryView {
   const members = account.membersCache;
@@ -217,6 +290,7 @@ export function accountSummaryFromView(account: AccountView): AccountSummaryView
     account.workspaceName,
     account.accountId,
     account.nextRenewalOn,
+    account.isBanned ? '封号 已封号' : undefined,
     ...(members ?? []).flatMap((member) => [member.email, member.remoteName, member.role]),
     ...(invites ?? []).flatMap((invite) => [invite.email, invite.role]),
     ...(account.seatSlots ?? []).flatMap((slot) => [
@@ -234,6 +308,7 @@ export function accountSummaryFromView(account: AccountView): AccountSummaryView
     remark: account.remark,
     groupName: account.groupName,
     limitType: account.limitType,
+    isBanned: account.isBanned,
     accountId: account.accountId,
     email: account.email,
     planType: account.planType,
@@ -544,6 +619,7 @@ export interface Subaccount {
   email: string;               // 只取 session.user.email 或注册得到的邮箱
   remark?: string;             // 本地备注
   groupName?: string;          // 本地子号分组，缺省由后端归入默认分组
+  isBanned?: boolean;          // 人工封号标记；独立于远端账号状态
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
@@ -579,6 +655,7 @@ export interface SubaccountView {
   email: string;
   remark?: string;
   groupName?: string;
+  isBanned?: boolean;
   chatgptAccountId?: string;
   proxy?: string;
   managedAccountEmail?: string;
@@ -614,6 +691,7 @@ export interface SubaccountSummaryView {
   email: string;
   remark?: string;
   groupName?: string;
+  isBanned?: boolean;
   managedAccountEmail?: string;
   status: SubaccountStatus;
   hasWebSession: boolean;
@@ -631,6 +709,7 @@ export interface SubaccountLocalProfileView {
   id: string;
   remark?: string;
   groupName?: string;
+  isBanned?: boolean;
   proxy?: string;
   session?: ChatGptSessionInput;
 }
@@ -645,6 +724,7 @@ export function subaccountSummaryFromView(subaccount: SubaccountView): Subaccoun
     subaccount.remoteDisplayName,
     subaccount.managedAccountEmail,
     subaccount.status,
+    subaccount.isBanned ? '封号 已封号' : undefined,
     ...subaccount.teamLinks.flatMap((link) => [
       link.workspaceId,
       link.workspaceName,
@@ -658,6 +738,7 @@ export function subaccountSummaryFromView(subaccount: SubaccountView): Subaccoun
     email: subaccount.email,
     remark: subaccount.remark,
     groupName: subaccount.groupName,
+    isBanned: subaccount.isBanned,
     managedAccountEmail: subaccount.managedAccountEmail,
     status: subaccount.status,
     hasWebSession: subaccount.hasWebSession,

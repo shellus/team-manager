@@ -14,7 +14,13 @@ async function main() {
   await subaccountStore.init();
   const settingsStore = new AppSettingsStore(config.dataDir);
   await settingsStore.init();
-  const app = await buildApp({ config, store, subaccountStore, settingsStore });
+  const app = await buildApp({
+    config,
+    store,
+    subaccountStore,
+    settingsStore,
+    startTeamOrderScheduler: true
+  });
   startNotificationScheduler(settingsStore, store);
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {

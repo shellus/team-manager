@@ -80,7 +80,8 @@ export class TeamService {
   constructor(
     private readonly store: AccountStore,
     private readonly transport: Transport = createTransport(),
-    private readonly billingStore?: AccountBillingStore
+    private readonly billingStore?: AccountBillingStore,
+    private readonly inviteEmailGuard?: (email: string) => void
   ) {}
 
   /** 取母号；个人态记录先从保存的 Session 发现可管理 Workspace，再处理 token 刷新。 */
@@ -208,6 +209,7 @@ export class TeamService {
       remark: account.remark,
       groupName: account.groupName || '默认分组',
       limitType: account.limitType ?? 'unknown',
+      isBanned: account.isBanned === true,
       accountId: account.accountId,
       email: account.email,
       proxy: account.proxy,
@@ -263,6 +265,7 @@ export class TeamService {
       remark: view.remark,
       groupName: view.groupName,
       limitType: view.limitType,
+      isBanned: view.isBanned,
       nextRenewalOn: view.nextRenewalOn,
       proxy: view.proxy,
       session: view.session
@@ -276,6 +279,7 @@ export class TeamService {
       accountId: view.accountId,
       email: view.email,
       remark: view.remark,
+      isBanned: view.isBanned,
       workspaceName: view.workspaceName,
       nextRenewalOn: view.nextRenewalOn,
       hasTeamSubscription: view.hasTeamSubscription,
@@ -322,6 +326,7 @@ export class TeamService {
 
   async swapPublicSeatSlotEmail(seatKey: string, email: string): Promise<PublicSeatSlotView> {
     const normalizedEmail = this.normalizeSeatSlotEmail(email);
+    this.inviteEmailGuard?.(normalizedEmail);
     const found = this.findSeatSlotByKey(seatKey);
     if (found.account.seatSlots?.some((slot) => slot.seatKey !== seatKey && slot.email?.toLowerCase() === normalizedEmail)) {
       throw new ServiceError(409, '该邮箱已绑定到同一母号的其他席位');
@@ -860,6 +865,7 @@ export class TeamService {
     remark?: unknown;
     groupName?: unknown;
     limitType?: unknown;
+    isBanned?: unknown;
     nextRenewalOn?: unknown;
     proxy?: unknown;
     session: unknown;
@@ -870,6 +876,7 @@ export class TeamService {
         remark: record.remark,
         groupName: record.groupName,
         limitType: record.limitType,
+        isBanned: record.isBanned,
         nextRenewalOn: record.nextRenewalOn,
         proxy: record.proxy,
         session: record.session
@@ -882,6 +889,7 @@ export class TeamService {
     remark?: unknown;
     groupName?: unknown;
     limitType?: unknown;
+    isBanned?: unknown;
     nextRenewalOn?: unknown;
     proxy?: unknown;
   }): Partial<Account> {
@@ -895,6 +903,10 @@ export class TeamService {
         throw new ServiceError(400, '限额类型无效');
       }
       patch.limitType = input.limitType as AccountLimitType;
+    }
+    if (input.isBanned !== undefined) {
+      if (typeof input.isBanned !== 'boolean') throw new ServiceError(400, '封号标记必须是布尔值');
+      patch.isBanned = input.isBanned;
     }
     if (input.nextRenewalOn !== undefined) {
       patch.nextRenewalOn = this.normalizeOptionalDate(input.nextRenewalOn, '下次续费时间');
@@ -912,6 +924,7 @@ export class TeamService {
       remark?: unknown;
       groupName?: unknown;
       limitType?: unknown;
+      isBanned?: unknown;
       nextRenewalOn?: unknown;
       proxy?: unknown;
       session?: unknown;
@@ -1001,9 +1014,10 @@ export class TeamService {
 
   /** 提交邀请后直接更新本地待处理邀请，不用远端列表刷新阻塞响应。 */
   async invite(id: string, req: InviteRequest): Promise<AccountView> {
-    const { api } = await this.clientFor(id);
     const email = req.email.trim().toLowerCase();
     if (!email) throw new ServiceError(400, '缺少邀请邮箱');
+    this.inviteEmailGuard?.(email);
+    const { api } = await this.clientFor(id);
     await api.invite(email, req.seat, req.role);
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);

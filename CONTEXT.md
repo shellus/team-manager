@@ -24,6 +24,10 @@ _Avoid_: Workspace 成员数、Codex 席位、可管理 Workspace
 可选的规范化邮箱，表示当前母号或子号在 GPT Account Manager 中存在对应受管账号。引用不改变 Team Manager 对 Web Session 和 Team 业务关系的独立所有权。
 _Avoid_: CloakBrowser Profile ID、Account Manager 数据库 UUID、注册任务 ID
 
+**封号标记**:
+由用户人工维护、独立于远端 `status` 和 Web Session 可用性的账号运营标记。封号母号的空位不进入概览统计；封号子号不能再被邀请加入 Team；同步、编辑、退出 Team、订单维护等其他操作不受限制。
+_Avoid_: 自动封号检测、账号状态、停用账号、删除账号
+
 **Profile 控制**:
 Team Manager 使用受管账号引用请求 GPT Account Manager 启动或关闭该账号的运行 Profile。Team Manager 不拥有 Profile、浏览器身份或租约，也不负责打开浏览器或提供 VNC。
 _Avoid_: Profile 管理、打开浏览器、浏览器会话、直接调用 CloakBrowser
@@ -43,6 +47,22 @@ _Avoid_: Workspace 类型、两个默认席位成员、0.52 状态
 **双席位开通目标**:
 一次双席位开通作用的 GPT workspace。未选择目标表示创建新 Team workspace；选择目标表示升级该 GAM 母号下的指定既有空间。
 _Avoid_: 母号记录、任意 Team workspace
+
+**Team 升级订单**:
+以母号当前 Codex Workspace ID 为目标生成的普通两席位 Team Checkout。它只升级指定既有 Workspace，不创建新 Workspace；订单支付后是否生效由后续 Workspace 同步确认。
+_Avoid_: 新建 Team Workspace、普通验码任务、付款状态
+
+**订单维护池**:
+需要周期性维护 Team 升级订单的母号集合。加入维护池会创建独立维护记录，不修改母号自身状态；母号列表中的“订单维护中”是由有效维护记录派生的展示标签。
+_Avoid_: 母号状态、Team 订阅状态、自动支付队列
+
+**订单维护配置**:
+生成 Team 升级订单使用的优惠码、国家和货币。系统先读取全局配置，再逐字段应用母号非空覆盖，并把最终配置快照保存到当次订单记录。
+_Avoid_: 母号独立必填配置、运行环境配置
+
+**有效升级订单**:
+TeamCode 已成功返回支付 URL，且 Stripe `expires_at` 尚未到达的 Team 升级订单。“有效”只描述支付链接仍在有效期内，不表示已付款或订阅已开通。
+_Avoid_: 已支付订单、有效 Team 订阅
 
 **自动支付**:
 双席位开通在 Stripe 页面准备完成后是否自动点击 Pay 的显式选项。默认关闭；关闭时进入人工处理并继续监听付款结果。

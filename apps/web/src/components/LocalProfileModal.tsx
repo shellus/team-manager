@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { inspectChatGptSessionImportInput, type AccountLimitType, type ChatGptSessionInput } from '@team-manager/shared';
-import { Alert, Descriptions, Form, Input, Modal, Select, Skeleton } from 'antd';
+import { Alert, Descriptions, Form, Input, Modal, Select, Skeleton, Switch } from 'antd';
 import { parseJsonObject } from './format.js';
 import { formatLocalProfileSessionJson, shouldSubmitLocalProfileSession } from './localProfileSession.js';
 import { LIMIT_TYPE_LABEL } from '../labels.js';
@@ -11,6 +11,7 @@ interface LocalProfileFormValues {
   remark?: string;
   groupName?: string;
   limitType?: AccountLimitType;
+  isBanned?: boolean;
   nextRenewalOn?: string;
   proxy?: string;
   rawSession?: string;
@@ -37,6 +38,7 @@ export function LocalProfileModal({
     remark?: string;
     groupName?: string;
     limitType?: AccountLimitType;
+    isBanned?: boolean;
     nextRenewalOn?: string;
     proxy?: string;
     session?: ChatGptSessionInput;
@@ -50,6 +52,7 @@ export function LocalProfileModal({
     remark?: string;
     groupName?: string;
     limitType?: AccountLimitType;
+    isBanned?: boolean;
     nextRenewalOn?: string;
     proxy?: string;
     session?: unknown;
@@ -69,6 +72,7 @@ export function LocalProfileModal({
       remark: initialValues.remark,
       groupName: initialValues.groupName || '默认分组',
       limitType: initialValues.limitType ?? 'unknown',
+      isBanned: initialValues.isBanned ?? false,
       nextRenewalOn: initialValues.nextRenewalOn ?? '',
       proxy: initialValues.proxy ?? '',
       rawSession: initialSessionJson
@@ -78,6 +82,7 @@ export function LocalProfileModal({
   }, [
     form,
     initialValues.groupName,
+    initialValues.isBanned,
     initialValues.limitType,
     initialValues.nextRenewalOn,
     initialValues.proxy,
@@ -132,6 +137,7 @@ export function LocalProfileModal({
       await onSubmit({
         remark: values.remark?.trim() ?? '',
         groupName: values.groupName?.trim() || '默认分组',
+        isBanned: values.isBanned ?? false,
         proxy: values.proxy?.trim() ?? '',
         ...(mode === 'parent' ? {
           limitType: values.limitType ?? 'unknown',
@@ -212,6 +218,16 @@ export function LocalProfileModal({
                 </>
               )}
             </div>
+            <Form.Item
+              name="isBanned"
+              label="封号标记"
+              valuePropName="checked"
+              extra={mode === 'parent'
+                ? '封号母号的空位不计入概览；其他操作不受限制。'
+                : '封号子号不能邀请加入 Team；其他操作不受限制。'}
+            >
+              <Switch checkedChildren="已封号" unCheckedChildren="正常" />
+            </Form.Item>
             <Form.Item name="proxy" label="代理地址">
               <Input placeholder="http://proxy-host:port 或 socks5://proxy-host:port" />
             </Form.Item>

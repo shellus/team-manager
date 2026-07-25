@@ -11,7 +11,7 @@ import type { SubaccountTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { AccountManagerAssociationPanel } from '../../components/AccountManagerAssociationPanel.js';
 import { formatDateTime } from '../../components/format.js';
-import { SubaccountStatusTag } from '../../components/StatusTag.js';
+import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag.js';
 import { SubaccountLogPanel } from './SubaccountLogPanel.js';
 import { SubaccountPatCredentialPanel } from './SubaccountPatCredentialPanel.js';
 import { SubaccountSettingsPanel } from './SubaccountSettingsPanel.js';
@@ -78,6 +78,7 @@ export function SubaccountDetail({
         <div>
           <Space align="center">
             <Typography.Title level={2}>{subaccount.remark || subaccount.email}</Typography.Title>
+            <BannedStatusTag isBanned={subaccount.isBanned} />
             <SubaccountStatusTag status={subaccount.status} />
           </Space>
           <Space className="detail-meta-row" size={8} wrap>

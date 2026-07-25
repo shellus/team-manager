@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { AccountSummaryView, SeatType, SubaccountTeamLink, SubaccountView } from '@team-manager/shared';
 import { LinkOutlined, LogoutOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Space, Table, Typography } from 'antd';
+import { Alert, Button, Space, Table, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { actionKey } from '../../components/actionBusy.js';
 import { apiClient } from '../../api.js';
@@ -128,9 +128,13 @@ export function SubaccountTeamLinks({
           <Button icon={<ReloadOutlined />} loading={actionBusy.isBusy('team-link-sync')} onClick={() => void syncTeamLinks()}>
             刷新关联
           </Button>
-          <Button type="primary" icon={<LinkOutlined />} onClick={onOpenInvite}>
-            邀请加入 Team
-          </Button>
+          <Tooltip title={subaccount.isBanned ? '封号子号不能邀请加入 Team' : undefined}>
+            <span>
+              <Button type="primary" icon={<LinkOutlined />} disabled={subaccount.isBanned} onClick={onOpenInvite}>
+                邀请加入 Team
+              </Button>
+            </span>
+          </Tooltip>
         </Space>
       </div>
       {error && <Alert type="error" showIcon message={error} />}

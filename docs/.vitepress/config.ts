@@ -18,6 +18,7 @@ export default defineConfig({
         items: [
           { text: '业务流程总览', link: '/guide/' },
           { text: '母号与 Team 管理', link: '/guide/mother-accounts' },
+          { text: 'Team 升级订单维护', link: '/guide/team-order-maintenance' },
           { text: '子号与 Codex 凭证', link: '/guide/subaccounts' },
           { text: '额度与席位轮转', link: '/guide/quota-and-seats' },
           { text: '新号填充凭证号池', link: '/guide/fill-credential-pool' },
@@ -34,6 +35,7 @@ export default defineConfig({
         text: '开发参考',
         items: [
           { text: '数据模型', link: '/dev-spec/data-model' },
+          { text: 'Team 升级订单维护', link: '/dev-spec/team-order-maintenance' },
           { text: '子号管理实现边界', link: '/dev-spec/subaccount-management' },
           { text: '子号注册与授权 SOP', link: '/dev-spec/subaccount-registration-sop' },
           { text: '凭证 workspace 绑定实验', link: '/dev-spec/codex-workspace-credential-experiment' },

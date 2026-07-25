@@ -48,13 +48,14 @@ Account Manager 执行以下顺序：
 
 ## 列表状态
 
-每个母号列表项展示三个独立标记：
+每个母号列表项按独立维度展示状态：
 
-- `GAM`：是否保存 `managedAccountEmail`。
-- `0.52`：Account Manager 是否存在可见的 `self_serve_business_usage_based` workspace。
-- `双席位`：Account Manager 是否存在可见的 `team` workspace，或当前母号同步到有效的 Team 月付订阅。
+- `GAM` / `非 GAM`：是否保存 `managedAccountEmail`。
+- `0.52`：只在 Account Manager 存在可见的 `self_serve_business_usage_based` workspace 时展示。
+- `双席位`：只在 Account Manager 存在可见的 `team` workspace，或当前母号同步到有效的 Team 月付订阅时展示。
+- `周限` / `月限` / `未知`：只在已经开通双席位时展示当前本地限额类型。
 
-`0.52` 继续由 Account Manager 关联状态派生；双席位状态会缓存到母号记录，并兼容 `planType="team"`。当双席位为已开通且 0.52 为未开通时，界面省略“未开 0.52”负面标签。
+`0.52` 继续由 Account Manager 关联状态派生；双席位状态会缓存到母号记录，并兼容 `planType="team"`。未开通的 0.52 或双席位不显示负面标签。
 
 ## 运行中任务控制
 

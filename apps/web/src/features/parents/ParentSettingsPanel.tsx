@@ -86,7 +86,9 @@ export function ParentSettingsPanel({
           <Descriptions.Item label="owner">{account.email}</Descriptions.Item>
           <Descriptions.Item label="备注">{account.remark || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="分组">{account.groupName || '默认分组'}</Descriptions.Item>
-          <Descriptions.Item label="限额类型"><LimitTypeTag limitType={account.limitType} /></Descriptions.Item>
+          {account.hasTeamSubscription && (
+            <Descriptions.Item label="限额类型"><LimitTypeTag limitType={account.limitType} /></Descriptions.Item>
+          )}
           <Descriptions.Item label="下次续费">{account.nextRenewalOn || '暂无'}</Descriptions.Item>
           <Descriptions.Item label="workspace">{account.workspaceName || account.accountId}</Descriptions.Item>
           <Descriptions.Item label="套餐">{planLabel(account.planType)}</Descriptions.Item>

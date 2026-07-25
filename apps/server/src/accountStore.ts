@@ -220,6 +220,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     ...(remark ? { remark } : {}),
     groupName: readTrimmedString(input.groupName) || DEFAULT_ACCOUNT_GROUP,
     limitType: normalizeLimitType(input.limitType),
+    isBanned: input.isBanned === true,
     accountId: readTrimmedString(input.accountId),
     email,
     accessToken: readTrimmedString(input.accessToken),

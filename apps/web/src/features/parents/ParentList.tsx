@@ -20,8 +20,9 @@ import { Button, Card, Dropdown, List, Popconfirm, Progress, Space, Tag, Tooltip
 import { formatRelativeTime, shortText } from '../../components/format.js';
 import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
-import { LimitTypeTag } from '../../components/StatusTag.js';
+import { BannedStatusTag, LimitTypeTag } from '../../components/StatusTag.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
+import { ParentQuickFilterBar } from './ParentQuickFilterBar.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 import {
   parentChatGptSeatUsageCount,
@@ -30,6 +31,7 @@ import {
   parentSeatUsageClass
 } from './parentListItem.js';
 import { canManageParentWorkspace, hasParentCodexSpace } from './parentWorkspaceCapability.js';
+import type { ParentQuickFilter } from './parentQuickFilters.js';
 
 function taskSummary(task: ParentRegistrationTaskView): string {
   if (task.stage === 'registration_failed') return task.error || '注册未完成，可按原邮箱重试';
@@ -99,13 +101,16 @@ export function ParentList({
   accounts,
   accountManagerStatuses,
   registrationTasks,
+  maintainedAccountIds = new Set<string>(),
   searchQuery,
+  quickFilters,
   selectedId,
   syncingIds,
   runtimeStatus,
   isBusy,
   onGroupChange,
   onSearchChange,
+  onQuickFiltersChange,
   onOpenRegister,
   onOpenImport,
   onRetryRegistration,
@@ -122,13 +127,16 @@ export function ParentList({
   accounts: AccountSummaryView[];
   accountManagerStatuses: Record<string, ParentAccountManagerStatus>;
   registrationTasks: ParentRegistrationTaskView[];
+  maintainedAccountIds?: Set<string>;
   searchQuery: string;
+  quickFilters: ParentQuickFilter[];
   selectedId: string;
   syncingIds: Set<string>;
   runtimeStatus: AccountManagerRuntimeStatus | null;
   isBusy: (key: string) => boolean;
   onGroupChange: (group: string) => void;
   onSearchChange: (query: string) => void;
+  onQuickFiltersChange: (filters: ParentQuickFilter[]) => void;
   onOpenRegister: () => void;
   onOpenImport: () => void;
   onRetryRegistration: (task: ParentRegistrationTaskView) => void;
@@ -141,7 +149,7 @@ export function ParentList({
   onOpenDelete: (account: AccountSummaryView) => void;
 }) {
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const matchingTasks = registrationTasks.filter((task) =>
+  const matchingTasks = quickFilters.length > 0 ? [] : registrationTasks.filter((task) =>
     !normalizedQuery || [task.email, task.registration.message, task.error]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(normalizedQuery))
@@ -172,6 +180,7 @@ export function ParentList({
         value={searchQuery}
         onSearchChange={onSearchChange}
       />
+      <ParentQuickFilterBar value={quickFilters} onChange={onQuickFiltersChange} />
       {groups.length > 0 && (
         <GroupSelector
           ariaLabel="筛选母号分组"
@@ -193,7 +202,11 @@ export function ParentList({
         className="record-list"
         dataSource={records}
         rowKey={(record) => `${record.kind}:${record.id}`}
-        locale={{ emptyText: searchQuery ? '没有匹配的母号或注册任务' : '当前分组没有母号' }}
+        locale={{
+          emptyText: searchQuery || quickFilters.length > 0
+            ? '没有匹配筛选条件的母号'
+            : '当前分组没有母号'
+        }}
         renderItem={(record) => {
           if (record.kind === 'task') {
             const task = record.task;
@@ -334,7 +347,10 @@ export function ParentList({
                   {account.nextRenewalOn && <span>续费 {account.nextRenewalOn}</span>}
                 </div>
                 <div className="record-meta record-status-meta" aria-label="母号状态">
-                  <span className="record-meta-tag"><LimitTypeTag limitType={account.limitType} /></span>
+                  <BannedStatusTag isBanned={account.isBanned} />
+                  {hasTeamSubscription && (
+                    <span className="record-meta-tag"><LimitTypeTag limitType={account.limitType} /></span>
+                  )}
                   <Tag color={account.managedAccountEmail ? 'blue' : 'default'}>
                     {account.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
@@ -342,6 +358,7 @@ export function ParentList({
                     hasCodexSpace={hasParentCodexSpace(account, managerStatus)}
                     hasTeamSubscription={hasTeamSubscription}
                   />
+                  {maintainedAccountIds.has(account.id) && <Tag color="processing">订单维护中</Tag>}
                   <span className="record-status-time">同步 {formatRelativeTime(account.lastRefreshAt)}</span>
                 </div>
                 {workspaceOperation && (

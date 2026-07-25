@@ -32,6 +32,16 @@ export function AccountStatusTag({ status }: { status?: 'active' | 'invalid' | '
   return <Tag>待同步</Tag>;
 }
 
+export function BannedStatusTag({
+  isBanned,
+  label = '已封号'
+}: {
+  isBanned?: boolean;
+  label?: string;
+}) {
+  return isBanned ? <Tag color="error">{label}</Tag> : null;
+}
+
 export function SubaccountStatusTag({ status }: { status: SubaccountStatus }) {
   const color =
     status === 'codex_ready'

@@ -356,12 +356,13 @@ export function SubaccountRoutes({
     try {
       await actionBusy.run('import-session', async () => {
         const record = payload && typeof payload === 'object'
-          ? payload as { remark?: string; groupName?: string; proxy?: string; session?: unknown }
+          ? payload as { remark?: string; groupName?: string; isBanned?: boolean; proxy?: string; session?: unknown }
           : {};
         if (!record.session) throw new Error('请粘贴 Session JSON');
         const added = await apiClient.importSubaccountSession({
           remark: record.remark ?? '',
           groupName: record.groupName ?? '默认分组',
+          isBanned: record.isBanned ?? false,
           proxy: record.proxy ?? '',
           session: record.session
         });
@@ -418,6 +419,7 @@ export function SubaccountRoutes({
   const updateLocalProfile = async (payload: {
     remark?: string;
     groupName?: string;
+    isBanned?: boolean;
     proxy?: string;
     session?: unknown;
   }) => {
@@ -428,6 +430,7 @@ export function SubaccountRoutes({
         const updated = await apiClient.updateSubaccountLocalProfile(selectedSummary.id, {
           remark: payload.remark ?? '',
           groupName: payload.groupName ?? '默认分组',
+          isBanned: payload.isBanned ?? false,
           proxy: payload.proxy ?? '',
           ...(payload.session ? { session: payload.session } : {})
         });
@@ -615,7 +618,7 @@ export function SubaccountRoutes({
         description="保存子号本地记录后，可继续生成 Codex 凭证并查询额度。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         submitLabel="保存子号"
         requireSession
-        initialValues={{ remark: '', groupName: '默认分组', proxy: '' }}
+        initialValues={{ remark: '', groupName: '默认分组', isBanned: false, proxy: '' }}
         confirmLoading={actionBusy.isBusy('import-session')}
         onCancel={closeModal}
         onSubmit={importSession}
@@ -625,10 +628,11 @@ export function SubaccountRoutes({
         open={searchState.modal === 'edit-subaccount-profile' && Boolean(selectedSummary)}
         mode="subaccount"
         title="编辑子号本地资料"
-        description="只更新本系统保存的备注、分组、代理地址和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
+        description="只更新本系统保存的备注、分组、封号标记、代理地址和 Web session，不修改 Codex 凭证。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
         initialValues={{
           remark: localProfile?.remark ?? selectedSummary?.remark ?? '',
           groupName: localProfile?.groupName ?? selectedSummary?.groupName ?? '默认分组',
+          isBanned: localProfile?.isBanned ?? selectedSummary?.isBanned ?? false,
           proxy: localProfile?.proxy ?? '',
           session: localProfile?.session
         }}

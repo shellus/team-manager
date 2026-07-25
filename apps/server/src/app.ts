@@ -14,6 +14,9 @@ import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
 import { ParentAccountManagerService } from './parentAccountManagerService.js';
+import { TeamCodeClient, type TeamCodeGateway } from './teamCodeClient.js';
+import { TeamOrderService } from './teamOrderService.js';
+import { TeamOrderStore } from './teamOrderStore.js';
 import { parseOpenCodexSpaceRequest } from './openCodexSpaceRequest.js';
 import {
   createAccountManagerClient,
@@ -39,6 +42,8 @@ export interface BuildAppDeps {
   teamTransport?: Transport;
   settingsStore?: AppSettingsStore;
   billingStore?: AccountBillingStore;
+  teamCodeGateway?: TeamCodeGateway;
+  startTeamOrderScheduler?: boolean;
 }
 
 // 恒定时间字符串比较，避免 token 校验的时序侧信道
@@ -78,12 +83,18 @@ export async function buildApp({
   subaccountAccountManager,
   teamTransport,
   settingsStore,
-  billingStore
+  billingStore,
+  teamCodeGateway,
+  startTeamOrderScheduler = false
 }: BuildAppDeps): Promise<Hono> {
   const app = new Hono();
   const accountBillingStore = billingStore ?? new AccountBillingStore(config.dataDir);
   await accountBillingStore.init();
-  const service = new TeamService(store, teamTransport, accountBillingStore);
+  const assertSubaccountCanBeInvited = (email: string) => {
+    const subaccount = subaccountStore.getByEmail(email.trim());
+    if (subaccount?.isBanned) throw new ServiceError(409, '封号子号不能邀请加入 Team');
+  };
+  const service = new TeamService(store, teamTransport, accountBillingStore, assertSubaccountCanBeInvited);
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
   const accountManager = subaccountAccountManager ?? createAccountManagerClient();
@@ -94,6 +105,16 @@ export async function buildApp({
     accountManager
   );
   const parentAccountManagerService = new ParentAccountManagerService(store, service, accountManager);
+  const teamOrderStore = new TeamOrderStore(config.dataDir);
+  await teamOrderStore.init();
+  const teamOrderService = new TeamOrderService(
+    teamOrderStore,
+    store,
+    service,
+    teamCodeGateway ?? new TeamCodeClient(config.teamCodeBaseUrl, config.teamCodePasscode)
+  );
+  await teamOrderService.init();
+  if (startTeamOrderScheduler) teamOrderService.start();
 
   const syncTeamLinksByChildWorkspaces = async (id: string, subaccount: Subaccount) => {
     if (!subaccount.webAccessToken?.trim() || !subaccount.chatgptAccountId?.trim()) {
@@ -358,6 +379,45 @@ export async function buildApp({
     return wrap(c, () => appSettingsStore.updateNotificationSettings(body));
   });
 
+  // ---- Team 升级订单维护 ----
+  api.get('/team-orders', (c) => wrap(c, () => teamOrderService.dashboard()));
+
+  api.patch('/team-orders/settings', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => teamOrderService.updateGlobalConfig(body));
+  });
+
+  api.post('/team-orders/generate-all', (c) =>
+    wrap(c, () => teamOrderService.generateAll())
+  );
+
+  api.get('/accounts/:id/team-order-maintenance', (c) =>
+    wrap(c, () => teamOrderService.accountView(c.req.param('id')))
+  );
+
+  api.post('/accounts/:id/team-order-maintenance', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => teamOrderService.joinOrUpdate(c.req.param('id'), body));
+  });
+
+  api.patch('/accounts/:id/team-order-maintenance', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { paused?: unknown };
+    if (typeof body.paused !== 'boolean') return c.json({ ok: false, error: '缺少 paused' }, 400);
+    return wrap(c, () => teamOrderService.setPaused(c.req.param('id'), body.paused as boolean));
+  });
+
+  api.delete('/accounts/:id/team-order-maintenance', (c) =>
+    wrap(c, () => teamOrderService.remove(c.req.param('id')))
+  );
+
+  api.post('/accounts/:id/team-orders', (c) =>
+    wrap(c, () => teamOrderService.generateNow(c.req.param('id')))
+  );
+
+  api.post('/accounts/:id/team-orders/:orderId/retry', (c) =>
+    wrap(c, () => teamOrderService.retryOrder(c.req.param('id'), c.req.param('orderId')))
+  );
+
   // ---- 母号 ----
   api.get('/accounts/registration/status', (c) =>
     wrap(c, () => parentAccountManagerService.runtimeStatus())
@@ -402,6 +462,7 @@ export async function buildApp({
       remark?: unknown;
       groupName?: unknown;
       limitType?: unknown;
+      isBanned?: unknown;
       nextRenewalOn?: unknown;
       proxy?: unknown;
       session?: unknown;
@@ -682,6 +743,7 @@ export async function buildApp({
     const body = (await c.req.json().catch(() => ({}))) as {
       remark?: unknown;
       groupName?: unknown;
+      isBanned?: unknown;
       proxy?: unknown;
       session?: unknown;
     };

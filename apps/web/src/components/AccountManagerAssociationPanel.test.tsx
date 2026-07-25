@@ -23,7 +23,7 @@ describe('AccountManagerAssociationPanel', () => {
     expect(html).toContain('owner@example.com');
     expect(html).toContain('GAM');
     expect(html).toContain('0.52');
-    expect(html).toContain('未开双席位');
+    expect(html).not.toContain('未开双席位');
     expect(html).toContain('启动 Profile');
     expect(html).toContain('关闭 Profile');
   });

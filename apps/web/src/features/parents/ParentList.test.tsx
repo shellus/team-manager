@@ -41,12 +41,14 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
       accountManagerStatuses={{}}
       registrationTasks={[]}
       searchQuery=""
+      quickFilters={[]}
       selectedId=""
       syncingIds={new Set()}
       runtimeStatus={{ configured: true, reachable: true }}
       isBusy={() => false}
       onGroupChange={() => undefined}
       onSearchChange={() => undefined}
+      onQuickFiltersChange={() => undefined}
       onSelect={() => undefined}
       onRefreshAccount={() => undefined}
       onOpenDelete={() => undefined}
@@ -90,7 +92,7 @@ describe('ParentList', () => {
     expect(html).toContain('更换IP');
   });
 
-  test('marks GAM, 0.52 and two-seat Team state on each parent row', () => {
+  test('shows opened 0.52 without rendering a negative two-seat Team tag', () => {
     const html = renderList({
       accounts: [parent],
       accountManagerStatuses: {
@@ -105,10 +107,16 @@ describe('ParentList', () => {
       }
     });
 
-    expect(html).toContain('GAM');
-    expect(html).toContain('0.52');
-    expect(html).toContain('未开双席位');
+    expect(html).toMatch(/ant-tag-green[^>]*>0\.52/);
+    expect(html).not.toContain('未开双席位');
     expect(html).toContain('已发现 Workspace，等待同步');
+    expect(html).not.toContain('limit-type-unknown');
+  });
+
+  test('marks a manually banned parent account', () => {
+    const html = renderList({ accounts: [{ ...parent, isBanned: true }] });
+
+    expect(html).toContain('已封号');
   });
 
   test('uses the local derived Team status for a legacy parent without GAM', () => {
@@ -150,8 +158,42 @@ describe('ParentList', () => {
     expect(html).toContain('0.52');
     expect(html).not.toContain('未开 0.52');
     expect(html).not.toContain('ChatGPT 0 / 2');
-    expect(html).toContain('未开双席位');
+    expect(html).not.toContain('未开双席位');
+    expect(html).not.toContain('limit-type-unknown');
     expect(html).not.toContain('尚无可管理 Workspace');
+  });
+
+  test('shows the configured limit tag only for a two-seat Team parent', () => {
+    const html = renderList({
+      accounts: [{ ...parent, hasTeamSubscription: true, canManageWorkspace: true, limitType: 'monthly' }]
+    });
+
+    expect(html).toContain('limit-type-monthly');
+    expect(html).toContain('月限');
+  });
+
+  test('renders all quick tag filters and marks the active filter', () => {
+    const html = renderList({ quickFilters: ['codex', 'team'] });
+
+    expect(html).toContain('快捷筛选');
+    expect(html).toContain('GAM');
+    expect(html).toContain('0.52');
+    expect(html).toContain('双席位');
+    expect(html.match(/>是</g)).toHaveLength(5);
+    expect(html.match(/>否</g)).toHaveLength(5);
+    expect(html).toContain('周限');
+    expect(html).toContain('月限');
+    expect(html).toContain('封号');
+    expect(html).toContain('订单维护');
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(2);
+    expect(html).toContain('清除');
+  });
+
+  test('hides registration tasks while account tag filters are active', () => {
+    const html = renderList({ registrationTasks: [registeringTask], quickFilters: ['team'] });
+
+    expect(html).not.toContain('parent@example.com');
+    expect(html).toContain('没有匹配筛选条件的母号');
   });
 
   test('renders independent 0.52 and Team operation progress on the parent row', () => {

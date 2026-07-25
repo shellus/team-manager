@@ -1,6 +1,6 @@
 import { compareRecordSortName } from '../../components/recordSort.js';
 
-type SubaccountListRecord = { id: string; email: string; remark?: string };
+type SubaccountListRecord = { id: string; email: string; remark?: string; isBanned?: boolean };
 
 export function sortSubaccountsForList<T extends SubaccountListRecord>(subaccounts: readonly T[]): T[] {
   return [...subaccounts].sort(compareRecordSortName);

@@ -76,7 +76,7 @@
 
 创建订单时，Account Manager 会把该账号的 1024 代理临时切到所选国家。订单链接生成后立即恢复原出口，再继续 Stripe 支付；因此所选国家只作用于创建订单阶段。选择既有 Workspace 时，订单携带该空间 ID，付款后按原 ID 确认升级结果，不进入新空间命名流程。付款等待人工点击或无法自动确认时，页面保留并进入人工接管。既有 usage-based Workspace 在升级前后都保留管理能力；开通成功只改变双席位套餐状态。
 
-母号列表显示 `GAM` 和当前适用的开通状态。0.52 与双席位仍是独立能力；双席位已经开通但没有 0.52 时，不再显示负面的“未开 0.52”，仍保留独立的“开通 0.52”操作入口。
+母号列表显示 `GAM` / `非 GAM` 和已经开通的能力状态。0.52 与双席位仍是独立能力；未开通的能力不显示负面标签，但仍保留各自的开通操作入口。周限、月限和未知限额只在已经开通双席位时显示。
 
 `双席位` 状态以当前有效 Team 月付订阅为准，并兼容 `planType="team"`。既有 usage-based Workspace 升级 Team 后，`accounts/check` 可能仍保留 usage-based `planType`；系统会通过 recurring upcoming invoice 识别实际订阅。历史母号不需要补建 GAM profile。
 
@@ -86,7 +86,7 @@
 
 “同步 Workspace”对所有母号开放，不以当前双席位或本地 `planType` 为前提。它会读取已保存 Session 当前可见的 owner/admin Workspace：个人态母号如果在其他地方开通了 0.52 或 Team，会自动切换本地 `accountId` 和 Web access token；已有 Workspace 会并行刷新成员、邀请和当前 Team 月付订阅状态。关联 GAM 的母号还会在同一次操作中请求 GPT Account Manager 同步账号 Workspace。只要本地识别到 `self_serve_business_usage_based` Workspace，就会标记为已开 0.52，不依赖付款任务必须以成功状态结束；这样人工终止了异常跳转后的任务，也不会丢失已经成功创建的空间状态。即使 `accounts/check` 仍返回 usage-based `planType`，系统也能另外识别已升级的双席位 Workspace。
 
-如果当前 Session 没有任何可管理 Workspace，同步仍视为成功。页面继续显示“未开 0.52”和“未开双席位”，不会额外显示错误。
+如果当前 Session 没有任何可管理 Workspace，同步仍视为成功。页面不显示 0.52 或双席位能力标签，继续保留开通入口，也不会额外显示错误。
 
 个人 Session 切换到目标 Workspace 时需要已保存的 `sessionToken`。如果当前 Session 同时可管理多个 Workspace 且现有记录不能确定目标，系统不会猜测，操作员需要在“本地资料”中录入目标 Workspace 的 session 后再次同步。
 

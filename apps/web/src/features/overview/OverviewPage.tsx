@@ -3,7 +3,7 @@ import type { AccountOverviewView, AccountSeatSlotStatus } from '@team-manager/s
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
-import { MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
+import { BannedStatusTag, MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
 import {
   buildSeatOverviewItems,
   filterSeatOverviewItems,
@@ -121,7 +121,10 @@ function SeatOverviewCard({ item }: { item: SeatOverviewItem }) {
         <Typography.Text strong ellipsis={{ tooltip: identity.primary }}>
           {identity.primary}
         </Typography.Text>
-        <PositionOrSeatTag item={item} />
+        <Space size={4}>
+          <BannedStatusTag isBanned={item.parentIsBanned} label="母号封号" />
+          <PositionOrSeatTag item={item} />
+        </Space>
       </div>
       <SeatPositionField label="角色">
         <MemberRoleTag role={item.role} />

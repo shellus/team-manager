@@ -480,9 +480,64 @@ body {
 }
 
 .pane-search,
+.parent-quick-filters,
 .group-selector,
 .side-actions {
   margin-bottom: 12px;
+}
+
+.parent-quick-filters {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-control-track);
+}
+
+.parent-quick-filter-head {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.parent-quick-filter-head .ant-btn {
+  height: 22px;
+  padding-inline: 0;
+  font-size: 12px;
+}
+
+.parent-quick-filter-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+}
+
+.parent-quick-filter-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+
+.parent-quick-filter-label.ant-typography {
+  margin-right: 1px;
+  font-size: 11px;
+}
+
+.parent-quick-filter-tag.ant-btn {
+  height: 24px;
+  padding-inline: 8px;
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.parent-quick-filter-tag.ant-btn-default {
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
 }
 
 .group-selector.ant-radio-group {
@@ -849,6 +904,54 @@ body {
   margin-bottom: 16px;
 }
 
+.team-orders-page {
+  width: 100%;
+}
+
+.team-orders-header {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.team-orders-header h2.ant-typography,
+.team-orders-header .ant-typography {
+  margin-top: 0;
+}
+
+.team-order-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.team-order-config-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr);
+  gap: 12px;
+}
+
+.team-order-config-grid.compact {
+  grid-template-columns: minmax(220px, 1.4fr) minmax(160px, 0.8fr) minmax(160px, 0.8fr);
+}
+
+.team-orders-toolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 420px) minmax(140px, 180px);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.team-orders-table .ant-typography,
+.team-order-history-table .ant-typography {
+  max-width: 100%;
+}
+
+.team-order-inline-alert {
+  margin-bottom: 16px;
+}
+
 @media (max-width: 720px) {
   .personal-profile-summary {
     grid-template-columns: minmax(0, 1fr);
@@ -927,6 +1030,14 @@ body {
     flex-direction: column;
   }
 
+  .team-orders-header {
+    flex-direction: column;
+  }
+
+  .team-order-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .overview-header-side {
     align-items: flex-start;
   }
@@ -942,7 +1053,9 @@ body {
   .form-grid.two,
   .form-grid.three,
   .quota-row,
-  .payment-field-row {
+  .payment-field-row,
+  .team-order-config-grid,
+  .team-order-config-grid.compact {
     grid-template-columns: 1fr;
   }
 }
@@ -954,6 +1067,11 @@ body {
   }
 
   .seat-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .team-order-stat-grid,
+  .team-orders-toolbar {
     grid-template-columns: 1fr;
   }
 }

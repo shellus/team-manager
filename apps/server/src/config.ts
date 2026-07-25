@@ -16,6 +16,8 @@ export interface AppConfig {
   apiToken?: string;            // 固定 API Token：带此 token 的请求绕过 JWT 直接放行（供 CLI 等脚本调用）
   allowedOrigins: string[];
   webDistDir: string;
+  teamCodeBaseUrl?: string;
+  teamCodePasscode?: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -31,7 +33,9 @@ export function loadConfig(): AppConfig {
     adminPasswordHash: nonEmptyEnv('TEAMMGR_ADMIN_PASSWORD_HASH'),
     apiToken: nonEmptyEnv('TEAMMGR_API_TOKEN'),
     allowedOrigins: parseAllowedOrigins(nonEmptyEnv('TEAMMGR_ALLOWED_ORIGINS')),
-    webDistDir: resolve(nonEmptyEnv('TEAMMGR_WEB_DIST_DIR') ?? '../web/dist')
+    webDistDir: resolve(nonEmptyEnv('TEAMMGR_WEB_DIST_DIR') ?? '../web/dist'),
+    teamCodeBaseUrl: nonEmptyEnv('TEAMMGR_TEAMCODE_BASE_URL'),
+    teamCodePasscode: nonEmptyEnv('TEAMMGR_TEAMCODE_PASSCODE')
   };
 }
 

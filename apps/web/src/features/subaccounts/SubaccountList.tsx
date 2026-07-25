@@ -21,7 +21,7 @@ import {
   filterByLocalGroup,
   type LocalGroupCount
 } from '../../components/recordGroups.js';
-import { SubaccountStatusTag } from '../../components/StatusTag.js';
+import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag.js';
 import { formatDateTime } from '../../components/format.js';
 import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
 
@@ -243,6 +243,7 @@ export function SubaccountList({
                     )}
                   </div>
                   <Space size={4}>
+                    <BannedStatusTag isBanned={subaccount.isBanned} />
                     <SubaccountStatusTag status={subaccount.status} />
                     {subaccount.lastError
                       && subaccount.status !== 'error'

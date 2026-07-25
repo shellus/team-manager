@@ -271,7 +271,7 @@ describe('Parent account local-profile API', () => {
     });
   });
 
-  it('updates only the local remark, group, limit type and renewal date without calling ChatGPT', async () => {
+  it('updates only the local remark, group, ban marker, limit type and renewal date without calling ChatGPT', async () => {
     const transport = recordingTransport();
     const { app, store, account, authHeaders } = await buildParentApiTestApp(transport);
 
@@ -282,6 +282,7 @@ describe('Parent account local-profile API', () => {
         remark: '  新备注  ',
         groupName: '  已租车位  ',
         limitType: 'monthly',
+        isBanned: true,
         nextRenewalOn: '2026-07-16'
       })
     });
@@ -294,11 +295,13 @@ describe('Parent account local-profile API', () => {
     assert.equal(hasOwn(viewRecord, 'note'), false);
     assert.equal(json.data!.groupName, '已租车位');
     assert.equal(json.data!.limitType, 'monthly');
+    assert.equal(json.data!.isBanned, true);
     assert.equal(json.data!.nextRenewalOn, '2026-07-16');
     assert.equal(json.data!.email, 'owner-old@example.com');
     assert.equal(stored?.remark, '新备注');
     assert.equal(stored?.groupName, '已租车位');
     assert.equal(stored?.limitType, 'monthly');
+    assert.equal(stored?.isBanned, true);
     assert.equal(stored?.nextRenewalOn, '2026-07-16');
     assert.equal(stored?.accountId, 'workspace-old');
     assert.equal(stored?.accessToken, 'old-token');
@@ -1447,6 +1450,40 @@ describe('TeamService public seat slots', () => {
       price: '399',
       status: 'member'
     });
+  });
+
+  it('rejects a banned child email before a public seat swap removes the current member', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      seatSlots: [{
+        seatKey: 'abcd1234efgh5678',
+        email: 'old@example.com',
+        expiresOn: '2026-07-23',
+        seat: 'default',
+        status: 'member',
+        currentUserId: 'user-old',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 100
+      }]
+    });
+    const transport = recordingTransport();
+    const service = new TeamService(store, transport, undefined, (email) => {
+      if (email === 'banned-child@example.com') throw new ServiceError(409, '封号子号不能邀请加入 Team');
+    });
+
+    await assert.rejects(
+      () => service.swapPublicSeatSlotEmail('abcd1234efgh5678', 'BANNED-CHILD@example.com'),
+      (error: ServiceError) => error.status === 409 && error.message === '封号子号不能邀请加入 Team'
+    );
+
+    assert.equal(transport.requests.length, 0);
+    assert.equal(store.get(account.id)?.seatSlots?.[0]?.email, 'old@example.com');
   });
 
   it('swaps only the member bound to the selected slot and preserves slot metadata', async () => {

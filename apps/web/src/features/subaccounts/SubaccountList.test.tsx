@@ -64,6 +64,10 @@ describe('SubaccountList', () => {
     expect(renderList(baseSubaccount)).toContain('非 GAM');
   });
 
+  test('marks a manually banned child account', () => {
+    expect(renderList({ ...baseSubaccount, isBanned: true })).toContain('已封号');
+  });
+
   test('allows changing IP from any child registration manual stage', () => {
     const html = renderList(baseSubaccount, [{
       id: 'registration-1',

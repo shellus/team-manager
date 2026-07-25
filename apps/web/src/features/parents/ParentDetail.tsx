@@ -16,6 +16,7 @@ import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentBillingPanel } from './ParentBillingPanel.js';
 import { ParentMembersTable } from './ParentMembersTable.js';
 import { ParentSettingsPanel } from './ParentSettingsPanel.js';
+import { ParentOrderMaintenancePanel } from './ParentOrderMaintenancePanel.js';
 import { canManageParentWorkspace, hasParentCodexSpace } from './parentWorkspaceCapability.js';
 
 export function ParentDetail({
@@ -251,6 +252,11 @@ export function ParentDetail({
                 loading={accountManagerLoading}
               />
             )
+          },
+          {
+            key: 'order-maintenance',
+            label: '订单维护',
+            children: <ParentOrderMaintenancePanel account={account} />
           },
           {
             key: 'settings',

@@ -20,6 +20,7 @@ export interface SeatOverviewItem {
   workspaceAccountId: string;
   teamName: string;
   parentEmail: string;
+  parentIsBanned?: boolean;
   source: SeatOverviewSource;
   status: AccountSeatSlotStatus;
   seat: SeatType;
@@ -154,7 +155,7 @@ function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOvervi
     });
   }
 
-  return items;
+  return account.isBanned ? items.filter((item) => item.status !== 'empty') : items;
 }
 
 function accountRelations(account: AccountOverviewView): Relation[] {
@@ -189,13 +190,14 @@ function relationMapByEmail(relations: Relation[]): Map<string, Relation> {
 
 function accountItemBase(account: AccountOverviewView): Pick<
   SeatOverviewItem,
-  'accountRecordId' | 'workspaceAccountId' | 'teamName' | 'parentEmail'
+  'accountRecordId' | 'workspaceAccountId' | 'teamName' | 'parentEmail' | 'parentIsBanned'
 > {
   return {
     accountRecordId: account.id,
     workspaceAccountId: account.accountId,
     teamName: account.workspaceName?.trim() || account.remark?.trim() || account.email || account.accountId,
-    parentEmail: account.email
+    parentEmail: account.email,
+    parentIsBanned: account.isBanned === true
   };
 }
 
@@ -207,6 +209,7 @@ function accountRenewalExpiry(account: AccountOverviewView): Pick<SeatOverviewIt
 
 function compareSeatOverviewItems(a: SeatOverviewItem, b: SeatOverviewItem): number {
   return (
+    Number(Boolean(a.parentIsBanned)) - Number(Boolean(b.parentIsBanned)) ||
     dateRank(a.expiresOn) - dateRank(b.expiresOn) ||
     a.teamName.localeCompare(b.teamName, 'zh-CN', { numeric: true, sensitivity: 'base' }) ||
     seatRank(a.seat) - seatRank(b.seat) ||

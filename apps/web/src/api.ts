@@ -26,7 +26,13 @@ import type {
   SubaccountSummaryView,
   SubaccountView,
   CodexCredentialJson,
-  CodexQuotaSnapshot
+  CodexQuotaSnapshot,
+  MaintainedTeamOrder,
+  TeamOrderBatchResult,
+  TeamOrderConfig,
+  TeamOrderConfigOverrides,
+  TeamOrderDashboardView,
+  TeamOrderMaintenanceView
 } from '@team-manager/shared';
 
 const TOKEN_KEY = 'teammgr_token';
@@ -146,6 +152,7 @@ export const apiClient = {
       remark?: string;
       groupName?: string;
       limitType?: AccountLimitType;
+      isBanned?: boolean;
       nextRenewalOn?: string;
       proxy?: string;
       session?: unknown;
@@ -204,6 +211,22 @@ export const apiClient = {
   getNotificationSettings: () => call<NotificationSettings>('GET', '/settings/notifications'),
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
+  getTeamOrderDashboard: () => call<TeamOrderDashboardView>('GET', '/team-orders'),
+  updateTeamOrderGlobalConfig: (payload: TeamOrderConfig) =>
+    call<TeamOrderConfig>('PATCH', '/team-orders/settings', payload),
+  generateAllTeamOrders: () => call<TeamOrderBatchResult>('POST', '/team-orders/generate-all'),
+  getAccountTeamOrderMaintenance: (id: string) =>
+    call<TeamOrderMaintenanceView | null>('GET', `/accounts/${id}/team-order-maintenance`),
+  saveAccountTeamOrderMaintenance: (id: string, payload: TeamOrderConfigOverrides) =>
+    call<TeamOrderMaintenanceView>('POST', `/accounts/${id}/team-order-maintenance`, payload),
+  setAccountTeamOrderPaused: (id: string, paused: boolean) =>
+    call<TeamOrderMaintenanceView>('PATCH', `/accounts/${id}/team-order-maintenance`, { paused }),
+  removeAccountTeamOrderMaintenance: (id: string) =>
+    call<boolean>('DELETE', `/accounts/${id}/team-order-maintenance`),
+  generateAccountTeamOrder: (id: string) =>
+    call<MaintainedTeamOrder>('POST', `/accounts/${id}/team-orders`),
+  retryAccountTeamOrder: (id: string, orderId: string) =>
+    call<MaintainedTeamOrder>('POST', `/accounts/${id}/team-orders/${encodeURIComponent(orderId)}/retry`),
   listSubaccounts: () => call<SubaccountSummaryView[]>('GET', '/subaccounts'),
   getSubaccount: (id: string) => call<SubaccountView>('GET', `/subaccounts/${id}`),
   getSubaccountAccountProfile: (id: string) =>
@@ -218,6 +241,7 @@ export const apiClient = {
     session: unknown;
     remark?: string;
     groupName?: string;
+    isBanned?: boolean;
     proxy?: string;
   } | unknown) =>
     call<SubaccountView>('POST', '/subaccounts/session', payload),
@@ -231,7 +255,7 @@ export const apiClient = {
     call<SubaccountRegistrationJobView>('POST', '/subaccounts/registration/start', payload),
   updateSubaccountLocalProfile: (
     id: string,
-    payload: { remark?: string; groupName?: string; proxy?: string; session?: unknown }
+    payload: { remark?: string; groupName?: string; isBanned?: boolean; proxy?: string; session?: unknown }
   ) =>
     call<SubaccountView>('PATCH', `/subaccounts/${id}/local-profile`, payload),
   refreshSubaccount: (id: string) => call<SubaccountView>('POST', `/subaccounts/${id}/refresh`),

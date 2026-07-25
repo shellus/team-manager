@@ -945,6 +945,7 @@ describe('Subaccount API', () => {
         headers: authHeaders,
         body: JSON.stringify({
           groupName: '  客户 A  ',
+          isBanned: true,
           proxy: '  socks5://child-proxy.example:1080  '
         })
       });
@@ -953,6 +954,7 @@ describe('Subaccount API', () => {
 
       assert.equal(updated.status, 200);
       assert.equal(view.groupName, '客户 A');
+      assert.equal(view.isBanned, true);
       assert.equal(view.proxy, 'socks5://child-proxy.example:1080');
       assert.deepEqual(view.session, {
         user: { email: 'child@example.com' },
@@ -962,6 +964,7 @@ describe('Subaccount API', () => {
       });
       assert.equal((subaccountStore.get(subaccount.id) as any)?.proxy, 'socks5://child-proxy.example:1080');
       assert.equal(subaccountStore.get(subaccount.id)?.groupName, '客户 A');
+      assert.equal(subaccountStore.get(subaccount.id)?.isBanned, true);
 
       const synced = await app.request(`/api/subaccounts/${subaccount.id}/team-links/sync`, {
         method: 'POST',
@@ -1491,6 +1494,48 @@ describe('Subaccount API', () => {
       ]);
       assert.equal(invitedJson.data!.teamLinks[0]!.seat, 'usage_based');
       assert.equal(invitedJson.data!.teamLinks[0]!.status, 'invited');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects inviting a manually banned child from both invite entry points', async () => {
+    const { app, dir, authHeaders, mother, teamTransport } = await buildTestApp();
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'banned-child@example.com' },
+          account: { id: 'banned-child-account-id' },
+          accessToken: 'banned-child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+      await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ isBanned: true })
+      });
+
+      const childInvite = await app.request(`/api/subaccounts/${subaccount.id}/team-invites`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ accountId: mother.id, seat: 'usage_based' })
+      });
+      const parentInvite = await app.request(`/api/accounts/${mother.id}/invites`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ email: 'BANNED-CHILD@example.com', seat: 'default' })
+      });
+      const childJson = (await childInvite.json()) as ApiResult<unknown>;
+      const parentJson = (await parentInvite.json()) as ApiResult<unknown>;
+
+      assert.equal(childInvite.status, 409);
+      assert.equal(parentInvite.status, 409);
+      assert.equal(childJson.error, '封号子号不能邀请加入 Team');
+      assert.equal(parentJson.error, '封号子号不能邀请加入 Team');
+      assert.equal(teamTransport.requests.filter((request) => request.method === 'POST').length, 0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
