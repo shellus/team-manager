@@ -37,6 +37,46 @@ async function withStore(fn: (store: SubaccountStore, dir: string) => Promise<vo
 }
 
 describe('SubaccountStore', () => {
+  it('retains at most 30 days and 2000 child operation logs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccounts-'));
+    try {
+      const now = Date.now();
+      const oldLog = {
+        id: 'old-log',
+        phase: 'test',
+        status: 'success',
+        message: 'old',
+        createdAt: now - 31 * 24 * 60 * 60 * 1000
+      };
+      const recentLogs = Array.from({ length: 2_001 }, (_, index) => ({
+        id: `recent-${index}`,
+        phase: 'test',
+        status: 'success',
+        message: `recent-${index}`,
+        createdAt: now - (2_001 - index)
+      }));
+      const logFile = join(dir, 'subaccount-auth-logs.jsonl');
+      await writeFile(logFile, `${[oldLog, ...recentLogs].map((log) => JSON.stringify(log)).join('\n')}\n`);
+
+      const store = new SubaccountStore(dir);
+      await store.init();
+
+      assert.equal(store.listLogs().length, 2_000);
+      assert.equal(store.listLogs().some((log) => log.id === 'old-log'), false);
+      assert.equal(store.listLogs().some((log) => log.id === 'recent-0'), false);
+      assert.equal((await readFile(logFile, 'utf8')).trim().split('\n').length, 2_000);
+
+      await store.appendLog(undefined, { phase: 'test', status: 'success', message: 'new' });
+
+      assert.equal(store.listLogs().length, 2_000);
+      assert.equal(store.listLogs().some((log) => log.id === 'recent-1'), false);
+      assert.equal((await readFile(logFile, 'utf8')).trim().split('\n').length, 2_000);
+      assert.equal((await stat(logFile)).mode & 0o777, 0o600);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('imports the single supported ChatGPT session JSON shape', async () => {
     await withStore(async (store, dir) => {
       const saved = await store.importSession({

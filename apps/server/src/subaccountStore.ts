@@ -37,6 +37,19 @@ function codexCredentialAccountId(item: SubaccountCodexCredential): string {
 const DEFAULT_CREDENTIAL_GROUP = '默认号池';
 const DEFAULT_SUBACCOUNT_GROUP = '默认分组';
 const CREDENTIAL_DIR = 'subaccount-credentials';
+const SUBACCOUNT_LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_SUBACCOUNT_LOGS = 2_000;
+
+function retainSubaccountLogs(logs: SubaccountAuthLog[], now = Date.now()): SubaccountAuthLog[] {
+  const cutoff = now - SUBACCOUNT_LOG_RETENTION_MS;
+  return logs
+    .filter((log) => Number.isFinite(log.createdAt) && log.createdAt >= cutoff)
+    .slice(-MAX_SUBACCOUNT_LOGS);
+}
+
+function serializeSubaccountLogs(logs: SubaccountAuthLog[]): string {
+  return logs.length ? `${logs.map((log) => JSON.stringify(log)).join('\n')}\n` : '';
+}
 
 function normalizeGroupName(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_CREDENTIAL_GROUP;
@@ -108,12 +121,17 @@ export class SubaccountStore {
     if (!existsSync(this.logFile)) return;
     try {
       const raw = await readFile(this.logFile, 'utf8');
-      this.logs = raw
+      const lines = raw
         .split('\n')
         .map((line) => line.trim())
-        .filter(Boolean)
+        .filter(Boolean);
+      const parsed = lines
         .map((line) => JSON.parse(line) as SubaccountAuthLog)
         .filter((log) => Boolean(log.id));
+      this.logs = retainSubaccountLogs(parsed);
+      if (this.logs.length !== lines.length) {
+        await writePrivateFile(this.logFile, serializeSubaccountLogs(this.logs));
+      }
     } catch (e) {
       throw new Error(`读取 subaccount-auth-logs.jsonl 失败: ${(e as Error).message}`);
     }
@@ -518,8 +536,14 @@ export class SubaccountStore {
       data: input.data,
       createdAt: Date.now()
     };
-    this.logs.push(log);
-    await appendPrivateFile(this.logFile, `${JSON.stringify(log)}\n`);
+    const nextLogs = retainSubaccountLogs([...this.logs, log], log.createdAt);
+    const requiresRewrite = nextLogs.length !== this.logs.length + 1;
+    this.logs = nextLogs;
+    if (requiresRewrite) {
+      await writePrivateFile(this.logFile, serializeSubaccountLogs(this.logs));
+    } else {
+      await appendPrivateFile(this.logFile, `${JSON.stringify(log)}\n`);
+    }
     return log;
   }
 
