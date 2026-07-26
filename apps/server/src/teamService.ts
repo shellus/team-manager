@@ -21,10 +21,7 @@ import type {
   SeatSlotSwapStep,
   SeatSlotSwapStepKey
 } from '@team-manager/shared';
-import {
-  accountSummaryFromView,
-  MEMBER_OWNER_RISK_CONFIRM_MESSAGE
-} from '@team-manager/shared';
+import { accountSummaryFromView } from '@team-manager/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AccountStore } from './accountStore.js';
 import { AccountBillingStore } from './accountBillingStore.js';
@@ -151,7 +148,7 @@ export class TeamService {
         membersCachedAt: undefined,
         pendingInvitesCache: undefined,
         pendingInvitesCachedAt: undefined,
-        seatSlots: undefined,
+        seatSlots: this.detachSeatSlotRelations(account.seatSlots),
         defaultSeat: undefined,
         defaultSeatCachedAt: undefined,
         workspaceReferralsEnabled: undefined,
@@ -393,7 +390,7 @@ export class TeamService {
 
       this.markSeatSlotSwapStep(swap, 'inviting_new_email', 'running', newEmail);
       await this.persistSeatSlotSwap(accountId, seatKey, swap);
-      await api.invite(newEmail, 'default', 'standard-user');
+      await api.invite(newEmail, current.seat, 'standard-user');
       this.markSeatSlotSwapStep(swap, 'inviting_new_email', 'done', newEmail);
 
       this.markSeatSlotSwapStep(swap, 'saving_new_profile', 'running', newEmail);
@@ -555,6 +552,7 @@ export class TeamService {
     return this.patchSeatSlot(accountId, seatKey, (current) => ({
       ...current,
       status: relation.status,
+      seat: relation.seat ?? current.seat,
       currentUserId: relation.currentUserId,
       currentInviteId: relation.currentInviteId,
       updatedAt: Date.now()
@@ -565,13 +563,13 @@ export class TeamService {
     email: string | undefined,
     members: Member[],
     invites: PendingInvite[]
-  ): { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string } {
+  ): { status: AccountSeatSlotStatus; seat?: SeatType; currentUserId?: string; currentInviteId?: string } {
     const target = email?.trim().toLowerCase();
     if (!target) return { status: 'empty' };
-    const member = members.find((item) => item.seat === 'default' && item.email.toLowerCase() === target);
-    if (member) return { status: 'member', currentUserId: member.userId };
-    const invite = invites.find((item) => item.seat === 'default' && item.email.toLowerCase() === target);
-    if (invite) return { status: 'invited', currentInviteId: invite.inviteId };
+    const member = members.find((item) => item.email.toLowerCase() === target);
+    if (member) return { status: 'member', seat: member.seat, currentUserId: member.userId };
+    const invite = invites.find((item) => item.email.toLowerCase() === target);
+    if (invite) return { status: 'invited', seat: invite.seat, currentInviteId: invite.inviteId };
     return { status: 'unknown' };
   }
 
@@ -580,48 +578,91 @@ export class TeamService {
     members: Member[] | undefined,
     invites: PendingInvite[] | undefined
   ): Account['seatSlots'] {
-    if (!account.seatSlots || !members || !invites) return account.seatSlots;
+    if (!account.seatSlots) return undefined;
+    const hasMembersSnapshot = members !== undefined || account.membersCachedAt !== undefined;
+    const hasInvitesSnapshot = invites !== undefined || account.pendingInvitesCachedAt !== undefined;
 
     const relationByEmail = new Map<
       string,
-      { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string }
+      { status: AccountSeatSlotStatus; seat: SeatType; currentUserId?: string; currentInviteId?: string }
     >();
-    for (const member of members) {
-      if (member.seat !== 'default') continue;
-      relationByEmail.set(member.email.toLowerCase(), { status: 'member', currentUserId: member.userId });
+    for (const member of members ?? []) {
+      relationByEmail.set(member.email.toLowerCase(), {
+        status: 'member',
+        seat: member.seat,
+        currentUserId: member.userId
+      });
     }
-    for (const invite of invites) {
-      if (invite.seat !== 'default') continue;
+    for (const invite of invites ?? []) {
       const email = invite.email.toLowerCase();
       if (!relationByEmail.has(email)) {
-        relationByEmail.set(email, { status: 'invited', currentInviteId: invite.inviteId });
+        relationByEmail.set(email, {
+          status: 'invited',
+          seat: invite.seat,
+          currentInviteId: invite.inviteId
+        });
       }
     }
 
     const now = Date.now();
-    const nextSlots: AccountSeatSlot[] = [];
-    for (const slot of account.seatSlots) {
+    return account.seatSlots.map((slot) => {
       const email = slot.email?.toLowerCase();
       const relation = email ? relationByEmail.get(email) : undefined;
-      if (!relation) continue;
-      nextSlots.push({
+      if (relation) {
+        return {
+          ...slot,
+          seat: relation.seat,
+          status: relation.status,
+          currentUserId: relation.currentUserId,
+          currentInviteId: relation.currentInviteId,
+          updatedAt: this.seatSlotRelationChanged(slot, relation) ? now : slot.updatedAt
+        };
+      }
+      if (!email) {
+        const emptyRelation = { status: 'empty' as const };
+        return {
+          ...slot,
+          status: 'empty' as const,
+          currentUserId: undefined,
+          currentInviteId: undefined,
+          updatedAt: this.seatSlotRelationChanged(slot, emptyRelation) ? now : slot.updatedAt
+        };
+      }
+      if (!hasMembersSnapshot || !hasInvitesSnapshot) return slot;
+      const unknownRelation = { status: 'unknown' as const };
+      return {
         ...slot,
-        status: relation.status,
-        currentUserId: relation.currentUserId,
-        currentInviteId: relation.currentInviteId,
-        updatedAt: this.seatSlotRelationChanged(slot, relation) ? now : slot.updatedAt
-      });
-    }
+        status: 'unknown' as const,
+        currentUserId: undefined,
+        currentInviteId: undefined,
+        updatedAt: this.seatSlotRelationChanged(slot, unknownRelation) ? now : slot.updatedAt
+      };
+    });
+  }
 
-    return nextSlots.length > 0 ? nextSlots : undefined;
+  private detachSeatSlotRelations(seatSlots: Account['seatSlots']): Account['seatSlots'] {
+    if (!seatSlots) return undefined;
+    const now = Date.now();
+    return seatSlots.map((slot) => {
+      const status = slot.email ? 'unknown' as const : 'empty' as const;
+      const relation = { status };
+      return {
+        ...slot,
+        status,
+        currentUserId: undefined,
+        currentInviteId: undefined,
+        updatedAt: this.seatSlotRelationChanged(slot, relation) ? now : slot.updatedAt
+      };
+    });
   }
 
   private seatSlotRelationChanged(
     slot: AccountSeatSlot,
-    relation: { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string }
+    relation: { status: AccountSeatSlotStatus; seat?: SeatType; currentUserId?: string; currentInviteId?: string }
   ): boolean {
     return (
       slot.status !== relation.status ||
+      (relation.seat !== undefined && slot.seat !== relation.seat) ||
       slot.currentUserId !== relation.currentUserId ||
       slot.currentInviteId !== relation.currentInviteId
     );
@@ -1041,9 +1082,7 @@ export class TeamService {
       pendingInvitesCachedAt: now,
       lastRefreshAt: now,
       lastError: undefined,
-      ...(req.seat === 'default'
-        ? { seatSlots: this.seatSlotsWithProfile(accountWithInvite, email, req.seatSlotProfile ?? {}) }
-        : {})
+      seatSlots: this.seatSlotsWithProfile(accountWithInvite, email, req.seatSlotProfile ?? {})
     });
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);
@@ -1079,7 +1118,7 @@ export class TeamService {
       account.pendingInvitesCache ?? []
     );
     if (!existingSlot && relation.status === 'unknown') {
-      throw new ServiceError(409, '无法保存席位资料：该邮箱不是当前 Team 的 ChatGPT 固定席位');
+      throw new ServiceError(409, '无法保存席位资料：该邮箱不是当前 Team 的成员或待处理邀请');
     }
     const nextSlot = this.buildSeatSlotProfile(normalizedEmail, existingSlot, input, relation, usedKeys);
     return existingSlot
@@ -1097,7 +1136,7 @@ export class TeamService {
     email: string,
     existing: AccountSeatSlot | undefined,
     input: AccountSeatSlotProfileInput,
-    relation: { status: AccountSeatSlotStatus; currentUserId?: string; currentInviteId?: string },
+    relation: { status: AccountSeatSlotStatus; seat?: SeatType; currentUserId?: string; currentInviteId?: string },
     usedKeys: Set<string>
   ): AccountSeatSlot {
     const remark = typeof input.remark === 'string' ? input.remark.trim() : existing?.remark;
@@ -1108,7 +1147,7 @@ export class TeamService {
       ...(remark ? { remark } : {}),
       expiresOn,
       ...(existing?.price ? { price: existing.price } : {}),
-      seat: 'default',
+      seat: relation.seat ?? existing?.seat ?? 'default',
       status: relation.status,
       ...(relation.currentUserId ? { currentUserId: relation.currentUserId } : {}),
       ...(relation.currentInviteId ? { currentInviteId: relation.currentInviteId } : {}),
@@ -1350,8 +1389,7 @@ export class TeamService {
   async setMemberRole(
     id: string,
     userId: string,
-    role: EditableMemberRole,
-    confirmOwnerRisk = false
+    role: EditableMemberRole
   ): Promise<AccountView> {
     const { api } = await this.clientFor(id);
     const members = await api.listMembers();
@@ -1359,11 +1397,6 @@ export class TeamService {
     if (!target) throw new ServiceError(404, `成员不存在: ${userId}`);
     if (target.role === role) {
       return this.viewFromAccount(await this.saveMemberCache(id, members));
-    }
-
-    const ownerTransition = target.role === 'account-owner' || role === 'account-owner';
-    if (ownerTransition && !confirmOwnerRisk) {
-      throw new ServiceError(409, MEMBER_OWNER_RISK_CONFIRM_MESSAGE);
     }
 
     try {

@@ -46,9 +46,6 @@ export const EDITABLE_MEMBER_ROLES = [
 
 export type EditableMemberRole = (typeof EDITABLE_MEMBER_ROLES)[number];
 
-export const MEMBER_OWNER_RISK_CONFIRM_MESSAGE =
-  '修改所有者角色可能导致母号失去 workspace 管理权限；ChatGPT 也可能因 workspace 创建时间限制拒绝操作。';
-
 export function isEditableMemberRole(value: unknown): value is EditableMemberRole {
   return typeof value === 'string' && (EDITABLE_MEMBER_ROLES as readonly string[]).includes(value);
 }
@@ -97,7 +94,7 @@ export interface Account {
   automaticReloadCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
-  seatSlots?: AccountSeatSlot[]; // 母号下的固定 ChatGPT 席位位置，本地运营主模型
+  seatSlots?: AccountSeatSlot[]; // 母号下的客户席位位置，本地运营主模型
   lastRefreshAt?: number;
   lastError?: string;
 }
@@ -389,14 +386,14 @@ export interface SeatSlotSwapState {
   steps: SeatSlotSwapStep[];
 }
 
-/** 母号下一个售出的 ChatGPT 固定席位位置。邮箱只是当前位置的占用者。 */
+/** 母号下一个售出的本地客户席位位置。邮箱只是当前位置的占用者。 */
 export interface AccountSeatSlot {
   seatKey: string;
   email?: string;
   remark?: string;
   expiresOn: string;
   price?: string;
-  seat: 'default';
+  seat: SeatType;
   status?: AccountSeatSlotStatus;
   currentUserId?: string;
   currentInviteId?: string;

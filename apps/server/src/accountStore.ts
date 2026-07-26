@@ -89,7 +89,7 @@ function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] |
     const slot = rawSlot as unknown as Record<string, unknown>;
     const seatKey = readTrimmedString(slot.seatKey);
     if (!SEAT_KEY_PATTERN.test(seatKey) || seen.has(seatKey)) continue;
-    if (slot.seat !== 'default') continue;
+    const seat = slot.seat === 'usage_based' ? 'usage_based' : 'default';
 
     const expiresOn = normalizeDateOnly(slot.expiresOn);
     if (!expiresOn) continue;
@@ -116,7 +116,7 @@ function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] |
       ...(remark ? { remark } : {}),
       expiresOn,
       ...(price ? { price } : {}),
-      seat: 'default',
+      seat,
       ...(status ? { status } : {}),
       ...(currentUserId ? { currentUserId } : {}),
       ...(currentInviteId ? { currentInviteId } : {}),

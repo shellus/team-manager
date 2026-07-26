@@ -178,10 +178,10 @@ function shouldMarkNotificationRun(result: NotificationRunResult): boolean {
 
 function relationStatus(account: Account, email: string): SeatExpirationReminderItem['status'] {
   const target = email.toLowerCase();
-  if (account.membersCache?.some((member) => member.seat === 'default' && member.email.toLowerCase() === target)) {
+  if (account.membersCache?.some((member) => member.email.toLowerCase() === target)) {
     return 'member';
   }
-  if (account.pendingInvitesCache?.some((invite) => invite.seat === 'default' && invite.email.toLowerCase() === target)) {
+  if (account.pendingInvitesCache?.some((invite) => invite.email.toLowerCase() === target)) {
     return 'invited';
   }
   return 'tracked';

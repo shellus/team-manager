@@ -36,7 +36,7 @@ describe('expiration reminder collection', () => {
             email: 'pending@example.com',
             role: 'standard-user',
             status: 1,
-            seat: 'default',
+            seat: 'usage_based',
             createdTime: '2026-06-18T00:00:00Z',
             isScimManaged: false
           }
@@ -55,7 +55,7 @@ describe('expiration reminder collection', () => {
             email: 'pending@example.com',
             remark: '待接受',
             expiresOn: '2026-07-03',
-            seat: 'default',
+            seat: 'usage_based',
             expireRemove: false,
             expireReminder: true,
             updatedAt: 100

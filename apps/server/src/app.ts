@@ -606,7 +606,6 @@ export async function buildApp({
   api.patch('/accounts/:id/members/:userId/role', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       role?: unknown;
-      confirmOwnerRisk?: boolean;
     };
     if (body.role === undefined || body.role === null || body.role === '') {
       return c.json({ ok: false, error: '缺少 role' }, 400);
@@ -615,14 +614,7 @@ export async function buildApp({
       return c.json({ ok: false, error: '不支持的成员角色' }, 400);
     }
     const role = body.role;
-    return wrap(c, () =>
-      service.setMemberRole(
-        c.req.param('id'),
-        c.req.param('userId'),
-        role,
-        body.confirmOwnerRisk === true
-      )
-    );
+    return wrap(c, () => service.setMemberRole(c.req.param('id'), c.req.param('userId'), role));
   });
 
   // ---- 设置（默认席位、Codex 邀请） ----

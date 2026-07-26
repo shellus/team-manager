@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
   editableMemberRoleOptions,
-  memberRoleConfirmation,
   roleLabel
 } from './labels.js';
 
@@ -21,20 +20,5 @@ describe('member role UI metadata', () => {
       { value: 'account-admin', label: '管理员' },
       { value: 'account-owner', label: '所有者' }
     ]);
-  });
-
-  test('marks owner promotion and demotion as dangerous', () => {
-    expect(memberRoleConfirmation('standard-user', 'account-owner')).toMatchObject({
-      danger: true,
-      confirmOwnerRisk: true
-    });
-    expect(memberRoleConfirmation('account-owner', 'account-admin')).toMatchObject({
-      danger: true,
-      confirmOwnerRisk: true
-    });
-    expect(memberRoleConfirmation('standard-user', 'account-admin')).toMatchObject({
-      danger: false,
-      confirmOwnerRisk: false
-    });
   });
 });

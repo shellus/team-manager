@@ -1,8 +1,27 @@
 import { describe, expect, test } from 'vitest';
 import {
   buildParentDeleteLocation,
-  parentAccountManagerStatusNeedsPolling
+  parentAccountManagerStatusNeedsPolling,
+  seatSlotProfileFromInviteValues
 } from './ParentRoutes.js';
+
+describe('seatSlotProfileFromInviteValues', () => {
+  test('keeps customer seat metadata for Codex invitations', () => {
+    expect(seatSlotProfileFromInviteValues({
+      email: 'codex@example.com',
+      seat: 'usage_based',
+      remark: 'Codex 客户',
+      expiresOn: '2026-09-01',
+      expireRemove: false,
+      expireReminder: true
+    })).toEqual({
+      remark: 'Codex 客户',
+      expiresOn: '2026-09-01',
+      expireRemove: false,
+      expireReminder: true
+    });
+  });
+});
 
 describe('buildParentDeleteLocation', () => {
   test('selects the parent and opens its delete modal in one navigation', () => {

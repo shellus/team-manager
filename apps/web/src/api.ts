@@ -184,12 +184,10 @@ export const apiClient = {
   setMemberRole: (
     id: string,
     userId: string,
-    role: EditableMemberRole,
-    confirmOwnerRisk = false
+    role: EditableMemberRole
   ) =>
     call<AccountView>('PATCH', `/accounts/${id}/members/${userId}/role`, {
-      role,
-      confirmOwnerRisk
+      role
     }),
   getSettings: (id: string) => call<Record<string, unknown>>('GET', `/accounts/${id}/settings`),
   refreshSettings: (id: string) => call<AccountView>('POST', `/accounts/${id}/settings/refresh`),

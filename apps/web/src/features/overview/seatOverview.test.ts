@@ -111,6 +111,48 @@ describe('buildSeatOverviewItems', () => {
     ]);
   });
 
+  test('uses a Codex customer slot as the single overview item for its remote relation', () => {
+    const items = buildSeatOverviewItems([
+      account({
+        id: 'team-codex-slot',
+        workspaceName: 'Codex Customer Team',
+        membersCache: [
+          {
+            userId: 'codex-user',
+            email: 'codex-customer@example.com',
+            role: 'standard-user',
+            seat: 'usage_based'
+          }
+        ],
+        seatSlots: [
+          {
+            seatKey: 'codex-slot',
+            email: 'codex-customer@example.com',
+            remark: 'Codex 客户备注',
+            expiresOn: '2026-09-01',
+            seat: 'usage_based',
+            status: 'unknown',
+            currentUserId: 'codex-user',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          }
+        ]
+      })
+    ]);
+
+    expect(items.filter((item) => item.email === 'codex-customer@example.com')).toEqual([
+      expect.objectContaining({
+        source: 'seat-slot',
+        seat: 'usage_based',
+        status: 'member',
+        remark: 'Codex 客户备注',
+        role: 'standard-user'
+      })
+    ]);
+    expect(items.filter((item) => item.source === 'placeholder')).toHaveLength(2);
+  });
+
   test('prefers the member relation when the same slotted email is also in pending invites', () => {
     const items = buildSeatOverviewItems([
       account({

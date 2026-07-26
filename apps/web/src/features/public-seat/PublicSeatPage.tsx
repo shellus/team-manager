@@ -134,7 +134,7 @@ export function PublicSeatPage() {
         <Space direction="vertical" size={18} className="panel-stack">
           <div className="public-seat-header">
             <div>
-              <Typography.Title level={1}>ChatGPT Team 席位</Typography.Title>
+              <Typography.Title level={1}>Team 客户席位</Typography.Title>
               <Typography.Text type="secondary">席位 Key：{slot.seatKey}</Typography.Text>
             </div>
             <Tag color={STATUS_COLOR[slot.status]}>{STATUS_LABEL[slot.status]}</Tag>

@@ -162,6 +162,11 @@ describe('TeamOrderService', () => {
 
     assert.deepEqual(gateway.inputs[0]?.config, { promoCode: 'CURRENT', country: 'CA', currency: 'CAD' });
     assert.deepEqual(orders.getOrder(queued.id)?.config, { promoCode: 'CURRENT', country: 'CA', currency: 'CAD' });
+
+    await service.setPaused(account.id, true);
+    await eventually(() => orders.listOrders(account.id).every((order) => (
+      order.status !== 'queued' && order.status !== 'running'
+    )));
   });
 
   it('keeps a paused record paused while editing config and cancels its queued work', async () => {

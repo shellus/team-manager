@@ -46,7 +46,7 @@
 | `codexDeviceCodeAuthEnabled` / `codexDeviceCodeAuthCachedAt` | settings 刷新或 beta feature 写操作 | “为 Codex CLI 启用设备代码身份验证”缓存 |
 | `codexRemoteControlEnabled` / `codexRemoteControlCachedAt` | settings 刷新或 beta feature 写操作 | “允许成员远程发现并控制设备”缓存 |
 | `automaticReloadEnabled` / `automaticReloadCachedAt` | Automatic reload 刷新或写操作 | Credits 自动补款开关缓存 |
-| `seatSlots` | 本地输入或迁移 | 母号下 ChatGPT 固定席位位置资料，按 `seatKey` 定位 |
+| `seatSlots` | 本地输入或迁移 | 母号下客户席位位置资料，可关联 ChatGPT 或 Codex 席位，按 `seatKey` 定位 |
 
 `AccountView` 与 `AccountSummaryView` 的 `hasTeamSubscription` 优先读取当前订阅缓存，并兼容 `planType="team"` 和账单缓存中的 recurring upcoming invoice。既有 usage-based Workspace 升级 Team 后，`accounts/check` 可能仍返回 `self_serve_business_usage_based`，不能再只依赖 `planType` 判断双席位。`canManageWorkspace` 仍从 `planType` 派生，仅在 `planType="free"` 时为 `false`。因此 0.52 usage-based 历史母号即使没有双席位或 GAM profile，也仍可使用成员、邀请、设置和账单操作。
 
@@ -58,7 +58,7 @@
 
 `membersCache[]` 中的成员显示名来自 ChatGPT 远端 `users[].name` 时，只能落到 `remoteName`。本地账号名称仍以 `email` 为准，不能把远端显示名复制成账号 `name`。
 
-`seatSlots` 保存母号下已运营的 ChatGPT 固定席位位置。该资料的维度是“母号内部 id × 席位位置”，不是邮箱、invite id 或 user id。邮箱只是当前位置的占用者，换号后 `remark`、`expiresOn`、`price` 和 `seatKey` 继续属于同一个 slot。
+`seatSlots` 保存母号下已运营的本地客户席位位置，可关联 `default` 或 `usage_based` 远端席位。该资料的维度是“母号内部 id × 席位位置”，不是邮箱、invite id 或 user id。邮箱只是当前位置的占用者；邀请转成员、修改席位类型或换号后，`remark`、`expiresOn`、`price` 和 `seatKey` 继续属于同一个 slot。
 
 | 字段 | 说明 |
 |---|---|
@@ -67,7 +67,7 @@
 | `remark` | 席位备注文本，可为空 |
 | `expiresOn` | 到期日期，格式为 `yyyy-mm-dd` |
 | `price` | 本地价格文本，可为空 |
-| `seat` | 固定为 `default`，只表示 ChatGPT 固定席位 |
+| `seat` | 最近一次确认的远端席位类型：`default` 或 `usage_based` |
 | `status` | 本地派生状态：`empty`、`invited`、`member`、`unknown` |
 | `currentUserId` / `currentInviteId` | 最近一次同步到的远端成员或邀请 id |
 | `expireRemove` | 到期移除标记，默认 `false` |
@@ -76,9 +76,9 @@
 | `swapHistory` | 同一席位的免登录换号历史数组，按换号发生时间追加 |
 | `updatedAt` | 本地更新时间 |
 
-`seatSlots` 不表示 `usage_based` / Codex 席位。`usage_based` 邀请不会创建 slot。
+成员和邀请缓存只是可分别刷新的远端关系快照，不拥有客户席位资料。刷新任一列表时，如果能按规范化邮箱匹配关系，则更新 slot 的 `status`、远端 id 和 `seat`；邀请被接受后，同一 slot 从 `invited` 迁移为 `member`。如果当前可用快照暂时都找不到该邮箱，则保留完整 slot，将关系状态标记为 `unknown` 并清除已失效的远端 id，不得据此删除备注、到期时间、价格、换号历史或 `seatKey`。母号重新校准到不同 Workspace 时同样只清空远端关系缓存并把已有 slot 标记为 `unknown`，不得静默删除客户资料。只有显式删除客户席位资料的业务操作才可删除 slot。
 
-免登录换号使用 `seatKey` 定位固定席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条记录。`lastSwap` 保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号记录。store 会确保 `lastSwap` 同步存在于 `swapHistory`。
+免登录换号使用 `seatKey` 定位客户席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条记录。`lastSwap` 保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号记录。store 会确保 `lastSwap` 同步存在于 `swapHistory`。
 
 ### Derived values
 
@@ -110,7 +110,7 @@
 |---|---|---|
 | 邀请成员 | 只等待远端邀请提交；成功后按请求内容本地 upsert `pendingInvitesCache`，不再阻塞等待远端邀请列表 | 合并返回的母号 view |
 | 编辑席位资料 | 按当前邮箱更新或创建对应 `seatSlots[]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
-| 免登录席位换号 | 按 `seatKey` 定位固定席位，刷新母号成员/邀请后只移除或撤销该 slot 当前邮箱，再邀请新邮箱为 `default`，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页重新读取返回的 slot view |
+| 免登录席位换号 | 按 `seatKey` 定位客户席位，刷新母号成员/邀请后只移除或撤销该 slot 当前邮箱，再按该 slot 最近一次确认的 `seat` 邀请新邮箱，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页重新读取返回的 slot view |
 | 撤销邀请 | 远端撤销成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
 | 移除成员 | 远端移除成功后刷新 `membersCache`，返回 `AccountView` | 合并返回的母号 view |
 | 改成员席位 | 远端修改成功后刷新 `membersCache`；目标席位未变化时也保存当前成员缓存 | 合并返回的母号 view |
@@ -127,7 +127,7 @@
 | 开通 0.52 Workspace | 只把卡片请求转发给 Account Manager；成功状态由 GAM workspace 派生，不改变母号创建完成状态，也不把 0.52 workspace 当作 Team workspace | 展示独立后台操作状态；未受管或已开通账号的按钮禁用并说明原因 |
 | 开通双席位 Team | 把优惠码、国家、货币和可选卡片转发给 Account Manager；成功后按 Team workspace ID 更新同一 GAM 母号记录 | 展示独立后台操作状态并刷新双席位状态；既有 usage-based Workspace 的管理能力不依赖该动作 |
 
-邀请或升席位到 `default` 可能增加账单，service 层不做数量预检、HTTP 409 确认或额外提示。`default` 邀请成功后，service 会在同一次本地更新中为目标邮箱 upsert `pendingInvitesCache` 和 `seatSlots[]`；`usage_based` 邀请只更新 `pendingInvitesCache`。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
+邀请或升席位到 `default` 可能增加账单，service 层不做数量预检、HTTP 409 确认或额外提示。任一席位类型邀请成功后，service 都会在同一次本地更新中为目标邮箱 upsert `pendingInvitesCache` 和 `seatSlots[]`。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
 
 `expireRemove` 是本地运营标记，不会在提醒任务中自动移除远端成员。远端移除仍必须由页面、API 或 service 显式调用。
 

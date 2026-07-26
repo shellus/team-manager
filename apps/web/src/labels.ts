@@ -1,7 +1,4 @@
-import {
-  EDITABLE_MEMBER_ROLES,
-  MEMBER_OWNER_RISK_CONFIRM_MESSAGE
-} from '@team-manager/shared';
+import { EDITABLE_MEMBER_ROLES } from '@team-manager/shared';
 import type {
   AccountLimitType,
   EditableMemberRole,
@@ -54,18 +51,6 @@ export function editableMemberRoleOptions(currentRole: MemberRole) {
   }));
   if ((EDITABLE_MEMBER_ROLES as readonly string[]).includes(currentRole)) return supported;
   return [{ value: currentRole, label: roleLabel(currentRole), disabled: true }, ...supported];
-}
-
-export function memberRoleConfirmation(currentRole: MemberRole, nextRole: EditableMemberRole) {
-  const ownerTransition = currentRole === 'account-owner' || nextRole === 'account-owner';
-  return {
-    title: ownerTransition ? '确认修改所有者角色' : '确认修改成员角色',
-    description: ownerTransition
-      ? MEMBER_OWNER_RISK_CONFIRM_MESSAGE
-      : `将角色从“${roleLabel(currentRole)}”改为“${roleLabel(nextRole)}”。`,
-    danger: ownerTransition,
-    confirmOwnerRisk: ownerTransition
-  };
 }
 
 export function planLabel(plan?: string | null): string {

@@ -7,10 +7,9 @@ describe('MemberRoleSelect', () => {
   test('renders the current role with an accessible select', () => {
     const html = renderToStaticMarkup(
       createElement(MemberRoleSelect, {
-        userId: 'user-b',
         currentRole: 'standard-user',
         loading: false,
-        onConfirm: async () => undefined
+        onChange: async () => undefined
       })
     );
 

@@ -24,7 +24,7 @@ Avoid marketing-page composition, large decorative cards, modal-first workflows,
 
 - Keep high-risk actions visible only at the point of use, with inline confirmation.
 - Prefer cached data and background progress over blocking page states.
-- Make billing-sensitive seat changes explicit before execution.
+- Apply ordinary seat, role, and settings changes directly; reserve confirmation for destructive actions, immediate charges, credential exposure, or scarce quota consumption.
 - Use compact tables and stable row heights for repeated account operations.
 - Store raw API evidence in docs with strict sanitization when behavior is discovered through ChatGPT Web.
 

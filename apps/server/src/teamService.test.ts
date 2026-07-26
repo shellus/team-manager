@@ -764,8 +764,9 @@ describe('Parent member role API', () => {
     assert.deepEqual(await response.json(), { ok: false, error: '缺少 role' });
   });
 
-  it('does not accept a truthy non-boolean owner-risk confirmation', async () => {
+  it('changes an owner role without requiring the removed confirmation field', async () => {
     const requests: HttpRequest[] = [];
+    let currentRole = 'standard-user';
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
@@ -777,13 +778,14 @@ describe('Parent member role API', () => {
                 {
                   id: 'user-b',
                   email: 'b@example.com',
-                  role: 'standard-user',
+                  role: currentRole,
                   seat_type: 'default'
                 }
               ]
             })
           };
         }
+        currentRole = (JSON.parse(req.body ?? '{}') as { role: string }).role;
         return { status: 200, body: '{"success":true}' };
       }
     };
@@ -792,11 +794,11 @@ describe('Parent member role API', () => {
     const response = await app.request(`/api/accounts/${account.id}/members/user-b/role`, {
       method: 'PATCH',
       headers: authHeaders,
-      body: JSON.stringify({ role: 'account-owner', confirmOwnerRisk: 'true' })
+      body: JSON.stringify({ role: 'account-owner' })
     });
 
-    assert.equal(response.status, 409);
-    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
+    assert.equal(response.status, 200);
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 1);
   });
 });
 
@@ -953,7 +955,7 @@ describe('AccountStore account sanitation', () => {
                 updatedAt: 100
               },
               {
-                seatKey: 'usage1234efgh5678',
+                seatKey: 'usag1234efgh5678',
                 email: 'usage@example.com',
                 expiresOn: '2026-07-23',
                 seat: 'usage_based',
@@ -992,12 +994,15 @@ describe('AccountStore account sanitation', () => {
     assert.equal(storedMember?.remoteName, '当前远端显示名');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
-    assert.equal(storedSlots?.length, 1);
-    assert.equal(persistedSlots?.length, 1);
+    assert.equal(storedSlots?.length, 2);
+    assert.equal(persistedSlots?.length, 2);
     assert.equal(storedSlots?.[0]?.seatKey, 'abcd1234efgh5678');
     assert.equal(storedSlots?.[0]?.email, 'a@example.com');
     assert.equal(storedSlots?.[0]?.seat, 'default');
     assert.equal(storedSlots?.[0]?.status, 'member');
+    assert.equal(storedSlots?.[1]?.seatKey, 'usag1234efgh5678');
+    assert.equal(storedSlots?.[1]?.seat, 'usage_based');
+    assert.equal(persistedSlots?.[1]?.seat, 'usage_based');
     assert.equal((storedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal((persistedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal(((storedSlots?.[0]?.swapHistory as Record<string, unknown>[] | undefined)?.[0])?.id, 'swap-existing');
@@ -1340,7 +1345,20 @@ describe('TeamService account listing', () => {
       accessToken: personalAccessToken,
       sessionToken: 'parent-session-json-token',
       planType: 'free',
-      status: 'unknown'
+      status: 'unknown',
+      seatSlots: [{
+        seatKey: 'keep1234efgh5678',
+        email: 'customer@example.com',
+        remark: 'Workspace 校准时也不能丢',
+        expiresOn: '2026-09-01',
+        price: '399',
+        seat: 'default',
+        status: 'invited',
+        currentInviteId: 'old-invite',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 100
+      }]
     });
     const service = new TeamService(store, transport);
 
@@ -1354,6 +1372,11 @@ describe('TeamService account listing', () => {
     assert.equal(view.canManageWorkspace, true);
     assert.equal(view.status, 'active');
     assert.equal(view.membersCache?.length, 1);
+    assert.equal(view.seatSlots?.[0]?.seatKey, 'keep1234efgh5678');
+    assert.equal(view.seatSlots?.[0]?.remark, 'Workspace 校准时也不能丢');
+    assert.equal(view.seatSlots?.[0]?.price, '399');
+    assert.equal(view.seatSlots?.[0]?.status, 'unknown');
+    assert.equal(hasOwn(view.seatSlots?.[0], 'currentInviteId'), false);
     assert.equal(stored?.accessToken, workspaceAccessToken);
     assert.equal(
       requests.filter((request) => request.path.startsWith('/backend-api/accounts/check/')).length,
@@ -1486,7 +1509,7 @@ describe('TeamService public seat slots', () => {
     assert.equal(store.get(account.id)?.seatSlots?.[0]?.email, 'old@example.com');
   });
 
-  it('swaps only the member bound to the selected slot and preserves slot metadata', async () => {
+  it('swaps only the member bound to the selected slot and preserves slot metadata and seat type', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-'));
     const store = new AccountStore(tempDir);
     await store.init();
@@ -1501,7 +1524,7 @@ describe('TeamService public seat slots', () => {
           remark: '客户 A',
           expiresOn: '2026-07-23',
           price: '399',
-          seat: 'default',
+          seat: 'usage_based',
           status: 'member',
           currentUserId: 'user-old',
           expireRemove: false,
@@ -1532,7 +1555,7 @@ describe('TeamService public seat slots', () => {
             status: 200,
             body: JSON.stringify({
               items: [
-                { id: 'user-old', email: 'old@example.com', name: 'Old', role: 'standard-user', seat_type: 'default' },
+                { id: 'user-old', email: 'old@example.com', name: 'Old', role: 'standard-user', seat_type: 'usage_based' },
                 { id: 'user-other', email: 'other@example.com', name: 'Other', role: 'standard-user', seat_type: 'default' }
               ]
             })
@@ -1572,7 +1595,7 @@ describe('TeamService public seat slots', () => {
     assert.deepEqual(JSON.parse(inviteRequest?.body ?? '{}'), {
       email_addresses: ['new@example.com'],
       role: 'standard-user',
-      seat_type: 'default',
+      seat_type: 'usage_based',
       resend_emails: true
     });
   });
@@ -1794,7 +1817,7 @@ describe('TeamService member cache', () => {
     assert.equal(typeof stored?.membersCachedAt, 'number');
   });
 
-  it('refreshes members and reconciles ChatGPT seat slots against current members and cached invites', async () => {
+  it('refreshes members without deleting unmatched customer slots and follows remote seat changes', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -1883,8 +1906,15 @@ describe('TeamService member cache', () => {
     const slots = view.seatSlots ?? [];
     const currentSlot = slots.find((slot) => slot.email === 'current@example.com');
     const pendingSlot = slots.find((slot) => slot.email === 'pending@example.com');
+    const goneSlot = slots.find((slot) => slot.email === 'gone@example.com');
+    const usageSlot = slots.find((slot) => slot.email === 'usage@example.com');
 
-    assert.deepEqual(slots.map((slot) => slot.seatKey), ['curr1234efgh5678', 'pend1234efgh5678']);
+    assert.deepEqual(slots.map((slot) => slot.seatKey), [
+      'curr1234efgh5678',
+      'pend1234efgh5678',
+      'gone1234efgh5678',
+      'usag1234efgh5678'
+    ]);
     assert.equal(currentSlot?.remark, '保留资料');
     assert.equal(currentSlot?.status, 'member');
     assert.equal(currentSlot?.currentUserId, 'user-current');
@@ -1892,6 +1922,11 @@ describe('TeamService member cache', () => {
     assert.equal(pendingSlot?.status, 'invited');
     assert.equal(pendingSlot?.currentInviteId, 'invite-current');
     assert.equal(hasOwn(pendingSlot, 'currentUserId'), false);
+    assert.equal(goneSlot?.status, 'unknown');
+    assert.equal(hasOwn(goneSlot, 'currentUserId'), false);
+    assert.equal(usageSlot?.status, 'member');
+    assert.equal(usageSlot?.seat, 'usage_based');
+    assert.equal(usageSlot?.currentUserId, 'user-usage');
     assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
   });
 });
@@ -1982,7 +2017,7 @@ describe('TeamService pending invite cache', () => {
     assert.equal(typeof stored?.pendingInvitesCachedAt, 'number');
   });
 
-  it('refreshes pending invites and removes invite slots that no longer exist remotely', async () => {
+  it('refreshes pending invites without deleting customer slots absent from the current snapshots', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -2046,6 +2081,7 @@ describe('TeamService pending invite cache', () => {
         {
           seatKey: 'oldi1234efgh5678',
           email: 'old-invite@example.com',
+          remark: '不能丢失的备注',
           expiresOn: '2026-08-03',
           seat: 'default',
           status: 'invited',
@@ -2061,11 +2097,104 @@ describe('TeamService pending invite cache', () => {
     const view = await service.refreshPendingInvites(account.id);
     const slots = view.seatSlots ?? [];
 
-    assert.deepEqual(slots.map((slot) => slot.seatKey), ['curr1234efgh5678', 'pend1234efgh5678']);
+    assert.deepEqual(slots.map((slot) => slot.seatKey), [
+      'curr1234efgh5678',
+      'pend1234efgh5678',
+      'oldi1234efgh5678'
+    ]);
     assert.equal(slots.find((slot) => slot.email === 'current@example.com')?.status, 'member');
     assert.equal(slots.find((slot) => slot.email === 'pending@example.com')?.status, 'invited');
     assert.equal(slots.find((slot) => slot.email === 'pending@example.com')?.currentInviteId, 'invite-current');
+    const oldInviteSlot = slots.find((slot) => slot.email === 'old-invite@example.com');
+    assert.equal(oldInviteSlot?.status, 'unknown');
+    assert.equal(oldInviteSlot?.remark, '不能丢失的备注');
+    assert.equal(hasOwn(oldInviteSlot, 'currentInviteId'), false);
     assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
+  });
+
+  it('keeps one customer slot when an accepted invite moves into the member list after separate refreshes', async () => {
+    const transport: Transport = {
+      async fetch(req) {
+        if (req.path.includes('/invites?')) {
+          return { status: 200, body: '{"items":[]}' };
+        }
+        if (req.path.includes('/users?')) {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              items: [
+                {
+                  id: 'accepted-user',
+                  email: 'accepted@example.com',
+                  role: 'standard-user',
+                  seat_type: 'usage_based'
+                }
+              ]
+            })
+          };
+        }
+        return { status: 404, body: '{"error":"not found"}' };
+      }
+    };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      membersCache: [],
+      membersCachedAt: 100,
+      pendingInvitesCache: [
+        {
+          inviteId: 'accepted-invite',
+          email: 'accepted@example.com',
+          role: 'standard-user',
+          status: 1,
+          seat: 'default',
+          createdTime: '2026-07-25T00:00:00Z',
+          isScimManaged: false
+        }
+      ],
+      seatSlots: [
+        {
+          seatKey: 'move1234efgh5678',
+          email: 'accepted@example.com',
+          remark: '邀请阶段写下的客户备注',
+          expiresOn: '2026-09-01',
+          price: '399',
+          seat: 'default',
+          status: 'invited',
+          currentInviteId: 'accepted-invite',
+          expireRemove: false,
+          expireReminder: true,
+          updatedAt: 100
+        }
+      ]
+    });
+    const service = new TeamService(store, transport);
+
+    const afterInviteRefresh = await service.refreshPendingInvites(account.id);
+    const waitingSlot = afterInviteRefresh.seatSlots?.[0];
+    assert.equal(waitingSlot?.seatKey, 'move1234efgh5678');
+    assert.equal(waitingSlot?.remark, '邀请阶段写下的客户备注');
+    assert.equal(waitingSlot?.price, '399');
+    assert.equal(waitingSlot?.status, 'unknown');
+    assert.equal(hasOwn(waitingSlot, 'currentInviteId'), false);
+
+    const afterMemberRefresh = await service.refreshMembers(account.id);
+    const acceptedSlot = afterMemberRefresh.seatSlots?.[0];
+    assert.equal(afterMemberRefresh.seatSlots?.length, 1);
+    assert.equal(acceptedSlot?.seatKey, 'move1234efgh5678');
+    assert.equal(acceptedSlot?.remark, '邀请阶段写下的客户备注');
+    assert.equal(acceptedSlot?.expiresOn, '2026-09-01');
+    assert.equal(acceptedSlot?.price, '399');
+    assert.equal(acceptedSlot?.status, 'member');
+    assert.equal(acceptedSlot?.seat, 'usage_based');
+    assert.equal(acceptedSlot?.currentUserId, 'accepted-user');
+    assert.equal(hasOwn(acceptedSlot, 'currentInviteId'), false);
   });
 });
 
@@ -2423,7 +2552,7 @@ describe('TeamService member role changes', () => {
     const roles = ['analytics-viewer', 'standard-user', 'account-admin', 'account-owner'] as const;
 
     for (const role of roles) {
-      await service.setMemberRole(account.id, 'user-b', role, role === 'account-owner');
+      await service.setMemberRole(account.id, 'user-b', role);
     }
 
     const patches = requests.filter((request) => request.method === 'PATCH');
@@ -2468,11 +2597,16 @@ describe('TeamService member role changes', () => {
     assert.equal(store.get(account.id)?.membersCache?.[0]?.role, 'standard-user');
   });
 
-  it('requires confirmation when promoting a member to owner', async () => {
+  it('promotes a member to owner directly', async () => {
     const requests: HttpRequest[] = [];
+    let currentRole = 'standard-user';
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
+        if (req.method === 'PATCH') {
+          currentRole = (JSON.parse(req.body ?? '{}') as { role: string }).role;
+          return { status: 200, body: '{"success":true}' };
+        }
         return {
           status: 200,
           body: JSON.stringify({
@@ -2480,7 +2614,7 @@ describe('TeamService member role changes', () => {
               {
                 id: 'user-b',
                 email: 'b@example.com',
-                role: 'standard-user',
+                role: currentRole,
                 seat_type: 'default'
               }
             ]
@@ -2490,14 +2624,13 @@ describe('TeamService member role changes', () => {
     };
     const { account, service } = await createRoleService(transport);
 
-    await assert.rejects(
-      () => service.setMemberRole(account.id, 'user-b', 'account-owner'),
-      (error: unknown) => error instanceof ServiceError && error.status === 409
-    );
-    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
+    const view = await service.setMemberRole(account.id, 'user-b', 'account-owner');
+
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 1);
+    assert.equal(view.membersCache?.[0]?.role, 'account-owner');
   });
 
-  it('requires confirmation when demoting an owner', async () => {
+  it('demotes an owner directly', async () => {
     const requests: HttpRequest[] = [];
     let currentRole = 'account-owner';
     const transport: Transport = {
@@ -2524,13 +2657,7 @@ describe('TeamService member role changes', () => {
     };
     const { account, service } = await createRoleService(transport);
 
-    await assert.rejects(
-      () => service.setMemberRole(account.id, 'user-owner', 'account-admin'),
-      (error: unknown) => error instanceof ServiceError && error.status === 409
-    );
-    assert.equal(requests.filter((request) => request.method === 'PATCH').length, 0);
-
-    const view = await service.setMemberRole(account.id, 'user-owner', 'account-admin', true);
+    const view = await service.setMemberRole(account.id, 'user-owner', 'account-admin');
 
     assert.deepEqual(
       JSON.parse(requests.find((request) => request.method === 'PATCH')?.body ?? '{}'),
@@ -2587,7 +2714,7 @@ describe('TeamService member role changes', () => {
     const { account, store, service } = await createRoleService(transport);
 
     await assert.rejects(
-      () => service.setMemberRole(account.id, 'user-b', 'account-owner', true),
+      () => service.setMemberRole(account.id, 'user-b', 'account-owner'),
       (error: unknown) =>
         error instanceof ServiceError &&
         error.status === 400 &&
@@ -3054,6 +3181,32 @@ describe('TeamService invites', () => {
     assert.equal(slot?.expireReminder, true);
     assert.match(slot?.seatKey ?? '', /^[A-Za-z0-9]{16}$/);
   });
+
+  it('stores customer seat metadata for a Codex invite', async () => {
+    const transport: Transport = {
+      async fetch() {
+        return { status: 200, body: '{"success":true}' };
+      }
+    };
+    const { account, store, service } = await createServiceWithTransport(transport);
+
+    const view = await service.invite(account.id, {
+      email: 'codex@example.com',
+      seat: 'usage_based',
+      seatSlotProfile: {
+        remark: 'Codex 客户',
+        expiresOn: '2026-09-01'
+      }
+    });
+    const slot = view.seatSlots?.find((item) => item.email === 'codex@example.com');
+
+    assert.equal(slot?.seat, 'usage_based');
+    assert.equal(slot?.status, 'invited');
+    assert.equal(slot?.remark, 'Codex 客户');
+    assert.equal(slot?.expiresOn, '2026-09-01');
+    assert.match(slot?.currentInviteId ?? '', /^local-/);
+    assert.deepEqual(store.get(account.id)?.seatSlots, view.seatSlots);
+  });
 });
 
 describe('TeamService customer seat slot profiles', () => {
@@ -3120,6 +3273,7 @@ describe('TeamService customer seat slot profiles', () => {
     assert.equal(requests.length, 0);
     const slot = view.seatSlots?.find((item) => item.email === 'child@example.com');
     assert.equal(slot?.seatKey, 'abcd1234efgh5678');
+    assert.equal(slot?.seat, 'usage_based');
     assert.equal(slot?.remark, '新备注');
     assert.equal(slot?.expiresOn, '2026-08-01');
     assert.equal(slot?.expireRemove, true);
@@ -3128,7 +3282,7 @@ describe('TeamService customer seat slot profiles', () => {
     assert.equal(typeof store.get(account.id)?.seatSlots?.[0]?.updatedAt, 'number');
   });
 
-  it('does not create customer seat data for a Codex-only member', async () => {
+  it('creates customer seat data for a Codex-only member', async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
     const store = new AccountStore(tempDir);
     await store.init();
@@ -3149,11 +3303,18 @@ describe('TeamService customer seat slot profiles', () => {
     });
     const service = new TeamService(store);
 
-    await assert.rejects(
-      () => service.updateSeatSlotProfile(account.id, 'codex@example.com', { expiresOn: '2026-08-01' }),
-      /该邮箱不是当前 Team 的 ChatGPT 固定席位/
-    );
-    assert.equal(store.get(account.id)?.seatSlots, undefined);
+    const view = await service.updateSeatSlotProfile(account.id, 'codex@example.com', {
+      remark: 'Codex 客户',
+      expiresOn: '2026-08-01'
+    });
+    const slot = view.seatSlots?.[0];
+
+    assert.equal(slot?.email, 'codex@example.com');
+    assert.equal(slot?.seat, 'usage_based');
+    assert.equal(slot?.status, 'member');
+    assert.equal(slot?.currentUserId, 'user-a');
+    assert.equal(slot?.remark, 'Codex 客户');
+    assert.equal(store.get(account.id)?.seatSlots?.[0]?.seat, 'usage_based');
   });
 });
 

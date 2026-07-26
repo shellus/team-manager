@@ -241,21 +241,14 @@ export function ParentList({
                   />
                   <Space wrap>
                     {waiting && (
-                      <Popconfirm
-                        title="更换当前注册任务的出口IP？"
-                        description="系统会保留当前 profile 和页面，轮换上游住宅 SID 并断开旧代理连接。"
-                        okText="更换IP"
-                        cancelText="取消"
-                        onConfirm={() => onRotateRegistrationIp(task)}
+                      <Button
+                        size="small"
+                        icon={<SwapOutlined />}
+                        loading={isBusy(`rotate-parent-registration-ip-${task.registration.id}`)}
+                        onClick={() => onRotateRegistrationIp(task)}
                       >
-                        <Button
-                          size="small"
-                          icon={<SwapOutlined />}
-                          loading={isBusy(`rotate-parent-registration-ip-${task.registration.id}`)}
-                        >
-                          更换IP
-                        </Button>
-                      </Popconfirm>
+                        更换IP
+                      </Button>
                     )}
                     {(task.stage === 'registration_failed' || task.stage === 'import_failed') && (
                       <Button
@@ -432,23 +425,18 @@ export function ParentList({
                         className="account-operation-actions"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <Popconfirm
-                          title="更换当前任务的出口IP？"
-                          description="系统会保留当前 profile 和页面，轮换上游住宅 SID 并断开旧代理连接。"
-                          okText="更换IP"
-                          cancelText="取消"
-                          onConfirm={() => onRotateOperationIp(account, workspaceOperation.operation)}
+                        <Button
+                          size="small"
+                          icon={<SwapOutlined />}
+                          disabled={!canRotateOperationIp(workspaceOperation.operation)}
+                          loading={isBusy(`rotate-operation-ip-${workspaceOperation.operation.id}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRotateOperationIp(account, workspaceOperation.operation);
+                          }}
                         >
-                          <Button
-                            size="small"
-                            icon={<SwapOutlined />}
-                            disabled={!canRotateOperationIp(workspaceOperation.operation)}
-                            loading={isBusy(`rotate-operation-ip-${workspaceOperation.operation.id}`)}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            更换IP
-                          </Button>
-                        </Popconfirm>
+                          更换IP
+                        </Button>
                         <Popconfirm
                           title="终止当前开通任务？"
                           description="终止后会停止关联 profile，任务不会自动继续。"

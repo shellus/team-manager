@@ -143,19 +143,15 @@ export function ParentOrderMaintenancePanel({ account }: { account: AccountView 
             <Tag color={view.maintenance.status === 'active' ? 'processing' : 'warning'}>
               {view.maintenance.status === 'active' ? '维护中' : '已暂停'}
             </Tag>
-            <Popconfirm
-              title={view.maintenance.status === 'active' ? '暂停该母号的周期任务？' : '恢复该母号的周期任务？'}
-              onConfirm={() => void togglePaused()}
+            <Button
+              size="small"
+              icon={view.maintenance.status === 'active' ? <PauseOutlined /> : <PlayCircleOutlined />}
+              loading={action === 'pause'}
+              disabled={!eligible && view.maintenance.status === 'paused'}
+              onClick={() => void togglePaused()}
             >
-              <Button
-                size="small"
-                icon={view.maintenance.status === 'active' ? <PauseOutlined /> : <PlayCircleOutlined />}
-                loading={action === 'pause'}
-                disabled={!eligible && view.maintenance.status === 'paused'}
-              >
-                {view.maintenance.status === 'active' ? '暂停' : '恢复'}
-              </Button>
-            </Popconfirm>
+              {view.maintenance.status === 'active' ? '暂停' : '恢复'}
+            </Button>
             <Popconfirm title="将该母号移出订单维护池？" description="不会删除已有订单历史。" onConfirm={() => void remove()}>
               <Button size="small" danger icon={<DeleteOutlined />} loading={action === 'remove'}>移出</Button>
             </Popconfirm>

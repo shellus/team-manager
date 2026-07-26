@@ -163,4 +163,56 @@ describe('ParentDetail', () => {
     expect(html).toContain('双席位');
     expect(html).not.toContain('未开 0.52');
   });
+
+  test('shows editable customer seat profiles for Codex members', () => {
+    const html = renderToStaticMarkup(
+      <ParentDetail
+        account={{
+          ...parent,
+          planType: 'self_serve_business_usage_based',
+          canManageWorkspace: true,
+          membersCache: [{
+            userId: 'codex-user',
+            email: 'codex-customer@example.com',
+            role: 'standard-user',
+            seat: 'usage_based'
+          }],
+          seatSlots: [{
+            seatKey: 'codx1234efgh5678',
+            email: 'codex-customer@example.com',
+            remark: 'Codex 客户备注',
+            expiresOn: '2026-09-01',
+            seat: 'usage_based',
+            status: 'member',
+            currentUserId: 'codex-user',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          }]
+        }}
+        loading={false}
+        activeTab="members"
+        syncing={false}
+        accountManagerStatus={{
+          configured: true,
+          reachable: true,
+          managed: false,
+          hasCodexSpace: true,
+          hasTeamSubscription: false
+        }}
+        accountManagerLoading={false}
+        onTabChange={() => undefined}
+        onSync={() => undefined}
+        onOpenInvite={() => undefined}
+        onOpenCodexSpace={() => undefined}
+        onOpenTeamSubscription={() => undefined}
+        onOpenLocalProfile={() => undefined}
+        onAccountChanged={() => undefined}
+      />
+    );
+
+    expect(html).toContain('Codex 客户备注');
+    expect(html).toContain('编辑席位');
+    expect(html).not.toContain('Codex 席位不使用客户席位资料');
+  });
 });

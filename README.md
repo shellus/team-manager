@@ -44,7 +44,7 @@ corepack pnpm docs:build
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号和子号都可按各自顶层 `groupName` 分组，并可人工维护独立的封号标记；母号另用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。封号母号的空位不进入概览统计，封号子号不能邀请加入 Team，其他操作不受限制。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。子号顶层分组与 `codexCredentials[].groupName` 的 CPA 凭证号池分组彼此独立。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
-- **席位位置**：用 `seatSlots` 记录母号下售出的 ChatGPT 固定席位位置，`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
+- **席位位置**：用 `seatSlots` 记录母号下售出的本地客户席位位置，可关联 ChatGPT 或 Codex 席位；`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
 - **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；有 GAM 关联的子号可启动或关闭账号运行 Profile。
@@ -88,7 +88,7 @@ corepack pnpm docs:build
 数据模型原则：
 
 - 母号成员数、ChatGPT 席位数、pending invite 数不作为独立字段持久化，应从 `membersCache` 和 `pendingInvitesCache` 派生。
-- 母号下售出的 ChatGPT 固定席位保存为 `seatSlots`。slot 绑定的是席位位置，不是当前邮箱；换号后备注、到期时间、价格、换号历史和 `seatKey` 留在同一个 slot。`usage_based` / Codex 席位不创建 slot。
+- 母号下售出的本地客户席位保存为 `seatSlots`。slot 绑定的是席位位置，不是当前邮箱或远端成员/邀请记录；ChatGPT 与 Codex 席位都可创建 slot。邀请转成员、修改席位类型或换号后，备注、到期时间、价格、换号历史和 `seatKey` 留在同一个 slot。
 - 子号的 Codex 凭证按 workspace 维度保存；同一子号在不同 Team 下需要不同凭证。凭证 JSON 独立保存到运行时凭证文件，普通 view 只返回文件名、CPA 号池和额度缓存等脱敏元数据。
 - Team 关联里的母号名称、workspace id 等展示信息从当前母号列表派生，不复制到 `teamLinks`。
 - 写操作成功后必须更新本地 canonical cache 或返回最新 view，避免 UI 列表、详情和运行时 JSON 断链。

@@ -77,9 +77,6 @@ export function ParentInvitesTable({
       title: '客户席位资料',
       key: 'profile',
       render: (_, invite) => {
-        if (invite.seat !== 'default') {
-          return <Typography.Text type="secondary">Codex 席位不使用客户席位资料</Typography.Text>;
-        }
         const slot = seatSlotForEmail(account, invite.email);
         return (
           <div className="profile-cell">

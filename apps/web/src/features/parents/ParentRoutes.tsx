@@ -121,8 +121,7 @@ function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
   };
 }
 
-function seatSlotProfileFromInviteValues(values: InviteValues): AccountSeatSlotProfileInput | undefined {
-  if (values.seat !== 'default') return undefined;
+export function seatSlotProfileFromInviteValues(values: InviteValues): AccountSeatSlotProfileInput {
   return {
     remark: values.remark?.trim() ?? '',
     expiresOn: values.expiresOn,
@@ -886,9 +885,7 @@ export function ParentRoutes({
               ]}
             />
           </Form.Item>
-          <Form.Item noStyle shouldUpdate={(previous, current) => previous.seat !== current.seat}>
-            {({ getFieldValue }) => getFieldValue('seat') === 'default' ? <SeatSlotProfileFields /> : null}
-          </Form.Item>
+          <SeatSlotProfileFields />
         </Form>
         <ModalErrorAlert message={searchState.modal === 'invite-member' ? localError : ''} />
       </Modal>

@@ -70,18 +70,12 @@ export function ParentMembersTable({
     }
   };
 
-  const changeRole = async (
-    member: Member,
-    role: EditableMemberRole,
-    confirmOwnerRisk: boolean
-  ) => {
+  const changeRole = async (member: Member, role: EditableMemberRole) => {
     const key = actionKey('member-role', member.userId);
     setError('');
     try {
       await actionBusy.run(key, async () => {
-        onAccountChanged(
-          await apiClient.setMemberRole(account.id, member.userId, role, confirmOwnerRisk)
-        );
+        onAccountChanged(await apiClient.setMemberRole(account.id, member.userId, role));
       });
     } catch (roleError) {
       setError((roleError as Error).message);
@@ -128,9 +122,6 @@ export function ParentMembersTable({
       title: '客户席位资料',
       key: 'profile',
       render: (_, member) => {
-        if (member.seat !== 'default') {
-          return <Typography.Text type="secondary">Codex 席位不使用客户席位资料</Typography.Text>;
-        }
         const slot = seatSlotForEmail(account, member.email);
         return (
           <div className="profile-cell">
@@ -154,10 +145,9 @@ export function ParentMembersTable({
       width: 180,
       render: (_, member) => (
         <MemberRoleSelect
-          userId={member.userId}
           currentRole={member.role}
           loading={actionBusy.isBusy(actionKey('member-role', member.userId))}
-          onConfirm={(role, confirmOwnerRisk) => changeRole(member, role, confirmOwnerRisk)}
+          onChange={(role) => changeRole(member, role)}
         />
       )
     },

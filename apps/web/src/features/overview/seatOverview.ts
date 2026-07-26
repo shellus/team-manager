@@ -82,19 +82,19 @@ export function seatOverviewCardIdentity(item: SeatOverviewItem): SeatOverviewCa
 function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOverviewItem[] {
   const relations = accountRelations(account);
   const relationByEmail = relationMapByEmail(relations);
-  const slotEmails = new Set<string>();
+  const slottedEmails = new Set<string>();
   const items: SeatOverviewItem[] = [];
 
   for (const slot of account.seatSlots ?? []) {
     const normalizedEmail = normalizeEmail(slot.email);
-    if (normalizedEmail) slotEmails.add(normalizedEmail);
+    if (normalizedEmail) slottedEmails.add(normalizedEmail);
     const relation = normalizedEmail ? relationByEmail.get(normalizedEmail) : undefined;
     items.push({
       ...accountItemBase(account),
       id: `${account.id}:slot:${slot.seatKey}`,
       source: 'seat-slot',
-      status: slot.status ?? relation?.status ?? (slot.email ? 'unknown' : 'empty'),
-      seat: 'default',
+      status: relation?.status ?? slot.status ?? (slot.email ? 'unknown' : 'empty'),
+      seat: relation?.seat ?? slot.seat,
       role: relation?.role,
       email: slot.email,
       remark: slot.remark,
@@ -105,18 +105,16 @@ function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOvervi
     });
   }
 
-  const usedDefaultEmails = new Set(slotEmails);
   for (const relation of relations) {
-    if (relation.seat !== 'default') continue;
     const normalizedEmail = normalizeEmail(relation.email);
-    if (usedDefaultEmails.has(normalizedEmail)) continue;
-    usedDefaultEmails.add(normalizedEmail);
+    if (slottedEmails.has(normalizedEmail)) continue;
+    slottedEmails.add(normalizedEmail);
     items.push({
       ...accountItemBase(account),
       id: `${account.id}:${relation.source}:${relation.id}`,
       source: relation.source,
       status: relation.status,
-      seat: 'default',
+      seat: relation.seat,
       role: relation.role,
       email: relation.email,
       ...accountRenewalExpiry(account)
@@ -135,24 +133,6 @@ function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOvervi
         ...accountRenewalExpiry(account)
       });
     }
-  }
-
-  const usedCodexEmails = new Set<string>();
-  for (const relation of relations) {
-    if (relation.seat !== 'usage_based') continue;
-    const normalizedEmail = normalizeEmail(relation.email);
-    if (usedCodexEmails.has(normalizedEmail)) continue;
-    usedCodexEmails.add(normalizedEmail);
-    items.push({
-      ...accountItemBase(account),
-      id: `${account.id}:${relation.source}:${relation.id}`,
-      source: relation.source,
-      status: relation.status,
-      seat: 'usage_based',
-      role: relation.role,
-      email: relation.email,
-      ...accountRenewalExpiry(account)
-    });
   }
 
   return account.isBanned ? items.filter((item) => item.status !== 'empty') : items;
