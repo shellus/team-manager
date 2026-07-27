@@ -9,7 +9,10 @@ import type {
   AccountManagerProfileView,
   CodexCredentialJson,
   OpenCodexSpaceRequest,
+  OpenPro5xRequest,
+  OpenTeamSubscriptionRequest,
   ResidentialProxyConfig,
+  SubaccountAccountManagerStatus,
   SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
   SubaccountSummaryView,
@@ -348,7 +351,14 @@ class FakeAccountManager implements AccountManagerGateway {
   requests: AccountRegistrationRequest[] = [];
   controls: string[] = [];
   private jobs: SubaccountRegistrationJobView[] = [];
+  private accountOperations: AccountManagerOperationView[] = [];
   private requestTags = new Map<string, string>();
+  pro5xAccounts = new Set<string>();
+  openedPro5x?: {
+    accountId: string;
+    input: OpenPro5xRequest & { requestTag?: string };
+  };
+  providedCards: Array<{ operationId: string; input: OpenPro5xRequest }> = [];
   profileControls: string[] = [];
   profiles = new Map<string, AccountManagerProfileView>();
   proxyConfigs = new Map<string, ResidentialProxyConfig>();
@@ -398,13 +408,15 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async operation(id: string): Promise<AccountManagerOperationView> {
+    const accountOperation = this.accountOperations.find((item) => item.id === id);
+    if (accountOperation) return accountOperation;
     const job = this.jobs.find((item) => item.id === id);
     if (!job) throw new Error('registration operation missing');
     return this.operationFromJob(job);
   }
 
-  async listAccountOperations(): Promise<AccountManagerOperationView[]> {
-    return [];
+  async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
+    return this.accountOperations.filter((operation) => operation.accountId === accountId);
   }
 
   async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
@@ -432,6 +444,13 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async rotateOperationIp(id: string): Promise<AccountManagerOperationView> {
+    const accountOperation = this.accountOperations.find((item) => item.id === id);
+    if (accountOperation) {
+      this.controls.push(`rotate:${id}`);
+      accountOperation.message = 'IP已更换，正在继续监听当前页面';
+      accountOperation.updatedAt += 1;
+      return accountOperation;
+    }
     const job = this.jobs.find((item) => item.id === id);
     if (!job) throw new Error('registration job missing');
     this.controls.push(`rotate:${id}`);
@@ -459,13 +478,35 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async terminateOperation(id: string): Promise<AccountManagerOperationView> {
-    throw new Error(`unexpected terminate: ${id}`);
+    const operation = this.accountOperations.find((item) => item.id === id);
+    if (!operation) throw new Error(`unexpected terminate: ${id}`);
+    this.controls.push(`terminate:${id}`);
+    operation.status = 'interrupted';
+    operation.errorCode = 'operation_terminated_by_user';
+    operation.errorMessage = '任务已由用户终止';
+    operation.updatedAt += 1;
+    operation.completedAt = operation.updatedAt;
+    return operation;
+  }
+
+  async provideOperationPaymentCard(
+    id: string,
+    input: OpenPro5xRequest
+  ): Promise<AccountManagerOperationView> {
+    const operation = await this.operation(id);
+    this.providedCards.push({ operationId: id, input });
+    operation.phase = 'pro5x_payment_card_received';
+    operation.message = '已收到信用卡';
+    operation.progress = 61;
+    operation.updatedAt += 1;
+    return operation;
   }
 
   async removeOperation(id: string): Promise<boolean> {
-    const before = this.jobs.length;
+    const before = this.jobs.length + this.accountOperations.length;
     this.jobs = this.jobs.filter((job) => job.id !== id);
-    return this.jobs.length !== before;
+    this.accountOperations = this.accountOperations.filter((operation) => operation.id !== id);
+    return this.jobs.length + this.accountOperations.length !== before;
   }
 
   async session(accountId: string) {
@@ -479,7 +520,14 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async account(accountId: string) {
-    return { id: accountId, email: accountId, hasCodexSpace: false, workspaces: [] };
+    return {
+      id: accountId,
+      email: accountId,
+      hasCodexSpace: false,
+      hasTeamSubscription: false,
+      hasPro5x: this.pro5xAccounts.has(accountId),
+      workspaces: []
+    };
   }
 
   async syncAccount(accountId: string) {
@@ -544,6 +592,47 @@ class FakeAccountManager implements AccountManagerGateway {
       createdAt: 1,
       updatedAt: 1
     };
+  }
+
+  async openTeamSubscription(
+    accountId: string,
+    _input: OpenTeamSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    throw new Error(`unexpected Team subscription: ${accountId}`);
+  }
+
+  async openPro5x(
+    accountId: string,
+    input: OpenPro5xRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    this.openedPro5x = { accountId, input };
+    const operation: AccountManagerOperationView = {
+      id: `pro5x-${this.accountOperations.length + 1}`,
+      accountId,
+      type: 'open_pro_5x',
+      status: 'queued',
+      phase: 'pro5x_queued',
+      message: '已加入 Pro 5x 开通队列',
+      progress: 0,
+      requestSummary: { requestTag: input.requestTag },
+      createdAt: 10,
+      updatedAt: 10
+    };
+    this.accountOperations.push(operation);
+    return operation;
+  }
+
+  completePro5x(accountId: string): void {
+    this.pro5xAccounts.add(accountId);
+    const operation = this.accountOperations.find((item) =>
+      item.accountId === accountId && item.type === 'open_pro_5x'
+    );
+    if (!operation) throw new Error('Pro 5x operation missing');
+    operation.status = 'succeeded';
+    operation.phase = 'complete';
+    operation.progress = 100;
+    operation.updatedAt += 1;
+    operation.completedAt = operation.updatedAt;
   }
 
   private operationFromJob(job: SubaccountRegistrationJobView): AccountManagerOperationView {
@@ -631,6 +720,84 @@ async function waitForRegistrationJob(
 }
 
 describe('Subaccount API', () => {
+  it('opens Pro 5x for a managed child and reconciles the personal plan status', async () => {
+    const accountManager = new FakeAccountManager();
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ accountManager });
+    try {
+      const subaccount = await subaccountStore.saveManagedSubaccount({
+        managedAccountEmail: 'child@example.com',
+        email: 'child@example.com',
+        session: {
+          user: { email: 'child@example.com' },
+          account: { id: 'personal-account' },
+          accessToken: 'web-access-token',
+          sessionToken: 'session-token'
+        }
+      });
+
+      const initial = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/status`, {
+        headers: authHeaders
+      });
+      const initialStatus = ((await initial.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(initialStatus.managed, true);
+      assert.equal(initialStatus.hasPro5x, false);
+
+      const opened = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/open-pro-5x`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          autoPay: false,
+          card: { number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123' }
+        })
+      });
+      const operation = ((await opened.json()) as ApiResult<AccountManagerOperationView>).data!;
+
+      assert.equal(opened.status, 200);
+      assert.equal(operation.type, 'open_pro_5x');
+      assert.equal(accountManager.openedPro5x?.accountId, 'child@example.com');
+      assert.equal(accountManager.openedPro5x?.input.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.subaccount);
+      assert.equal(accountManager.openedPro5x?.input.autoPay, true);
+      assert.deepEqual(accountManager.openedPro5x?.input.card, {
+        number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123'
+      });
+
+      const running = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/status`, {
+        headers: authHeaders
+      });
+      const runningStatus = ((await running.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(runningStatus.pro5xOperation?.id, operation.id);
+
+      const storedOperation = await accountManager.operation(operation.id);
+      storedOperation.status = 'waiting_manual';
+      storedOperation.phase = 'pro5x_payment_card_required';
+      const resumed = await app.request(
+        `/api/subaccounts/${subaccount.id}/account-manager/operations/${operation.id}/payment-card`,
+        {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            card: { number: '5555555555554444', expiryMonth: 8, expiryYear: 2029, cvc: '456' }
+          })
+        }
+      );
+      assert.equal(resumed.status, 200);
+      assert.equal(accountManager.providedCards[0]?.operationId, operation.id);
+      assert.equal(accountManager.providedCards[0]?.input.autoPay, true);
+      assert.equal(accountManager.providedCards[0]?.input.card.number, '5555555555554444');
+
+      accountManager.completePro5x('child@example.com');
+      const completed = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/status`, {
+        headers: authHeaders
+      });
+      const completedStatus = ((await completed.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(completedStatus.hasPro5x, true);
+      assert.equal(completedStatus.pro5xOperation, undefined);
+      assert.equal((await accountManager.listAccountOperations('child@example.com')).length, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('proxies managed subaccount Profile lifecycle through Account Manager', async () => {
     const accountManager = new FakeAccountManager();
     const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ accountManager });

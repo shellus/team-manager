@@ -8,16 +8,15 @@ import type {
 } from '@team-manager/shared';
 import { MAX_CHATGPT_SEATS } from '@team-manager/shared';
 import {
-  CloseOutlined,
   DeleteOutlined,
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
-  RobotOutlined,
-  StopOutlined
+  RobotOutlined
 } from '@ant-design/icons';
-import { Button, Card, Dropdown, List, Popconfirm, Progress, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Dropdown, List, Progress, Space, Tag, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
+import { AccountOperationProgress } from '../../components/AccountOperationProgress.js';
 import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import { BannedStatusTag, LimitTypeTag } from '../../components/StatusTag.js';
@@ -48,14 +47,15 @@ function taskProgress(task: ParentRegistrationTaskView): number {
 }
 
 type ParentWorkspaceOperation = {
-  label: '0.52' | '双席位';
+  label: '0.52' | '双席位' | 'Pro 5x';
   operation: AccountManagerOperationView;
 };
 
 function visibleWorkspaceOperation(status?: ParentAccountManagerStatus): ParentWorkspaceOperation | undefined {
   const operations: ParentWorkspaceOperation[] = [
     ...(status?.codexOperation ? [{ label: '0.52' as const, operation: status.codexOperation }] : []),
-    ...(status?.teamOperation ? [{ label: '双席位' as const, operation: status.teamOperation }] : [])
+    ...(status?.teamOperation ? [{ label: '双席位' as const, operation: status.teamOperation }] : []),
+    ...(status?.pro5xOperation ? [{ label: 'Pro 5x' as const, operation: status.pro5xOperation }] : [])
   ].filter(({ operation }) => operation.status !== 'succeeded');
   const active = (operation: AccountManagerOperationView) =>
     ['queued', 'running', 'waiting_for_otp', 'waiting_manual'].includes(operation.status);
@@ -63,24 +63,6 @@ function visibleWorkspaceOperation(status?: ParentAccountManagerStatus): ParentW
     const activeDifference = Number(active(right.operation)) - Number(active(left.operation));
     return activeDifference || right.operation.updatedAt - left.operation.updatedAt;
   })[0];
-}
-
-function operationStatusLabel(operation: AccountManagerOperationView): string {
-  if (operation.status === 'waiting_manual') return '等待人工';
-  if (operation.status === 'interrupted') {
-    return operation.errorCode === 'operation_terminated_by_user' ? '已终止' : '操作中断';
-  }
-  if (operation.status === 'failed') return '操作失败';
-  if (operation.status === 'queued') return '排队中';
-  return '执行中';
-}
-
-function operationIsActive(operation: AccountManagerOperationView): boolean {
-  return ['queued', 'running', 'waiting_manual'].includes(operation.status);
-}
-
-function operationCanDismiss(operation: AccountManagerOperationView): boolean {
-  return operation.status === 'failed' || operation.status === 'interrupted';
 }
 
 export function stopParentActionMenuPropagation(event: {
@@ -349,102 +331,19 @@ export function ParentList({
                   <WorkspaceOpeningStatusTags
                     hasCodexSpace={hasParentCodexSpace(account, managerStatus)}
                     hasTeamSubscription={hasTeamSubscription}
+                    hasPro5x={managerStatus?.hasPro5x === true}
                   />
                   {maintainedAccountIds.has(account.id) && <Tag color="processing">订单维护中</Tag>}
                   <span className="record-status-time">同步 {formatRelativeTime(account.lastRefreshAt)}</span>
                 </div>
                 {workspaceOperation && (
-                  <div className="account-operation-progress" aria-live="polite">
-                    <div className="account-operation-progress-head">
-                      <Typography.Text strong>{workspaceOperation.label} 开通</Typography.Text>
-                      <Space size={2}>
-                        <Tag color={
-                          workspaceOperation.operation.status === 'waiting_manual'
-                            ? 'warning'
-                            : workspaceOperation.operation.status === 'failed'
-                              || workspaceOperation.operation.status === 'interrupted'
-                              ? 'error'
-                              : 'processing'
-                        }>
-                          {operationStatusLabel(workspaceOperation.operation)}
-                        </Tag>
-                        {operationCanDismiss(workspaceOperation.operation) && (
-                          <Tooltip title="清除错误">
-                            <Button
-                              className="operation-dismiss-button"
-                              type="text"
-                              size="small"
-                              shape="circle"
-                              aria-label="清除开通错误"
-                              icon={<CloseOutlined />}
-                              loading={isBusy(`dismiss-operation-${workspaceOperation.operation.id}`)}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onDismissOperation(account, workspaceOperation.operation);
-                              }}
-                            />
-                          </Tooltip>
-                        )}
-                      </Space>
-                    </div>
-                    <Typography.Text
-                      className="account-operation-progress-message"
-                      type={
-                        workspaceOperation.operation.status === 'failed'
-                          || workspaceOperation.operation.status === 'interrupted'
-                          ? 'danger'
-                          : 'secondary'
-                      }
-                      title={workspaceOperation.operation.errorMessage || workspaceOperation.operation.message}
-                    >
-                      {shortText(
-                        workspaceOperation.operation.errorMessage
-                          || workspaceOperation.operation.message
-                          || workspaceOperation.operation.phase,
-                        96
-                      )}
-                    </Typography.Text>
-                    <Progress
-                      percent={workspaceOperation.operation.progress}
-                      size="small"
-                      status={
-                        workspaceOperation.operation.status === 'failed'
-                          || workspaceOperation.operation.status === 'interrupted'
-                          ? 'exception'
-                          : workspaceOperation.operation.status === 'waiting_manual'
-                            ? 'normal'
-                            : 'active'
-                      }
-                      format={(percent) => `${percent ?? 0}%`}
-                    />
-                    {operationIsActive(workspaceOperation.operation) && (
-                      <Space
-                        size={6}
-                        wrap
-                        className="account-operation-actions"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <Popconfirm
-                          title="终止当前开通任务？"
-                          description="终止后会停止关联 profile，任务不会自动继续。"
-                          okText="终止任务"
-                          okButtonProps={{ danger: true }}
-                          cancelText="取消"
-                          onConfirm={() => onTerminateOperation(account, workspaceOperation.operation)}
-                        >
-                          <Button
-                            danger
-                            size="small"
-                            icon={<StopOutlined />}
-                            loading={isBusy(`terminate-operation-${workspaceOperation.operation.id}`)}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            终止任务
-                          </Button>
-                        </Popconfirm>
-                      </Space>
-                    )}
-                  </div>
+                  <AccountOperationProgress
+                    label={workspaceOperation.label}
+                    operation={workspaceOperation.operation}
+                    isBusy={isBusy}
+                    onTerminate={() => onTerminateOperation(account, workspaceOperation.operation)}
+                    onDismiss={() => onDismissOperation(account, workspaceOperation.operation)}
+                  />
                 )}
                 {account.lastError && (
                   <Typography.Text className="record-error" type="danger" title={account.lastError}>

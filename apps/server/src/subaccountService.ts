@@ -1,7 +1,10 @@
 import type {
+  AccountManagerOperationView,
   CodexCredentialJson,
   CodexQuotaSnapshot,
+  OpenPro5xRequest,
   Subaccount,
+  SubaccountAccountManagerStatus,
   SubaccountAuthLog,
   SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
@@ -238,6 +241,179 @@ export class SubaccountService {
   ): Promise<ResidentialProxyConfig> {
     const email = this.requireManagedAccountEmail(id);
     return this.callAccountManager(() => this.accountManager!.configureAccountProxy(email, input));
+  }
+
+  async accountStatus(id: string): Promise<SubaccountAccountManagerStatus> {
+    const subaccount = this.requireSubaccount(id);
+    if (!this.accountManager) {
+      return {
+        configured: false,
+        reachable: false,
+        managed: false,
+        hasPro5x: false,
+        error: '未配置 GPT Account Manager'
+      };
+    }
+    const email = subaccount.managedAccountEmail?.trim().toLowerCase();
+    if (!email) {
+      return {
+        configured: true,
+        reachable: true,
+        managed: false,
+        hasPro5x: false,
+        error: '该子号未关联 GPT Account Manager'
+      };
+    }
+
+    try {
+      const managed = await this.accountManager.account(email);
+      let pro5xOperation: AccountManagerOperationView | undefined = (
+        await this.accountManager.listAccountOperations(email)
+      )
+        .filter(isSubaccountPro5xOperation)
+        .sort((left, right) => right.createdAt - left.createdAt)[0];
+      if (pro5xOperation?.status === 'succeeded' && managed.hasPro5x) {
+        await this.safeRemoveAccountOperation(pro5xOperation.id);
+        pro5xOperation = undefined;
+      }
+      return {
+        configured: true,
+        reachable: true,
+        managed: true,
+        hasPro5x: managed.hasPro5x === true || pro5xOperation?.status === 'succeeded',
+        accountEmail: email,
+        ...(pro5xOperation ? { pro5xOperation } : {}),
+        ...(pro5xOperation?.errorMessage ? { error: pro5xOperation.errorMessage } : {})
+      };
+    } catch (error) {
+      if (error instanceof AccountManagerError && error.status === 404) {
+        return {
+          configured: true,
+          reachable: true,
+          managed: false,
+          hasPro5x: false,
+          accountEmail: email,
+          error: '该邮箱尚未由 GPT Account Manager 管理'
+        };
+      }
+      return {
+        configured: true,
+        reachable: false,
+        managed: false,
+        hasPro5x: false,
+        accountEmail: email,
+        error: error instanceof AccountManagerError ? error.message : (error as Error).message
+      };
+    }
+  }
+
+  async accountStatuses(): Promise<Record<string, SubaccountAccountManagerStatus>> {
+    const subaccounts = this.store.listSummaries();
+    if (!this.accountManager?.listAccounts) {
+      const entries = await Promise.all(subaccounts.map(async (subaccount) => [
+        subaccount.id,
+        await this.accountStatus(subaccount.id)
+      ] as const));
+      return Object.fromEntries(entries);
+    }
+
+    try {
+      const [managedAccounts, operations] = await Promise.all([
+        this.accountManager.listAccounts(),
+        this.accountManager.listOperations({
+          type: 'open_pro_5x',
+          requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
+        })
+      ]);
+      const managedByEmail = new Map(
+        managedAccounts.map((account) => [account.email.trim().toLowerCase(), account])
+      );
+      const operationsByEmail = new Map<string, AccountManagerOperationView[]>();
+      for (const operation of operations.filter(isSubaccountPro5xOperation)) {
+        const email = operationAccountEmail(operation);
+        if (!email) continue;
+        const current = operationsByEmail.get(email) ?? [];
+        current.push(operation);
+        operationsByEmail.set(email, current);
+      }
+
+      const entries = await Promise.all(subaccounts.map(async (subaccount) => {
+        const email = subaccount.managedAccountEmail?.trim().toLowerCase();
+        if (!email) {
+          return [subaccount.id, unmanagedSubaccountStatus()] as const;
+        }
+        const managed = managedByEmail.get(email);
+        if (!managed) {
+          return [subaccount.id, missingManagedSubaccountStatus(email)] as const;
+        }
+        const pro5xOperation = (operationsByEmail.get(email) ?? [])
+          .sort((left, right) => right.createdAt - left.createdAt)[0];
+        if (pro5xOperation?.status === 'succeeded' && managed.hasPro5x) {
+          return [subaccount.id, await this.accountStatus(subaccount.id)] as const;
+        }
+        return [subaccount.id, managedSubaccountStatus(email, managed.hasPro5x === true, pro5xOperation)] as const;
+      }));
+      return Object.fromEntries(entries);
+    } catch (error) {
+      const message = error instanceof AccountManagerError ? error.message : (error as Error).message;
+      return Object.fromEntries(subaccounts.map((subaccount) => [
+        subaccount.id,
+        subaccount.managedAccountEmail
+          ? unreachableManagedSubaccountStatus(subaccount.managedAccountEmail, message)
+          : unmanagedSubaccountStatus()
+      ]));
+    }
+  }
+
+  async openAccountPro5x(
+    id: string,
+    input: OpenPro5xRequest
+  ): Promise<AccountManagerOperationView> {
+    const email = this.requireManagedAccountEmail(id);
+    const managed = await this.callAccountManager(() => this.accountManager!.account(email));
+    if (managed.hasPro5x) throw new ServiceError(409, '该账号已开通 Pro 5x');
+    await this.removeFailedPro5xOperations(email);
+    return this.callAccountManager(() => this.accountManager!.openPro5x(email, {
+      ...input,
+      autoPay: true,
+      requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
+    }));
+  }
+
+  async rotateAccountOperationIp(
+    id: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    await this.requireSubaccountPro5xOperation(id, operationId);
+    return this.callAccountManager(() => this.accountManager!.rotateOperationIp(operationId));
+  }
+
+  async terminateAccountOperation(
+    id: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    await this.requireSubaccountPro5xOperation(id, operationId);
+    return this.callAccountManager(() => this.accountManager!.terminateOperation(operationId));
+  }
+
+  async provideAccountPro5xPaymentCard(
+    id: string,
+    operationId: string,
+    input: OpenPro5xRequest
+  ): Promise<AccountManagerOperationView> {
+    await this.requireSubaccountPro5xOperation(id, operationId);
+    return this.callAccountManager(() => this.accountManager!.provideOperationPaymentCard(operationId, {
+      ...input,
+      autoPay: true
+    }));
+  }
+
+  async dismissAccountOperation(id: string, operationId: string): Promise<boolean> {
+    const operation = await this.requireSubaccountPro5xOperation(id, operationId);
+    if (operation.status !== 'failed' && operation.status !== 'interrupted') {
+      throw new ServiceError(409, '只有失败或已终止的开通记录可以清除');
+    }
+    return this.callAccountManager(() => this.accountManager!.removeOperation(operation.id));
   }
 
   async importSession(raw: unknown): Promise<SubaccountView> {
@@ -803,6 +979,100 @@ export class SubaccountService {
     if (!subaccount.managedAccountEmail) throw new ServiceError(409, '该子号未关联 GPT Account Manager');
     return subaccount.managedAccountEmail;
   }
+
+  private async requireSubaccountPro5xOperation(
+    id: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    const email = this.requireManagedAccountEmail(id);
+    const operation = await this.callAccountManager(() => this.accountManager!.operation(operationId));
+    if (
+      operation.accountId?.trim().toLowerCase() !== email.trim().toLowerCase()
+      || !isSubaccountPro5xOperation(operation)
+    ) {
+      throw new ServiceError(404, `子号 Pro 5x 开通操作不存在: ${operationId}`);
+    }
+    return operation;
+  }
+
+  private async removeFailedPro5xOperations(email: string): Promise<void> {
+    const operations = await this.callAccountManager(() => this.accountManager!.listAccountOperations(email));
+    for (const operation of operations.filter((item) =>
+      isSubaccountPro5xOperation(item)
+      && (item.status === 'failed' || item.status === 'interrupted')
+    )) {
+      await this.safeRemoveAccountOperation(operation.id);
+    }
+  }
+
+  private async safeRemoveAccountOperation(operationId: string): Promise<void> {
+    try {
+      await this.accountManager!.removeOperation(operationId);
+    } catch {
+      // 账号能力已经同步后，不因远程任务记录清理失败回滚状态。
+    }
+  }
+}
+
+function isSubaccountPro5xOperation(operation: AccountManagerOperationView): boolean {
+  return operation.type === 'open_pro_5x'
+    && operation.requestSummary?.requestTag === ACCOUNT_MANAGER_REQUEST_TAGS.subaccount;
+}
+
+function operationAccountEmail(operation: AccountManagerOperationView): string | undefined {
+  const value = operation.accountId || operation.email;
+  return value?.trim().toLowerCase() || undefined;
+}
+
+function managedSubaccountStatus(
+  email: string,
+  hasPro5x: boolean,
+  pro5xOperation?: AccountManagerOperationView
+): SubaccountAccountManagerStatus {
+  return {
+    configured: true,
+    reachable: true,
+    managed: true,
+    hasPro5x: hasPro5x || pro5xOperation?.status === 'succeeded',
+    accountEmail: email,
+    ...(pro5xOperation ? { pro5xOperation } : {}),
+    ...(pro5xOperation?.errorMessage ? { error: pro5xOperation.errorMessage } : {})
+  };
+}
+
+function unmanagedSubaccountStatus(): SubaccountAccountManagerStatus {
+  return {
+    configured: true,
+    reachable: true,
+    managed: false,
+    hasPro5x: false,
+    error: '该子号未关联 GPT Account Manager'
+  };
+}
+
+function missingManagedSubaccountStatus(email: string): SubaccountAccountManagerStatus {
+  return {
+    configured: true,
+    reachable: true,
+    managed: false,
+    hasPro5x: false,
+    accountEmail: email,
+    error: '该邮箱尚未由 GPT Account Manager 管理'
+  };
+}
+
+function unreachableManagedSubaccountStatus(
+  email: string,
+  error: string
+): SubaccountAccountManagerStatus {
+  return {
+    configured: true,
+    reachable: false,
+    managed: false,
+    hasPro5x: false,
+    accountEmail: email.trim().toLowerCase(),
+    error
+  };
 }
 
 function parseJsonObject(body: string, message: string): Record<string, unknown> {

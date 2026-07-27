@@ -1,8 +1,8 @@
 import type { OpenTeamSubscriptionRequest, TeamUpgradeWorkspaceOption } from '@team-manager/shared';
 import { Alert, Form, Input, Modal, Select, Space, Switch, Typography } from 'antd';
 import { useEffect } from 'react';
-import { normalizeCardExpiryInput, parseCardExpiry } from './cardExpiry.js';
 import { ModalErrorAlert } from './ModalErrorAlert.js';
+import { PaymentCardFields } from './PaymentCardFields.js';
 import {
   billingCurrencyForCountry,
   parsePromotionTriplet,
@@ -36,24 +36,6 @@ export function OpenTeamSubscriptionModal({
   useEffect(() => {
     if (open) form.setFieldsValue(DEFAULT_TEAM_SUBSCRIPTION_FORM_VALUES);
   }, [form, open]);
-
-  const cardValidator = (field: keyof Pick<TeamSubscriptionFormValues, 'number' | 'expiry' | 'cvc'>) => {
-    const values = form.getFieldsValue(['number', 'expiry', 'cvc']);
-    const hasAny = Boolean(values.number?.trim() || values.expiry?.trim() || values.cvc?.trim());
-    if (!hasAny) return Promise.resolve();
-    const value = values[field]?.trim();
-    if (!value) return Promise.reject(new Error('填写信用卡时，卡号、有效期和 CVC 必须完整'));
-    if (field === 'number' && !/^\d{12,19}$/.test(value.replace(/\s+/g, ''))) {
-      return Promise.reject(new Error('卡号应为 12 至 19 位数字'));
-    }
-    if (field === 'expiry' && !parseCardExpiry(value)) {
-      return Promise.reject(new Error('有效期格式为 MM/YY 或 MM/YYYY'));
-    }
-    if (field === 'cvc' && !/^\d{3,4}$/.test(value)) {
-      return Promise.reject(new Error('CVC 应为 3 或 4 位数字'));
-    }
-    return Promise.resolve();
-  };
 
   return (
     <Modal
@@ -141,23 +123,12 @@ export function OpenTeamSubscriptionModal({
             <Switch checkedChildren="自动点击 Pay" unCheckedChildren="人工点击 Pay" />
           </Form.Item>
           <Typography.Text strong>信用卡（可选）</Typography.Text>
-          <Form.Item name="number" label="卡号" dependencies={['expiry', 'cvc']} rules={[{ validator: () => cardValidator('number') }]}>
-            <Input inputMode="numeric" autoComplete="cc-number" placeholder="留空则复用 Stripe 已保存卡片" maxLength={23} />
-          </Form.Item>
-          <div className="payment-field-row">
-            <Form.Item
-              name="expiry"
-              label="有效期"
-              dependencies={['number', 'cvc']}
-              getValueFromEvent={(event) => normalizeCardExpiryInput(event.target.value)}
-              rules={[{ validator: () => cardValidator('expiry') }]}
-            >
-              <Input inputMode="numeric" autoComplete="cc-exp" placeholder="MM/YY 或 MM/YYYY" maxLength={7} />
-            </Form.Item>
-            <Form.Item name="cvc" label="CVC" dependencies={['number', 'expiry']} rules={[{ validator: () => cardValidator('cvc') }]}>
-              <Input inputMode="numeric" autoComplete="cc-csc" placeholder="CVC" maxLength={4} />
-            </Form.Item>
-          </div>
+          <PaymentCardFields
+            required={false}
+            quickInput
+            numberPlaceholder="留空则复用 Stripe 已保存卡片"
+            numberOnOwnRow
+          />
         </Form>
         <ModalErrorAlert message={error} />
       </Space>

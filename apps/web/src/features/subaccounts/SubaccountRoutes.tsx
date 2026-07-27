@@ -3,7 +3,9 @@ import {
   subaccountSummaryFromView,
   type AccountSummaryView,
   type CodexQuotaSnapshot,
+  type OpenPro5xRequest,
   type SeatType,
+  type SubaccountAccountManagerStatus,
   type SubaccountAuthLog,
   type SubaccountLocalProfileView,
   type SubaccountRegistrationJobView,
@@ -27,6 +29,7 @@ import { actionKey } from '../../components/actionBusy.js';
 import { registrationStatusNeedsPolling } from '../../components/registrationPolling.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
+import { OpenPro5xModal } from '../../components/OpenPro5xModal.js';
 import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import {
@@ -71,6 +74,19 @@ function accountOptionLabel(account: AccountSummaryView): string {
   return primary === account.email ? primary : `${primary} · ${account.email}`;
 }
 
+export function subaccountAccountManagerStatusNeedsPolling(
+  status: SubaccountAccountManagerStatus
+): boolean {
+  const operation = status.pro5xOperation;
+  return Boolean(operation && (
+    operation.status === 'queued'
+    || operation.status === 'running'
+    || operation.status === 'waiting_for_otp'
+    || operation.status === 'waiting_manual'
+    || (operation.status === 'succeeded' && !status.hasPro5x)
+  ));
+}
+
 export function SubaccountRoutes({
   accounts,
   onError
@@ -94,6 +110,8 @@ export function SubaccountRoutes({
   const [registrationJobsLoaded, setRegistrationJobsLoaded] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<AccountManagerRuntimeStatus | null>(null);
   const [accountProfileStatuses, setAccountProfileStatuses] = useState<Record<string, AccountManagerProfileView>>({});
+  const [accountManagerStatuses, setAccountManagerStatuses] = useState<Record<string, SubaccountAccountManagerStatus>>({});
+  const [accountManagerLoadingId, setAccountManagerLoadingId] = useState('');
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
@@ -124,6 +142,9 @@ export function SubaccountRoutes({
       ?? groupedSubaccounts[0]
       ?? null;
   const selected = selectedSummary ? subaccountDetails[selectedSummary.id] ?? null : null;
+  const accountManagerStatus = selectedSummary
+    ? accountManagerStatuses[selectedSummary.id] ?? null
+    : null;
   const deleteTarget =
     searchState.modal === 'delete-subaccount'
       ? resolveSubaccountDeleteTarget(subaccounts, selectedSummary, searchState.target)
@@ -206,12 +227,14 @@ export function SubaccountRoutes({
     setLoading(true);
     setLocalError('');
     try {
-      const [nextJobs, nextSubaccounts] = await Promise.all([
+      const [nextJobs, nextSubaccounts, nextAccountManagerStatuses] = await Promise.all([
         apiClient.listSubaccountRegistrationJobs(),
-        apiClient.listSubaccounts()
+        apiClient.listSubaccounts(),
+        apiClient.getSubaccountAccountManagerStatuses()
       ]);
       setSubaccounts(sortSubaccountsForList(nextSubaccounts));
       setRegistrationJobs(nextJobs);
+      setAccountManagerStatuses(nextAccountManagerStatuses);
     } catch (error) {
       reportLocalError(error);
     } finally {
@@ -244,6 +267,20 @@ export function SubaccountRoutes({
     setAccountProfileStatuses((current) => ({ ...current, [id]: profile }));
   }, []);
 
+  const loadAccountManagerStatus = useCallback(async (id: string, background = false) => {
+    if (!background) setAccountManagerLoadingId(id);
+    try {
+      const status = await apiClient.getSubaccountAccountManagerStatus(id);
+      setAccountManagerStatuses((current) => ({ ...current, [id]: status }));
+      return status;
+    } catch (error) {
+      if (!background) reportLocalError(error);
+      return undefined;
+    } finally {
+      if (!background) setAccountManagerLoadingId((current) => current === id ? '' : current);
+    }
+  }, [reportLocalError]);
+
   const loadLogs = useCallback(
     async (id: string) => {
       setLogsLoaded(false);
@@ -262,6 +299,11 @@ export function SubaccountRoutes({
     void loadRuntimeStatus();
     void loadAccountProfileStatuses();
   }, [loadAccountProfileStatuses, loadRuntimeStatus, loadSubaccounts]);
+
+  useEffect(() => {
+    if (!selectedSummary) return;
+    void loadAccountManagerStatus(selectedSummary.id);
+  }, [loadAccountManagerStatus, selectedSummary?.id]);
 
   const hasActiveRegistration = registrationJobs.some(
     (job) => registrationStatusNeedsPolling(job.status)
@@ -294,6 +336,38 @@ export function SubaccountRoutes({
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [hasActiveRegistration]);
+
+  const hasActivePro5xOperation = Object.values(accountManagerStatuses).some(
+    subaccountAccountManagerStatusNeedsPolling
+  );
+  const shouldRetryAccountManagerStatus = Object.values(accountManagerStatuses).some(
+    (status) => status.configured && status.reachable === false
+  );
+
+  useEffect(() => {
+    if (!hasActivePro5xOperation && !shouldRetryAccountManagerStatus) return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = async () => {
+      try {
+        const statuses = await apiClient.getSubaccountAccountManagerStatuses();
+        if (!cancelled) setAccountManagerStatuses(statuses);
+      } catch {
+        // 后台任务仍保留在 GAM，短暂读取失败不清空列表中的现有进度。
+      }
+      if (!cancelled) {
+        timer = window.setTimeout(poll, hasActivePro5xOperation ? 1500 : 3000);
+      }
+    };
+    timer = window.setTimeout(poll, hasActivePro5xOperation ? 700 : 2000);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [
+    hasActivePro5xOperation,
+    shouldRetryAccountManagerStatus
+  ]);
 
   useEffect(() => {
     const completed = registrationJobId
@@ -520,6 +594,52 @@ export function SubaccountRoutes({
     }
   };
 
+  const submitPro5x = async (payload: OpenPro5xRequest) => {
+    const target = searchState.target;
+    if (!target) return;
+    setLocalError('');
+    try {
+      await actionBusy.run('open-pro-5x', async () => {
+        const operation = accountManagerStatuses[target]?.pro5xOperation;
+        if (operation?.phase === 'pro5x_payment_card_required') {
+          await apiClient.provideSubaccountPro5xPaymentCard(target, operation.id, payload);
+        } else {
+          await apiClient.openSubaccountPro5x(target, payload);
+        }
+        await loadAccountManagerStatus(target);
+        closeModal();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const terminatePro5x = async (subaccountId: string, operationId: string) => {
+    const key = `terminate-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.terminateSubaccountOperation(subaccountId, operationId);
+        await loadAccountManagerStatus(subaccountId);
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const dismissPro5x = async (subaccountId: string, operationId: string) => {
+    const key = `dismiss-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.dismissSubaccountOperation(subaccountId, operationId);
+        await loadAccountManagerStatus(subaccountId);
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const deleteSubaccount = async () => {
     if (!deleteTarget) {
       closeModal();
@@ -534,6 +654,11 @@ export function SubaccountRoutes({
         const nextParams = clearModalState(searchParams);
         setSubaccounts((current) => sortSubaccountsForList(current.filter((item) => item.id !== target.id)));
         setSubaccountDetails((current) => {
+          const next = { ...current };
+          delete next[target.id];
+          return next;
+        });
+        setAccountManagerStatuses((current) => {
           const next = { ...current };
           delete next[target.id];
           return next;
@@ -629,6 +754,7 @@ export function SubaccountRoutes({
         subaccounts={subaccounts}
         registrationJobs={registrationJobs}
         accountProfileStatuses={accountProfileStatuses}
+        accountManagerStatuses={accountManagerStatuses}
         groups={groups}
         activeGroup={activeGroup}
         searchQuery={searchQuery}
@@ -643,6 +769,12 @@ export function SubaccountRoutes({
         onOpenRegister={() => openModal('register-subaccount')}
         onRetryRegistration={(job) => void retryRegistration(job)}
         onSelectRegistration={selectRegistrationJob}
+        onTerminateOperation={(subaccount, operation) => {
+          void terminatePro5x(subaccount.id, operation.id);
+        }}
+        onDismissOperation={(subaccount, operation) => {
+          void dismissPro5x(subaccount.id, operation.id);
+        }}
         onOpenEdit={(subaccount) => {
           openSubaccountRecordModal(subaccount, 'edit-subaccount-profile');
         }}
@@ -673,6 +805,8 @@ export function SubaccountRoutes({
             logs={logs}
             logsLoaded={logsLoaded}
             busyState={actionBusy.busyState}
+            accountManagerStatus={accountManagerStatus}
+            accountManagerLoading={accountManagerLoadingId === selectedSummary?.id}
             quota={quota}
             syncing={actionBusy.isBusy('subaccount-refresh')}
             onTabChange={changeTab}
@@ -682,6 +816,13 @@ export function SubaccountRoutes({
             }}
             onOpenEdit={() => selectedSummary && openModal('edit-subaccount-profile', selectedSummary.id)}
             onOpenDelete={() => selectedSummary && openModal('delete-subaccount', selectedSummary.id)}
+            onOpenPro5x={() => selectedSummary && openModal('open-pro-5x', selectedSummary.id)}
+            onTerminatePro5x={(operationId) => {
+              if (selectedSummary) void terminatePro5x(selectedSummary.id, operationId);
+            }}
+            onDismissPro5x={(operationId) => {
+              if (selectedSummary) void dismissPro5x(selectedSummary.id, operationId);
+            }}
             onSync={() => void syncSubaccount()}
             onOpenInvite={() => openModal('invite-to-team', selectedSummary?.id ?? '')}
             onCreatePat={(workspaceId) => void createPersonalAccessToken(workspaceId)}
@@ -737,6 +878,17 @@ export function SubaccountRoutes({
           <ModalErrorAlert message={searchState.modal === 'register-subaccount' ? localError : ''} />
         </Space>
       </Modal>
+
+      <OpenPro5xModal
+        open={searchState.modal === 'open-pro-5x'}
+        confirmLoading={actionBusy.isBusy('open-pro-5x')}
+        error={searchState.modal === 'open-pro-5x' ? localError : ''}
+        mode={accountManagerStatus?.pro5xOperation?.phase === 'pro5x_payment_card_required'
+          ? 'resume'
+          : 'open'}
+        onCancel={closeModal}
+        onSubmit={submitPro5x}
+      />
 
       <Modal
         open={searchState.modal === 'delete-subaccount' && Boolean(deleteTarget)}

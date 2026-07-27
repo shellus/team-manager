@@ -8,6 +8,7 @@ import type {
   AccountSummaryView,
   AccountView,
   OpenCodexSpaceRequest,
+  OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
@@ -30,6 +31,7 @@ import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { OpenCodexSpaceModal } from '../../components/OpenCodexSpaceModal.js';
 import { OpenTeamSubscriptionModal } from '../../components/OpenTeamSubscriptionModal.js';
+import { OpenPro5xModal } from '../../components/OpenPro5xModal.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
 import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
 import { compareRunningProfileFirst } from '../../components/AccountProfileListStatus.js';
@@ -133,6 +135,7 @@ export function parentAccountManagerStatusNeedsPolling(status: ParentAccountMana
   ));
   return operationNeedsPolling(status.codexOperation, status.hasCodexSpace)
     || operationNeedsPolling(status.teamOperation, status.hasTeamSubscription)
+    || operationNeedsPolling(status.pro5xOperation, status.hasPro5x === true)
     || operationNeedsPolling(status.enrollmentOperation, status.managed);
 }
 
@@ -638,6 +641,26 @@ export function ParentRoutes({
     }
   };
 
+  const submitPro5x = async (payload: OpenPro5xRequest) => {
+    const target = searchState.target;
+    if (!target) return;
+    setLocalError('');
+    try {
+      await actionBusy.run('open-pro-5x', async () => {
+        const operation = accountManagerStatuses[target]?.pro5xOperation;
+        if (operation?.phase === 'pro5x_payment_card_required') {
+          await apiClient.provideParentPro5xPaymentCard(target, operation.id, payload);
+        } else {
+          await apiClient.openParentPro5x(target, payload);
+        }
+        await loadAccountManagerStatuses();
+        closeModal();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const terminateOperation = async (
     account: AccountSummaryView,
     operation: ParentAccountManagerStatus['codexOperation']
@@ -875,6 +898,7 @@ export function ParentRoutes({
             onOpenInvite={() => openModal('invite-member', selectedSummary?.id ?? '')}
             onOpenCodexSpace={() => selectedSummary && openCodexModal(selectedSummary.id)}
             onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
+            onOpenPro5x={() => selectedSummary && openModal('open-pro-5x', selectedSummary.id)}
             onOpenLocalProfile={() => selectedSummary && openModal('edit-parent-profile', selectedSummary.id)}
             onAccountChanged={mergeAccountView}
             onAccountManagerStatusChanged={(status) => {
@@ -962,6 +986,17 @@ export function ParentRoutes({
         workspaceOptions={accountManagerStatus?.teamUpgradeWorkspaces ?? []}
         onCancel={closeModal}
         onSubmit={submitTeamSubscription}
+      />
+
+      <OpenPro5xModal
+        open={searchState.modal === 'open-pro-5x'}
+        confirmLoading={actionBusy.isBusy('open-pro-5x')}
+        error={searchState.modal === 'open-pro-5x' ? localError : ''}
+        mode={accountManagerStatus?.pro5xOperation?.phase === 'pro5x_payment_card_required'
+          ? 'resume'
+          : 'open'}
+        onCancel={closeModal}
+        onSubmit={submitPro5x}
       />
 
       <Modal

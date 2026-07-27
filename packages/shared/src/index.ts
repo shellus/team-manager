@@ -593,6 +593,16 @@ export interface OpenTeamSubscriptionRequest {
   };
 }
 
+export interface OpenPro5xRequest {
+  autoPay?: boolean;
+  card: {
+    number: string;
+    expiryMonth: number;
+    expiryYear: number;
+    cvc: string;
+  };
+}
+
 export interface TeamUpgradeWorkspaceOption {
   id: string;
   name?: string;
@@ -621,12 +631,25 @@ export interface ParentAccountManagerStatus {
   managed: boolean;
   hasCodexSpace: boolean;
   hasTeamSubscription: boolean;
+  hasPro5x?: boolean;
   accountEmail?: string;
   teamUpgradeWorkspaces?: TeamUpgradeWorkspaceOption[];
   codexOperation?: AccountManagerOperationView;
   teamOperation?: AccountManagerOperationView;
+  pro5xOperation?: AccountManagerOperationView;
   enrollmentOperation?: AccountManagerOperationView;
   importedAccounts?: AccountSummaryView[];
+  error?: string;
+}
+
+/** 子号关联的个人 GPT 账号在 GPT Account Manager 中的实时状态。 */
+export interface SubaccountAccountManagerStatus {
+  configured: boolean;
+  reachable: boolean;
+  managed: boolean;
+  hasPro5x: boolean;
+  accountEmail?: string;
+  pro5xOperation?: AccountManagerOperationView;
   error?: string;
 }
 

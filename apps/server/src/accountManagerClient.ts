@@ -4,6 +4,7 @@ import type {
   AccountManagerProfileView,
   ChatGptSessionInput,
   OpenCodexSpaceRequest,
+  OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
   ResidentialProxyConfig,
   SubaccountRegistrationJobStatus,
@@ -45,6 +46,7 @@ export interface ManagedAccountSummary {
   email: string;
   hasCodexSpace: boolean;
   hasTeamSubscription: boolean;
+  hasPro5x?: boolean;
   workspaces: ManagedAccountWorkspace[];
 }
 
@@ -87,6 +89,7 @@ export interface AccountManagerGateway {
   operationProxyConfig(id: string): Promise<ResidentialProxyConfig>;
   configureOperationProxy(id: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   terminateOperation(id: string): Promise<AccountManagerOperationView>;
+  provideOperationPaymentCard(id: string, input: OpenPro5xRequest): Promise<AccountManagerOperationView>;
   removeOperation(id: string): Promise<boolean>;
   account(accountId: string): Promise<ManagedAccountSummary>;
   syncAccount(accountId: string): Promise<ManagedAccountSummary>;
@@ -104,6 +107,10 @@ export interface AccountManagerGateway {
   openTeamSubscription(
     accountId: string,
     input: OpenTeamSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
+  openPro5x(
+    accountId: string,
+    input: OpenPro5xRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
 }
 
@@ -204,6 +211,17 @@ export class AccountManagerClient implements AccountManagerGateway {
     ));
   }
 
+  async provideOperationPaymentCard(
+    id: string,
+    input: OpenPro5xRequest
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/operations/${encodeURIComponent(id)}/payment-card`,
+      input
+    ));
+  }
+
   removeOperation(id: string): Promise<boolean> {
     return this.request('DELETE', `/v1/operations/${encodeURIComponent(id)}`);
   }
@@ -265,6 +283,17 @@ export class AccountManagerClient implements AccountManagerGateway {
     return toOperation(await this.request(
       'POST',
       `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-team-subscription`,
+      input
+    ));
+  }
+
+  async openPro5x(
+    accountId: string,
+    input: OpenPro5xRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-pro-5x`,
       input
     ));
   }

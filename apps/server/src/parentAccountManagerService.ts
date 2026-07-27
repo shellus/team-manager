@@ -5,6 +5,7 @@ import type {
   AccountSummaryView,
   AccountView,
   OpenCodexSpaceRequest,
+  OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
@@ -149,6 +150,7 @@ export class ParentAccountManagerService {
         .sort((a, b) => b.createdAt - a.createdAt);
       let codexOperation = operations.find(isParentCodexOperation);
       let teamOperation = operations.find(isParentTeamOperation);
+      let pro5xOperation = operations.find(isParentPro5xOperation);
       let importedAccounts: AccountSummaryView[] = [];
 
       if (teamOperation?.status === 'succeeded') {
@@ -167,11 +169,15 @@ export class ParentAccountManagerService {
         await this.safeRemoveOperation(codexOperation.id);
         codexOperation = undefined;
       }
+      if (pro5xOperation?.status === 'succeeded' && managed.hasPro5x) {
+        await this.safeRemoveOperation(pro5xOperation.id);
+        pro5xOperation = undefined;
+      }
 
       return managedParentStatus(
         email,
         managed,
-        [codexOperation, teamOperation].filter(
+        [codexOperation, teamOperation, pro5xOperation].filter(
           (operation): operation is AccountManagerOperationView => Boolean(operation)
         ),
         importedAccounts,
@@ -275,10 +281,12 @@ export class ParentAccountManagerService {
         const operations = (operationsByEmail.get(email) ?? []).sort((a, b) => b.createdAt - a.createdAt);
         const codexOperation = operations.find(isParentCodexOperation);
         const teamOperation = operations.find(isParentTeamOperation);
+        const pro5xOperation = operations.find(isParentPro5xOperation);
         const localAlreadyUsesManagedTeam = localHasTeamSubscription
           && managed.workspaces.some((workspace) => workspace.visible && workspace.id === local.accountId);
         const needsReconciliation = teamOperation?.status === 'succeeded'
           || (codexOperation?.status === 'succeeded' && managed.hasCodexSpace)
+          || (pro5xOperation?.status === 'succeeded' && managed.hasPro5x)
           || (managed.hasTeamSubscription && !localAlreadyUsesManagedTeam);
         return [
           local.id,
@@ -511,6 +519,25 @@ export class ParentAccountManagerService {
     }));
   }
 
+  async openAccountPro5x(
+    accountId: string,
+    input: OpenPro5xRequest
+  ): Promise<AccountManagerOperationView> {
+    const local = this.store.get(accountId);
+    if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    if (!local.managedAccountEmail) throw new ServiceError(409, '该母号未关联 GPT Account Manager');
+    const email = local.managedAccountEmail;
+    const managed = await this.callAccountManager(() => this.accountManager!.account(email));
+    if (managed.hasPro5x) throw new ServiceError(409, '该账号已开通 Pro 5x');
+    await this.removeFailedOperations(email, isParentPro5xOperation);
+    return this.callAccountManager(() => this.accountManager!.openPro5x(email, {
+      ...input,
+      autoPay: true,
+      requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent
+    }));
+  }
+
   async rotateAccountOperationIp(
     accountId: string,
     operationId: string
@@ -525,6 +552,19 @@ export class ParentAccountManagerService {
   ): Promise<AccountManagerOperationView> {
     await this.requireParentWorkspacePurchase(accountId, operationId);
     return this.callAccountManager(() => this.accountManager!.terminateOperation(operationId));
+  }
+
+  async provideAccountPro5xPaymentCard(
+    accountId: string,
+    operationId: string,
+    input: OpenPro5xRequest
+  ): Promise<AccountManagerOperationView> {
+    const operation = await this.requireParentWorkspacePurchase(accountId, operationId);
+    if (operation.type !== 'open_pro_5x') throw new ServiceError(409, '该操作不是 Pro 5x 开通任务');
+    return this.callAccountManager(() => this.accountManager!.provideOperationPaymentCard(operationId, {
+      ...input,
+      autoPay: true
+    }));
   }
 
   async dismissAccountOperation(accountId: string, operationId: string): Promise<boolean> {
@@ -713,12 +753,14 @@ function managedParentStatus(
 ): ParentAccountManagerStatus {
   const codexOperation = operations.find(isParentCodexOperation);
   const teamOperation = operations.find(isParentTeamOperation);
+  const pro5xOperation = operations.find(isParentPro5xOperation);
   return {
     configured: true,
     reachable: true,
     managed: true,
     hasCodexSpace: localHasCodexSpace || managed.hasCodexSpace || codexOperation?.status === 'succeeded',
     hasTeamSubscription: managed.hasTeamSubscription || localHasTeamSubscription,
+    hasPro5x: managed.hasPro5x === true || pro5xOperation?.status === 'succeeded',
     accountEmail: email,
     teamUpgradeWorkspaces: managed.workspaces
       .filter((workspace) => workspace.visible
@@ -732,9 +774,10 @@ function managedParentStatus(
       })),
     ...(codexOperation ? { codexOperation } : {}),
     ...(teamOperation ? { teamOperation } : {}),
+    ...(pro5xOperation ? { pro5xOperation } : {}),
     ...(importedAccounts.length ? { importedAccounts } : {}),
-    ...(teamOperation?.errorMessage || codexOperation?.errorMessage
-      ? { error: teamOperation?.errorMessage || codexOperation?.errorMessage }
+    ...(pro5xOperation?.errorMessage || teamOperation?.errorMessage || codexOperation?.errorMessage
+      ? { error: pro5xOperation?.errorMessage || teamOperation?.errorMessage || codexOperation?.errorMessage }
       : {})
   };
 }
@@ -835,8 +878,15 @@ function isParentTeamOperation(operation: AccountManagerOperationView): boolean 
     && operation.requestSummary?.requestTag === ACCOUNT_MANAGER_REQUEST_TAGS.parent;
 }
 
+function isParentPro5xOperation(operation: AccountManagerOperationView): boolean {
+  return operation.type === 'open_pro_5x'
+    && operation.requestSummary?.requestTag === ACCOUNT_MANAGER_REQUEST_TAGS.parent;
+}
+
 function isParentWorkspacePurchaseOperation(operation: AccountManagerOperationView): boolean {
-  return isParentCodexOperation(operation) || isParentTeamOperation(operation);
+  return isParentCodexOperation(operation)
+    || isParentTeamOperation(operation)
+    || isParentPro5xOperation(operation);
 }
 
 function operationWorkspaceIds(operation: AccountManagerOperationView): string[] {

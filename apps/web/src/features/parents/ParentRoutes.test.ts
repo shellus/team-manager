@@ -137,6 +137,38 @@ describe('parentAccountManagerStatusNeedsPolling', () => {
     })).toBe(false);
   });
 
+  test('keeps polling until a successful Pro 5x operation is reflected in the personal plan', () => {
+    expect(parentAccountManagerStatusNeedsPolling({
+      ...status,
+      hasPro5x: false,
+      pro5xOperation: {
+        id: 'pro5x-1',
+        type: 'open_pro_5x',
+        status: 'succeeded',
+        phase: 'complete',
+        progress: 100,
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2
+      }
+    })).toBe(true);
+
+    expect(parentAccountManagerStatusNeedsPolling({
+      ...status,
+      hasPro5x: true,
+      pro5xOperation: {
+        id: 'pro5x-1',
+        type: 'open_pro_5x',
+        status: 'succeeded',
+        phase: 'complete',
+        progress: 100,
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2
+      }
+    })).toBe(false);
+  });
+
   test('keeps polling while an existing parent is being enrolled into GAM', () => {
     expect(parentAccountManagerStatusNeedsPolling({
       ...status,

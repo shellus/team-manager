@@ -6,6 +6,7 @@ import type {
 import { Alert, Button, Card, Empty, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import {
   CreditCardOutlined,
+  CrownOutlined,
   EditOutlined,
   ReloadOutlined,
   ShoppingCartOutlined,
@@ -35,6 +36,7 @@ export function ParentDetail({
   onOpenInvite,
   onOpenCodexSpace,
   onOpenTeamSubscription,
+  onOpenPro5x,
   onOpenLocalProfile,
   onAccountChanged,
   onAccountManagerStatusChanged,
@@ -51,6 +53,7 @@ export function ParentDetail({
   onOpenInvite: () => void;
   onOpenCodexSpace: () => void;
   onOpenTeamSubscription: () => void;
+  onOpenPro5x?: () => void;
   onOpenLocalProfile: () => void;
   onAccountChanged: (account: AccountView) => void;
   onAccountManagerStatusChanged?: (status: ParentAccountManagerStatus) => void;
@@ -72,10 +75,14 @@ export function ParentDetail({
   const workspaceLabel = account.workspaceName || account.accountId;
   const codexOperation = accountManagerStatus?.codexOperation;
   const teamOperation = accountManagerStatus?.teamOperation;
+  const pro5xOperation = accountManagerStatus?.pro5xOperation;
   const codexOpening = codexOperation?.status === 'queued' || codexOperation?.status === 'running';
   const codexWaitingManual = codexOperation?.status === 'waiting_manual';
   const teamOpening = teamOperation?.status === 'queued' || teamOperation?.status === 'running';
   const teamWaitingManual = teamOperation?.status === 'waiting_manual';
+  const pro5xOpening = pro5xOperation?.status === 'queued' || pro5xOperation?.status === 'running';
+  const pro5xWaitingManual = pro5xOperation?.status === 'waiting_manual';
+  const pro5xNeedsCard = pro5xWaitingManual && pro5xOperation?.phase === 'pro5x_payment_card_required';
   const hasCodexSpace = hasParentCodexSpace(account, accountManagerStatus);
   const accountManagerUnavailable = accountManagerLoading
     || !accountManagerStatus
@@ -93,8 +100,9 @@ export function ParentDetail({
         : accountManagerStatus?.error || '开通 13 Credits Workspace';
   const codexFailed = codexOperation?.status === 'failed' || codexOperation?.status === 'interrupted';
   const hasTeamSubscription = accountManagerStatus?.hasTeamSubscription || account.hasTeamSubscription;
+  const hasPro5x = accountManagerStatus?.hasPro5x === true;
   const effectiveAccountManagerStatus = accountManagerStatus
-    ? { ...accountManagerStatus, hasCodexSpace, hasTeamSubscription }
+    ? { ...accountManagerStatus, hasCodexSpace, hasTeamSubscription, hasPro5x }
     : accountManagerStatus;
   const canManageWorkspace = canManageParentWorkspace(account, accountManagerStatus);
   const teamButtonDisabled = accountManagerUnavailable || hasTeamSubscription || teamOpening || teamWaitingManual;
@@ -106,6 +114,18 @@ export function ParentDetail({
         ? teamOperation?.message || '付款页面等待人工处理，系统会继续监听'
         : accountManagerStatus?.error || '创建两个固定席位的 Team 月付订单';
   const teamFailed = teamOperation?.status === 'failed' || teamOperation?.status === 'interrupted';
+  const pro5xButtonDisabled = accountManagerUnavailable
+    || hasPro5x
+    || pro5xOpening
+    || (pro5xWaitingManual && !pro5xNeedsCard);
+  const pro5xButtonTitle = hasPro5x
+    ? '该 GPT 个人账号已开通 Pro 5x'
+    : accountManagerStatus?.managed === false
+      ? accountManagerStatus.error || '该邮箱未由 GPT Account Manager 管理'
+      : pro5xWaitingManual
+        ? pro5xOperation?.message || '站内付款等待人工处理，系统会继续监听'
+        : accountManagerStatus?.error || '使用新加坡指定 ASN 出口开通 Pro 5x';
+  const pro5xFailed = pro5xOperation?.status === 'failed' || pro5xOperation?.status === 'interrupted';
 
   return (
     <Card className="detail-pane">
@@ -130,6 +150,7 @@ export function ParentDetail({
               <WorkspaceOpeningStatusTags
                 hasCodexSpace={hasCodexSpace}
                 hasTeamSubscription={hasTeamSubscription}
+                hasPro5x={hasPro5x}
               />
             </Space>
           </Space>
@@ -184,6 +205,28 @@ export function ParentDetail({
               </Button>
             </span>
           </Tooltip>
+          <Tooltip title={pro5xButtonTitle}>
+            <span>
+              <Button
+                icon={<CrownOutlined />}
+                loading={accountManagerLoading || pro5xOpening}
+                disabled={pro5xButtonDisabled}
+                onClick={onOpenPro5x}
+              >
+                {hasPro5x
+                  ? '已开 Pro 5x'
+                  : pro5xOpening
+                    ? '开通中'
+                    : pro5xNeedsCard
+                      ? '补充卡片并继续'
+                    : pro5xWaitingManual
+                      ? '等待人工处理'
+                      : pro5xFailed
+                        ? '重新开通 Pro 5x'
+                        : '开通 Pro 5x'}
+              </Button>
+            </span>
+          </Tooltip>
           <Button icon={<EditOutlined />} onClick={onOpenLocalProfile}>
             本地资料
           </Button>
@@ -221,6 +264,17 @@ export function ParentDetail({
           message="双席位付款等待人工处理"
           description={teamOperation?.message
             || '在对应 CloakBrowser profile 中继续付款；系统会监听成功信号并完成 Team 创建。'}
+        />
+      )}
+
+      {pro5xWaitingManual && (
+        <Alert
+          className="detail-operation-alert"
+          type="warning"
+          showIcon
+          message="Pro 5x 站内付款等待人工处理"
+          description={pro5xOperation?.message
+            || '在对应 GAM Profile 中核对付款信息并点击 Subscribe；系统会继续监听个人账号套餐状态。'}
         />
       )}
 

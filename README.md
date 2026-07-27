@@ -40,14 +40,15 @@ corepack pnpm docs:build
 
 ## 功能范围
 
-- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；注册成功前也可选中任务进入账号管理页，配置国家、ASN 或州/省与城市，以及上游 SID。ASN 与州、城市互斥；地区变化且仍沿用原 SID 时，GAM 自动生成新 SID，避免 sticky 会话继续使用旧地区出口。有 GAM 关联的正式母号在同一页继续管理住宅代理，并可独立启动或关闭账号运行 Profile。运行中的手动 Profile 会在列表显示“Profile 已启动”，并排在未启动账号之前；同一运行状态内继续按原备注/邮箱规则排序。手工录入且带 `sessionToken` 的既有母号可在账号管理页直接纳入 GAM，由 GAM 用现有 Web Session 建立独立浏览器身份，不要求 Team Manager 保存密码或 Profile。0.52 Codex Workspace 和双席位 Team 是独立开通动作；所有母号均可通过“同步 Workspace”发现外部开通结果并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；自动点击 Pay 默认关闭。母号列表只显示已开通的 0.52、双席位能力标签，周限、月限或未知限额只在双席位母号上显示；关键词搜索下方可按 GAM、0.52、双席位、限额类型、封号和订单维护状态快捷筛选，所有二态维度统一使用“是 / 否”，筛选值会同时保存在 URL 和浏览器本地偏好中。
+- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；注册成功前也可选中任务进入账号管理页，配置国家、ASN 或州/省与城市，以及上游 SID。ASN 与州、城市互斥；地区变化且仍沿用原 SID 时，GAM 自动生成新 SID，避免 sticky 会话继续使用旧地区出口。有 GAM 关联的正式母号在同一页继续管理住宅代理，并可独立启动或关闭账号运行 Profile。运行中的手动 Profile 会在列表显示“Profile 已启动”，并排在未启动账号之前；同一运行状态内继续按原备注/邮箱规则排序。手工录入且带 `sessionToken` 的既有母号可在账号管理页直接纳入 GAM，由 GAM 用现有 Web Session 建立独立浏览器身份，不要求 Team Manager 保存密码或 Profile。0.52 Codex Workspace、双席位 Team 和个人账号 Pro 5x 是三个独立开通动作；所有母号均可通过“同步 Workspace”发现外部开通结果并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；Pro 5x 固定使用 ChatGPT 站内 custom Checkout，并在填写付款资料后直接点击 Subscribe。母号列表只显示已开通的 0.52、双席位和 Pro 能力标签，周限、月限或未知限额只在双席位母号上显示；关键词搜索下方可按 GAM、0.52、双席位、限额类型、封号和订单维护状态快捷筛选，所有二态维度统一使用“是 / 否”，筛选值会同时保存在 URL 和浏览器本地偏好中。
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号和子号都可按各自顶层 `groupName` 分组，并可人工维护独立的封号标记；母号另用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。封号母号的空位不进入概览统计，封号子号不能邀请加入 Team，其他操作不受限制。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。子号顶层分组与 `codexCredentials[].groupName` 的 CPA 凭证号池分组彼此独立。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **席位位置**：用 `seatSlots` 记录母号下售出的本地客户席位位置，可关联 ChatGPT 或 Codex 席位；`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱和换号历史。公开换号不会自动移除已接受的标准 ChatGPT 成员，避免临时计费和 Workspace 风险。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
-- **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；注册成功前可从任务卡进入账号管理页配置国家、ASN 或州/省与城市及 SID，成功后自动切换到正式子号的同一 Tab。有 GAM 关联的子号可继续修改代理配置并启动或关闭账号运行 Profile。运行中的手动 Profile 同样显示列表标签并优先排列。
+- **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；注册成功前可从任务卡进入账号管理页配置国家、ASN 或州/省与城市及 SID，成功后自动切换到正式子号的同一 Tab。有 GAM 关联的子号可继续修改代理配置、启动或关闭账号运行 Profile，并使用与母号相同的新加坡指定 ASN、站内 custom Checkout 和信用卡快捷输入开通个人账号 Pro 5x。开通过程展示实时任务状态，人工付款阶段保留对应 Profile。运行中的手动 Profile 同样显示列表标签并优先排列。
+- **Pro 5x 续跑**：Team Manager 不保存母号或子号的完整卡片；GPT Account Manager 使用账号管理密钥加密持久化未完成任务的付款资料，服务热重载后自动恢复排队、运行中和等待人工的任务。旧任务缺少密文时仍可使用“补充卡片并继续”，不需要终止或新建任务。
 - **PAT 与额度**：按子号和 Team workspace 创建 PAT，查询并缓存对应 workspace 的 Codex 额度。
 - **子号加入母号**：用子号邮箱邀请加入指定 Team，并同步本地 Team 关系状态。
 - **Team 升级订单维护**：把选定的 Codex Workspace 母号显式加入独立维护池，按全局配置和可选逐字段覆盖每 8 小时生成一个普通两席位 Team 升级订单；支持单个立即生成、10 分钟内分散批量触发、支付链接有效期和最近 30 条历史，不轮询付款状态。

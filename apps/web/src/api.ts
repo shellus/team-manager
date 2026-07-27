@@ -14,6 +14,7 @@ import type {
   NotificationSettings,
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
+  OpenPro5xRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
   ResidentialProxyConfig,
@@ -22,6 +23,7 @@ import type {
   SeatType,
   ApiResult,
   SubaccountAuthLog,
+  SubaccountAccountManagerStatus,
   SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
   SubaccountSummaryView,
@@ -145,6 +147,12 @@ export const apiClient = {
       `/accounts/${id}/account-manager/open-team-subscription`,
       payload
     ),
+  openParentPro5x: (id: string, payload: OpenPro5xRequest) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/accounts/${id}/account-manager/open-pro-5x`,
+      payload
+    ),
   rotateParentOperationIp: (id: string, operationId: string) =>
     call<AccountManagerOperationView>(
       'POST',
@@ -154,6 +162,12 @@ export const apiClient = {
     call<AccountManagerOperationView>(
       'POST',
       `/accounts/${id}/account-manager/operations/${operationId}/terminate`
+    ),
+  provideParentPro5xPaymentCard: (id: string, operationId: string, payload: OpenPro5xRequest) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/accounts/${id}/account-manager/operations/${operationId}/payment-card`,
+      payload
     ),
   dismissParentOperation: (id: string, operationId: string) =>
     call<boolean>('DELETE', `/accounts/${id}/account-manager/operations/${operationId}`),
@@ -242,6 +256,10 @@ export const apiClient = {
   getSubaccount: (id: string) => call<SubaccountView>('GET', `/subaccounts/${id}`),
   getSubaccountAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('GET', `/subaccounts/${id}/account-manager/profile`),
+  getSubaccountAccountManagerStatus: (id: string) =>
+    call<SubaccountAccountManagerStatus>('GET', `/subaccounts/${id}/account-manager/status`),
+  getSubaccountAccountManagerStatuses: () =>
+    call<Record<string, SubaccountAccountManagerStatus>>('GET', '/subaccounts/account-manager/statuses'),
   getSubaccountAccountProfiles: () =>
     call<Record<string, AccountManagerProfileView>>('GET', '/subaccounts/account-manager/profiles'),
   startSubaccountAccountProfile: (id: string) =>
@@ -252,6 +270,30 @@ export const apiClient = {
     call<ResidentialProxyConfig>('GET', `/subaccounts/${id}/account-manager/proxy`),
   updateSubaccountAccountProxy: (id: string, payload: ResidentialProxyConfig) =>
     call<ResidentialProxyConfig>('PUT', `/subaccounts/${id}/account-manager/proxy`, payload),
+  openSubaccountPro5x: (id: string, payload: OpenPro5xRequest) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/subaccounts/${id}/account-manager/open-pro-5x`,
+      payload
+    ),
+  rotateSubaccountOperationIp: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/subaccounts/${id}/account-manager/operations/${operationId}/rotate-ip`
+    ),
+  terminateSubaccountOperation: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/subaccounts/${id}/account-manager/operations/${operationId}/terminate`
+    ),
+  provideSubaccountPro5xPaymentCard: (id: string, operationId: string, payload: OpenPro5xRequest) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/subaccounts/${id}/account-manager/operations/${operationId}/payment-card`,
+      payload
+    ),
+  dismissSubaccountOperation: (id: string, operationId: string) =>
+    call<boolean>('DELETE', `/subaccounts/${id}/account-manager/operations/${operationId}`),
   getSubaccountLocalProfile: (id: string) =>
     call<SubaccountLocalProfileView>('GET', `/subaccounts/${id}/local-profile`),
   importSubaccountSession: (payload: {

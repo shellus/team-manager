@@ -1,4 +1,6 @@
 import type {
+  AccountManagerOperationView,
+  SubaccountAccountManagerStatus,
   AccountManagerRuntimeStatus,
   AccountManagerProfileView,
   SubaccountRegistrationJobView,
@@ -24,6 +26,8 @@ import {
 import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag.js';
 import { formatDateTime } from '../../components/format.js';
 import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
+import { AccountOperationProgress } from '../../components/AccountOperationProgress.js';
+import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
 
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
@@ -39,6 +43,7 @@ export function SubaccountList({
   subaccounts,
   registrationJobs,
   accountProfileStatuses,
+  accountManagerStatuses,
   groups,
   activeGroup,
   searchQuery,
@@ -53,12 +58,15 @@ export function SubaccountList({
   onOpenRegister,
   onRetryRegistration,
   onSelectRegistration,
+  onTerminateOperation,
+  onDismissOperation,
   onOpenEdit,
   onOpenDelete
 }: {
   subaccounts: SubaccountSummaryView[];
   registrationJobs: SubaccountRegistrationJobView[];
   accountProfileStatuses: Record<string, AccountManagerProfileView>;
+  accountManagerStatuses: Record<string, SubaccountAccountManagerStatus>;
   groups: LocalGroupCount[];
   activeGroup: string;
   searchQuery: string;
@@ -73,6 +81,14 @@ export function SubaccountList({
   onOpenRegister: () => void;
   onRetryRegistration: (job: SubaccountRegistrationJobView) => void;
   onSelectRegistration: (job: SubaccountRegistrationJobView) => void;
+  onTerminateOperation: (
+    subaccount: SubaccountSummaryView,
+    operation: AccountManagerOperationView
+  ) => void;
+  onDismissOperation: (
+    subaccount: SubaccountSummaryView,
+    operation: AccountManagerOperationView
+  ) => void;
   onOpenEdit: (subaccount: SubaccountSummaryView) => void;
   onOpenDelete: (subaccount: SubaccountSummaryView) => void;
 }) {
@@ -207,6 +223,7 @@ export function SubaccountList({
           const selected = selectedId === subaccount.id;
           const title = subaccount.remark || subaccount.email;
           const repeatedEmail = title.trim().toLowerCase() === subaccount.email.trim().toLowerCase();
+          const pro5xOperation = accountManagerStatuses[subaccount.id]?.pro5xOperation;
           return (
             <List.Item>
               <Card
@@ -275,8 +292,21 @@ export function SubaccountList({
                     {subaccount.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
                   <RunningProfileTag profile={accountProfileStatuses[subaccount.id]} />
+                  <WorkspaceOpeningStatusTags
+                    hasPro5x={accountManagerStatuses[subaccount.id]?.hasPro5x === true}
+                  />
                   <span className="record-status-time">更新 {formatDateTime(subaccount.updatedAt)}</span>
                 </div>
+                {pro5xOperation && pro5xOperation.status !== 'succeeded' && (
+                  <AccountOperationProgress
+                    label="Pro 5x"
+                    operation={pro5xOperation}
+                    isBusy={isBusy}
+                    busyKeyScope="pro5x"
+                    onTerminate={() => onTerminateOperation(subaccount, pro5xOperation)}
+                    onDismiss={() => onDismissOperation(subaccount, pro5xOperation)}
+                  />
+                )}
               </Card>
             </List.Item>
           );

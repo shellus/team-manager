@@ -1,8 +1,7 @@
 import type { OpenCodexSpaceRequest } from '@team-manager/shared';
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Typography } from 'antd';
+import { Alert, Button, Form, InputNumber, Modal, Select, Space, Typography } from 'antd';
 import { useState } from 'react';
-import { normalizeCardExpiryInput, parseCardExpiry } from './cardExpiry.js';
-import { parseCardQuickInput } from './cardQuickInput.js';
+import { PaymentCardFields } from './PaymentCardFields.js';
 import {
   buildCodexSpaceRequest,
   CODEX_SPACE_ORDER_PRESETS,
@@ -34,7 +33,6 @@ export function OpenCodexSpaceModal({
   onSubmit: (payload: OpenCodexSpaceRequest) => void | Promise<void>;
 }) {
   const [form] = Form.useForm<CodexSpaceFormValues>();
-  const [quickInputStatus, setQuickInputStatus] = useState<'idle' | 'filled' | 'invalid'>('idle');
   const [orderPreset, setOrderPreset] = useState<'us' | 'eu' | null>(null);
   const country = Form.useWatch('country', form);
   const credits = Form.useWatch('credits', form);
@@ -58,7 +56,6 @@ export function OpenCodexSpaceModal({
         if (!visible) return;
         form.resetFields();
         setOrderPreset(null);
-        setQuickInputStatus('idle');
       }}
     >
       <Space direction="vertical" size={8} className="panel-stack">
@@ -157,79 +154,7 @@ export function OpenCodexSpaceModal({
             <div className="compact-form-section-title" id="codex-card-fields-title">
               <Typography.Text strong>支付卡片</Typography.Text>
             </div>
-            <Form.Item
-              name="cardQuickInput"
-              label="快捷输入（可选）"
-              validateStatus={quickInputStatus === 'idle' ? undefined : quickInputStatus === 'filled' ? 'success' : 'error'}
-              help={quickInputStatus === 'invalid'
-                ? '无法识别，请检查分隔符、卡号、有效期和 CVC'
-                : undefined}
-              extra={quickInputStatus === 'filled'
-                ? '已填充下面三个卡片字段'
-                : '格式：卡号----有效期----CVC，支持 MM/YY 和 MM/YYYY'}
-            >
-              <Input
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="4242424242424242----07/28----123"
-                onChange={(event) => {
-                  const parsed = parseCardQuickInput(event.target.value);
-                  setQuickInputStatus(parsed ? 'filled' : 'idle');
-                  if (parsed) form.setFieldsValue(parsed);
-                }}
-                onBlur={(event) => {
-                  if (event.target.value.trim() && !parseCardQuickInput(event.target.value)) {
-                    setQuickInputStatus('invalid');
-                  }
-                }}
-              />
-            </Form.Item>
-            <div className="codex-card-field-row">
-              <Form.Item
-                name="number"
-                label="卡号"
-                rules={[
-                  { required: true, message: '请输入卡号' },
-                  {
-                    validator: (_, value) => /^\d{12,19}$/.test(String(value ?? '').replace(/\s+/g, ''))
-                      ? Promise.resolve()
-                      : Promise.reject(new Error('卡号应为 12 至 19 位数字'))
-                  }
-                ]}
-              >
-                <Input inputMode="numeric" autoComplete="cc-number" placeholder="4242 4242 4242 4242" maxLength={23} />
-              </Form.Item>
-              <Form.Item
-                name="expiry"
-                label="有效期"
-                getValueFromEvent={(event) => normalizeCardExpiryInput(event.target.value)}
-                rules={[
-                  { required: true, message: '请输入有效期' },
-                  {
-                    validator: (_, value) => parseCardExpiry(value)
-                      ? Promise.resolve()
-                      : Promise.reject(new Error('请输入有效期，格式为 MM/YY 或 MM/YYYY'))
-                  }
-                ]}
-              >
-                <Input
-                  inputMode="numeric"
-                  autoComplete="cc-exp"
-                  placeholder="MM/YY"
-                  maxLength={7}
-                />
-              </Form.Item>
-              <Form.Item
-                name="cvc"
-                label="CVC"
-                rules={[
-                  { required: true, message: '请输入 CVC' },
-                  { pattern: /^\d{3,4}$/, message: 'CVC 应为 3 或 4 位数字' }
-                ]}
-              >
-                <Input inputMode="numeric" autoComplete="cc-csc" placeholder="CVC" maxLength={4} />
-              </Form.Item>
-            </div>
+            <PaymentCardFields required quickInput rowClassName="codex-card-field-row" />
             <Typography.Text type="secondary" className="payment-security-note">
               卡号和 CVC 仅转发给 GPT Account Manager 当前进程，不写入 Team Manager 数据或日志。
             </Typography.Text>

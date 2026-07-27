@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import {
   type AccountManagerProfileView,
+  type SubaccountAccountManagerStatus,
   subaccountSummaryFromView,
   type SubaccountRegistrationJobView,
   type SubaccountSummaryView,
@@ -24,7 +25,8 @@ const baseSubaccount: SubaccountView = {
 function renderList(
   subaccount: SubaccountView,
   registrationJobs: SubaccountRegistrationJobView[] = [],
-  accountProfileStatuses: Record<string, AccountManagerProfileView> = {}
+  accountProfileStatuses: Record<string, AccountManagerProfileView> = {},
+  accountManagerStatuses: Record<string, SubaccountAccountManagerStatus> = {}
 ) {
   const summary: SubaccountSummaryView = subaccountSummaryFromView(subaccount);
   return renderToStaticMarkup(
@@ -32,6 +34,7 @@ function renderList(
       subaccounts={[summary]}
       registrationJobs={registrationJobs}
       accountProfileStatuses={accountProfileStatuses}
+      accountManagerStatuses={accountManagerStatuses}
       groups={[]}
       activeGroup=""
       searchQuery=""
@@ -45,6 +48,8 @@ function renderList(
       onOpenRegister={() => undefined}
       onRetryRegistration={() => undefined}
       onSelectRegistration={() => undefined}
+      onTerminateOperation={() => undefined}
+      onDismissOperation={() => undefined}
       onOpenEdit={() => undefined}
       onOpenDelete={() => undefined}
     />
@@ -85,6 +90,51 @@ describe('SubaccountList', () => {
     });
 
     expect(html).toContain('Profile 已启动');
+  });
+
+  test('renders the Pro 5x capability tag from Account Manager status', () => {
+    const managed = { ...baseSubaccount, managedAccountEmail: baseSubaccount.email };
+    const html = renderList(managed, [], {}, {
+      [baseSubaccount.id]: {
+        configured: true,
+        reachable: true,
+        managed: true,
+        hasPro5x: true,
+        accountEmail: baseSubaccount.email
+      }
+    });
+
+    expect(html).toContain('Pro 5x');
+  });
+
+  test('renders live Pro 5x progress on the child account row', () => {
+    const managed = { ...baseSubaccount, managedAccountEmail: baseSubaccount.email };
+    const html = renderList(managed, [], {}, {
+      [baseSubaccount.id]: {
+        configured: true,
+        reachable: true,
+        managed: true,
+        hasPro5x: false,
+        accountEmail: baseSubaccount.email,
+        pro5xOperation: {
+          id: 'pro5x-1',
+          accountId: baseSubaccount.email,
+          type: 'open_pro_5x',
+          status: 'waiting_manual',
+          phase: 'payment_processing',
+          message: 'Subscribe 已由自动流程触发，正在确认 Pro 5x 订阅状态',
+          progress: 68,
+          createdAt: 1,
+          updatedAt: 2
+        }
+      }
+    });
+
+    expect(html).toContain('Pro 5x 开通');
+    expect(html).toContain('等待人工');
+    expect(html).toContain('Subscribe 已由自动流程触发');
+    expect(html).toContain('68%');
+    expect(html).toContain('终止任务');
   });
 
   test('keeps proxy configuration out of the child registration status card', () => {

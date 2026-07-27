@@ -27,6 +27,7 @@ import { isEditableMemberRole } from '@team-manager/shared';
 import type {
   InviteRequest,
   OpenTeamSubscriptionRequest,
+  OpenPro5xRequest,
   PublicSeatSwapRequest,
   ResidentialProxyConfig,
   SeatType,
@@ -540,6 +541,11 @@ export async function buildApp({
     return wrap(c, () => parentAccountManagerService.openAccountTeamSubscription(c.req.param('id'), body));
   });
 
+  api.post('/accounts/:id/account-manager/open-pro-5x', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as OpenPro5xRequest;
+    return wrap(c, () => parentAccountManagerService.openAccountPro5x(c.req.param('id'), body));
+  });
+
   api.post('/accounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
     wrap(c, () => parentAccountManagerService.rotateAccountOperationIp(
       c.req.param('id'),
@@ -553,6 +559,15 @@ export async function buildApp({
       c.req.param('operationId')
     ))
   );
+
+  api.post('/accounts/:id/account-manager/operations/:operationId/payment-card', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as OpenPro5xRequest;
+    return wrap(c, () => parentAccountManagerService.provideAccountPro5xPaymentCard(
+      c.req.param('id'),
+      c.req.param('operationId'),
+      body
+    ));
+  });
 
   api.delete('/accounts/:id/account-manager/operations/:operationId', (c) =>
     wrap(c, () => parentAccountManagerService.dismissAccountOperation(
@@ -764,6 +779,14 @@ export async function buildApp({
     wrap(c, () => subaccountService.accountProfile(c.req.param('id')))
   );
 
+  api.get('/subaccounts/:id/account-manager/status', (c) =>
+    wrap(c, () => subaccountService.accountStatus(c.req.param('id')))
+  );
+
+  api.get('/subaccounts/account-manager/statuses', (c) =>
+    wrap(c, () => subaccountService.accountStatuses())
+  );
+
   api.get('/subaccounts/account-manager/profiles', (c) =>
     wrap(c, () => subaccountService.accountProfiles())
   );
@@ -787,6 +810,41 @@ export async function buildApp({
       body as ResidentialProxyConfig
     ));
   });
+
+  api.post('/subaccounts/:id/account-manager/open-pro-5x', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as OpenPro5xRequest;
+    return wrap(c, () => subaccountService.openAccountPro5x(c.req.param('id'), body));
+  });
+
+  api.post('/subaccounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
+    wrap(c, () => subaccountService.rotateAccountOperationIp(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
+  api.post('/subaccounts/:id/account-manager/operations/:operationId/terminate', (c) =>
+    wrap(c, () => subaccountService.terminateAccountOperation(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
+  api.post('/subaccounts/:id/account-manager/operations/:operationId/payment-card', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as OpenPro5xRequest;
+    return wrap(c, () => subaccountService.provideAccountPro5xPaymentCard(
+      c.req.param('id'),
+      c.req.param('operationId'),
+      body
+    ));
+  });
+
+  api.delete('/subaccounts/:id/account-manager/operations/:operationId', (c) =>
+    wrap(c, () => subaccountService.dismissAccountOperation(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
 
   api.get('/subaccounts/:id/local-profile', (c) =>
     wrap(c, () => Promise.resolve(subaccountService.localProfile(c.req.param('id'))))

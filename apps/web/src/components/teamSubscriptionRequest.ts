@@ -3,6 +3,7 @@ import { parseCardExpiry } from './cardExpiry.js';
 import { parsePromotionTriplet } from './teamCheckoutOptions.js';
 
 export interface TeamSubscriptionFormValues {
+  cardQuickInput?: string;
   workspaceId?: string;
   promotion?: string;
   country: string;
@@ -19,6 +20,7 @@ export const DEFAULT_TEAM_SUBSCRIPTION_FORM_VALUES: TeamSubscriptionFormValues =
   country: 'US',
   currency: 'USD',
   autoPay: false,
+  cardQuickInput: '',
   number: '',
   expiry: '',
   cvc: ''

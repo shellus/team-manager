@@ -6,6 +6,18 @@ import { apiClient } from '../api.js';
 import { ResidentialProxyConfigurationPanel } from './ResidentialProxyConfigurationPanel.js';
 import { WorkspaceOpeningStatusTags } from './WorkspaceOpeningStatusTags.js';
 
+type AccountManagerAssociationStatus = {
+  configured: boolean;
+  reachable: boolean;
+  managed: boolean;
+  accountEmail?: string;
+  hasCodexSpace?: boolean;
+  hasTeamSubscription?: boolean;
+  hasPro5x?: boolean;
+  enrollmentOperation?: ParentAccountManagerStatus['enrollmentOperation'];
+  error?: string;
+};
+
 export function AccountManagerAssociationPanel({
   recordLabel,
   recordId,
@@ -18,7 +30,7 @@ export function AccountManagerAssociationPanel({
   recordLabel: '母号' | '子号';
   recordId?: string;
   managedAccountEmail?: string;
-  status?: ParentAccountManagerStatus | null;
+  status?: AccountManagerAssociationStatus | null;
   loading?: boolean;
   onStatusChanged?: (status: ParentAccountManagerStatus) => void;
   onProfileChanged?: (profile: AccountManagerProfileView) => void;
@@ -194,6 +206,7 @@ export function AccountManagerAssociationPanel({
               <WorkspaceOpeningStatusTags
                 hasCodexSpace={status.hasCodexSpace}
                 hasTeamSubscription={status.hasTeamSubscription}
+                hasPro5x={status.hasPro5x === true}
               />
             </Space>
           </Descriptions.Item>
@@ -294,7 +307,7 @@ function AccountManagerServiceState({
   status,
   loading
 }: {
-  status: ParentAccountManagerStatus;
+  status: AccountManagerAssociationStatus;
   loading: boolean;
 }) {
   if (loading) return <Tag color="processing">正在读取</Tag>;

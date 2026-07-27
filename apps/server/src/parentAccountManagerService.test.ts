@@ -8,6 +8,7 @@ import type {
   AccountManagerProfileView,
   AccountView,
   OpenCodexSpaceRequest,
+  OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
   ResidentialProxyConfig,
   SubaccountRegistrationJobView
@@ -29,6 +30,8 @@ class FakeAccountManager implements AccountManagerGateway {
   accounts = new Map<string, ManagedAccountSummary>();
   opened?: { accountId: string; input: OpenCodexSpaceRequest & { requestTag?: string } };
   openedTeam?: { accountId: string; input: OpenTeamSubscriptionRequest & { requestTag?: string } };
+  openedPro5x?: { accountId: string; input: OpenPro5xRequest & { requestTag?: string } };
+  providedCards: Array<{ operationId: string; input: OpenPro5xRequest }> = [];
   controls: string[] = [];
   syncCalls: string[] = [];
   listAccountsCalls = 0;
@@ -169,6 +172,15 @@ class FakeAccountManager implements AccountManagerGateway {
     return operation;
   }
 
+  async provideOperationPaymentCard(id: string, input: OpenPro5xRequest) {
+    const operation = await this.operation(id);
+    this.providedCards.push({ operationId: id, input });
+    operation.phase = 'pro5x_payment_card_received';
+    operation.message = '已收到信用卡';
+    operation.progress = 61;
+    return operation;
+  }
+
   async removeOperation(id: string) {
     const before = this.operations.length;
     this.operations = this.operations.filter((operation) => operation.id !== id);
@@ -265,6 +277,23 @@ class FakeAccountManager implements AccountManagerGateway {
       phase: 'team_subscription_queued',
       progress: 0,
       requestSummary: { requestTag: input.requestTag, country: input.country, currency: input.currency },
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    this.operations.push(operation);
+    return operation;
+  }
+
+  async openPro5x(accountId: string, input: OpenPro5xRequest & { requestTag?: string }) {
+    this.openedPro5x = { accountId, input };
+    const operation: AccountManagerOperationView = {
+      id: `pro5x-${this.operations.length}`,
+      accountId,
+      type: 'open_pro_5x',
+      status: 'queued',
+      phase: 'pro5x_queued',
+      progress: 0,
+      requestSummary: { requestTag: input.requestTag, cardLast4: input.card.number.slice(-4) },
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -902,6 +931,57 @@ describe('ParentAccountManagerService', () => {
         { status: 409, message: '该账号已开通双席位 Team' }
       );
       assert.equal(accountManager.openedTeam, undefined);
+    });
+  });
+
+  it('opens Pro 5x with a required card and reflects the personal plan after GAM sync', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        managedAccountEmail: 'owner@example.com',
+        accountId: 'personal-account',
+        email: 'owner@example.com',
+        accessToken: 'web-access-token',
+        planType: 'free'
+      });
+      accountManager.accounts.set('owner@example.com', {
+        id: 'owner@example.com',
+        email: 'owner@example.com',
+        hasCodexSpace: false,
+        hasTeamSubscription: false,
+        hasPro5x: false,
+        workspaces: []
+      });
+
+      const operation = await service.openAccountPro5x(parent.id, {
+        autoPay: false,
+        card: { number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123' }
+      });
+      assert.equal(operation.type, 'open_pro_5x');
+      assert.equal(accountManager.openedPro5x?.accountId, 'owner@example.com');
+      assert.equal(accountManager.openedPro5x?.input.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.parent);
+      assert.equal(accountManager.openedPro5x?.input.autoPay, true);
+
+      const storedOperation = accountManager.operations.find((item) => item.id === operation.id)!;
+      storedOperation.status = 'waiting_manual';
+      storedOperation.phase = 'pro5x_payment_card_required';
+      await service.provideAccountPro5xPaymentCard(parent.id, operation.id, {
+        card: { number: '5555555555554444', expiryMonth: 8, expiryYear: 2029, cvc: '456' }
+      });
+      assert.equal(accountManager.providedCards[0]?.operationId, operation.id);
+      assert.equal(accountManager.providedCards[0]?.input.autoPay, true);
+      assert.equal(accountManager.providedCards[0]?.input.card.number, '5555555555554444');
+
+      accountManager.accounts.set('owner@example.com', {
+        ...accountManager.accounts.get('owner@example.com')!,
+        hasPro5x: true
+      });
+      storedOperation.status = 'succeeded';
+      storedOperation.phase = 'complete';
+      storedOperation.progress = 100;
+
+      const status = await service.accountStatus(parent.id);
+      assert.equal(status.hasPro5x, true);
+      assert.equal(status.pro5xOperation, undefined);
     });
   });
 

@@ -30,4 +30,18 @@ describe('WorkspaceOpeningStatusTags', () => {
     expect(html).toContain('双席位');
     expect(html).not.toContain('未开');
   });
+
+  test('renders the personal Pro 5x capability independently', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceOpeningStatusTags
+        hasCodexSpace={false}
+        hasTeamSubscription={false}
+        hasPro5x
+      />
+    );
+
+    expect(html).toContain('Pro 5x');
+    expect(html).not.toContain('0.52');
+    expect(html).not.toContain('双席位');
+  });
 });

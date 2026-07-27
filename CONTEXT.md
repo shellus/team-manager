@@ -5,7 +5,7 @@
 ## Language
 
 **母号**:
-作为 Workspace 业务主体管理的 GPT 账号。母号可以尚未拥有可管理 Workspace；0.52 Codex 空间和双席位 Team 套餐都是该账号上的独立开通结果。
+作为 Workspace 业务主体管理的 GPT 账号。母号可以尚未拥有可管理 Workspace；0.52 Codex 空间、双席位 Team 套餐和个人账号 Pro 5x 都是该账号上的独立开通结果。
 _Avoid_: Team workspace、Team 成员、客户席位
 
 **可管理 Workspace**:
@@ -44,6 +44,18 @@ _Avoid_: 母号注册第二阶段、Team 套餐
 **双席位开通**:
 母号购买两个固定席位的 Team 月付套餐，并新建 Team workspace 或升级指定既有 Workspace 的独立支付动作。
 _Avoid_: 0.52 开通、增加两个成员
+
+**Pro 5x 开通**:
+带有受管账号引用的母号或子号，通过 GPT Account Manager 为个人 Account 创建 Prolite 5x custom Checkout 的独立支付动作。它只使用 ChatGPT 站内 Checkout，固定采用运行环境配置的新加坡 ASN 和账单地址，不创建或升级 Workspace。母号和子号任务使用各自的请求标签隔离，但支付与状态判定规则相同。
+_Avoid_: 双席位 Team、等待优惠弹窗、站外 Stripe Checkout、永久修改账号代理
+
+**Pro 5x 状态**:
+受管 GPT 个人 Account 当前是否已经返回 `pro` 或 `prolite` 套餐。该能力可由母号或子号详情派生展示，独立于 0.52 Workspace、双席位订阅和子号 Team 关联。
+_Avoid_: Team 套餐、Workspace 类型、付款任务状态
+
+**Pro 5x 补充卡片**:
+旧任务缺少加密付款资料时，通过母号或子号详情的快捷输入把 PAN/CVC 重新交给原任务。正常未完成任务的付款资料由 GPT Account Manager 加密持久化，服务热重载后自动恢复；Team Manager 不保存完整卡片。
+_Avoid_: 新建 Pro 5x 任务、从 last4 还原卡片、人工提交开关
 
 **双席位订阅状态**:
 Workspace 当前是否存在有效的 Team 月付订阅。该状态独立于 Workspace 种类和当前成员数量，以当前有效的月付关系为准。

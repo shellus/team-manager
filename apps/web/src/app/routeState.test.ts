@@ -63,6 +63,24 @@ describe('routeState', () => {
     expect(state.target).toBe('account-1');
   });
 
+  test('persists the parent Pro 5x modal and target in the route', () => {
+    const state = parseParentSearchState(
+      new URLSearchParams('tab=account-manager&modal=open-pro-5x&target=account-1')
+    );
+
+    expect(state.modal).toBe('open-pro-5x');
+    expect(state.target).toBe('account-1');
+  });
+
+  test('persists the child Pro 5x modal and target in the route', () => {
+    const state = parseSubaccountSearchState(
+      new URLSearchParams('tab=account-manager&modal=open-pro-5x&target=child-1')
+    );
+
+    expect(state.modal).toBe('open-pro-5x');
+    expect(state.target).toBe('child-1');
+  });
+
   test('does not persist the child Team leave action as a blocking route modal', () => {
     const state = parseSubaccountSearchState(new URLSearchParams('tab=teams&modal=leave-team&target=workspace-1'));
 

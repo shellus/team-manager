@@ -1,6 +1,6 @@
 # 母号与 Team 管理
 
-母号是作为 Workspace 业务主体管理的 GPT 账号。母号注册完成时可以尚未拥有 Workspace；0.52 usage-based Workspace 和双席位 Team Workspace 都可以通过母号 session 管理成员、邀请、设置和账单。
+母号是作为 Workspace 业务主体管理的 GPT 账号。母号注册完成时可以尚未拥有 Workspace；0.52 usage-based Workspace、双席位 Team Workspace 和个人账号 Pro 5x 都可以独立开通。
 
 ## 录入母号
 
@@ -10,15 +10,15 @@
 
 1. GPT Account Manager 注册新 GPT 账号并交付 Web Session。
 2. Team Manager 按邮箱保存 GAM 关联并立即录入母号。
-3. 新母号可以尚未拥有 Workspace；0.52 和双席位在母号详情中独立开通。
+3. 新母号可以尚未拥有 Workspace；0.52、双席位和 Pro 5x 在母号详情中独立开通。
 
-注册和开通任务都由 Account Manager 持久化，刷新页面不会丢失进度。完整卡号和 CVC 只会转发给 Account Manager 当前进程，不写入 Team Manager 数据或日志。
+注册和开通任务都由 Account Manager 持久化，刷新页面不会丢失进度。完整卡号和 CVC 不写入 Team Manager 数据或日志；Account Manager 对未完成任务的付款请求加密持久化。
 
 注册成功并取得 Account Manager 已校验的 Session 后，个人态母号直接显示“正常”。尚未开通任何 Workspace 不等于“待同步”：此时成员、邀请、设置和账单不可用，但 0.52、双席位、本地资料和同步 Workspace 仍可操作。
 
 注册时短暂出现 Cloudflare 中间挑战页，任务保持“注册中”并先等待页面自动通过。挑战持续存在时会显示“等待人工”，母号列表仍持续轮询任务；无论挑战自动通过还是由操作员完成，系统都会按当前 DOM 从邮箱、密码、验证码或资料页自动接管，不需要再点击“继续”。页面跳转导致输入框被替换时也会重新识别阶段；验证码或资料提交后若页面暂未推进，系统停止重复提交并保持活跃监听。最终仍无法识别时保留并自动复用原 profile。服务重启后同样恢复监听。
 
-自动付款不能确认成功或付款页面需要人工检查时，对应的 0.52 或双席位操作进入“等待人工处理”。Account Manager 保留原 Hosted Checkout 页面并继续监听；当前进程仍持有付款资料时，Checkout 页面首次进入或刷新后会自动补填一次，操作员可在提交前修改。操作员在对应 CloakBrowser profile 中完成处理后，无需重新提交 Team Manager 表单。服务重启只恢复页面监听，不恢复付款资料，也不会再次提交付款。
+自动付款不能确认成功或付款页面需要人工检查时，对应的 0.52、双席位或 Pro 5x 操作进入“等待人工处理”。Account Manager 保留原 Checkout 页面并继续监听；Checkout 页面首次进入或刷新后会自动补填一次，操作员可在提交前修改。Pro 5x 浏览器自动化在进入站内 Checkout 前中断时也保留当前 GAM Profile 页面现场。操作员完成处理后无需重新提交 Team Manager 表单。服务热重载后恢复加密付款请求和任务监听，并按当前页面状态继续自动化。
 
 开通任务处于排队、自动执行或等待人工处理时，母号列表提供两个控制按钮：
 
@@ -75,6 +75,16 @@
 - “自动支付”开关，默认关闭。关闭时只准备 Stripe 页面，由操作员核对并点击 Pay；后台继续监听支付和 Workspace 状态。
 
 创建订单时，Account Manager 会把该账号的 1024 代理临时切到所选国家。订单链接生成后立即恢复原出口，再继续 Stripe 支付；因此所选国家只作用于创建订单阶段。选择既有 Workspace 时，订单携带该空间 ID，付款后按原 ID 确认升级结果，不进入新空间命名流程。付款等待人工点击或无法自动确认时，页面保留并进入人工接管。既有 usage-based Workspace 在升级前后都保留管理能力；开通成功只改变双席位套餐状态。
+
+## 开通 Pro 5x
+
+有 GPT Account Manager 关联且尚未开通个人 Pro 的母号可以执行“开通 Pro 5x”。表单必须提供信用卡；系统填写付款资料后直接点击 Subscribe，不提供人工提交开关。信用卡支持粘贴 `卡号----有效期----CVC` 快捷填充，有效期接受 `MM/YY` 或 `MM/YYYY`，也可继续分别编辑三个字段。
+
+旧任务缺少加密卡片资料时，详情页按钮会变为“补充卡片并继续”。该动作把卡片补充到原任务，不创建新任务、不关闭现场 Profile；监听器在下一轮填写当前 Checkout 并自动提交。
+
+Account Manager 不等待 ChatGPT 首页异步加载优惠弹窗，而是使用个人账号 accessToken 在页面内直接创建 `chatgptprolite` custom Checkout，再跳转到 `chatgpt.com/checkout/openai_llc/...` 站内付款页。该操作不支持站外 Stripe Hosted Checkout。创建订单、填写卡片和等待结果期间，运行 Profile 临时使用部署配置指定的新加坡国家与 ASN，姓名规则沿用双席位，地址使用部署配置的新加坡账单地址；账号长期住宅代理配置不会被改写。卡片和地址填写完成后系统直接点击 Subscribe，并继续监听个人套餐是否变为 `pro` 或 `prolite`。
+
+开通成功后母号列表和详情显示 `Pro` 标签；Pro 状态与 0.52、双席位和 Workspace 能力互不替代。
 
 母号列表显示 `GAM` / `非 GAM` 和已经开通的能力状态。0.52 与双席位仍是独立能力；未开通的能力不显示负面标签，但仍保留各自的开通操作入口。周限、月限和未知限额只在已经开通双席位时显示。
 
