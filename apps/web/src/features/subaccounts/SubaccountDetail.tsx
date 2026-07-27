@@ -1,5 +1,6 @@
 import type {
   AccountSummaryView,
+  AccountManagerProfileView,
   CodexQuotaSnapshot,
   SubaccountAuthLog,
   SubaccountView
@@ -29,6 +30,7 @@ export function SubaccountDetail({
   syncing,
   onTabChange,
   onSubaccountChanged,
+  onAccountProfileChanged,
   onOpenEdit,
   onOpenDelete,
   onSync,
@@ -49,6 +51,7 @@ export function SubaccountDetail({
   syncing: boolean;
   onTabChange: (tab: SubaccountTab) => void;
   onSubaccountChanged: (subaccount: SubaccountView) => void;
+  onAccountProfileChanged?: (profile: AccountManagerProfileView) => void;
   onOpenEdit: () => void;
   onOpenDelete: () => void;
   onSync: () => void;
@@ -126,6 +129,7 @@ export function SubaccountDetail({
                 recordLabel="子号"
                 recordId={subaccount.id}
                 managedAccountEmail={subaccount.managedAccountEmail}
+                onProfileChanged={onAccountProfileChanged}
               />
             )
           },

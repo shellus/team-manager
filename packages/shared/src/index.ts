@@ -559,6 +559,14 @@ export interface AccountManagerProfileView {
   updatedAt: number;
 }
 
+export interface ResidentialProxyConfig {
+  sid: string;
+  country: string;
+  asn: string | null;
+  state: string | null;
+  city: string | null;
+}
+
 export interface OpenCodexSpaceRequest {
   country: string;
   currency: string;

@@ -1,8 +1,9 @@
 import type { AccountManagerProfileView, ParentAccountManagerStatus } from '@team-manager/shared';
 import { ImportOutlined, PlayCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Empty, Space, Tag, Typography } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '../api.js';
+import { ResidentialProxyConfigurationPanel } from './ResidentialProxyConfigurationPanel.js';
 import { WorkspaceOpeningStatusTags } from './WorkspaceOpeningStatusTags.js';
 
 export function AccountManagerAssociationPanel({
@@ -11,7 +12,8 @@ export function AccountManagerAssociationPanel({
   managedAccountEmail,
   status,
   loading = false,
-  onStatusChanged
+  onStatusChanged,
+  onProfileChanged
 }: {
   recordLabel: '母号' | '子号';
   recordId?: string;
@@ -19,6 +21,7 @@ export function AccountManagerAssociationPanel({
   status?: ParentAccountManagerStatus | null;
   loading?: boolean;
   onStatusChanged?: (status: ParentAccountManagerStatus) => void;
+  onProfileChanged?: (profile: AccountManagerProfileView) => void;
 }) {
   const [profile, setProfile] = useState<AccountManagerProfileView | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -26,6 +29,8 @@ export function AccountManagerAssociationPanel({
   const [profileError, setProfileError] = useState<string>();
   const [enrollmentLoading, setEnrollmentLoading] = useState(false);
   const [enrollmentError, setEnrollmentError] = useState<string>();
+  const onProfileChangedRef = useRef(onProfileChanged);
+  onProfileChangedRef.current = onProfileChanged;
   const effectiveManagedEmail = managedAccountEmail || (status?.managed ? status.accountEmail : undefined);
 
   const requestProfile = useCallback(async () => {
@@ -33,6 +38,22 @@ export function AccountManagerAssociationPanel({
     return recordLabel === '母号'
       ? await apiClient.getParentAccountProfile(recordId)
       : await apiClient.getSubaccountAccountProfile(recordId);
+  }, [effectiveManagedEmail, recordId, recordLabel]);
+
+  const requestProxyConfig = useCallback(async () => {
+    if (!recordId || !effectiveManagedEmail) throw new Error('该账号尚未关联 GPT Account Manager');
+    return recordLabel === '母号'
+      ? await apiClient.getParentAccountProxy(recordId)
+      : await apiClient.getSubaccountAccountProxy(recordId);
+  }, [effectiveManagedEmail, recordId, recordLabel]);
+
+  const saveProxyConfig = useCallback(async (config: Parameters<
+    typeof apiClient.updateParentAccountProxy
+  >[1]) => {
+    if (!recordId || !effectiveManagedEmail) throw new Error('该账号尚未关联 GPT Account Manager');
+    return recordLabel === '母号'
+      ? await apiClient.updateParentAccountProxy(recordId, config)
+      : await apiClient.updateSubaccountAccountProxy(recordId, config);
   }, [effectiveManagedEmail, recordId, recordLabel]);
 
   useEffect(() => {
@@ -45,7 +66,10 @@ export function AccountManagerAssociationPanel({
     setProfileError(undefined);
     void requestProfile()
       .then((next) => {
-        if (!cancelled && next) setProfile(next);
+        if (!cancelled && next) {
+          setProfile(next);
+          onProfileChangedRef.current?.(next);
+        }
       })
       .catch((error) => {
         if (!cancelled) setProfileError(error instanceof Error ? error.message : String(error));
@@ -60,7 +84,12 @@ export function AccountManagerAssociationPanel({
     if (profile?.status !== 'queued' && profile?.status !== 'stopping') return;
     const timer = window.setInterval(() => {
       void requestProfile()
-        .then((next) => { if (next) setProfile(next); })
+        .then((next) => {
+          if (next) {
+            setProfile(next);
+            onProfileChangedRef.current?.(next);
+          }
+        })
         .catch((error) => {
           setProfileError(error instanceof Error ? error.message : String(error));
         });
@@ -81,6 +110,7 @@ export function AccountManagerAssociationPanel({
           ? await apiClient.startSubaccountAccountProfile(recordId)
           : await apiClient.stopSubaccountAccountProfile(recordId);
       setProfile(next);
+      onProfileChangedRef.current?.(next);
     } catch (error) {
       setProfileError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -207,6 +237,10 @@ export function AccountManagerAssociationPanel({
           Team Manager 仅保存业务所需的 Web Session；注册密码与 CloakBrowser Profile 由 GPT Account Manager 管理。
         </Descriptions.Item>
       </Descriptions>
+      <ResidentialProxyConfigurationPanel
+        loadConfig={requestProxyConfig}
+        saveConfig={saveProxyConfig}
+      />
     </Space>
   );
 }

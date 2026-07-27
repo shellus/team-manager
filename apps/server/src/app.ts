@@ -28,6 +28,7 @@ import type {
   InviteRequest,
   OpenTeamSubscriptionRequest,
   PublicSeatSwapRequest,
+  ResidentialProxyConfig,
   SeatType,
   Subaccount,
   SubaccountTeamLink
@@ -440,6 +441,18 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.rotateRegistrationIp(c.req.param('operationId')))
   );
 
+  api.get('/accounts/registration/tasks/:operationId/proxy', (c) =>
+    wrap(c, () => parentAccountManagerService.registrationProxyConfig(c.req.param('operationId')))
+  );
+
+  api.put('/accounts/registration/tasks/:operationId/proxy', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => parentAccountManagerService.configureRegistrationProxy(
+      c.req.param('operationId'),
+      body as ResidentialProxyConfig
+    ));
+  });
+
   api.get('/accounts', (c) => wrap(c, () => service.listAccountSummaries()));
 
   api.get('/accounts/overview', (c) => wrap(c, () => service.listAccountOverview()));
@@ -478,6 +491,10 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.accountStatus(c.req.param('id')))
   );
 
+  api.get('/accounts/account-manager/profiles', (c) =>
+    wrap(c, () => parentAccountManagerService.accountProfiles())
+  );
+
   api.post('/accounts/:id/account-manager/manage', (c) =>
     wrap(c, () => parentAccountManagerService.startAccountManagement(c.req.param('id')))
   );
@@ -493,6 +510,18 @@ export async function buildApp({
   api.post('/accounts/:id/account-manager/profile/stop', (c) =>
     wrap(c, () => parentAccountManagerService.stopAccountProfile(c.req.param('id')))
   );
+
+  api.get('/accounts/:id/account-manager/proxy', (c) =>
+    wrap(c, () => parentAccountManagerService.accountProxyConfig(c.req.param('id')))
+  );
+
+  api.put('/accounts/:id/account-manager/proxy', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => parentAccountManagerService.configureAccountProxy(
+      c.req.param('id'),
+      body as ResidentialProxyConfig
+    ));
+  });
 
   api.get('/accounts/account-manager/statuses', (c) =>
     wrap(c, () => parentAccountManagerService.accountStatuses())
@@ -689,6 +718,18 @@ export async function buildApp({
     wrap(c, () => subaccountService.rotateSubaccountRegistrationIp(c.req.param('jobId')))
   );
 
+  api.get('/subaccounts/registration/jobs/:jobId/proxy', (c) =>
+    wrap(c, () => subaccountService.registrationProxyConfig(c.req.param('jobId')))
+  );
+
+  api.put('/subaccounts/registration/jobs/:jobId/proxy', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => subaccountService.configureRegistrationProxy(
+      c.req.param('jobId'),
+      body as ResidentialProxyConfig
+    ));
+  });
+
   api.delete('/subaccounts/registration/jobs/:jobId', (c) =>
     wrap(c, () => subaccountService.removeSubaccountRegistrationJob(c.req.param('jobId')))
   );
@@ -723,6 +764,10 @@ export async function buildApp({
     wrap(c, () => subaccountService.accountProfile(c.req.param('id')))
   );
 
+  api.get('/subaccounts/account-manager/profiles', (c) =>
+    wrap(c, () => subaccountService.accountProfiles())
+  );
+
   api.post('/subaccounts/:id/account-manager/profile/start', (c) =>
     wrap(c, () => subaccountService.startAccountProfile(c.req.param('id')))
   );
@@ -730,6 +775,18 @@ export async function buildApp({
   api.post('/subaccounts/:id/account-manager/profile/stop', (c) =>
     wrap(c, () => subaccountService.stopAccountProfile(c.req.param('id')))
   );
+
+  api.get('/subaccounts/:id/account-manager/proxy', (c) =>
+    wrap(c, () => subaccountService.accountProxyConfig(c.req.param('id')))
+  );
+
+  api.put('/subaccounts/:id/account-manager/proxy', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => subaccountService.configureAccountProxy(
+      c.req.param('id'),
+      body as ResidentialProxyConfig
+    ));
+  });
 
   api.get('/subaccounts/:id/local-profile', (c) =>
     wrap(c, () => Promise.resolve(subaccountService.localProfile(c.req.param('id'))))

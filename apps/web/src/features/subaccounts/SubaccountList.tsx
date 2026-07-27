@@ -1,5 +1,6 @@
 import type {
   AccountManagerRuntimeStatus,
+  AccountManagerProfileView,
   SubaccountRegistrationJobView,
   SubaccountSummaryView
 } from '@team-manager/shared';
@@ -9,8 +10,7 @@ import {
   MoreOutlined,
   PlusOutlined,
   ReloadOutlined,
-  RobotOutlined,
-  SwapOutlined
+  RobotOutlined
 } from '@ant-design/icons';
 import { Button, Card, Dropdown, List, Progress, Space, Tag, Typography } from 'antd';
 import { GroupSelector } from '../../components/GroupSelector.js';
@@ -23,6 +23,7 @@ import {
 } from '../../components/recordGroups.js';
 import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag.js';
 import { formatDateTime } from '../../components/format.js';
+import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
 import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
 
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
@@ -37,10 +38,12 @@ function registrationJobSummary(job: SubaccountRegistrationJobView): string {
 export function SubaccountList({
   subaccounts,
   registrationJobs,
+  accountProfileStatuses,
   groups,
   activeGroup,
   searchQuery,
   selectedId,
+  selectedRegistrationId,
   runtimeStatus,
   isBusy,
   onSelect,
@@ -49,16 +52,18 @@ export function SubaccountList({
   onOpenImportSession,
   onOpenRegister,
   onRetryRegistration,
-  onRotateRegistrationIp,
+  onSelectRegistration,
   onOpenEdit,
   onOpenDelete
 }: {
   subaccounts: SubaccountSummaryView[];
   registrationJobs: SubaccountRegistrationJobView[];
+  accountProfileStatuses: Record<string, AccountManagerProfileView>;
   groups: LocalGroupCount[];
   activeGroup: string;
   searchQuery: string;
   selectedId: string;
+  selectedRegistrationId?: string;
   runtimeStatus: AccountManagerRuntimeStatus | null;
   isBusy: (key: string) => boolean;
   onSelect: (subaccount: SubaccountSummaryView) => void;
@@ -67,7 +72,7 @@ export function SubaccountList({
   onOpenImportSession: () => void;
   onOpenRegister: () => void;
   onRetryRegistration: (job: SubaccountRegistrationJobView) => void;
-  onRotateRegistrationIp: (job: SubaccountRegistrationJobView) => void;
+  onSelectRegistration: (job: SubaccountRegistrationJobView) => void;
   onOpenEdit: (subaccount: SubaccountSummaryView) => void;
   onOpenDelete: (subaccount: SubaccountSummaryView) => void;
 }) {
@@ -143,16 +148,15 @@ export function SubaccountList({
             const job = record.job;
             const failed = job.status === 'failed' || job.status === 'interrupted';
             const waitingManual = job.status === 'waiting_manual';
-            const linkedSubaccount = job.subaccountId ? subaccountById.get(job.subaccountId) : undefined;
-            const selected = linkedSubaccount?.id === selectedId;
+            const selected = job.id === selectedRegistrationId;
             return (
               <List.Item>
                 <Card
                   size="small"
-                  hoverable={Boolean(linkedSubaccount)}
+                  hoverable
                   className={`record-card registration-job-card${selected ? ' selected' : ''}`}
                   aria-live="polite"
-                  onClick={linkedSubaccount ? () => onSelect(linkedSubaccount) : undefined}
+                  onClick={() => onSelectRegistration(job)}
                 >
                   <div className="record-card-head">
                     <div className="record-title">
@@ -180,34 +184,19 @@ export function SubaccountList({
                     status={failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {(failed || waitingManual) && (
+                  {failed && (
                     <Space wrap>
-                      {waitingManual && (
-                        <Button
-                          size="small"
-                          icon={<SwapOutlined />}
-                          loading={isBusy(`rotate-registration-ip-${job.id}`)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRotateRegistrationIp(job);
-                          }}
-                        >
-                          更换IP
-                        </Button>
-                      )}
-                      {failed && (
-                        <Button
-                          size="small"
-                          icon={<ReloadOutlined />}
-                          loading={isBusy(`retry-registration-${job.id}`)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRetryRegistration(job);
-                          }}
-                        >
-                          {job.email ? '重试此邮箱' : '重新开始'}
-                        </Button>
-                      )}
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        loading={isBusy(`retry-registration-${job.id}`)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRetryRegistration(job);
+                        }}
+                      >
+                        {job.email ? '重试此邮箱' : '重新开始'}
+                      </Button>
                     </Space>
                   )}
                 </Card>
@@ -285,6 +274,7 @@ export function SubaccountList({
                   <Tag color={subaccount.managedAccountEmail ? 'blue' : 'default'}>
                     {subaccount.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
+                  <RunningProfileTag profile={accountProfileStatuses[subaccount.id]} />
                   <span className="record-status-time">更新 {formatDateTime(subaccount.updatedAt)}</span>
                 </div>
               </Card>

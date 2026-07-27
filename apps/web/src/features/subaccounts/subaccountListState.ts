@@ -1,9 +1,19 @@
 import { compareRecordSortName } from '../../components/recordSort.js';
+import type { AccountManagerProfileView } from '@team-manager/shared';
+import { compareRunningProfileFirst } from '../../components/AccountProfileListStatus.js';
 
 type SubaccountListRecord = { id: string; email: string; remark?: string; isBanned?: boolean };
 
-export function sortSubaccountsForList<T extends SubaccountListRecord>(subaccounts: readonly T[]): T[] {
-  return [...subaccounts].sort(compareRecordSortName);
+export function sortSubaccountsForList<T extends SubaccountListRecord>(
+  subaccounts: readonly T[],
+  profiles: Record<string, AccountManagerProfileView> = {}
+): T[] {
+  return [...subaccounts].sort((left, right) => compareRunningProfileFirst(
+    left,
+    right,
+    profiles,
+    compareRecordSortName
+  ));
 }
 
 export function resolveSubaccountDeleteTarget<T extends SubaccountListRecord>(

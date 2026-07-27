@@ -16,6 +16,7 @@ import type {
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
+  ResidentialProxyConfig,
   PublicSeatSlotView,
   PendingInvite,
   SeatType,
@@ -114,6 +115,10 @@ export const apiClient = {
     call<AccountManagerOperationView>('POST', `/accounts/registration/tasks/${operationId}/retry`),
   rotateParentRegistrationIp: (operationId: string) =>
     call<ParentRegistrationTaskView>('POST', `/accounts/registration/tasks/${operationId}/rotate-ip`),
+  getParentRegistrationProxy: (operationId: string) =>
+    call<ResidentialProxyConfig>('GET', `/accounts/registration/tasks/${operationId}/proxy`),
+  updateParentRegistrationProxy: (operationId: string, payload: ResidentialProxyConfig) =>
+    call<ResidentialProxyConfig>('PUT', `/accounts/registration/tasks/${operationId}/proxy`, payload),
   getParentAccountManagerStatus: (id: string) =>
     call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
   getParentAccountManagerStatuses: () =>
@@ -122,10 +127,16 @@ export const apiClient = {
     call<ParentAccountManagerStatus>('POST', `/accounts/${id}/account-manager/manage`),
   getParentAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('GET', `/accounts/${id}/account-manager/profile`),
+  getParentAccountProfiles: () =>
+    call<Record<string, AccountManagerProfileView>>('GET', '/accounts/account-manager/profiles'),
   startParentAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('POST', `/accounts/${id}/account-manager/profile/start`),
   stopParentAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('POST', `/accounts/${id}/account-manager/profile/stop`),
+  getParentAccountProxy: (id: string) =>
+    call<ResidentialProxyConfig>('GET', `/accounts/${id}/account-manager/proxy`),
+  updateParentAccountProxy: (id: string, payload: ResidentialProxyConfig) =>
+    call<ResidentialProxyConfig>('PUT', `/accounts/${id}/account-manager/proxy`, payload),
   openParentCodexSpace: (id: string, payload: OpenCodexSpaceRequest) =>
     call<AccountManagerOperationView>('POST', `/accounts/${id}/account-manager/open-codex-space`, payload),
   openParentTeamSubscription: (id: string, payload: OpenTeamSubscriptionRequest) =>
@@ -231,10 +242,16 @@ export const apiClient = {
   getSubaccount: (id: string) => call<SubaccountView>('GET', `/subaccounts/${id}`),
   getSubaccountAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('GET', `/subaccounts/${id}/account-manager/profile`),
+  getSubaccountAccountProfiles: () =>
+    call<Record<string, AccountManagerProfileView>>('GET', '/subaccounts/account-manager/profiles'),
   startSubaccountAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('POST', `/subaccounts/${id}/account-manager/profile/start`),
   stopSubaccountAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('POST', `/subaccounts/${id}/account-manager/profile/stop`),
+  getSubaccountAccountProxy: (id: string) =>
+    call<ResidentialProxyConfig>('GET', `/subaccounts/${id}/account-manager/proxy`),
+  updateSubaccountAccountProxy: (id: string, payload: ResidentialProxyConfig) =>
+    call<ResidentialProxyConfig>('PUT', `/subaccounts/${id}/account-manager/proxy`, payload),
   getSubaccountLocalProfile: (id: string) =>
     call<SubaccountLocalProfileView>('GET', `/subaccounts/${id}/local-profile`),
   importSubaccountSession: (payload: {
@@ -251,6 +268,10 @@ export const apiClient = {
     call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/retry`),
   rotateSubaccountRegistrationIp: (jobId: string) =>
     call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/rotate-ip`),
+  getSubaccountRegistrationProxy: (jobId: string) =>
+    call<ResidentialProxyConfig>('GET', `/subaccounts/registration/jobs/${jobId}/proxy`),
+  updateSubaccountRegistrationProxy: (jobId: string, payload: ResidentialProxyConfig) =>
+    call<ResidentialProxyConfig>('PUT', `/subaccounts/registration/jobs/${jobId}/proxy`, payload),
   registerSubaccount: (payload: { mailGroup?: string } = {}) =>
     call<SubaccountRegistrationJobView>('POST', '/subaccounts/registration/start', payload),
   updateSubaccountLocalProfile: (

@@ -39,6 +39,7 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
       activeGroup="all"
       accounts={[]}
       accountManagerStatuses={{}}
+      accountProfileStatuses={{}}
       registrationTasks={[]}
       searchQuery=""
       quickFilters={[]}
@@ -55,8 +56,7 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
       onOpenRegister={() => undefined}
       onOpenImport={() => undefined}
       onRetryRegistration={() => undefined}
-      onRotateRegistrationIp={() => undefined}
-      onRotateOperationIp={() => undefined}
+      onSelectRegistration={() => undefined}
       onTerminateOperation={() => undefined}
       onDismissOperation={() => undefined}
       {...overrides}
@@ -88,7 +88,7 @@ describe('ParentList', () => {
     expect(html).not.toContain('开通 0.52');
   });
 
-  test('allows changing IP from any parent registration manual stage', () => {
+  test('keeps proxy configuration out of the parent registration status card', () => {
     const html = renderList({
       registrationTasks: [{
         ...registeringTask,
@@ -103,7 +103,7 @@ describe('ParentList', () => {
     });
 
     expect(html).toContain('等待人工');
-    expect(html).toContain('更换IP');
+    expect(html).not.toContain('更换IP');
   });
 
   test('shows opened 0.52 without rendering a negative two-seat Team tag', () => {
@@ -131,6 +131,22 @@ describe('ParentList', () => {
     const html = renderList({ accounts: [{ ...parent, isBanned: true }] });
 
     expect(html).toContain('已封号');
+  });
+
+  test('marks a parent whose manual Profile is running', () => {
+    const html = renderList({
+      accounts: [parent],
+      accountProfileStatuses: {
+        [parent.id]: {
+          accountId: parent.email,
+          status: 'running',
+          profileId: 'runtime-profile',
+          updatedAt: 1
+        }
+      }
+    });
+
+    expect(html).toContain('Profile 已启动');
   });
 
   test('uses the local derived Team status for a legacy parent without GAM', () => {
@@ -251,7 +267,7 @@ describe('ParentList', () => {
     expect(html).toContain('执行中');
     expect(html).toContain('Pay 已触发，正在等待 Stripe 返回付款结果');
     expect(html).toContain('65%');
-    expect(html).toContain('更换IP');
+    expect(html).not.toContain('更换IP');
     expect(html).toContain('终止任务');
   });
 

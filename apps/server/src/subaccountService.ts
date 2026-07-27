@@ -7,6 +7,7 @@ import type {
   SubaccountRegistrationJobView,
   AccountManagerRuntimeStatus,
   AccountManagerProfileView,
+  ResidentialProxyConfig,
   SubaccountSummaryView,
   SubaccountView
 } from '@team-manager/shared';
@@ -31,6 +32,7 @@ import {
   registrationJobFromOperation,
   type AccountManagerGateway
 } from './accountManagerClient.js';
+import { accountManagerProfilesByLocalId } from './accountManagerProfiles.js';
 
 const CODEX_PAT_NAME = 'team-manager';
 const CODEX_PAT_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -99,6 +101,19 @@ export class SubaccountService {
     return registrationJobFromOperation(
       await this.callAccountManager(() => this.accountManager!.rotateOperationIp(jobId))
     );
+  }
+
+  async registrationProxyConfig(jobId: string): Promise<ResidentialProxyConfig> {
+    const operation = await this.requireSubaccountRegistration(jobId);
+    return this.callAccountManager(() => this.accountManager!.operationProxyConfig(operation.id));
+  }
+
+  async configureRegistrationProxy(
+    jobId: string,
+    input: ResidentialProxyConfig
+  ): Promise<ResidentialProxyConfig> {
+    const operation = await this.requireSubaccountRegistration(jobId);
+    return this.callAccountManager(() => this.accountManager!.configureOperationProxy(operation.id, input));
   }
 
   async removeSubaccountRegistrationJob(jobId: string): Promise<boolean> {
@@ -195,6 +210,13 @@ export class SubaccountService {
     return this.callAccountManager(() => this.accountManager!.accountProfile(email));
   }
 
+  async accountProfiles(): Promise<Record<string, AccountManagerProfileView>> {
+    return this.callAccountManager(() => accountManagerProfilesByLocalId(
+      this.accountManager,
+      this.store.listSummaries()
+    ));
+  }
+
   async startAccountProfile(id: string): Promise<AccountManagerProfileView> {
     const email = this.requireManagedAccountEmail(id);
     return this.callAccountManager(() => this.accountManager!.startAccountProfile(email));
@@ -203,6 +225,19 @@ export class SubaccountService {
   async stopAccountProfile(id: string): Promise<AccountManagerProfileView> {
     const email = this.requireManagedAccountEmail(id);
     return this.callAccountManager(() => this.accountManager!.stopAccountProfile(email));
+  }
+
+  async accountProxyConfig(id: string): Promise<ResidentialProxyConfig> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.accountProxyConfig(email));
+  }
+
+  async configureAccountProxy(
+    id: string,
+    input: ResidentialProxyConfig
+  ): Promise<ResidentialProxyConfig> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.configureAccountProxy(email, input));
   }
 
   async importSession(raw: unknown): Promise<SubaccountView> {

@@ -45,6 +45,19 @@ describe('subaccount list state', () => {
     expect(resolveSubaccountDeleteTarget([deleted, nextSelected], nextSelected, deleted.id)).toBe(deleted);
   });
 
+  test('places running Profiles first and keeps the existing name order inside each group', () => {
+    const runningB = subaccount({ id: 'running-b', email: 'beta@example.com' });
+    const stoppedA = subaccount({ id: 'stopped-a', email: 'alpha@example.com' });
+    const runningA = subaccount({ id: 'running-a', email: 'aardvark@example.com' });
+    const sorted = sortSubaccountsForList([runningB, stoppedA, runningA], {
+      [runningA.id]: { accountId: runningA.email, status: 'running', updatedAt: 1 },
+      [runningB.id]: { accountId: runningB.email, status: 'running', updatedAt: 1 },
+      [stoppedA.id]: { accountId: stoppedA.email, status: 'stopped', updatedAt: 1 }
+    });
+
+    expect(sorted.map((item) => item.id)).toEqual(['running-a', 'running-b', 'stopped-a']);
+  });
+
   test('chooses the next stable selection after deleting a subaccount', () => {
     const deleted = subaccount({ id: 'delete-me', email: 'delete@example.com' });
     const nextSelected = subaccount({ id: 'next-row', email: 'next@example.com' });

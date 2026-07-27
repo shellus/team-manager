@@ -140,6 +140,22 @@ export function AppRoot() {
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/team-orders" element={<TeamOrdersPage onError={handleError} />} />
           <Route
+            path="/parents/registrations/:registrationOperationId"
+            element={
+              <ParentRoutes
+                accounts={accounts}
+                loading={loadingAccounts}
+                globalError={error}
+                syncingIds={syncingIds}
+                onAccountChanged={mergeAccount}
+                onAccountSummaryChanged={mergeAccountSummary}
+                onAccountRemoved={removeAccount}
+                onRefreshAccount={refreshAccount}
+                onError={handleError}
+              />
+            }
+          />
+          <Route
             path="/parents/:accountId?"
             element={
               <ParentRoutes
@@ -154,6 +170,10 @@ export function AppRoot() {
                 onError={handleError}
               />
             }
+          />
+          <Route
+            path="/subaccounts/registrations/:registrationJobId"
+            element={<SubaccountRoutes accounts={accounts} onError={handleError} />}
           />
           <Route
             path="/subaccounts/:subaccountId?"

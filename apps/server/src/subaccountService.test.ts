@@ -9,6 +9,7 @@ import type {
   AccountManagerProfileView,
   CodexCredentialJson,
   OpenCodexSpaceRequest,
+  ResidentialProxyConfig,
   SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
   SubaccountSummaryView,
@@ -350,6 +351,7 @@ class FakeAccountManager implements AccountManagerGateway {
   private requestTags = new Map<string, string>();
   profileControls: string[] = [];
   profiles = new Map<string, AccountManagerProfileView>();
+  proxyConfigs = new Map<string, ResidentialProxyConfig>();
 
   async health() {
     return { status: 'ok', accountRegistrationConfigured: true };
@@ -443,6 +445,19 @@ class FakeAccountManager implements AccountManagerGateway {
     return this.operationFromJob(rotated);
   }
 
+  async operationProxyConfig(id: string) {
+    await this.operation(id);
+    return this.proxyConfigs.get(id) ?? {
+      sid: 'initial-sid', country: 'US', asn: null, state: null, city: null
+    };
+  }
+
+  async configureOperationProxy(id: string, input: ResidentialProxyConfig) {
+    await this.operation(id);
+    this.proxyConfigs.set(id, input);
+    return input;
+  }
+
   async terminateOperation(id: string): Promise<AccountManagerOperationView> {
     throw new Error(`unexpected terminate: ${id}`);
   }
@@ -475,6 +490,19 @@ class FakeAccountManager implements AccountManagerGateway {
     return this.profiles.get(accountId) ?? { accountId, status: 'stopped', updatedAt: 1 };
   }
 
+  async listAccountProfiles(): Promise<Record<string, AccountManagerProfileView>> {
+    const accountIds = new Set([
+      ...this.profiles.keys(),
+      'registered-child@example.com',
+      'child@example.com'
+    ]);
+    return Object.fromEntries([...accountIds].map((accountId) => [accountId, this.profiles.get(accountId) ?? {
+      accountId,
+      status: 'stopped' as const,
+      updatedAt: 1
+    }]));
+  }
+
   async startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
     this.profileControls.push(`start:${accountId}`);
     const profile = {
@@ -489,6 +517,17 @@ class FakeAccountManager implements AccountManagerGateway {
     const profile = { accountId, status: 'stopped' as const, updatedAt: 3 };
     this.profiles.set(accountId, profile);
     return profile;
+  }
+
+  async accountProxyConfig(accountId: string) {
+    return this.proxyConfigs.get(accountId) ?? {
+      sid: 'initial-sid', country: 'US', asn: null, state: null, city: null
+    };
+  }
+
+  async configureAccountProxy(accountId: string, input: ResidentialProxyConfig) {
+    this.proxyConfigs.set(accountId, input);
+    return input;
   }
 
   async openCodexSpace(
@@ -617,10 +656,29 @@ describe('Subaccount API', () => {
       });
       assert.equal(((await started.json()) as ApiResult<AccountManagerProfileView>).data?.profileId, 'runtime-profile');
 
+      const profiles = await app.request('/api/subaccounts/account-manager/profiles', {
+        headers: authHeaders
+      });
+      assert.equal(
+        ((await profiles.json()) as ApiResult<Record<string, AccountManagerProfileView>>).data?.[subaccount.id]?.status,
+        'running'
+      );
+
       const stopped = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/profile/stop`, {
         method: 'POST', headers: authHeaders
       });
       assert.equal(((await stopped.json()) as ApiResult<AccountManagerProfileView>).data?.status, 'stopped');
+
+      const updatedProxy = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/proxy`, {
+        method: 'PUT',
+        headers: authHeaders,
+        body: JSON.stringify({
+          sid: 'custom-sid', country: 'SG', asn: 'AS64512', state: null, city: null
+        })
+      });
+      assert.deepEqual(((await updatedProxy.json()) as ApiResult<ResidentialProxyConfig>).data, {
+        sid: 'custom-sid', country: 'SG', asn: 'AS64512', state: null, city: null
+      });
       assert.deepEqual(accountManager.profileControls, [
         'start:child@example.com',
         'stop:child@example.com'
@@ -1453,6 +1511,29 @@ describe('Subaccount API', () => {
       assert.equal(body.data!.status, 'waiting_manual');
       assert.equal(body.data!.phase, 'registration_manual_proxy_rotation_complete');
       assert.deepEqual(accountManager.controls, [`rotate:${job.id}`]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('updates proxy configuration for a child registration task', async () => {
+    const accountManager = new FakeAccountManager();
+    const job = accountManager.seedWaitingManualRegistration();
+    const { app, dir, authHeaders } = await buildTestApp({ accountManager });
+    try {
+      const response = await app.request(`/api/subaccounts/registration/jobs/${job.id}/proxy`, {
+        method: 'PUT',
+        headers: authHeaders,
+        body: JSON.stringify({
+          sid: 'task-sid', country: 'CA', asn: null, state: 'Ontario', city: 'Toronto'
+        })
+      });
+      const body = (await response.json()) as ApiResult<ResidentialProxyConfig>;
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.data, {
+        sid: 'task-sid', country: 'CA', asn: null, state: 'Ontario', city: 'Toronto'
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

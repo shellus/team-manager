@@ -12,6 +12,11 @@ const regionNames = typeof Intl.DisplayNames === 'function'
   ? new Intl.DisplayNames(['zh-CN'], { type: 'region' })
   : undefined;
 
+export const ACCOUNT_PROXY_COUNTRIES = CHECKOUT_COUNTRY_CODES.map((code) => ({
+  value: code,
+  label: `${code} · ${regionNames?.of(code) || code}`
+}));
+
 export const TEAM_CHECKOUT_COUNTRIES = CHECKOUT_COUNTRY_CODES.map((code) => ({
   value: code,
   label: `${code}.${billingCurrencyForCountry(code)} · ${regionNames?.of(code) || code}`

@@ -7,7 +7,8 @@ import type {
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
-  ParentRegistrationTaskView
+  ParentRegistrationTaskView,
+  ResidentialProxyConfig
 } from '@team-manager/shared';
 import { accountSummaryFromView } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
@@ -18,6 +19,7 @@ import {
   type ManagedAccountSummary
 } from './accountManagerClient.js';
 import { ServiceError, TeamService } from './teamService.js';
+import { accountManagerProfilesByLocalId } from './accountManagerProfiles.js';
 
 const TEAM_PLAN = 'team';
 const CODEX_SPACE_PLAN = 'self_serve_business_usage_based';
@@ -86,6 +88,19 @@ export class ParentAccountManagerService {
     return this.reconcileRegistration(
       await this.callAccountManager(() => this.accountManager!.rotateOperationIp(operation.id))
     );
+  }
+
+  async registrationProxyConfig(operationId: string): Promise<ResidentialProxyConfig> {
+    const operation = await this.requireParentRegistration(operationId);
+    return this.callAccountManager(() => this.accountManager!.operationProxyConfig(operation.id));
+  }
+
+  async configureRegistrationProxy(
+    operationId: string,
+    input: ResidentialProxyConfig
+  ): Promise<ResidentialProxyConfig> {
+    const operation = await this.requireParentRegistration(operationId);
+    return this.callAccountManager(() => this.accountManager!.configureOperationProxy(operation.id, input));
   }
 
   async accountStatus(accountId: string): Promise<ParentAccountManagerStatus> {
@@ -427,6 +442,13 @@ export class ParentAccountManagerService {
     return this.callAccountManager(() => this.accountManager!.accountProfile(email));
   }
 
+  async accountProfiles(): Promise<Record<string, AccountManagerProfileView>> {
+    return this.callAccountManager(() => accountManagerProfilesByLocalId(
+      this.accountManager,
+      this.store.list()
+    ));
+  }
+
   async startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
     const email = this.requireManagedAccountEmail(accountId);
     return this.callAccountManager(() => this.accountManager!.startAccountProfile(email));
@@ -435,6 +457,19 @@ export class ParentAccountManagerService {
   async stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
     const email = this.requireManagedAccountEmail(accountId);
     return this.callAccountManager(() => this.accountManager!.stopAccountProfile(email));
+  }
+
+  async accountProxyConfig(accountId: string): Promise<ResidentialProxyConfig> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.accountProxyConfig(email));
+  }
+
+  async configureAccountProxy(
+    accountId: string,
+    input: ResidentialProxyConfig
+  ): Promise<ResidentialProxyConfig> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.configureAccountProxy(email, input));
   }
 
   async openAccountCodexSpace(

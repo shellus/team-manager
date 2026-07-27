@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import {
+  type AccountManagerProfileView,
   subaccountSummaryFromView,
   type SubaccountRegistrationJobView,
   type SubaccountSummaryView,
@@ -22,13 +23,15 @@ const baseSubaccount: SubaccountView = {
 
 function renderList(
   subaccount: SubaccountView,
-  registrationJobs: SubaccountRegistrationJobView[] = []
+  registrationJobs: SubaccountRegistrationJobView[] = [],
+  accountProfileStatuses: Record<string, AccountManagerProfileView> = {}
 ) {
   const summary: SubaccountSummaryView = subaccountSummaryFromView(subaccount);
   return renderToStaticMarkup(
     <SubaccountList
       subaccounts={[summary]}
       registrationJobs={registrationJobs}
+      accountProfileStatuses={accountProfileStatuses}
       groups={[]}
       activeGroup=""
       searchQuery=""
@@ -41,7 +44,7 @@ function renderList(
       onOpenImportSession={() => undefined}
       onOpenRegister={() => undefined}
       onRetryRegistration={() => undefined}
-      onRotateRegistrationIp={() => undefined}
+      onSelectRegistration={() => undefined}
       onOpenEdit={() => undefined}
       onOpenDelete={() => undefined}
     />
@@ -68,7 +71,23 @@ describe('SubaccountList', () => {
     expect(renderList({ ...baseSubaccount, isBanned: true })).toContain('已封号');
   });
 
-  test('allows changing IP from any child registration manual stage', () => {
+  test('marks a child whose manual Profile is running', () => {
+    const html = renderList({
+      ...baseSubaccount,
+      managedAccountEmail: baseSubaccount.email
+    }, [], {
+      [baseSubaccount.id]: {
+        accountId: baseSubaccount.email,
+        status: 'running',
+        profileId: 'runtime-profile',
+        updatedAt: 1
+      }
+    });
+
+    expect(html).toContain('Profile 已启动');
+  });
+
+  test('keeps proxy configuration out of the child registration status card', () => {
     const html = renderList(baseSubaccount, [{
       id: 'registration-1',
       status: 'waiting_manual',
@@ -80,6 +99,6 @@ describe('SubaccountList', () => {
     }]);
 
     expect(html).toContain('等待人工处理');
-    expect(html).toContain('更换IP');
+    expect(html).not.toContain('更换IP');
   });
 });

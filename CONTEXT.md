@@ -30,7 +30,12 @@ _Avoid_: 自动封号检测、账号状态、停用账号、删除账号
 
 **Profile 控制**:
 Team Manager 使用受管账号引用请求 GPT Account Manager 启动或关闭该账号的运行 Profile。Team Manager 不拥有 Profile、浏览器身份或租约，也不负责打开浏览器或提供 VNC。
+母号和子号列表可从 Account Manager 批量状态派生“Profile 已启动”标签并将 `running` 记录置顶；该状态不写入本地账号数据。
 _Avoid_: Profile 管理、打开浏览器、浏览器会话、直接调用 CloakBrowser
+
+**账号住宅代理配置**:
+Team Manager 在母号或子号的账号管理页编辑 GPT Account Manager 持有的住宅代理定位条件和上游 SID。定位条件包含必填国家，以及互斥的 ASN 模式或州/省与城市模式；注册操作尚未交付正式账号时，任务列表项仍代表同一待交付账号配置。
+_Avoid_: 本地资料中的 ChatGPT 请求代理、Profile 控制、开通任务状态按钮、临时 Checkout 国家
 
 **0.52 开通**:
 母号通过 GPT Account Manager 创建 13 Credits usage-based workspace 的独立支付动作。它不是母号注册完成或双席位开通的前置条件。

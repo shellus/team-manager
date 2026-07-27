@@ -4,7 +4,7 @@
 
 Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT Account Manager 创建受管账号；账号与 Web Session 交付完成即结束注册流程。0.52 Codex 空间和双席位 Team 是注册后的两个独立动作，互不作为前置条件。
 
-母号的账号管理页通过 `GET /api/accounts/:id/account-manager/profile`、`POST /api/accounts/:id/account-manager/profile/start` 和 `POST /api/accounts/:id/account-manager/profile/stop` 转发运行 Profile 控制。Team Manager 只展示运行状态和临时 Profile ID，不生成查看地址，也不连接 CloakBrowser。
+母号的账号管理页通过 `GET /api/accounts/:id/account-manager/profile`、`POST /api/accounts/:id/account-manager/profile/start` 和 `POST /api/accounts/:id/account-manager/profile/stop` 转发运行 Profile 控制，并通过 `GET/PUT /api/accounts/:id/account-manager/proxy` 管理正式账号的住宅代理配置。Team Manager 只展示运行状态和临时 Profile ID，不生成查看地址，也不连接 CloakBrowser。
 
 ## 自动注册
 
@@ -13,6 +13,8 @@ Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT 
 3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session，按规范化邮箱幂等保存 GAM 母号，并写入发起任务时选中的母号分组。
 4. 新母号在尚无 Team workspace 时保存个人账号上下文，并立即从注册任务切换为正常母号列表项。
 5. 完成导入后清理注册操作；0.52 和双席位按钮在母号详情中独立提供。
+
+注册任务卡在成功前始终可选中，并使用 `/parents/registrations/:operationId?tab=account-manager` 持久化当前记录和 Tab。右侧临时详情只提供账号管理 Tab，通过 `GET/PUT /api/accounts/registration/tasks/:operationId/proxy` 编辑必填国家、可空 ASN、可空州/省、可空城市和上游 SID；ASN 有值时清空并禁用州/省与城市。SID 默认回填上次值，并提供随机生成。注册成功并导入本地母号后，页面切换到 `/parents/:id?tab=account-manager`，不创建半成品母号记录。
 
 Account Manager 已完成注册、Session 校验和账号同步，因此导入成功的个人母号直接保存为 `active`。没有 Workspace 只影响成员、邀请、设置和账单能力，不得把账号标记为“待同步”；后续 0.52、双席位、本地资料和 Workspace 同步入口仍可使用。
 
@@ -58,6 +60,8 @@ Account Manager 执行以下顺序：
 
 每个母号列表项按独立维度展示状态：
 
+- 通过批量 Profile 状态接口派生“Profile 已启动”标签。只有 `running` 算作已启动并排在未启动账号之前；`queued`、`stopping` 和 `failed` 不冒充已启动。同一组内继续使用原备注/邮箱自然排序，状态不写入母号数据文件。
+
 - `GAM` / `非 GAM`：是否保存 `managedAccountEmail`。
 - `0.52`：只在 Account Manager 存在可见的 `self_serve_business_usage_based` workspace 时展示。
 - `双席位`：只在 Account Manager 存在可见的 `team` workspace，或当前母号同步到有效的 Team 月付订阅时展示。
@@ -65,15 +69,13 @@ Account Manager 执行以下顺序：
 
 `0.52` 继续由 Account Manager 关联状态派生；双席位状态会缓存到母号记录，并兼容 `planType="team"`。未开通的 0.52 或双席位不显示负面标签。
 
-## 运行中任务控制
+## 代理配置与任务控制
 
-母号列表在 0.52 或双席位任务处于 `queued`、`running`、`waiting_manual` 时提供“更换IP”和“终止任务”。控制请求只作用于当前 Account Manager 操作，不创建新的母号开通操作。
+母号列表的注册、0.52 和双席位状态卡不再提供“更换IP”。住宅代理统一放在账号管理 Tab，并且不限制注册、支付或 onboarding 阶段。保存正式账号配置时，GPT Account Manager 持久化国家、ASN、州/省、城市和上游 SID；ASN 与州/省、城市互斥，上游用户名按 `region-<country>-asn-<asn>` 或州/城市结构生成。保存后重载 Mihomo 并断开该账号旧连接；未运行时等价于只修改后续运行配置。注册页面正在运行时还会刷新当前页面。浏览器身份使用的 Mihomo 本地 SID 不变。
 
-- “更换IP”保持 profile 的 Mihomo 本地 SID 不变，只替换对应的上游住宅 SID，并通过 Mihomo 控制端关闭该本地 SID 的现有连接。排队任务在开始前执行；自动阶段轮换后重试当前步骤；人工接管阶段保留当前 profile、VNC 和 Checkout 页面并恢复监听，不停止或重新启动 profile。
-- Pay 已触发或 Workspace 正在自动收尾时拒绝更换IP，避免重复扣款或中断已确认的 onboarding。
-- “终止任务”把任务置为 `interrupted`，取消尚未开始的调度，停止活跃 profile，并阻止后续异步回调把终止结果覆盖成普通失败或成功。
+- “终止任务”仍只作用于当前 Account Manager 开通操作，把任务置为 `interrupted`，取消尚未开始的调度，停止活跃 profile，并阻止后续异步回调覆盖终止结果。
 - `failed` 或 `interrupted` 操作保留错误摘要，并提供纯图标清除入口。清除只删除该终态操作记录，不修改母号、Workspace、账单或 Profile。
-- 同一任务同时只执行一个出口轮换指令。指令的排队、执行、成功和失败状态随操作进度返回。
+- 双席位 Checkout 的临时国家覆盖优先于账号永久代理配置；Hosted Checkout 创建完成或失败后清除覆盖，恢复账号保存的国家、州/省和城市。
 
 ## 安全与幂等
 
@@ -83,4 +85,4 @@ Account Manager 执行以下顺序：
 - 完整卡号和 CVC 不写入 Team Manager 运行数据或日志；Account Manager 也只在当前进程内保存待提交卡片。
 - 已开通的 0.52 或双席位操作返回幂等成功，不重复生成订单或扣款。
 - `waiting_manual` 是活跃状态。服务重启只恢复页面监听，不重新提交付款。
-- 任务控制指令属于父操作，不单独竞争账号、profile 或卡片调度锁。
+- 账号住宅代理配置由 GPT Account Manager 持久化，Team Manager 只按需读取和提交，不复制到母号数据文件。

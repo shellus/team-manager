@@ -1,5 +1,6 @@
 import type {
   AccountManagerOperationView,
+  AccountManagerProfileView,
   AccountManagerRuntimeStatus,
   AccountSummaryView,
   ParentAccountManagerStatus,
@@ -13,8 +14,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   RobotOutlined,
-  StopOutlined,
-  SwapOutlined
+  StopOutlined
 } from '@ant-design/icons';
 import { Button, Card, Dropdown, List, Popconfirm, Progress, Space, Tag, Tooltip, Typography } from 'antd';
 import { formatRelativeTime, shortText } from '../../components/format.js';
@@ -22,6 +22,7 @@ import { GroupSelector } from '../../components/GroupSelector.js';
 import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import { BannedStatusTag, LimitTypeTag } from '../../components/StatusTag.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
+import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
 import { ParentQuickFilterBar } from './ParentQuickFilterBar.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 import {
@@ -82,23 +83,10 @@ function operationCanDismiss(operation: AccountManagerOperationView): boolean {
   return operation.status === 'failed' || operation.status === 'interrupted';
 }
 
-function operationControlRunning(operation: AccountManagerOperationView): boolean {
-  return operation.control?.status === 'queued' || operation.control?.status === 'executing';
-}
-
 export function stopParentActionMenuPropagation(event: {
   domEvent: { stopPropagation: () => void };
 }): void {
   event.domEvent.stopPropagation();
-}
-
-function canRotateOperationIp(operation: AccountManagerOperationView): boolean {
-  if (!operationIsActive(operation) || operationControlRunning(operation)) return false;
-  if (operation.status !== 'running') return true;
-  return operation.phase !== 'payment_processing'
-    && operation.phase !== 'workspace_onboarding_resuming'
-    && !operation.phase.startsWith('workspace_')
-    && !operation.phase.startsWith('team_workspace_upgrade_');
 }
 
 export function ParentList({
@@ -106,11 +94,13 @@ export function ParentList({
   activeGroup,
   accounts,
   accountManagerStatuses,
+  accountProfileStatuses,
   registrationTasks,
   maintainedAccountIds = new Set<string>(),
   searchQuery,
   quickFilters,
   selectedId,
+  selectedRegistrationId,
   syncingIds,
   runtimeStatus,
   isBusy,
@@ -120,11 +110,10 @@ export function ParentList({
   onOpenRegister,
   onOpenImport,
   onRetryRegistration,
-  onRotateRegistrationIp,
-  onRotateOperationIp,
   onTerminateOperation,
   onDismissOperation,
   onSelect,
+  onSelectRegistration,
   onRefreshAccount,
   onOpenDelete
 }: {
@@ -132,11 +121,13 @@ export function ParentList({
   activeGroup: string;
   accounts: AccountSummaryView[];
   accountManagerStatuses: Record<string, ParentAccountManagerStatus>;
+  accountProfileStatuses: Record<string, AccountManagerProfileView>;
   registrationTasks: ParentRegistrationTaskView[];
   maintainedAccountIds?: Set<string>;
   searchQuery: string;
   quickFilters: ParentQuickFilter[];
   selectedId: string;
+  selectedRegistrationId?: string;
   syncingIds: Set<string>;
   runtimeStatus: AccountManagerRuntimeStatus | null;
   isBusy: (key: string) => boolean;
@@ -146,11 +137,10 @@ export function ParentList({
   onOpenRegister: () => void;
   onOpenImport: () => void;
   onRetryRegistration: (task: ParentRegistrationTaskView) => void;
-  onRotateRegistrationIp: (task: ParentRegistrationTaskView) => void;
-  onRotateOperationIp: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onTerminateOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onDismissOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onSelect: (account: AccountSummaryView) => void;
+  onSelectRegistration: (task: ParentRegistrationTaskView) => void;
   onRefreshAccount: (account: AccountSummaryView) => void;
   onOpenDelete: (account: AccountSummaryView) => void;
 }) {
@@ -220,7 +210,15 @@ export function ParentList({
             const waiting = task.stage === 'waiting_manual';
             return (
               <List.Item>
-                <Card size="small" className="record-card registration-job-card" aria-live="polite">
+                <Card
+                  size="small"
+                  hoverable
+                  className={`record-card registration-job-card${
+                    selectedRegistrationId === task.registration.id ? ' selected' : ''
+                  }`}
+                  aria-live="polite"
+                  onClick={() => onSelectRegistration(task)}
+                >
                   <div className="record-card-head">
                     <div className="record-title">
                       <Typography.Text strong ellipsis={{ tooltip: task.email || '自动注册母号' }}>
@@ -245,30 +243,23 @@ export function ParentList({
                     status={failed ? 'exception' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  <Space wrap>
-                    {waiting && (
-                      <Button
-                        size="small"
-                        icon={<SwapOutlined />}
-                        loading={isBusy(`rotate-parent-registration-ip-${task.registration.id}`)}
-                        onClick={() => onRotateRegistrationIp(task)}
-                      >
-                        更换IP
-                      </Button>
-                    )}
-                    {(task.stage === 'registration_failed' || task.stage === 'import_failed') && (
+                  {(task.stage === 'registration_failed' || task.stage === 'import_failed') && (
+                    <Space wrap>
                       <Button
                         size="small"
                         icon={<ReloadOutlined />}
                         loading={isBusy(`retry-parent-registration-${task.registration.id}`)}
-                        onClick={() => onRetryRegistration(task)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRetryRegistration(task);
+                        }}
                       >
                         {task.stage === 'import_failed'
                             ? '重试导入'
                             : '重试注册'}
                       </Button>
-                    )}
-                  </Space>
+                    </Space>
+                  )}
                 </Card>
               </List.Item>
             );
@@ -354,6 +345,7 @@ export function ParentList({
                   <Tag color={account.managedAccountEmail ? 'blue' : 'default'}>
                     {account.managedAccountEmail ? 'GAM' : '非 GAM'}
                   </Tag>
+                  <RunningProfileTag profile={accountProfileStatuses[account.id]} />
                   <WorkspaceOpeningStatusTags
                     hasCodexSpace={hasParentCodexSpace(account, managerStatus)}
                     hasTeamSubscription={hasTeamSubscription}
@@ -432,18 +424,6 @@ export function ParentList({
                         className="account-operation-actions"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <Button
-                          size="small"
-                          icon={<SwapOutlined />}
-                          disabled={!canRotateOperationIp(workspaceOperation.operation)}
-                          loading={isBusy(`rotate-operation-ip-${workspaceOperation.operation.id}`)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onRotateOperationIp(account, workspaceOperation.operation);
-                          }}
-                        >
-                          更换IP
-                        </Button>
                         <Popconfirm
                           title="终止当前开通任务？"
                           description="终止后会停止关联 profile，任务不会自动继续。"

@@ -26,6 +26,7 @@ describe('AccountManagerAssociationPanel', () => {
     expect(html).not.toContain('未开双席位');
     expect(html).toContain('启动 Profile');
     expect(html).toContain('关闭 Profile');
+    expect(html).toContain('住宅代理配置');
   });
 
   test('explains when a parent account is not associated with GAM', () => {

@@ -8,6 +8,7 @@ import {
   type SubaccountLocalProfileView,
   type SubaccountRegistrationJobView,
   type AccountManagerRuntimeStatus,
+  type AccountManagerProfileView,
   type SubaccountSummaryView,
   type SubaccountView
 } from '@team-manager/shared';
@@ -26,6 +27,7 @@ import { actionKey } from '../../components/actionBusy.js';
 import { registrationStatusNeedsPolling } from '../../components/registrationPolling.js';
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
+import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
 import {
   ALL_LOCAL_GROUP,
@@ -78,7 +80,7 @@ export function SubaccountRoutes({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { subaccountId } = useParams();
+  const { subaccountId, registrationJobId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchState = parseSubaccountSearchState(searchParams);
   const [inviteForm] = Form.useForm<TeamInviteValues>();
@@ -89,7 +91,9 @@ export function SubaccountRoutes({
   const [localProfile, setLocalProfile] = useState<SubaccountLocalProfileView | null>(null);
   const [localProfileLoading, setLocalProfileLoading] = useState(false);
   const [registrationJobs, setRegistrationJobs] = useState<SubaccountRegistrationJobView[]>([]);
+  const [registrationJobsLoaded, setRegistrationJobsLoaded] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<AccountManagerRuntimeStatus | null>(null);
+  const [accountProfileStatuses, setAccountProfileStatuses] = useState<Record<string, AccountManagerProfileView>>({});
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
@@ -98,8 +102,9 @@ export function SubaccountRoutes({
   const actionBusy = useActionBusy();
   const searchQuery = searchParams.get('q') ?? '';
   const matchingSubaccounts = useMemo(
-    () => subaccounts.filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery)),
-    [searchQuery, subaccounts]
+    () => sortSubaccountsForList(subaccounts, accountProfileStatuses)
+      .filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery)),
+    [accountProfileStatuses, searchQuery, subaccounts]
   );
   const groups = useMemo(() => countLocalGroups(subaccounts), [subaccounts]);
   const activeGroup = resolvePreferredLocalGroup(
@@ -112,9 +117,12 @@ export function SubaccountRoutes({
     [activeGroup, matchingSubaccounts]
   );
 
-  const selectedSummary = groupedSubaccounts.find((subaccount) => subaccount.id === subaccountId)
-    ?? groupedSubaccounts[0]
-    ?? null;
+  const selectedRegistrationJob = registrationJobs.find((job) => job.id === registrationJobId) ?? null;
+  const selectedSummary = registrationJobId
+    ? null
+    : groupedSubaccounts.find((subaccount) => subaccount.id === subaccountId)
+      ?? groupedSubaccounts[0]
+      ?? null;
   const selected = selectedSummary ? subaccountDetails[selectedSummary.id] ?? null : null;
   const deleteTarget =
     searchState.modal === 'delete-subaccount'
@@ -208,6 +216,7 @@ export function SubaccountRoutes({
       reportLocalError(error);
     } finally {
       setLoading(false);
+      setRegistrationJobsLoaded(true);
     }
   }, [reportLocalError]);
 
@@ -221,6 +230,18 @@ export function SubaccountRoutes({
         error: (error as Error).message
       });
     }
+  }, []);
+
+  const loadAccountProfileStatuses = useCallback(async () => {
+    try {
+      setAccountProfileStatuses(await apiClient.getSubaccountAccountProfiles());
+    } catch {
+      // Profile 标签是列表辅助信息，读取失败不阻塞子号工作台。
+    }
+  }, []);
+
+  const updateAccountProfileStatus = useCallback((id: string, profile: AccountManagerProfileView) => {
+    setAccountProfileStatuses((current) => ({ ...current, [id]: profile }));
   }, []);
 
   const loadLogs = useCallback(
@@ -239,7 +260,8 @@ export function SubaccountRoutes({
   useEffect(() => {
     void loadSubaccounts();
     void loadRuntimeStatus();
-  }, [loadRuntimeStatus, loadSubaccounts]);
+    void loadAccountProfileStatuses();
+  }, [loadAccountProfileStatuses, loadRuntimeStatus, loadSubaccounts]);
 
   const hasActiveRegistration = registrationJobs.some(
     (job) => registrationStatusNeedsPolling(job.status)
@@ -258,6 +280,7 @@ export function SubaccountRoutes({
         if (!cancelled) {
           setSubaccounts(sortSubaccountsForList(nextSubaccounts));
           setRegistrationJobs(nextJobs);
+          setRegistrationJobsLoaded(true);
         }
       } catch {
         // 后台任务保留在服务端，短暂轮询失败不会清空当前进度。
@@ -273,6 +296,31 @@ export function SubaccountRoutes({
   }, [hasActiveRegistration]);
 
   useEffect(() => {
+    const completed = registrationJobId
+      ? registrationJobs.find((job) => job.id === registrationJobId && job.subaccountId)
+      : undefined;
+    if (!completed?.subaccountId) return;
+    const next = clearModalState(searchParams);
+    next.set('tab', 'account-manager');
+    navigate({
+      pathname: `/subaccounts/${completed.subaccountId}`,
+      search: toSearch(next)
+    }, { replace: true });
+  }, [navigate, registrationJobId, registrationJobs, searchParams]);
+
+  useEffect(() => {
+    if (registrationJobId) {
+      if (!registrationJobsLoaded) return;
+      const nextParams = clearModalState(searchParams);
+      nextParams.set('tab', 'account-manager');
+      const nextPath = selectedRegistrationJob
+        ? `/subaccounts/registrations/${registrationJobId}`
+        : '/subaccounts';
+      if (location.pathname !== nextPath || nextParams.toString() !== searchParams.toString()) {
+        navigate({ pathname: nextPath, search: toSearch(nextParams) }, { replace: true });
+      }
+      return;
+    }
     if (loading || subaccounts.length === 0 || searchState.modal) return;
     rememberLocalGroupPreference(SUBACCOUNT_GROUP_PREFERENCE_KEY, activeGroup);
     const nextParams = new URLSearchParams(searchParams);
@@ -290,7 +338,20 @@ export function SubaccountRoutes({
     if (location.pathname !== nextPath || changed) {
       navigate({ pathname: nextPath, search: toSearch(nextParams) }, { replace: true });
     }
-  }, [activeGroup, loading, location.pathname, navigate, searchParams, searchState.modal, searchState.tab, selectedSummary, subaccounts.length]);
+  }, [
+    activeGroup,
+    loading,
+    location.pathname,
+    navigate,
+    registrationJobId,
+    registrationJobsLoaded,
+    searchParams,
+    searchState.modal,
+    searchState.tab,
+    selectedRegistrationJob,
+    selectedSummary,
+    subaccounts.length
+  ]);
 
   useEffect(() => {
     setQuota(null);
@@ -326,6 +387,15 @@ export function SubaccountRoutes({
 
   const selectSubaccount = (subaccount: SubaccountSummaryView) => {
     navigate({ pathname: `/subaccounts/${subaccount.id}`, search: toSearch(searchParams) });
+  };
+
+  const selectRegistrationJob = (job: SubaccountRegistrationJobView) => {
+    const next = clearModalState(searchParams);
+    next.set('tab', 'account-manager');
+    navigate({
+      pathname: `/subaccounts/registrations/${job.id}`,
+      search: toSearch(next)
+    });
   };
 
   const changeTab = (tab: SubaccountTab) => {
@@ -384,6 +454,12 @@ export function SubaccountRoutes({
         setRegistrationJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
         closeModal();
         void loadRuntimeStatus();
+        const next = clearModalState(searchParams);
+        next.set('tab', 'account-manager');
+        navigate({
+          pathname: `/subaccounts/registrations/${job.id}`,
+          search: toSearch(next)
+        });
       });
     } catch (error) {
       reportLocalError(error);
@@ -397,19 +473,6 @@ export function SubaccountRoutes({
       await actionBusy.run(key, async () => {
         const retried = await apiClient.retrySubaccountRegistration(job.id);
         setRegistrationJobs((current) => current.map((item) => (item.id === retried.id ? retried : item)));
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
-  const rotateRegistrationIp = async (job: SubaccountRegistrationJobView) => {
-    const key = `rotate-registration-ip-${job.id}`;
-    setLocalError('');
-    try {
-      await actionBusy.run(key, async () => {
-        const rotated = await apiClient.rotateSubaccountRegistrationIp(job.id);
-        setRegistrationJobs((current) => current.map((item) => (item.id === rotated.id ? rotated : item)));
       });
     } catch (error) {
       reportLocalError(error);
@@ -565,10 +628,12 @@ export function SubaccountRoutes({
       <SubaccountList
         subaccounts={subaccounts}
         registrationJobs={registrationJobs}
+        accountProfileStatuses={accountProfileStatuses}
         groups={groups}
         activeGroup={activeGroup}
         searchQuery={searchQuery}
         selectedId={selectedSummary?.id ?? ''}
+        selectedRegistrationId={registrationJobId}
         runtimeStatus={runtimeStatus}
         isBusy={actionBusy.isBusy}
         onSelect={selectSubaccount}
@@ -577,7 +642,7 @@ export function SubaccountRoutes({
         onOpenImportSession={() => openModal('import-session')}
         onOpenRegister={() => openModal('register-subaccount')}
         onRetryRegistration={(job) => void retryRegistration(job)}
-        onRotateRegistrationIp={(job) => void rotateRegistrationIp(job)}
+        onSelectRegistration={selectRegistrationJob}
         onOpenEdit={(subaccount) => {
           openSubaccountRecordModal(subaccount, 'edit-subaccount-profile');
         }}
@@ -588,27 +653,43 @@ export function SubaccountRoutes({
 
       <Space direction="vertical" size={12} className="content-pane">
         {localError && <Alert type="error" showIcon message={localError} />}
-        <SubaccountDetail
-          subaccount={selected}
-          accounts={accounts}
-          loading={Boolean(selectedSummary) && !selected && detailLoadingId === selectedSummary?.id}
-          activeTab={searchState.tab}
-          logs={logs}
-          logsLoaded={logsLoaded}
-          busyState={actionBusy.busyState}
-          quota={quota}
-          syncing={actionBusy.isBusy('subaccount-refresh')}
-          onTabChange={changeTab}
-          onSubaccountChanged={mergeSubaccount}
-          onOpenEdit={() => selectedSummary && openModal('edit-subaccount-profile', selectedSummary.id)}
-          onOpenDelete={() => selectedSummary && openModal('delete-subaccount', selectedSummary.id)}
-          onSync={() => void syncSubaccount()}
-          onOpenInvite={() => openModal('invite-to-team', selectedSummary?.id ?? '')}
-          onCreatePat={(workspaceId) => void createPersonalAccessToken(workspaceId)}
-          onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
-          onExportPat={(workspaceId) => void exportCredential(workspaceId)}
-          onOpenDeletePat={(workspaceId) => openModal('delete-pat-credential', workspaceId)}
-        />
+        {selectedRegistrationJob ? (
+          <PendingRegistrationAccountManagerDetail
+            recordLabel="子号"
+            operationId={selectedRegistrationJob.id}
+            email={selectedRegistrationJob.email}
+            message={selectedRegistrationJob.message}
+            progress={selectedRegistrationJob.progress}
+            failed={selectedRegistrationJob.status === 'failed'
+              || selectedRegistrationJob.status === 'interrupted'}
+            waitingManual={selectedRegistrationJob.status === 'waiting_manual'}
+          />
+        ) : (
+          <SubaccountDetail
+            subaccount={selected}
+            accounts={accounts}
+            loading={Boolean(selectedSummary) && !selected && detailLoadingId === selectedSummary?.id}
+            activeTab={searchState.tab}
+            logs={logs}
+            logsLoaded={logsLoaded}
+            busyState={actionBusy.busyState}
+            quota={quota}
+            syncing={actionBusy.isBusy('subaccount-refresh')}
+            onTabChange={changeTab}
+            onSubaccountChanged={mergeSubaccount}
+            onAccountProfileChanged={(profile) => {
+              if (selectedSummary) updateAccountProfileStatus(selectedSummary.id, profile);
+            }}
+            onOpenEdit={() => selectedSummary && openModal('edit-subaccount-profile', selectedSummary.id)}
+            onOpenDelete={() => selectedSummary && openModal('delete-subaccount', selectedSummary.id)}
+            onSync={() => void syncSubaccount()}
+            onOpenInvite={() => openModal('invite-to-team', selectedSummary?.id ?? '')}
+            onCreatePat={(workspaceId) => void createPersonalAccessToken(workspaceId)}
+            onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
+            onExportPat={(workspaceId) => void exportCredential(workspaceId)}
+            onOpenDeletePat={(workspaceId) => openModal('delete-pat-credential', workspaceId)}
+          />
+        )}
       </Space>
 
       <LocalProfileModal

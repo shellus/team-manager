@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AccountLimitType,
   AccountLocalProfileView,
+  AccountManagerProfileView,
   AccountManagerRuntimeStatus,
   AccountSeatSlotProfileInput,
   AccountSummaryView,
@@ -30,6 +31,8 @@ import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { OpenCodexSpaceModal } from '../../components/OpenCodexSpaceModal.js';
 import { OpenTeamSubscriptionModal } from '../../components/OpenTeamSubscriptionModal.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
+import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
+import { compareRunningProfileFirst } from '../../components/AccountProfileListStatus.js';
 import { parentRegistrationStageNeedsPolling } from '../../components/registrationPolling.js';
 import {
   readLocalGroupPreference,
@@ -180,7 +183,7 @@ export function ParentRoutes({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { accountId } = useParams();
+  const { accountId, registrationOperationId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchState = parseParentSearchState(searchParams);
   const [inviteForm] = Form.useForm<InviteValues>();
@@ -190,8 +193,10 @@ export function ParentRoutes({
   const [localProfile, setLocalProfile] = useState<AccountLocalProfileView | null>(null);
   const [localProfileLoading, setLocalProfileLoading] = useState(false);
   const [registrationTasks, setRegistrationTasks] = useState<ParentRegistrationTaskView[]>([]);
+  const [registrationTasksLoaded, setRegistrationTasksLoaded] = useState(false);
   const [runtimeStatus, setRuntimeStatus] = useState<AccountManagerRuntimeStatus | null>(null);
   const [accountManagerStatuses, setAccountManagerStatuses] = useState<Record<string, ParentAccountManagerStatus>>({});
+  const [accountProfileStatuses, setAccountProfileStatuses] = useState<Record<string, AccountManagerProfileView>>({});
   const [accountManagerLoading, setAccountManagerLoading] = useState(false);
   const [accountManagerStatusError, setAccountManagerStatusError] = useState('');
   const [maintainedAccountIds, setMaintainedAccountIds] = useState<Set<string>>(new Set());
@@ -203,7 +208,15 @@ export function ParentRoutes({
       : readParentQuickFilterPreference(),
     [searchParams]
   );
-  const sortedAccounts = useMemo(() => [...accounts].sort(compareRecordSortName), [accounts]);
+  const sortedAccounts = useMemo(
+    () => [...accounts].sort((left, right) => compareRunningProfileFirst(
+      left,
+      right,
+      accountProfileStatuses,
+      compareRecordSortName
+    )),
+    [accountProfileStatuses, accounts]
+  );
   const filteredAccounts = useMemo(
     () => sortedAccounts.filter((account) => (
       accountMatchesQuery(account, searchQuery)
@@ -252,7 +265,12 @@ export function ParentRoutes({
     () => filterParentsByGroup(filteredAccounts, activeGroup),
     [filteredAccounts, activeGroup]
   );
-  const selectedSummary = visibleAccounts.find((account) => account.id === accountId) ?? visibleAccounts[0] ?? null;
+  const selectedRegistrationTask = registrationTasks.find(
+    (task) => task.registration.id === registrationOperationId
+  ) ?? null;
+  const selectedSummary = registrationOperationId
+    ? null
+    : visibleAccounts.find((account) => account.id === accountId) ?? visibleAccounts[0] ?? null;
   const selected = selectedSummary ? accountDetails[selectedSummary.id] ?? null : null;
   const accountManagerStatus = selectedSummary ? accountManagerStatuses[selectedSummary.id] ?? null : null;
 
@@ -316,11 +334,24 @@ export function ParentRoutes({
         if (task.parent) onAccountSummaryChanged(task.parent);
       }
       setRegistrationTasks(tasks.filter((task) => task.stage !== 'completed'));
+      const completedSelection = registrationOperationId
+        ? tasks.find((task) => task.registration.id === registrationOperationId && task.parent)
+        : undefined;
+      if (completedSelection?.parent) {
+        const next = clearModalState(searchParams);
+        next.set('tab', 'account-manager');
+        navigate({
+          pathname: `/parents/${completedSelection.parent.id}`,
+          search: toSearch(next)
+        }, { replace: true });
+      }
     } catch (error) {
       setLocalError((error as Error).message);
       onError(error);
+    } finally {
+      setRegistrationTasksLoaded(true);
     }
-  }, [onAccountSummaryChanged, onError]);
+  }, [navigate, onAccountSummaryChanged, onError, registrationOperationId, searchParams]);
 
   const loadRuntimeStatus = useCallback(async () => {
     try {
@@ -354,6 +385,18 @@ export function ParentRoutes({
     }
   }, [onAccountSummaryChanged]);
 
+  const loadAccountProfileStatuses = useCallback(async () => {
+    try {
+      setAccountProfileStatuses(await apiClient.getParentAccountProfiles());
+    } catch {
+      // Profile 标签是列表辅助信息，读取失败不阻塞母号工作台。
+    }
+  }, []);
+
+  const updateAccountProfileStatus = useCallback((id: string, profile: AccountManagerProfileView) => {
+    setAccountProfileStatuses((current) => ({ ...current, [id]: profile }));
+  }, []);
+
   const updateAccountManagerStatus = useCallback((id: string, status: ParentAccountManagerStatus) => {
     for (const imported of status.importedAccounts ?? []) {
       onAccountSummaryChanged(imported);
@@ -372,6 +415,18 @@ export function ParentRoutes({
   }, [quickFilters]);
 
   useEffect(() => {
+    if (registrationOperationId) {
+      if (!registrationTasksLoaded) return;
+      const nextParams = clearModalState(searchParams);
+      nextParams.set('tab', 'account-manager');
+      const nextPath = selectedRegistrationTask
+        ? `/parents/registrations/${registrationOperationId}`
+        : '/parents';
+      if (location.pathname !== nextPath || nextParams.toString() !== searchParams.toString()) {
+        navigate({ pathname: nextPath, search: toSearch(nextParams) }, { replace: true });
+      }
+      return;
+    }
     if (loading || accounts.length === 0) return;
     rememberLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY, activeGroup);
     const nextParams = clearStaleParentDeleteState(
@@ -418,11 +473,14 @@ export function ParentRoutes({
     location.pathname,
     navigate,
     quickFilters,
+    registrationOperationId,
+    registrationTasksLoaded,
     searchParams,
     searchState.group,
     searchState.modal,
     searchState.tab,
     searchState.target,
+    selectedRegistrationTask,
     selectedSummary
   ]);
 
@@ -439,8 +497,8 @@ export function ParentRoutes({
 
   useEffect(() => {
     if (loading || accounts.length === 0) return;
-    void loadAccountManagerStatuses();
-  }, [accountIdsKey, accounts.length, loadAccountManagerStatuses, loading]);
+    void Promise.all([loadAccountManagerStatuses(), loadAccountProfileStatuses()]);
+  }, [accountIdsKey, accounts.length, loadAccountManagerStatuses, loadAccountProfileStatuses, loading]);
 
   const hasActiveRegistrationTask = registrationTasks.some((task) =>
     parentRegistrationStageNeedsPolling(task.stage)
@@ -511,12 +569,18 @@ export function ParentRoutes({
     setLocalError('');
     try {
       await actionBusy.run('register-parent', async () => {
-        await apiClient.registerParentAccount({
+        const operation = await apiClient.registerParentAccount({
           groupName: activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup
         });
         closeModal();
         await loadRegistrationTasks();
         await loadRuntimeStatus();
+        const next = clearModalState(searchParams);
+        next.set('tab', 'account-manager');
+        navigate({
+          pathname: `/parents/registrations/${operation.id}`,
+          search: toSearch(next)
+        });
       });
     } catch (error) {
       reportLocalError(error);
@@ -532,21 +596,6 @@ export function ParentRoutes({
           await apiClient.retryParentRegistration(task.registration.id);
         }
         await loadRegistrationTasks();
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
-  const rotateParentRegistrationIp = async (task: ParentRegistrationTaskView) => {
-    const key = `rotate-parent-registration-ip-${task.registration.id}`;
-    setLocalError('');
-    try {
-      await actionBusy.run(key, async () => {
-        const rotated = await apiClient.rotateParentRegistrationIp(task.registration.id);
-        setRegistrationTasks((current) => current.map((item) => (
-          item.registration.id === rotated.registration.id ? rotated : item
-        )));
       });
     } catch (error) {
       reportLocalError(error);
@@ -583,23 +632,6 @@ export function ParentRoutes({
         await apiClient.openParentTeamSubscription(target, payload);
         await loadAccountManagerStatuses();
         closeModal();
-      });
-    } catch (error) {
-      reportLocalError(error);
-    }
-  };
-
-  const rotateOperationIp = async (
-    account: AccountSummaryView,
-    operation: ParentAccountManagerStatus['codexOperation']
-  ) => {
-    if (!operation) return;
-    const key = `rotate-operation-ip-${operation.id}`;
-    setLocalError('');
-    try {
-      await actionBusy.run(key, async () => {
-        await apiClient.rotateParentOperationIp(account.id, operation.id);
-        await loadAccountManagerStatuses();
       });
     } catch (error) {
       reportLocalError(error);
@@ -744,6 +776,15 @@ export function ParentRoutes({
     navigate({ pathname: `/parents/${account.id}`, search: toSearch(next) });
   };
 
+  const selectRegistrationTask = (task: ParentRegistrationTaskView) => {
+    const next = clearModalState(searchParams);
+    next.set('tab', 'account-manager');
+    navigate({
+      pathname: `/parents/registrations/${task.registration.id}`,
+      search: toSearch(next)
+    });
+  };
+
   const openDeleteParent = (account: AccountSummaryView) => {
     setLocalError('');
     navigate(buildParentDeleteLocation(searchParams, account, activeGroup, searchState.tab));
@@ -782,11 +823,13 @@ export function ParentRoutes({
         activeGroup={activeGroup}
         accounts={visibleAccounts}
         accountManagerStatuses={accountManagerStatuses}
+        accountProfileStatuses={accountProfileStatuses}
         registrationTasks={registrationTasks}
         maintainedAccountIds={maintainedAccountIds}
         searchQuery={searchQuery}
         quickFilters={quickFilters}
         selectedId={selectedSummary?.id ?? ''}
+        selectedRegistrationId={registrationOperationId}
         syncingIds={syncingIds}
         runtimeStatus={runtimeStatus}
         isBusy={actionBusy.isBusy}
@@ -796,11 +839,10 @@ export function ParentRoutes({
         onOpenRegister={() => openModal('register-parent')}
         onOpenImport={() => openModal('import-parent')}
         onRetryRegistration={(task) => void retryParentRegistration(task)}
-        onRotateRegistrationIp={(task) => void rotateParentRegistrationIp(task)}
-        onRotateOperationIp={(account, operation) => void rotateOperationIp(account, operation)}
         onTerminateOperation={(account, operation) => void terminateOperation(account, operation)}
         onDismissOperation={(account, operation) => void dismissOperation(account, operation)}
         onSelect={selectAccount}
+        onSelectRegistration={selectRegistrationTask}
         onRefreshAccount={(account) => void refreshAccount(account)}
         onOpenDelete={openDeleteParent}
       />
@@ -809,24 +851,40 @@ export function ParentRoutes({
         {(globalError || localError || accountManagerStatusError) && (
           <Alert type="error" showIcon message={localError || globalError || accountManagerStatusError} />
         )}
-        <ParentDetail
-          account={selected}
-          activeTab={searchState.tab}
-          loading={Boolean(selectedSummary) && !selected && detailLoadingId === selectedSummary?.id}
-          syncing={selectedSummary ? syncingIds.has(selectedSummary.id) : false}
-          accountManagerStatus={accountManagerStatus}
-          accountManagerLoading={accountManagerLoading}
-          onTabChange={changeTab}
-          onSync={() => selectedSummary && void refreshAccount(selectedSummary)}
-          onOpenInvite={() => openModal('invite-member', selectedSummary?.id ?? '')}
-          onOpenCodexSpace={() => selectedSummary && openCodexModal(selectedSummary.id)}
-          onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
-          onOpenLocalProfile={() => selectedSummary && openModal('edit-parent-profile', selectedSummary.id)}
-          onAccountChanged={mergeAccountView}
-          onAccountManagerStatusChanged={(status) => {
-            if (selectedSummary) updateAccountManagerStatus(selectedSummary.id, status);
-          }}
-        />
+        {selectedRegistrationTask ? (
+          <PendingRegistrationAccountManagerDetail
+            recordLabel="母号"
+            operationId={selectedRegistrationTask.registration.id}
+            email={selectedRegistrationTask.email}
+            message={selectedRegistrationTask.registration.message || selectedRegistrationTask.registration.phase}
+            progress={selectedRegistrationTask.registration.progress}
+            failed={selectedRegistrationTask.stage === 'registration_failed'
+              || selectedRegistrationTask.stage === 'import_failed'}
+            waitingManual={selectedRegistrationTask.stage === 'waiting_manual'}
+          />
+        ) : (
+          <ParentDetail
+            account={selected}
+            activeTab={searchState.tab}
+            loading={Boolean(selectedSummary) && !selected && detailLoadingId === selectedSummary?.id}
+            syncing={selectedSummary ? syncingIds.has(selectedSummary.id) : false}
+            accountManagerStatus={accountManagerStatus}
+            accountManagerLoading={accountManagerLoading}
+            onTabChange={changeTab}
+            onSync={() => selectedSummary && void refreshAccount(selectedSummary)}
+            onOpenInvite={() => openModal('invite-member', selectedSummary?.id ?? '')}
+            onOpenCodexSpace={() => selectedSummary && openCodexModal(selectedSummary.id)}
+            onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
+            onOpenLocalProfile={() => selectedSummary && openModal('edit-parent-profile', selectedSummary.id)}
+            onAccountChanged={mergeAccountView}
+            onAccountManagerStatusChanged={(status) => {
+              if (selectedSummary) updateAccountManagerStatus(selectedSummary.id, status);
+            }}
+            onAccountProfileChanged={(profile) => {
+              if (selectedSummary) updateAccountProfileStatus(selectedSummary.id, profile);
+            }}
+          />
+        )}
       </Space>
 
       <LocalProfileModal

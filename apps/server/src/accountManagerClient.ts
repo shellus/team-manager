@@ -5,6 +5,7 @@ import type {
   ChatGptSessionInput,
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
+  ResidentialProxyConfig,
   SubaccountRegistrationJobStatus,
   SubaccountRegistrationJobView
 } from '@team-manager/shared';
@@ -83,13 +84,18 @@ export interface AccountManagerGateway {
   startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView>;
   retryRegistration(id: string): Promise<SubaccountRegistrationJobView>;
   rotateOperationIp(id: string): Promise<AccountManagerOperationView>;
+  operationProxyConfig(id: string): Promise<ResidentialProxyConfig>;
+  configureOperationProxy(id: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   terminateOperation(id: string): Promise<AccountManagerOperationView>;
   removeOperation(id: string): Promise<boolean>;
   account(accountId: string): Promise<ManagedAccountSummary>;
   syncAccount(accountId: string): Promise<ManagedAccountSummary>;
+  listAccountProfiles?(): Promise<Record<string, AccountManagerProfileView>>;
   accountProfile(accountId: string): Promise<AccountManagerProfileView>;
   startAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
   stopAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
+  accountProxyConfig(accountId: string): Promise<ResidentialProxyConfig>;
+  configureAccountProxy(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   session(accountId: string): Promise<ChatGptSessionInput>;
   openCodexSpace(
     accountId: string,
@@ -179,6 +185,17 @@ export class AccountManagerClient implements AccountManagerGateway {
     ));
   }
 
+  operationProxyConfig(id: string): Promise<ResidentialProxyConfig> {
+    return this.request('GET', `/v1/operations/${encodeURIComponent(id)}/proxy`);
+  }
+
+  configureOperationProxy(
+    id: string,
+    input: ResidentialProxyConfig
+  ): Promise<ResidentialProxyConfig> {
+    return this.request('PUT', `/v1/operations/${encodeURIComponent(id)}/proxy`, input);
+  }
+
   async terminateOperation(id: string): Promise<AccountManagerOperationView> {
     return toOperation(await this.request(
       'POST',
@@ -199,6 +216,10 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
   }
 
+  listAccountProfiles(): Promise<Record<string, AccountManagerProfileView>> {
+    return this.request('GET', '/v1/accounts/profiles');
+  }
+
   accountProfile(accountId: string): Promise<AccountManagerProfileView> {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/profile`);
   }
@@ -209,6 +230,17 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
     return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/profile/stop`, {});
+  }
+
+  accountProxyConfig(accountId: string): Promise<ResidentialProxyConfig> {
+    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`);
+  }
+
+  configureAccountProxy(
+    accountId: string,
+    input: ResidentialProxyConfig
+  ): Promise<ResidentialProxyConfig> {
+    return this.request('PUT', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`, input);
   }
 
   session(accountId: string): Promise<ChatGptSessionInput> {

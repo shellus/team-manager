@@ -9,6 +9,7 @@ import type {
   AccountView,
   OpenCodexSpaceRequest,
   OpenTeamSubscriptionRequest,
+  ResidentialProxyConfig,
   SubaccountRegistrationJobView
 } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
@@ -35,6 +36,7 @@ class FakeAccountManager implements AccountManagerGateway {
   listAccountOperationsCalls = 0;
   profileControls: string[] = [];
   profiles = new Map<string, AccountManagerProfileView>();
+  proxyConfigs = new Map<string, ResidentialProxyConfig>();
 
   async health() { return { status: 'ok', accountRegistrationConfigured: true }; }
 
@@ -145,6 +147,19 @@ class FakeAccountManager implements AccountManagerGateway {
     return operation;
   }
 
+  async operationProxyConfig(id: string) {
+    await this.operation(id);
+    return this.proxyConfigs.get(id) ?? {
+      sid: 'initial-sid', country: 'US', asn: null, state: null, city: null
+    };
+  }
+
+  async configureOperationProxy(id: string, input: ResidentialProxyConfig) {
+    await this.operation(id);
+    this.proxyConfigs.set(id, input);
+    return input;
+  }
+
   async terminateOperation(id: string) {
     const operation = await this.operation(id);
     this.controls.push(`terminate:${id}`);
@@ -176,6 +191,17 @@ class FakeAccountManager implements AccountManagerGateway {
     return this.profiles.get(accountId) ?? { accountId, status: 'stopped', updatedAt: 1 };
   }
 
+  async listAccountProfiles(): Promise<Record<string, AccountManagerProfileView>> {
+    const accountIds = new Set([...this.accounts.keys(), ...this.profiles.keys()]);
+    return Object.fromEntries(
+      [...accountIds].map((accountId) => [accountId, this.profiles.get(accountId) ?? {
+        accountId,
+        status: 'stopped' as const,
+        updatedAt: 1
+      }])
+    );
+  }
+
   async startAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
     this.profileControls.push(`start:${accountId}`);
     const profile = {
@@ -190,6 +216,17 @@ class FakeAccountManager implements AccountManagerGateway {
     const profile = { accountId, status: 'stopped' as const, updatedAt: 3 };
     this.profiles.set(accountId, profile);
     return profile;
+  }
+
+  async accountProxyConfig(accountId: string) {
+    return this.proxyConfigs.get(accountId) ?? {
+      sid: 'initial-sid', country: 'US', asn: null, state: null, city: null
+    };
+  }
+
+  async configureAccountProxy(accountId: string, input: ResidentialProxyConfig) {
+    this.proxyConfigs.set(accountId, input);
+    return input;
   }
 
   async session(accountId: string) {
@@ -513,7 +550,16 @@ describe('ParentAccountManagerService', () => {
 
       assert.equal((await service.accountProfile(parent.id)).status, 'stopped');
       assert.equal((await service.startAccountProfile(parent.id)).profileId, 'runtime-profile');
+      assert.equal((await service.accountProfiles())[parent.id]?.status, 'running');
       assert.equal((await service.stopAccountProfile(parent.id)).status, 'stopped');
+      assert.deepEqual(await service.accountProxyConfig(parent.id), {
+        sid: 'initial-sid', country: 'US', asn: null, state: null, city: null
+      });
+      assert.deepEqual(await service.configureAccountProxy(parent.id, {
+        sid: 'custom-sid', country: 'SG', asn: 'AS64512', state: null, city: null
+      }), {
+        sid: 'custom-sid', country: 'SG', asn: 'AS64512', state: null, city: null
+      });
       assert.deepEqual(accountManager.profileControls, [
         'start:owner@example.com',
         'stop:owner@example.com'
@@ -941,6 +987,30 @@ describe('ParentAccountManagerService', () => {
       assert.equal(rotated.registration.phase, 'proxy_rotation_requested');
       assert.equal(rotated.stage, 'waiting_manual');
       assert.deepEqual(accountManager.controls, ['rotate:parent-registration-control']);
+    });
+  });
+
+  it('configures a parent registration proxy without restricting its phase', async () => {
+    await withService(async (service, accountManager) => {
+      accountManager.operations.push({
+        id: 'parent-registration-running',
+        type: 'register',
+        status: 'running',
+        phase: 'create_account',
+        progress: 82,
+        requestSummary: { requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent },
+        createdAt: 1,
+        updatedAt: 1
+      });
+
+      const configured = await service.configureRegistrationProxy('parent-registration-running', {
+        sid: 'running-sid', country: 'CA', asn: null, state: 'Ontario', city: 'Toronto'
+      });
+
+      assert.deepEqual(configured, {
+        sid: 'running-sid', country: 'CA', asn: null, state: 'Ontario', city: 'Toronto'
+      });
+      assert.deepEqual(await service.registrationProxyConfig('parent-registration-running'), configured);
     });
   });
 });

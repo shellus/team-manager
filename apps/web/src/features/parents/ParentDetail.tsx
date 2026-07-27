@@ -1,4 +1,8 @@
-import type { AccountView, ParentAccountManagerStatus } from '@team-manager/shared';
+import type {
+  AccountManagerProfileView,
+  AccountView,
+  ParentAccountManagerStatus
+} from '@team-manager/shared';
 import { Alert, Button, Card, Empty, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import {
   CreditCardOutlined,
@@ -33,7 +37,8 @@ export function ParentDetail({
   onOpenTeamSubscription,
   onOpenLocalProfile,
   onAccountChanged,
-  onAccountManagerStatusChanged
+  onAccountManagerStatusChanged,
+  onAccountProfileChanged
 }: {
   account: AccountView | null;
   loading: boolean;
@@ -49,6 +54,7 @@ export function ParentDetail({
   onOpenLocalProfile: () => void;
   onAccountChanged: (account: AccountView) => void;
   onAccountManagerStatusChanged?: (status: ParentAccountManagerStatus) => void;
+  onAccountProfileChanged?: (profile: AccountManagerProfileView) => void;
 }) {
   if (loading) return <Card className="detail-pane" loading />;
 
@@ -253,6 +259,7 @@ export function ParentDetail({
                 status={effectiveAccountManagerStatus}
                 loading={accountManagerLoading}
                 onStatusChanged={onAccountManagerStatusChanged}
+                onProfileChanged={onAccountProfileChanged}
               />
             )
           },
@@ -288,6 +295,7 @@ export function ParentDetail({
               status={effectiveAccountManagerStatus}
               loading={accountManagerLoading}
               onStatusChanged={onAccountManagerStatusChanged}
+              onProfileChanged={onAccountProfileChanged}
             />
           )
         }]}
