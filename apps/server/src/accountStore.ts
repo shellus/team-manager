@@ -8,6 +8,7 @@ import {
   type AccountSeatSlot,
   type AccountSeatSlotStatus,
   type Member,
+  type MemberRemovalRecord,
   type SeatSlotSwapState,
   type SeatSlotSwapStep,
   type SeatSlotSwapStepKey
@@ -76,7 +77,7 @@ function normalizeMembersCache(input: Account['membersCache']): Account['members
     });
   }
 
-  return members.length ? members : undefined;
+  return members;
 }
 
 function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] | undefined {
@@ -208,11 +209,60 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function normalizeMemberRemovalRecord(input: Account['lastMemberRemoval']): MemberRemovalRecord | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const raw = input as unknown as Record<string, unknown>;
+  const userId = readTrimmedString(raw.userId);
+  const removedAt = readNumber(raw.removedAt);
+  if (!userId || removedAt === undefined) return undefined;
+
+  const email = normalizeEmail(raw.email);
+  const seat = raw.seat === 'default' || raw.seat === 'usage_based' ? raw.seat : undefined;
+  const billingNoticeJson = readTrimmedString(raw.billingNoticeJson);
+  const rawPolicy = raw.policyNotice;
+  let policyNotice: MemberRemovalRecord['policyNotice'];
+  if (rawPolicy && typeof rawPolicy === 'object' && !Array.isArray(rawPolicy)) {
+    const policy = rawPolicy as Record<string, unknown>;
+    const rawJson = readTrimmedString(policy.rawJson);
+    if (rawJson) {
+      const kind = readTrimmedString(policy.kind);
+      const expiresAt = readTrimmedString(policy.expiresAt);
+      const billingStartsAt = readTrimmedString(policy.billingStartsAt);
+      const billedSeatDelta = readNumber(policy.billedSeatDelta);
+      const vacancyOrdinal = readNumber(policy.vacancyOrdinal);
+      const freeVacancyThreshold = readNumber(policy.freeVacancyThreshold);
+      policyNotice = {
+        ...(kind ? { kind } : {}),
+        ...(billedSeatDelta !== undefined ? { billedSeatDelta } : {}),
+        ...(vacancyOrdinal !== undefined ? { vacancyOrdinal } : {}),
+        ...(freeVacancyThreshold !== undefined ? { freeVacancyThreshold } : {}),
+        ...(expiresAt ? { expiresAt } : {}),
+        ...(billingStartsAt ? { billingStartsAt } : {}),
+        ...(typeof policy.replacementRequired === 'boolean'
+          ? { replacementRequired: policy.replacementRequired }
+          : {}),
+        rawJson
+      };
+    }
+  }
+
+  return {
+    userId,
+    ...(email ? { email } : {}),
+    ...(seat ? { seat } : {}),
+    removedAt,
+    ...(typeof raw.upstreamSuccess === 'boolean' ? { upstreamSuccess: raw.upstreamSuccess } : {}),
+    ...(billingNoticeJson ? { billingNoticeJson } : {}),
+    ...(policyNotice ? { policyNotice } : {})
+  };
+}
+
 function sanitizeAccount(input: StoredAccount): { account: Account; changed: boolean } {
   const email = readTrimmedString(input.email);
   const remark = readTrimmedString(input.remark);
   const membersCache = normalizeMembersCache(input.membersCache);
   const pendingInvitesCache = input.pendingInvitesCache;
+  const lastMemberRemoval = normalizeMemberRemovalRecord(input.lastMemberRemoval);
   const seatSlots = normalizeSeatSlots(input.seatSlots);
   const normalized: Account = {
     id: input.id,
@@ -255,6 +305,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     automaticReloadCachedAt: input.automaticReloadCachedAt,
     pendingInvitesCache,
     pendingInvitesCachedAt: input.pendingInvitesCachedAt,
+    ...(lastMemberRemoval ? { lastMemberRemoval } : {}),
     seatSlots,
     lastRefreshAt: input.lastRefreshAt,
     ...(readTrimmedString(input.lastError) ? { lastError: readTrimmedString(input.lastError) } : {})

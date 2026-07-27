@@ -38,6 +38,7 @@
 | `hasTeamSubscription` | Workspace 同步或账单刷新 | 当前 Workspace 是否存在有效双席位 Team 月付订阅的缓存；有效 recurring upcoming invoice 为主信号，`planType="team"` 为兼容信号 |
 | `membersCache` / `membersCachedAt` | 成员刷新或成员写操作 | 成员列表本地缓存 |
 | `pendingInvitesCache` / `pendingInvitesCachedAt` | 邀请刷新或邀请写操作 | pending invite 本地缓存 |
+| `lastMemberRemoval` | 成员移除响应 | 最近一次成功移除的成员、席位和时间，以及完整 `billing_notice` / `policy_notice` JSON 与已知字段摘要 |
 | `defaultSeat` / `defaultSeatCachedAt` | settings 刷新或默认席位写操作 | 新成员默认席位缓存 |
 | `workspaceReferralsEnabled` / `workspaceReferralsEnabledCachedAt` | settings 刷新或 Codex 邀请开关写操作 | “允许成员发送 Codex 邀请”缓存 |
 | `workspaceReferralsEnabledVisible` | settings 刷新或 Codex 邀请开关写操作 | 远端是否展示该设置 |
@@ -78,14 +79,14 @@
 
 成员和邀请缓存只是可分别刷新的远端关系快照，不拥有客户席位资料。刷新任一列表时，如果能按规范化邮箱匹配关系，则更新 slot 的 `status`、远端 id 和 `seat`；邀请被接受后，同一 slot 从 `invited` 迁移为 `member`。如果当前可用快照暂时都找不到该邮箱，则保留完整 slot，将关系状态标记为 `unknown` 并清除已失效的远端 id，不得据此删除备注、到期时间、价格、换号历史或 `seatKey`。母号重新校准到不同 Workspace 时同样只清空远端关系缓存并把已有 slot 标记为 `unknown`，不得静默删除客户资料。只有显式删除客户席位资料的业务操作才可删除 slot。
 
-免登录换号使用 `seatKey` 定位客户席位位置。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终刷新步骤会更新同一条记录。`lastSwap` 保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号记录。store 会确保 `lastSwap` 同步存在于 `swapHistory`。
+免登录换号使用 `seatKey` 定位客户席位位置。已接受的 `default` 标准 ChatGPT 成员不得由公开入口自动移除；后端在任何 DELETE 前拒绝，前端同步禁用。空位、待处理邀请和 `usage_based` Codex 成员仍可换号。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终状态写入步骤会更新同一条记录。`lastSwap` 保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号记录。store 会确保 `lastSwap` 同步存在于 `swapHistory`。
 
 ### Derived values
 
 以下信息不得作为独立字段持久化：
 
 - 成员数：从 `membersCache.length` 派生。
-- ChatGPT 席位数：从 `membersCache[].seat === "default"` 派生。
+- 当前 ChatGPT 成员数：从 `membersCache[].seat === "default"` 派生。该值不是 Billing 计费席位数，不能包含已移除后仍临时计费的席位。
 - pending invite 数：从 `pendingInvitesCache.length` 派生。
 - 列表 item 上的成员/邀请数、ChatGPT 席位数、席位标签、状态标签和分组计数：生成 `AccountSummaryView` 时从 canonical cache 派生。
 
@@ -110,10 +111,11 @@
 |---|---|---|
 | 邀请成员 | 只等待远端邀请提交；成功后按请求内容本地 upsert `pendingInvitesCache`，不再阻塞等待远端邀请列表 | 合并返回的母号 view |
 | 编辑席位资料 | 按当前邮箱更新或创建对应 `seatSlots[]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
-| 免登录席位换号 | 按 `seatKey` 定位客户席位，刷新母号成员/邀请后只移除或撤销该 slot 当前邮箱，再按该 slot 最近一次确认的 `seat` 邀请新邮箱，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页重新读取返回的 slot view |
-| 撤销邀请 | 远端撤销成功后刷新 `pendingInvitesCache`，返回 `AccountView` | 合并返回的母号 view |
-| 移除成员 | 远端移除成功后刷新 `membersCache`，返回 `AccountView` | 合并返回的母号 view |
-| 改成员席位 | 远端修改成功后刷新 `membersCache`；目标席位未变化时也保存当前成员缓存 | 合并返回的母号 view |
+| 免登录席位换号 | 按 `seatKey` 定位客户席位；禁止自动移除已接受的标准 ChatGPT 成员。其他流程在远端写成功后确定性更新本地成员/邀请缓存，不立即回读旧快照，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页使用返回的 slot view |
+| 撤销邀请 | 远端撤销成功后从当前 `pendingInvitesCache` 确定性移除目标；没有本地缓存时保持未知，不用立即 GET 猜测结果 | 合并返回的母号 view |
+| 移除成员 | 远端移除成功后从当前 `membersCache` 确定性移除目标，并保存 `lastMemberRemoval`；没有本地缓存时只保存移除结果 | 合并返回的母号 view 并展示计费策略结果 |
+| 改成员席位 | 远端修改成功后把目标成员席位更新为请求值，不立即 GET；目标席位未变化时保存写前成员快照 | 合并返回的母号 view |
+| 改成员角色 | 远端修改成功后把目标成员角色更新为请求值，不立即 GET；目标角色未变化时保存写前成员快照 | 合并返回的母号 view |
 | 改默认席位 | 远端修改成功后更新 `defaultSeat` 和缓存时间 | 合并返回的母号 view |
 | 改 Codex 邀请开关 | 远端修改成功后更新 `workspaceReferralsEnabled`、`workspaceReferralsEnabledVisible` 和缓存时间 | 合并返回的母号 view |
 | 改个人访问令牌开关 | 远端修改成功后更新 `personalAccessTokensEnabled` 和缓存时间 | 合并返回的母号 view |
@@ -127,7 +129,9 @@
 | 开通 0.52 Workspace | 只把卡片请求转发给 Account Manager；成功状态由 GAM workspace 派生，不改变母号创建完成状态，也不把 0.52 workspace 当作 Team workspace | 展示独立后台操作状态；未受管或已开通账号的按钮禁用并说明原因 |
 | 开通双席位 Team | 把优惠码、国家、货币和可选卡片转发给 Account Manager；成功后按 Team workspace ID 更新同一 GAM 母号记录 | 展示独立后台操作状态并刷新双席位状态；既有 usage-based Workspace 的管理能力不依赖该动作 |
 
-邀请或升席位到 `default` 可能增加账单，service 层不做数量预检、HTTP 409 确认或额外提示。任一席位类型邀请成功后，service 都会在同一次本地更新中为目标邮箱 upsert `pendingInvitesCache` 和 `seatSlots[]`。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
+邀请或升席位到 `default` 可能增加账单，普通席位写操作不增加二次确认。标准成员移除后还可能继续临时计费，service 必须记录上游策略结果，但不能用内部阈值自动判定后续邀请免费。任一席位类型邀请成功后，service 都会在同一次本地更新中为目标邮箱 upsert `pendingInvitesCache` 和 `seatSlots[]`。如果调用方未提供席位资料，到期日期默认为当前日期加 30 天，`expireRemove=false`，`expireReminder=true`。
+
+远端写接口返回 2xx 后，成员/邀请缓存使用本次写入意图做确定性更新。不要在同一请求内立刻 GET 并把结果当作强一致事实；上游读后写延迟可能返回旧值，使受控组件回退。操作员显式刷新时才重新采信远端列表快照。
 
 `expireRemove` 是本地运营标记，不会在提醒任务中自动移除远端成员。远端移除仍必须由页面、API 或 service 显式调用。
 

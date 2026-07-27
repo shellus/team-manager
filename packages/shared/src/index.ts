@@ -53,6 +53,29 @@ export function isEditableMemberRole(value: unknown): value is EditableMemberRol
 /** 成员角色（backend-api account_user_role / users[].role） */
 export type MemberRole = EditableMemberRole | string;
 
+/** ChatGPT 移除成员响应中的席位替换/计费策略摘要。未知字段仍保存在 rawJson。 */
+export interface MemberRemovalPolicyNotice {
+  kind?: string;
+  billedSeatDelta?: number;
+  vacancyOrdinal?: number;
+  freeVacancyThreshold?: number;
+  expiresAt?: string;
+  billingStartsAt?: string;
+  replacementRequired?: boolean;
+  rawJson: string;
+}
+
+/** 最近一次成功移除成员的上游结果，供后台判断临时计费风险。 */
+export interface MemberRemovalRecord {
+  userId: string;
+  email?: string;
+  seat?: SeatType;
+  removedAt: number;
+  upstreamSuccess?: boolean;
+  billingNoticeJson?: string;
+  policyNotice?: MemberRemovalPolicyNotice;
+}
+
 /** 录入的母号（含凭证，仅存后端 data/，绝不下发前端明文） */
 export interface Account {
   id: string;                 // team-manager 内部 id（uuid）
@@ -94,6 +117,7 @@ export interface Account {
   automaticReloadCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
+  lastMemberRemoval?: MemberRemovalRecord;
   seatSlots?: AccountSeatSlot[]; // 母号下的客户席位位置，本地运营主模型
   lastRefreshAt?: number;
   lastError?: string;
@@ -141,6 +165,7 @@ export interface AccountView {
   automaticReloadCachedAt?: number;
   pendingInvitesCache?: PendingInvite[];
   pendingInvitesCachedAt?: number;
+  lastMemberRemoval?: MemberRemovalRecord;
   seatSlots?: AccountSeatSlot[];
   lastRefreshAt?: number;
   lastError?: string;
@@ -410,6 +435,7 @@ export interface PublicSeatSlotView {
   remark?: string;
   expiresOn: string;
   price?: string;
+  seat: SeatType;
   status: AccountSeatSlotStatus;
   swap?: SeatSlotSwapState;
   swapHistory?: SeatSlotSwapState[];

@@ -1,6 +1,7 @@
 import type { Account, AccountSeatSlot, NotificationSettings } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { AppSettingsStore } from './appSettingsStore.js';
+import { fetchWithRawTrace } from './transport.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -269,11 +270,11 @@ async function sendChannel(
   }
 }
 
-async function postJson(fetcher: Fetcher, url: string, body: unknown): Promise<void> {
-  const response = await fetcher(url, {
+async function postJson(fetcher: Fetcher | undefined, url: string, body: unknown): Promise<void> {
+  const response = await fetchWithRawTrace('notification-webhook', url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
-  });
+  }, fetcher);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
 }

@@ -91,6 +91,32 @@ export function buildParentDeleteLocation(
   return { pathname: `/parents/${account.id}`, search: toSearch(next) };
 }
 
+export function buildParentAfterDeleteLocation(
+  params: URLSearchParams,
+  accounts: Pick<AccountSummaryView, 'id'>[],
+  deletedId: string
+) {
+  const nextAccount = accounts.find((account) => account.id !== deletedId);
+  return {
+    pathname: nextAccount ? `/parents/${nextAccount.id}` : '/parents',
+    search: toSearch(clearModalState(params))
+  };
+}
+
+export function clearStaleParentDeleteState(
+  params: URLSearchParams,
+  modal: ParentModal | undefined,
+  target: string,
+  selectedId: string | undefined
+): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (modal === 'delete-parent' && target && target !== selectedId) {
+    next.delete('modal');
+    next.delete('target');
+  }
+  return next;
+}
+
 export function parentAccountManagerStatusNeedsPolling(status: ParentAccountManagerStatus): boolean {
   const operationNeedsPolling = (
     operation: ParentAccountManagerStatus['codexOperation'],
@@ -334,8 +360,13 @@ export function ParentRoutes({
   useEffect(() => {
     if (loading || accounts.length === 0) return;
     rememberLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY, activeGroup);
-    const nextParams = new URLSearchParams(searchParams);
-    let changed = false;
+    const nextParams = clearStaleParentDeleteState(
+      searchParams,
+      searchState.modal,
+      searchState.target,
+      selectedSummary?.id
+    );
+    let changed = nextParams.toString() !== searchParams.toString();
     if (searchState.group !== activeGroup) {
       if (activeGroup === ALL_PARENT_GROUP) nextParams.delete('group');
       else nextParams.set('group', activeGroup);
@@ -375,7 +406,9 @@ export function ParentRoutes({
     quickFilters,
     searchParams,
     searchState.group,
+    searchState.modal,
     searchState.tab,
+    searchState.target,
     selectedSummary
   ]);
 
@@ -595,17 +628,31 @@ export function ParentRoutes({
 
   const deleteParent = async () => {
     if (!selectedSummary) return;
+    const deletedId = selectedSummary.id;
+    const afterDeleteLocation = buildParentAfterDeleteLocation(searchParams, visibleAccounts, deletedId);
     setLocalError('');
     try {
       await actionBusy.run('delete-parent', async () => {
-        await apiClient.removeAccount(selectedSummary.id);
-        onAccountRemoved(selectedSummary.id);
+        const removed = await apiClient.removeAccount(deletedId);
+        if (!removed) throw new Error('删除母号失败：本地记录不存在');
+        onAccountRemoved(deletedId);
         setAccountDetails((current) => {
           const next = { ...current };
-          delete next[selectedSummary.id];
+          delete next[deletedId];
           return next;
         });
-        closeModal();
+        setAccountManagerStatuses((current) => {
+          const next = { ...current };
+          delete next[deletedId];
+          return next;
+        });
+        setMaintainedAccountIds((current) => {
+          if (!current.has(deletedId)) return current;
+          const next = new Set(current);
+          next.delete(deletedId);
+          return next;
+        });
+        navigate(afterDeleteLocation, { replace: true });
       });
     } catch (error) {
       reportLocalError(error);

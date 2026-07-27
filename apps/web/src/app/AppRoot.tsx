@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { accountSummaryFromView, type AccountSummaryView, type AccountView } from '@team-manager/shared';
 import { Alert, Skeleton } from 'antd';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -23,6 +23,7 @@ export function AppRoot() {
   const location = useLocation();
   const [authed, setAuthed] = useState(() => Boolean(getToken()));
   const [accounts, setAccounts] = useState<AccountSummaryView[]>([]);
+  const removedAccountIds = useRef(new Set<string>());
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [error, setError] = useState('');
   const accountRefreshBusy = useActionBusy();
@@ -42,6 +43,7 @@ export function AppRoot() {
 
   const mergeAccountSummary = useCallback((updated: AccountSummaryView) => {
     setAccounts((current) => {
+      if (removedAccountIds.current.has(updated.id)) return current;
       const exists = current.some((account) => account.id === updated.id);
       const next = exists
         ? current.map((account) => (account.id === updated.id ? updated : account))
@@ -55,6 +57,7 @@ export function AppRoot() {
   }, [mergeAccountSummary]);
 
   const removeAccount = useCallback((id: string) => {
+    removedAccountIds.current.add(id);
     setAccounts((current) => current.filter((account) => account.id !== id));
   }, []);
 
@@ -62,7 +65,8 @@ export function AppRoot() {
     setLoadingAccounts(true);
     setError('');
     try {
-      setAccounts(await apiClient.listAccounts());
+      const loaded = await apiClient.listAccounts();
+      setAccounts(loaded.filter((account) => !removedAccountIds.current.has(account.id)));
     } catch (loadError) {
       handleError(loadError);
     } finally {

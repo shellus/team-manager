@@ -86,6 +86,12 @@ function operationControlRunning(operation: AccountManagerOperationView): boolea
   return operation.control?.status === 'queued' || operation.control?.status === 'executing';
 }
 
+export function stopParentActionMenuPropagation(event: {
+  domEvent: { stopPropagation: () => void };
+}): void {
+  event.domEvent.stopPropagation();
+}
+
 function canRotateOperationIp(operation: AccountManagerOperationView): boolean {
   if (!operationIsActive(operation) || operationControlRunning(operation)) return false;
   if (operation.status !== 'running') return true;
@@ -295,6 +301,7 @@ export function ParentList({
                   <Dropdown
                     trigger={['click']}
                     menu={{
+                      onClick: stopParentActionMenuPropagation,
                       items: [
                         {
                           key: 'refresh',

@@ -44,7 +44,7 @@ corepack pnpm docs:build
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号和子号都可按各自顶层 `groupName` 分组，并可人工维护独立的封号标记；母号另用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。封号母号的空位不进入概览统计，封号子号不能邀请加入 Team，其他操作不受限制。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。子号顶层分组与 `codexCredentials[].groupName` 的 CPA 凭证号池分组彼此独立。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
-- **席位位置**：用 `seatSlots` 记录母号下售出的本地客户席位位置，可关联 ChatGPT 或 Codex 席位；`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱、换号历史并自助换号。
+- **席位位置**：用 `seatSlots` 记录母号下售出的本地客户席位位置，可关联 ChatGPT 或 Codex 席位；`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱和换号历史。公开换号不会自动移除已接受的标准 ChatGPT 成员，避免临时计费和 Workspace 风险。
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
 - **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；有 GAM 关联的子号可启动或关闭账号运行 Profile。
@@ -61,6 +61,7 @@ corepack pnpm docs:build
 - **持久化**：文件持久化，无数据库。
 - **鉴权**：HS256 JWT、scrypt 口令、可选固定 API token。
 - **ChatGPT 调用**：`apps/server/src/chatgptApi.ts` 负责 backend-api 请求口径，`apps/server/src/transport.ts` 负责传输抽象。
+- **上游追踪**：后端所有外部 HTTP 请求通过 `Transport` 或 `fetchWithRawTrace` 发出；运行时另有进程级 `fetch` 兜底。架构测试禁止新增可绕过完整原始追踪的网络出口。
 - **Cloudflare 传输**：部署默认通过 `apps/curl-cffi-worker` sidecar 访问 ChatGPT Web backend-api；sidecar 只提供通用请求转发。
 
 ## 目录地图
@@ -83,7 +84,7 @@ corepack pnpm docs:build
 | `default` | ChatGPT 固定席位，计入 Team 套餐名额 |
 | `usage_based` | Codex/usage-based 席位，不计入固定 ChatGPT 席位 |
 
-账单边界：Team 套餐包含的 ChatGPT 固定席位数量有限。邀请或切换到 `default` 可能增加账单，系统不再预检或弹出额外确认，操作员根据页面展示的成员和邀请数量自行决定。
+账单边界：Team 套餐包含的 ChatGPT 固定席位数量有限。邀请或切换到 `default` 可能增加账单；移除标准 ChatGPT 成员后，原席位仍可能临时计费，当前成员数不等于计费席位数。普通席位修改不增加额外确认，但移除成员会提示风险并记录上游 `billing_notice` / `policy_notice`；最终费用以 Workspace Billing 和账单为准。
 
 数据模型原则：
 

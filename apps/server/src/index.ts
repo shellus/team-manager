@@ -5,8 +5,10 @@ import { AppSettingsStore } from './appSettingsStore.js';
 import { SubaccountStore } from './subaccountStore.js';
 import { buildApp } from './app.js';
 import { startNotificationScheduler } from './notificationService.js';
+import { installCatchAllFetchTracing } from './transport.js';
 
 async function main() {
+  installCatchAllFetchTracing();
   const config = loadConfig();
   const store = new AccountStore(config.dataDir);
   await store.init();

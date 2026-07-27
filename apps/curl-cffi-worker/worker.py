@@ -7,7 +7,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urljoin
 
-from curl_cffi import requests
+from curl_cffi import Curl, CurlOpt, requests
+from curl_cffi.curl import CURLINFO_HEADER_IN, CURLINFO_HEADER_OUT, CURLINFO_TEXT
 
 
 BASE_URL = os.environ.get("TEAMMGR_CHATGPT_BASE_URL", "https://chatgpt.com").rstrip("/") + "/"
@@ -16,6 +17,18 @@ IMPERSONATE = os.environ.get("TEAMMGR_CURL_CFFI_IMPERSONATE", "chrome110").strip
 REQUEST_TIMEOUT = float(os.environ.get("TEAMMGR_CURL_CFFI_TIMEOUT", "60"))
 PORT = int(os.environ.get("TEAMMGR_CURL_CFFI_PORT", "8080"))
 ALLOWED_METHODS = {"GET", "POST", "PATCH", "DELETE"}
+WIRE_EVENT_NAMES = {
+    CURLINFO_TEXT: "diagnostic",
+    CURLINFO_HEADER_IN: "response_headers",
+    CURLINFO_HEADER_OUT: "request_headers",
+}
+
+
+class UpstreamFetchError(Exception):
+    def __init__(self, cause: Exception, wire: list[dict[str, str]]):
+        super().__init__(str(cause))
+        self.cause = cause
+        self.wire = wire
 
 
 class WorkerHandler(BaseHTTPRequestHandler):
@@ -43,10 +56,18 @@ class WorkerHandler(BaseHTTPRequestHandler):
             return
         try:
             request = parse_fetch_payload(self.read_json())
-            status, body = fetch_chatgpt(request)
-            self.write_json(HTTPStatus.OK, {"status": status, "body": body})
+            self.write_json(HTTPStatus.OK, fetch_chatgpt(request))
         except ValueError as exc:
             self.write_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except UpstreamFetchError as exc:
+            self.write_json(
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "error": exc.cause.__class__.__name__,
+                    "message": str(exc.cause),
+                    "wire": exc.wire,
+                },
+            )
         except Exception as exc:
             self.write_json(
                 HTTPStatus.BAD_GATEWAY,
@@ -98,21 +119,78 @@ def parse_fetch_payload(payload: Any) -> dict[str, Any]:
     }
 
 
-def fetch_chatgpt(request: dict[str, Any]) -> tuple[int, str]:
+def fetch_chatgpt(request: dict[str, Any]) -> dict[str, Any]:
     url = urljoin(BASE_URL, request["path"].lstrip("/"))
-    session_kwargs: dict[str, Any] = {"impersonate": IMPERSONATE, "verify": True}
+    curl, wire = wire_traced_curl()
+    session_kwargs: dict[str, Any] = {
+        "curl": curl,
+        "impersonate": IMPERSONATE,
+        "verify": True,
+    }
     proxy_url = request.get("proxy") or PROXY_URL
     if proxy_url:
         session_kwargs["proxy"] = proxy_url
-    with requests.Session(**session_kwargs) as session:
-        response = session.request(
-            request["method"],
-            url,
-            headers=request["headers"],
-            data=request["body"],
-            timeout=REQUEST_TIMEOUT,
-        )
-        return int(response.status_code), response.text
+    try:
+        with requests.Session(**session_kwargs) as session:
+            response = session.request(
+                request["method"],
+                url,
+                headers=request["headers"],
+                data=request["body"],
+                timeout=REQUEST_TIMEOUT,
+            )
+    except Exception as exc:
+        raise UpstreamFetchError(exc, wire) from exc
+
+    sent_request = response.request
+    return {
+        "status": int(response.status_code),
+        "body": response.text,
+        "headers": header_items(response.headers),
+        "url": str(response.url),
+        "request": {
+            "method": str(sent_request.method),
+            "url": str(sent_request.url),
+            "headers": header_items(sent_request.headers),
+            **(
+                {"body": sent_request.body.decode("utf-8", errors="replace")}
+                if sent_request.body is not None
+                else {}
+            ),
+        },
+        "network": {
+            "httpVersion": int(response.http_version),
+            "primaryIp": str(response.primary_ip),
+            "primaryPort": int(response.primary_port),
+            "localIp": str(response.local_ip),
+            "localPort": int(response.local_port),
+            "redirectCount": int(response.redirect_count),
+            "requestSize": int(response.request_size),
+            "responseSize": int(response.response_size),
+            "uploadSize": int(response.upload_size),
+            "downloadSize": int(response.download_size),
+        },
+        "wire": wire,
+    }
+
+
+def wire_traced_curl() -> tuple[Curl, list[dict[str, str]]]:
+    wire: list[dict[str, str]] = []
+
+    def capture(event_type: int, data: bytes) -> None:
+        event_name = WIRE_EVENT_NAMES.get(event_type)
+        if event_name is None:
+            return
+        wire.append({"type": event_name, "data": data.decode("latin-1")})
+
+    curl = Curl()
+    curl.setopt(CurlOpt.VERBOSE, 1)
+    curl.setopt(CurlOpt.DEBUGFUNCTION, capture)
+    return curl, wire
+
+
+def header_items(headers: Any) -> list[list[str | None]]:
+    return [[str(key), None if value is None else str(value)] for key, value in headers.multi_items()]
 
 
 def main() -> None:

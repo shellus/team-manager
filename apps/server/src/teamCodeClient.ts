@@ -1,4 +1,5 @@
 import type { Account, TeamOrderConfig } from '@team-manager/shared';
+import { fetchWithRawTrace } from './transport.js';
 
 interface TeamCodeTaskResult {
   payUrl?: unknown;
@@ -68,7 +69,7 @@ export class TeamCodeClient implements TeamCodeGateway {
     const timeout = setTimeout(() => controller.abort(), 7 * 60_000);
     timeout.unref?.();
     try {
-      const submitResponse = await fetch(`${this.baseUrl}/api/order`, {
+      const submitResponse = await fetchWithRawTrace('team-code', `${this.baseUrl}/api/order`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -102,10 +103,14 @@ export class TeamCodeClient implements TeamCodeGateway {
 
       while (true) {
         await wait(2_000);
-        const response = await fetch(`${this.baseUrl}/api/tasks?ids=${encodeURIComponent(taskId)}`, {
-          headers: { 'X-Passcode': this.passcode },
-          signal: controller.signal
-        });
+        const response = await fetchWithRawTrace(
+          'team-code',
+          `${this.baseUrl}/api/tasks?ids=${encodeURIComponent(taskId)}`,
+          {
+            headers: { 'X-Passcode': this.passcode },
+            signal: controller.signal
+          }
+        );
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
           throw new Error(errorMessage(body, `TeamCode 查询失败（HTTP ${response.status}）`));

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { accountSummaryFromView, type AccountView, type ParentRegistrationTaskView } from '@team-manager/shared';
-import { ParentList } from './ParentList.js';
+import { ParentList, stopParentActionMenuPropagation } from './ParentList.js';
 
 const registeringTask: ParentRegistrationTaskView = {
   registration: {
@@ -65,6 +65,20 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
 }
 
 describe('ParentList', () => {
+  test('stops dropdown actions from bubbling into the parent card selection', () => {
+    let propagationStopped = false;
+
+    stopParentActionMenuPropagation({
+      domEvent: {
+        stopPropagation: () => {
+          propagationStopped = true;
+        }
+      }
+    });
+
+    expect(propagationStopped).toBe(true);
+  });
+
   test('keeps account registration independent from the 0.52 action', () => {
     const html = renderList({ registrationTasks: [registeringTask] });
 

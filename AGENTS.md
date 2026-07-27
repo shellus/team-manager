@@ -21,8 +21,9 @@
 
 - 当前任务是为项目整体服务的，不只处理用户指出的单点；实现前先查看同类代码，遵循已有风格，复用已有 helper 和数据模型。
 - DRY 是硬约束。新增字段、缓存或派生数据前，先检查是否会造成重复、冗余或断链。
-- Team Manager 只保存母号/子号业务所需的 ChatGPT Web Session 和可选 `managedAccountEmail` 引用；注册密码、CloakBrowser profile 与支付状态属于 GPT Account Manager，不得复制到本仓库模型或日志。
+- Team Manager 只在业务模型中保存母号/子号所需的 ChatGPT Web Session 和可选 `managedAccountEmail` 引用；注册密码、CloakBrowser profile 与支付状态属于 GPT Account Manager，不得复制到业务模型。完整上游原始追踪按实际 HTTP 请求保存，可能包含调用 Account Manager 时发送的密码或其他敏感值，只能留在私有运行数据目录。
 - Team Manager 可通过 Account Manager gateway 转发受管账号的 Profile 启动、状态和关闭请求，但不得直接调用 CloakBrowser、保存运行 Profile ID 或提供 VNC/浏览器查看能力。
+- 后端所有外部 HTTP 请求必须通过 `apps/server/src/transport.ts` 的 `Transport` 或 `fetchWithRawTrace` 发出，并写入完整、未脱敏、未截断的私有上游追踪。不得在其他生产代码中直接调用 `fetch`，也不得引入 `axios`、`node:http/https`、`undici`、`child_process curl` 等旁路；新增上游必须使用可识别的 `upstream` 名称。进程级 `catch-all-fetch` 只作为遗漏兜底，不能替代具名接入。
 - 已由运行环境提供 watch/dev 进程时，源码、前端 Vite 配置、后端 tsx watch 能自动加载的变更默认只做验证，不手动重启运行进程。只有进程级环境变量、端口/监听方式、依赖安装、进程崩溃卡死，或离线迁移运行时数据需要停写入方时，才允许重启对应进程。
 - 运行时 JSON 数据文件只能作为排查证据。管理动作必须通过 API、UI 或现有 service/store 方法完成；不要通过手工编辑 `data/*.json` 来让业务变更生效。
 - 只有在用户明确要求离线修复数据文件时，才允许直接编辑运行时 JSON；操作前必须停对应实例、备份文件，并在完成后重启/刷新验证。

@@ -13,6 +13,7 @@ import type {
   ChatGptSessionInput,
   EditableMemberRole,
   Member,
+  MemberRemovalRecord,
   PendingInvite,
   PublicSeatSlotView,
   SeatType,
@@ -30,7 +31,8 @@ import {
   ChatGptApiError,
   refreshAccessToken,
   tokenNeedsRefresh,
-  type ChatGptAccountCheckEntry
+  type ChatGptAccountCheckEntry,
+  type ChatGptMemberRemovalResponse
 } from './chatgptApi.js';
 import {
   ChatGptWebSessionError,
@@ -44,6 +46,76 @@ import { upcomingInvoiceHasTeamSubscription } from './teamSubscription.js';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const STANDARD_SEAT_PUBLIC_SWAP_BLOCKED =
+  '标准 ChatGPT 席位移除后可能继续临时计费，新成员也可能形成独立付费席位；公共换号不能自动移除已接受成员，请联系管理员处理';
+
+function jsonString(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function removalRecord(
+  response: ChatGptMemberRemovalResponse,
+  member: Member | undefined,
+  userId: string
+): MemberRemovalRecord {
+  const payload = response && typeof response === 'object'
+    ? response as ChatGptMemberRemovalResponse
+    : {};
+  if (payload.success === false) {
+    throw new ServiceError(502, '上游返回成员移除失败');
+  }
+
+  const rawPolicy = payload.policy_notice;
+  const policy = rawPolicy && typeof rawPolicy === 'object' && !Array.isArray(rawPolicy)
+    ? rawPolicy as Record<string, unknown>
+    : undefined;
+  const readPolicyString = (key: string): string | undefined => {
+    const value = policy?.[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  };
+  const readPolicyNumber = (key: string): number | undefined => {
+    const value = policy?.[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  };
+  const policyRawJson = jsonString(rawPolicy);
+  const billingNoticeJson = jsonString(payload.billing_notice);
+  const kind = readPolicyString('kind');
+  const billedSeatDelta = readPolicyNumber('billed_seat_delta');
+  const vacancyOrdinal = readPolicyNumber('vacancy_ordinal');
+  const freeVacancyThreshold = readPolicyNumber('free_vacancy_threshold');
+  const expiresAt = readPolicyString('expires_at');
+  const billingStartsAt = readPolicyString('billing_starts_at');
+
+  return {
+    userId,
+    ...(member?.email ? { email: member.email } : {}),
+    ...(member?.seat ? { seat: member.seat } : {}),
+    removedAt: Date.now(),
+    ...(typeof payload.success === 'boolean' ? { upstreamSuccess: payload.success } : {}),
+    ...(billingNoticeJson ? { billingNoticeJson } : {}),
+    ...(policyRawJson
+      ? {
+          policyNotice: {
+            ...(kind ? { kind } : {}),
+            ...(billedSeatDelta !== undefined ? { billedSeatDelta } : {}),
+            ...(vacancyOrdinal !== undefined ? { vacancyOrdinal } : {}),
+            ...(freeVacancyThreshold !== undefined ? { freeVacancyThreshold } : {}),
+            ...(expiresAt ? { expiresAt } : {}),
+            ...(billingStartsAt ? { billingStartsAt } : {}),
+            ...(typeof policy?.replacement_required === 'boolean'
+              ? { replacementRequired: policy.replacement_required }
+              : {}),
+            rawJson: policyRawJson
+          }
+        }
+      : {})
+  };
+}
 
 function readableChatGptApiError(error: ChatGptApiError): string {
   try {
@@ -240,6 +312,7 @@ export class TeamService {
       automaticReloadCachedAt: account.automaticReloadCachedAt,
       pendingInvitesCache: account.pendingInvitesCache,
       pendingInvitesCachedAt: account.pendingInvitesCachedAt,
+      lastMemberRemoval: account.lastMemberRemoval,
       seatSlots: account.seatSlots,
       lastRefreshAt: account.lastRefreshAt,
       lastError: account.lastError,
@@ -328,6 +401,9 @@ export class TeamService {
     if (found.account.seatSlots?.some((slot) => slot.seatKey !== seatKey && slot.email?.toLowerCase() === normalizedEmail)) {
       throw new ServiceError(409, '该邮箱已绑定到同一母号的其他席位');
     }
+    if (found.slot.seat === 'default' && found.slot.status === 'member') {
+      throw new ServiceError(409, STANDARD_SEAT_PUBLIC_SWAP_BLOCKED);
+    }
     if (this.seatSlotLocks.has(seatKey)) throw new ServiceError(409, '该席位正在换号，请稍后再试');
 
     this.seatSlotLocks.add(seatKey);
@@ -371,9 +447,17 @@ export class TeamService {
         if (currentMember.role === 'account-owner' || currentMember.role === 'account-admin') {
           throw new ServiceError(409, '席位当前邮箱是 owner/admin，拒绝通过自助页移除');
         }
+        if (current.seat === 'default' || currentMember.seat === 'default') {
+          throw new ServiceError(409, STANDARD_SEAT_PUBLIC_SWAP_BLOCKED);
+        }
         this.markSeatSlotSwapStep(swap, 'removing_current_member', 'running', currentMember.email);
         await this.persistSeatSlotSwap(accountId, seatKey, swap);
-        await api.removeMember(currentMember.userId);
+        const response = await api.removeMember(currentMember.userId);
+        members = members.filter((member) => member.userId !== currentMember.userId);
+        await this.saveMemberCache(accountId, members, {
+          reconcileSeatSlots: false,
+          extraPatch: { lastMemberRemoval: removalRecord(response, currentMember, currentMember.userId) }
+        });
         this.markSeatSlotSwapStep(swap, 'removing_current_member', 'done', currentMember.email);
       } else {
         this.markSeatSlotSwapStep(swap, 'removing_current_member', 'skipped', '当前邮箱不是成员');
@@ -383,6 +467,8 @@ export class TeamService {
         this.markSeatSlotSwapStep(swap, 'revoking_current_invite', 'running', currentInvite.email);
         await this.persistSeatSlotSwap(accountId, seatKey, swap);
         await api.revokePendingInvite(currentInvite.email);
+        invites = invites.filter((invite) => invite.email.toLowerCase() !== currentInvite.email.toLowerCase());
+        await this.savePendingInviteCache(accountId, invites, { reconcileSeatSlots: false });
         this.markSeatSlotSwapStep(swap, 'revoking_current_invite', 'done', currentInvite.email);
       } else {
         this.markSeatSlotSwapStep(swap, 'revoking_current_invite', 'skipped', currentMember ? '已移除成员' : '当前邮箱不是邀请');
@@ -391,6 +477,11 @@ export class TeamService {
       this.markSeatSlotSwapStep(swap, 'inviting_new_email', 'running', newEmail);
       await this.persistSeatSlotSwap(accountId, seatKey, swap);
       await api.invite(newEmail, current.seat, 'standard-user');
+      invites = [
+        ...invites.filter((invite) => invite.email.toLowerCase() !== newEmail),
+        this.createLocalPendingInvite(newEmail, current.seat, 'standard-user')
+      ];
+      await this.savePendingInviteCache(accountId, invites, { reconcileSeatSlots: false });
       this.markSeatSlotSwapStep(swap, 'inviting_new_email', 'done', newEmail);
 
       this.markSeatSlotSwapStep(swap, 'saving_new_profile', 'running', newEmail);
@@ -407,8 +498,6 @@ export class TeamService {
 
       this.markSeatSlotSwapStep(swap, 'refreshing_final_state', 'running');
       await this.persistSeatSlotSwap(accountId, seatKey, swap);
-      members = await api.listMembers();
-      invites = await api.listPendingInvites();
       await this.saveMemberCache(accountId, members, { reconcileSeatSlots: false });
       await this.savePendingInviteCache(accountId, invites, { reconcileSeatSlots: false });
       await this.refreshSeatSlotRelation(accountId, seatKey, members, invites);
@@ -452,6 +541,7 @@ export class TeamService {
       ...(slot.remark ? { remark: slot.remark } : {}),
       expiresOn: slot.expiresOn,
       ...(slot.price ? { price: slot.price } : {}),
+      seat: slot.seat,
       status: slot.status ?? 'unknown',
       ...(slot.lastSwap ? { swap: slot.lastSwap } : {}),
       ...(swapHistory.length ? { swapHistory } : {})
@@ -1017,12 +1107,13 @@ export class TeamService {
   private async saveMemberCache(
     id: string,
     members: Member[],
-    options: { reconcileSeatSlots?: boolean } = {}
+    options: { reconcileSeatSlots?: boolean; extraPatch?: Partial<Account> } = {}
   ): Promise<Account> {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
     const now = Date.now();
     const patch: Partial<Account> = {
+      ...options.extraPatch,
       membersCache: members,
       membersCachedAt: now,
       lastRefreshAt: now,
@@ -1063,15 +1154,7 @@ export class TeamService {
     const account = this.store.get(id);
     if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
     const now = Date.now();
-    const pendingInvite: PendingInvite = {
-      inviteId: `local-${randomUUID()}`,
-      email,
-      role: req.role ?? 'standard-user',
-      status: 1,
-      seat: req.seat,
-      createdTime: new Date(now).toISOString(),
-      isScimManaged: false
-    };
+    const pendingInvite = this.createLocalPendingInvite(email, req.seat, req.role ?? 'standard-user', now);
     const pendingInvites = [
       ...(account.pendingInvitesCache ?? []).filter((invite) => invite.email.toLowerCase() !== email),
       pendingInvite
@@ -1086,6 +1169,23 @@ export class TeamService {
     });
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);
+  }
+
+  private createLocalPendingInvite(
+    email: string,
+    seat: SeatType,
+    role: PendingInvite['role'],
+    now = Date.now()
+  ): PendingInvite {
+    return {
+      inviteId: `local-${randomUUID()}`,
+      email,
+      role,
+      status: 1,
+      seat,
+      createdTime: new Date(now).toISOString(),
+      isScimManaged: false
+    };
   }
 
   async updateSeatSlotProfile(
@@ -1357,15 +1457,43 @@ export class TeamService {
   async revokePendingInvite(id: string, email: string): Promise<AccountView> {
     const trimmed = email.trim();
     if (!trimmed) throw new ServiceError(400, '缺少邀请邮箱');
-    const { api } = await this.clientFor(id);
+    const { account, api } = await this.clientFor(id);
     await api.revokePendingInvite(trimmed);
-    return this.viewFromAccount(await this.refreshPendingInviteCache(id, api));
+    if (account.pendingInvitesCache === undefined) {
+      const updated = await this.store.update(id, {
+        pendingInvitesCachedAt: Date.now(),
+        lastRefreshAt: Date.now(),
+        lastError: undefined
+      });
+      if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+      return this.viewFromAccount(updated);
+    }
+    const normalized = trimmed.toLowerCase();
+    return this.viewFromAccount(await this.savePendingInviteCache(
+      id,
+      account.pendingInvitesCache.filter((invite) => invite.email.toLowerCase() !== normalized)
+    ));
   }
 
   async removeMember(id: string, userId: string): Promise<AccountView> {
-    const { api } = await this.clientFor(id);
-    await api.removeMember(userId);
-    return this.viewFromAccount(await this.refreshMemberCache(id, api));
+    const { account, api } = await this.clientFor(id);
+    const member = account.membersCache?.find((item) => item.userId === userId);
+    const response = await api.removeMember(userId);
+    const lastMemberRemoval = removalRecord(response, member, userId);
+    if (account.membersCache === undefined) {
+      const updated = await this.store.update(id, {
+        lastMemberRemoval,
+        lastRefreshAt: Date.now(),
+        lastError: undefined
+      });
+      if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+      return this.viewFromAccount(updated);
+    }
+    return this.viewFromAccount(await this.saveMemberCache(
+      id,
+      account.membersCache.filter((item) => item.userId !== userId),
+      { extraPatch: { lastMemberRemoval } }
+    ));
   }
 
   /** 修改成员席位，不在本地推断或提示账单风险。 */
@@ -1383,7 +1511,10 @@ export class TeamService {
     }
 
     await api.setMemberSeat(userId, seat);
-    return this.viewFromAccount(await this.refreshMemberCache(id, api));
+    return this.viewFromAccount(await this.saveMemberCache(
+      id,
+      members.map((member) => member.userId === userId ? { ...member, seat } : member)
+    ));
   }
 
   async setMemberRole(
@@ -1408,7 +1539,10 @@ export class TeamService {
       }
       throw error;
     }
-    return this.viewFromAccount(await this.refreshMemberCache(id, api));
+    return this.viewFromAccount(await this.saveMemberCache(
+      id,
+      members.map((member) => member.userId === userId ? { ...member, role } : member)
+    ));
   }
 
   async getCachedSettings(id: string): Promise<Record<string, unknown>> {

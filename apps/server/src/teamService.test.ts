@@ -917,6 +917,23 @@ describe('AccountStore account sanitation', () => {
                 isScimManaged: false
               }
             ],
+            lastMemberRemoval: {
+              userId: 'user-old',
+              email: 'OLD@EXAMPLE.COM',
+              seat: 'default',
+              removedAt: 123,
+              upstreamSuccess: true,
+              billingNoticeJson: '{"message":"temporary billing"}',
+              policyNotice: {
+                kind: 'threshold_exempt',
+                billedSeatDelta: 0,
+                vacancyOrdinal: 1,
+                freeVacancyThreshold: 3,
+                expiresAt: '2026-07-28T13:07:44.387402Z',
+                replacementRequired: true,
+                rawJson: '{"kind":"threshold_exempt","unknown":"preserved"}'
+              }
+            },
             seatSlots: [
               {
                 seatKey: 'abcd1234efgh5678',
@@ -994,6 +1011,8 @@ describe('AccountStore account sanitation', () => {
     assert.equal(storedMember?.remoteName, '当前远端显示名');
     assert.deepEqual(stored?.membersCache, persisted[0].membersCache);
     assert.deepEqual(stored?.pendingInvitesCache, persisted[0].pendingInvitesCache);
+    assert.deepEqual(stored?.lastMemberRemoval, persisted[0].lastMemberRemoval);
+    assert.equal((stored?.lastMemberRemoval as Record<string, unknown> | undefined)?.email, 'old@example.com');
     assert.equal(storedSlots?.length, 2);
     assert.equal(persistedSlots?.length, 2);
     assert.equal(storedSlots?.[0]?.seatKey, 'abcd1234efgh5678');
@@ -1006,6 +1025,28 @@ describe('AccountStore account sanitation', () => {
     assert.equal((storedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal((persistedSlots?.[0]?.swapHistory as unknown[] | undefined)?.length, 1);
     assert.equal(((storedSlots?.[0]?.swapHistory as Record<string, unknown>[] | undefined)?.[0])?.id, 'swap-existing');
+  });
+
+  it('preserves an explicitly refreshed empty member cache', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-empty-cache-'));
+    await writeFile(
+      join(tempDir, 'accounts.json'),
+      JSON.stringify([{
+        id: 'account-empty',
+        accountId: 'workspace-id',
+        email: 'owner@example.com',
+        accessToken: 'token',
+        membersCache: [],
+        membersCachedAt: 123
+      }]),
+      'utf8'
+    );
+
+    const store = new AccountStore(tempDir);
+    await store.init();
+
+    assert.deepEqual(store.get('account-empty')?.membersCache, []);
+    assert.equal(store.get('account-empty')?.membersCachedAt, 123);
   });
 });
 
@@ -1424,6 +1465,7 @@ describe('TeamService public seat slots', () => {
       remark: '客户 A',
       expiresOn: '2026-07-23',
       price: '399',
+      seat: 'default',
       status: 'member'
     });
   });
@@ -1471,6 +1513,7 @@ describe('TeamService public seat slots', () => {
       remark: '客户 A',
       expiresOn: '2026-07-23',
       price: '399',
+      seat: 'default',
       status: 'member'
     });
   });
@@ -1507,6 +1550,38 @@ describe('TeamService public seat slots', () => {
 
     assert.equal(transport.requests.length, 0);
     assert.equal(store.get(account.id)?.seatSlots?.[0]?.email, 'old@example.com');
+  });
+
+  it('rejects automatic rotation of an accepted standard ChatGPT seat before any upstream request', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-seat-slot-risk-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      seatSlots: [{
+        seatKey: 'abcd1234efgh5678',
+        email: 'old@example.com',
+        expiresOn: '2026-07-23',
+        seat: 'default',
+        status: 'member',
+        currentUserId: 'user-old',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 100
+      }]
+    });
+    const transport = recordingTransport();
+    const service = new TeamService(store, transport);
+
+    await assert.rejects(
+      () => service.swapPublicSeatSlotEmail('abcd1234efgh5678', 'new@example.com'),
+      (error: unknown) => error instanceof ServiceError
+        && error.status === 409
+        && error.message.includes('公共换号不能自动移除已接受成员')
+    );
+    assert.equal(transport.requests.length, 0);
   });
 
   it('swaps only the member bound to the selected slot and preserves slot metadata and seat type', async () => {
@@ -1615,7 +1690,7 @@ describe('TeamService public seat slots', () => {
           remark: '客户 A',
           expiresOn: '2026-07-23',
           price: '399',
-          seat: 'default',
+          seat: 'usage_based',
           status: 'member',
           currentUserId: 'user-old',
           expireRemove: false,
@@ -1636,7 +1711,7 @@ describe('TeamService public seat slots', () => {
       ]
     });
     const members = new Map([
-      ['user-old', { id: 'user-old', email: 'old@example.com', name: 'Old', role: 'standard-user', seat_type: 'default' }],
+      ['user-old', { id: 'user-old', email: 'old@example.com', name: 'Old', role: 'standard-user', seat_type: 'usage_based' }],
       ['user-other', { id: 'user-other', email: 'other@example.com', name: 'Other', role: 'standard-user', seat_type: 'default' }]
     ]);
     const invites = new Map<string, Record<string, unknown>>();
@@ -2399,7 +2474,7 @@ describe('TeamService member seat changes', () => {
     return { account, store, service: new TeamService(store, transport) };
   }
 
-  it('uses the ChatGPT Web seat_type PATCH and refreshes the canonical member cache', async () => {
+  it('uses the ChatGPT Web seat_type PATCH and updates the cache without stale immediate readback', async () => {
     const requests: HttpRequest[] = [];
     let listCalls = 0;
     const transport: Transport = {
@@ -2430,13 +2505,12 @@ describe('TeamService member seat changes', () => {
 
     const view = await service.setMemberSeat(account.id, 'user-b', 'default');
 
-    assert.equal(requests.length, 3);
+    assert.equal(requests.length, 2);
     assert.equal(requests[0].method, 'GET');
     assert.equal(requests[1].method, 'PATCH');
     assert.equal(requests[1].path, '/backend-api/accounts/workspace-id/users/user-b');
     assert.deepEqual(JSON.parse(requests[1].body ?? '{}'), { seat_type: 'default' });
     assert.equal(requests[1].headers['Content-Type'], 'application/json');
-    assert.equal(requests[2].method, 'GET');
     assert.equal(view.membersCache?.find((member) => member.userId === 'user-b')?.seat, 'default');
     assert.equal(store.get(account.id)?.membersCache?.find((member) => member.userId === 'user-b')?.seat, 'default');
     assert.equal(hasOwn(store.get(account.id), 'chatgptSeatCount'), false);
@@ -2498,7 +2572,7 @@ describe('TeamService member seat changes', () => {
 
     const view = await service.setMemberSeat(account.id, 'user-b', 'default');
 
-    assert.equal(requests.length, 3);
+    assert.equal(requests.length, 2);
     assert.equal(requests[1].method, 'PATCH');
     assert.equal(requests[1].path, '/backend-api/accounts/workspace-id/users/user-b');
     assert.deepEqual(JSON.parse(requests[1].body ?? '{}'), { seat_type: 'default' });
@@ -2800,22 +2874,26 @@ describe('TeamService member removal', () => {
     assert.deepEqual(view.membersCache?.map((member) => member.userId), ['user-a']);
   });
 
-  it('removes a member and refreshes the canonical member cache', async () => {
+  it('removes a member, updates the cache locally, and persists upstream billing policy notices', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
         requests.push(req);
-        if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/workspace-id/users')) {
-          return {
-            status: 200,
-            body: JSON.stringify({
-              items: [
-                { id: 'user-a', email: 'a@example.com', name: 'A', role: 'account-owner', seat_type: 'usage_based' }
-              ]
-            })
-          };
-        }
-        return { status: 200, body: '{"success":true}' };
+        return {
+          status: 200,
+          body: JSON.stringify({
+            success: true,
+            billing_notice: { message: 'temporary billing applies' },
+            policy_notice: {
+              kind: 'pending_replacement',
+              billed_seat_delta: 1,
+              vacancy_ordinal: 6,
+              free_vacancy_threshold: 0,
+              replacement_required: true,
+              unknown_field: 'preserved in raw JSON'
+            }
+          })
+        };
       }
     };
     tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
@@ -2835,12 +2913,18 @@ describe('TeamService member removal', () => {
 
     const view = await service.removeMember(account.id, 'user-b');
 
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
     assert.equal(requests[0].method, 'DELETE');
     assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/users/user-b');
-    assert.equal(requests[1].method, 'GET');
     assert.deepEqual(view.membersCache?.map((member) => member.userId), ['user-a']);
     assert.deepEqual(store.get(account.id)?.membersCache?.map((member) => member.userId), ['user-a']);
+    assert.equal(view.lastMemberRemoval?.email, 'b@example.com');
+    assert.equal(view.lastMemberRemoval?.seat, 'default');
+    assert.equal(view.lastMemberRemoval?.policyNotice?.kind, 'pending_replacement');
+    assert.equal(view.lastMemberRemoval?.policyNotice?.billedSeatDelta, 1);
+    assert.equal(view.lastMemberRemoval?.policyNotice?.vacancyOrdinal, 6);
+    assert.match(view.lastMemberRemoval?.billingNoticeJson ?? '', /temporary billing applies/);
+    assert.match(view.lastMemberRemoval?.policyNotice?.rawJson ?? '', /unknown_field/);
     assert.equal(hasOwn(store.get(account.id), 'memberCount'), false);
   });
 });
@@ -3415,7 +3499,7 @@ describe('TeamService pending invites', () => {
     assert.equal(hasOwn(store.get(account.id), 'pendingInviteCount'), false);
   });
 
-  it('revokes a pending invite by email address and refreshes the canonical invite cache', async () => {
+  it('revokes a pending invite by email address and updates the canonical invite cache locally', async () => {
     const requests: HttpRequest[] = [];
     const transport: Transport = {
       async fetch(req) {
@@ -3442,14 +3526,35 @@ describe('TeamService pending invites', () => {
       }
     };
     const { account, store, service } = await createServiceWithTransport(transport);
+    await store.update(account.id, {
+      pendingInvitesCache: [
+        {
+          inviteId: 'invite-pending',
+          email: 'pending@example.com',
+          role: 'standard-user',
+          status: 1,
+          seat: 'default',
+          createdTime: '2026-06-17T00:00:00Z',
+          isScimManaged: false
+        },
+        {
+          inviteId: 'invite-other',
+          email: 'other@example.com',
+          role: 'standard-user',
+          status: 1,
+          seat: 'usage_based',
+          createdTime: '2026-06-18T00:00:00Z',
+          isScimManaged: false
+        }
+      ]
+    });
 
     const view = await service.revokePendingInvite(account.id, 'pending@example.com');
 
-    assert.equal(requests.length, 2);
+    assert.equal(requests.length, 1);
     assert.equal(requests[0].method, 'DELETE');
     assert.equal(requests[0].path, '/backend-api/accounts/workspace-id/invites');
     assert.deepEqual(JSON.parse(requests[0].body ?? '{}'), { email_address: 'pending@example.com' });
-    assert.equal(requests[1].method, 'GET');
     assert.deepEqual(view.pendingInvitesCache?.map((invite) => invite.email), ['other@example.com']);
     assert.deepEqual(store.get(account.id)?.pendingInvitesCache?.map((invite) => invite.email), ['other@example.com']);
     assert.equal(hasOwn(store.get(account.id), 'pendingInviteCount'), false);

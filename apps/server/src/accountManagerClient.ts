@@ -8,6 +8,7 @@ import type {
   SubaccountRegistrationJobStatus,
   SubaccountRegistrationJobView
 } from '@team-manager/shared';
+import { fetchWithRawTrace } from './transport.js';
 
 export const ACCOUNT_MANAGER_REQUEST_TAGS = {
   parent: 'team-manager:parent',
@@ -96,11 +97,16 @@ export class AccountManagerClient implements AccountManagerGateway {
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
-    private readonly fetchImpl: typeof fetch = fetch
+    private readonly fetchImpl?: typeof fetch
   ) {}
 
   async health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }> {
-    const response = await this.fetchImpl(`${this.baseUrl}/health`);
+    const response = await fetchWithRawTrace(
+      'account-manager',
+      `${this.baseUrl}/health`,
+      {},
+      this.fetchImpl
+    );
     const data = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) throw new AccountManagerError(response.status, `Account Manager 健康检查失败: ${response.status}`);
     return {
@@ -220,15 +226,20 @@ export class AccountManagerClient implements AccountManagerGateway {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        Accept: 'application/json',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+    const response = await fetchWithRawTrace(
+      'account-manager',
+      `${this.baseUrl}${path}`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) })
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) })
-    });
+      this.fetchImpl
+    );
     const text = await response.text();
     let parsed: { ok?: boolean; data?: T; error?: string };
     try {

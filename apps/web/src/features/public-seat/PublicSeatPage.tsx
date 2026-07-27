@@ -56,6 +56,7 @@ export function PublicSeatPage() {
   const [form] = Form.useForm<{ email: string }>();
   const actionBusy = useActionBusy();
   const submitting = actionBusy.isBusy('public-seat-swap');
+  const blocksStandardMemberSwap = slot?.seat === 'default' && slot.status === 'member';
 
   const steps = useMemo(() => buildStepItems(slot?.swap?.steps), [slot?.swap?.steps]);
   const historyItems = useMemo(
@@ -86,7 +87,7 @@ export function PublicSeatPage() {
     try {
       await actionBusy.run('public-seat-swap', async () => {
         setSlot({
-          ...(slot ?? { seatKey, expiresOn: '', status: 'unknown' as const }),
+          ...(slot ?? { seatKey, expiresOn: '', seat: 'usage_based' as const, status: 'unknown' as const }),
           swap: {
             id: 'local-submitting',
             status: 'running',
@@ -141,15 +142,31 @@ export function PublicSeatPage() {
           </div>
 
           {error && <Alert type="error" showIcon message={error} />}
+          {slot.seat === 'default' && (
+            <Alert
+              type="warning"
+              showIcon
+              message={blocksStandardMemberSwap ? '该席位不能自动换号' : '标准 ChatGPT 席位存在计费风险'}
+              description={blocksStandardMemberSwap
+                ? '移除已接受成员后，原席位可能继续临时计费，新成员也可能形成独立付费席位。请联系管理员核对 Billing 后人工处理。'
+                : '邀请新成员前应由管理员确认工作区 Billing；上游可能把新成员计为独立付费席位。'}
+            />
+          )}
 
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="备注">{slot.remark || '未填写'}</Descriptions.Item>
             <Descriptions.Item label="到期时间">{slot.expiresOn}</Descriptions.Item>
             <Descriptions.Item label="价格">{slot.price || '未填写'}</Descriptions.Item>
+            <Descriptions.Item label="席位类型">{slot.seat === 'usage_based' ? 'Codex' : 'ChatGPT'}</Descriptions.Item>
             <Descriptions.Item label="当前邮箱">{slot.email || '未绑定'}</Descriptions.Item>
           </Descriptions>
 
-          <Form form={form} layout="vertical" disabled={submitting} onFinish={(values) => void submit(values)}>
+          <Form
+            form={form}
+            layout="vertical"
+            disabled={submitting || blocksStandardMemberSwap}
+            onFinish={(values) => void submit(values)}
+          >
             <Form.Item
               name="email"
               label="新邮箱"

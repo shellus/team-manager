@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
+  buildParentAfterDeleteLocation,
   buildParentDeleteLocation,
+  clearStaleParentDeleteState,
   parentAccountManagerStatusNeedsPolling,
   seatSlotProfileFromInviteValues
 } from './ParentRoutes.js';
@@ -40,6 +42,56 @@ describe('buildParentDeleteLocation', () => {
     expect(params.get('target')).toBe('parent-1');
     expect(params.get('q')).toBe('owner');
     expect(params.get('tags')).toBe('gam,codex,team');
+  });
+});
+
+describe('buildParentAfterDeleteLocation', () => {
+  test('moves to the next visible parent and clears stale modal state', () => {
+    const location = buildParentAfterDeleteLocation(
+      new URLSearchParams('group=%E5%AE%A2%E6%88%B7+A&tab=billing&modal=delete-parent&target=parent-1'),
+      [{ id: 'parent-1' }, { id: 'parent-2' }],
+      'parent-1'
+    );
+    const params = new URLSearchParams(location.search);
+
+    expect(location.pathname).toBe('/parents/parent-2');
+    expect(params.get('group')).toBe('客户 A');
+    expect(params.get('tab')).toBe('billing');
+    expect(params.has('modal')).toBe(false);
+    expect(params.has('target')).toBe(false);
+  });
+
+  test('returns to the parent route when the deleted parent was the last visible one', () => {
+    expect(buildParentAfterDeleteLocation(
+      new URLSearchParams('modal=delete-parent&target=parent-1'),
+      [{ id: 'parent-1' }],
+      'parent-1'
+    )).toEqual({ pathname: '/parents', search: '' });
+  });
+});
+
+describe('clearStaleParentDeleteState', () => {
+  test('clears a delete modal that still targets the removed parent', () => {
+    const params = clearStaleParentDeleteState(
+      new URLSearchParams('tab=members&modal=delete-parent&target=parent-1'),
+      'delete-parent',
+      'parent-1',
+      'parent-2'
+    );
+
+    expect(params.toString()).toBe('tab=members');
+  });
+
+  test('keeps the delete modal while its parent is still selected', () => {
+    const params = clearStaleParentDeleteState(
+      new URLSearchParams('tab=members&modal=delete-parent&target=parent-1'),
+      'delete-parent',
+      'parent-1',
+      'parent-1'
+    );
+
+    expect(params.get('modal')).toBe('delete-parent');
+    expect(params.get('target')).toBe('parent-1');
   });
 });
 

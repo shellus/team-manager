@@ -9,7 +9,7 @@ import type {
   SeatType,
   MemberRole
 } from '@team-manager/shared';
-import type { Transport } from './transport.js';
+import { fetchWithRawTrace, type Transport } from './transport.js';
 import { upcomingInvoiceHasTeamSubscription } from './teamSubscription.js';
 
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -306,10 +306,10 @@ export class ChatGptApi {
     return this.request('DELETE', path, { email_address: email });
   }
 
-  /** 踢人 */
-  async removeMember(userId: string): Promise<unknown> {
+  /** 移除成员 */
+  async removeMember(userId: string): Promise<ChatGptMemberRemovalResponse> {
     const path = `/backend-api/accounts/${this.account.accountId}/users/${userId}`;
-    return this.request('DELETE', path);
+    return this.request<ChatGptMemberRemovalResponse>('DELETE', path);
   }
 
   /** 改子号席位类型（字段为 seat_type：default=ChatGPT，usage_based=Codex） */
@@ -455,6 +455,12 @@ interface RawPendingInvite {
   is_scim_managed: boolean;
 }
 
+export interface ChatGptMemberRemovalResponse {
+  success?: boolean;
+  billing_notice?: unknown;
+  policy_notice?: unknown;
+}
+
 export function parseChatGptAccountCheckEntries(data: Record<string, unknown>): ChatGptAccountCheckEntry[] {
   const seen = new Set<string>();
   const entries: ChatGptAccountCheckEntry[] = [];
@@ -540,7 +546,7 @@ export function decodeJwtExp(token: string): number | null {
 
 /** 用 refresh_token 换新 access_token */
 export async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> {
-  const res = await fetch(OAUTH_TOKEN_URL, {
+  const res = await fetchWithRawTrace('openai-oauth', OAUTH_TOKEN_URL, {
     method: 'POST',
     headers: {
       Accept: 'application/json',

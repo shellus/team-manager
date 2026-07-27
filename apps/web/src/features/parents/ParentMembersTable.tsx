@@ -39,6 +39,7 @@ export function ParentMembersTable({
   const [error, setError] = useState('');
   const [editingEmail, setEditingEmail] = useState('');
   const actionBusy = useActionBusy();
+  const lastRemoval = account.lastMemberRemoval;
   const members = useMemo(
     () => (account.membersCache ?? []).map((member, index) => ({ member, index }))
       .sort((a, b) => memberRoleRank(a.member) - memberRoleRank(b.member) || a.index - b.index)
@@ -181,7 +182,7 @@ export function ParentMembersTable({
       render: (_, member) => (
         <ActionPopconfirm
           title="移除成员"
-          description="移除成员可能导致该 Team 下的凭证不可用。"
+          description="成员会立即失去访问权限和相关凭证；标准 ChatGPT 席位仍可能临时计费，随后添加的新成员也可能形成独立付费席位。"
           okText="移除成员"
           cancelText="取消"
           loading={actionBusy.isBusy(actionKey('member-remove', member.userId))}
@@ -205,6 +206,41 @@ export function ParentMembersTable({
         </Button>
       </div>
       {error && <Alert type="error" showIcon message={error} />}
+      {lastRemoval && (
+        <Alert
+          type={(lastRemoval.policyNotice?.billedSeatDelta ?? 0) > 0 || lastRemoval.billingNoticeJson ? 'warning' : 'info'}
+          showIcon
+          message={`最近移除成员：${lastRemoval.email ?? lastRemoval.userId}`}
+          description={(
+            <Space direction="vertical" size={2}>
+              <Typography.Text>
+                {lastRemoval.policyNotice?.kind
+                  ? `上游策略：${lastRemoval.policyNotice.kind}`
+                  : '上游未返回可识别的策略类型'}
+                {lastRemoval.policyNotice?.billedSeatDelta !== undefined
+                  ? `；计费席位变化：${lastRemoval.policyNotice.billedSeatDelta}`
+                  : ''}
+                {lastRemoval.policyNotice?.vacancyOrdinal !== undefined
+                  ? `；空缺序号：${lastRemoval.policyNotice.vacancyOrdinal}`
+                  : ''}
+                {lastRemoval.policyNotice?.freeVacancyThreshold !== undefined
+                  ? `；临时阈值：${lastRemoval.policyNotice.freeVacancyThreshold}`
+                  : ''}
+              </Typography.Text>
+              {lastRemoval.billingNoticeJson && (
+                <Typography.Text code copyable={{ text: lastRemoval.billingNoticeJson }}>
+                  billing_notice: {lastRemoval.billingNoticeJson}
+                </Typography.Text>
+              )}
+              {lastRemoval.policyNotice?.rawJson && (
+                <Typography.Text code copyable={{ text: lastRemoval.policyNotice.rawJson }}>
+                  policy_notice: {lastRemoval.policyNotice.rawJson}
+                </Typography.Text>
+              )}
+            </Space>
+          )}
+        />
+      )}
       <Table<Member>
         rowKey="userId"
         columns={columns}
