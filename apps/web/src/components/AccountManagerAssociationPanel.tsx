@@ -1,5 +1,5 @@
 import type { AccountManagerProfileView, ParentAccountManagerStatus } from '@team-manager/shared';
-import { PlayCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
+import { ImportOutlined, PlayCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Empty, Space, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../api.js';
@@ -10,28 +10,33 @@ export function AccountManagerAssociationPanel({
   recordId,
   managedAccountEmail,
   status,
-  loading = false
+  loading = false,
+  onStatusChanged
 }: {
   recordLabel: '母号' | '子号';
   recordId?: string;
   managedAccountEmail?: string;
   status?: ParentAccountManagerStatus | null;
   loading?: boolean;
+  onStatusChanged?: (status: ParentAccountManagerStatus) => void;
 }) {
   const [profile, setProfile] = useState<AccountManagerProfileView | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileAction, setProfileAction] = useState<'start' | 'stop' | null>(null);
   const [profileError, setProfileError] = useState<string>();
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
+  const [enrollmentError, setEnrollmentError] = useState<string>();
+  const effectiveManagedEmail = managedAccountEmail || (status?.managed ? status.accountEmail : undefined);
 
   const requestProfile = useCallback(async () => {
-    if (!recordId || !managedAccountEmail) return null;
+    if (!recordId || !effectiveManagedEmail) return null;
     return recordLabel === '母号'
       ? await apiClient.getParentAccountProfile(recordId)
       : await apiClient.getSubaccountAccountProfile(recordId);
-  }, [managedAccountEmail, recordId, recordLabel]);
+  }, [effectiveManagedEmail, recordId, recordLabel]);
 
   useEffect(() => {
-    if (!recordId || !managedAccountEmail) {
+    if (!recordId || !effectiveManagedEmail) {
       setProfile(null);
       return;
     }
@@ -49,7 +54,7 @@ export function AccountManagerAssociationPanel({
         if (!cancelled) setProfileLoading(false);
       });
     return () => { cancelled = true; };
-  }, [managedAccountEmail, recordId, requestProfile]);
+  }, [effectiveManagedEmail, recordId, requestProfile]);
 
   useEffect(() => {
     if (profile?.status !== 'queued' && profile?.status !== 'stopping') return;
@@ -83,8 +88,59 @@ export function AccountManagerAssociationPanel({
     }
   };
 
-  if (!managedAccountEmail) {
-    return <Empty description={`该${recordLabel}独立录入，未关联 GPT Account Manager`} />;
+  const enrollParentAccount = async () => {
+    if (!recordId || recordLabel !== '母号') return;
+    setEnrollmentLoading(true);
+    setEnrollmentError(undefined);
+    try {
+      onStatusChanged?.(await apiClient.manageParentAccount(recordId));
+    } catch (error) {
+      setEnrollmentError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEnrollmentLoading(false);
+    }
+  };
+
+  if (!effectiveManagedEmail) {
+    const operation = status?.enrollmentOperation;
+    const operationActive = operation && [
+      'queued', 'running', 'waiting_for_otp', 'waiting_manual'
+    ].includes(operation.status);
+    return (
+      <Space direction="vertical" size={12} className="panel-stack account-manager-association-panel">
+        <Empty description={`该${recordLabel}独立录入，未关联 GPT Account Manager`}>
+          {recordLabel === '母号' && recordId && (
+            <Button
+              type="primary"
+              icon={<ImportOutlined />}
+              loading={enrollmentLoading}
+              disabled={loading || enrollmentLoading || Boolean(operationActive)
+                || status?.configured === false || status?.reachable === false}
+              onClick={() => void enrollParentAccount()}
+            >
+              {operation?.status === 'failed' || operation?.status === 'interrupted'
+                ? '重新纳入 GAM 管理'
+                : '纳入 GAM 管理'}
+            </Button>
+          )}
+        </Empty>
+        {operation && (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="纳管状态">
+              <EnrollmentOperationState status={operation.status} />
+            </Descriptions.Item>
+            <Descriptions.Item label="当前进度">
+              {operation.message || enrollmentPhaseLabel(operation.phase)}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+        {(enrollmentError || (operation && status?.error)) && (
+          <Typography.Text type="danger">
+            {enrollmentError || status?.error}
+          </Typography.Text>
+        )}
+      </Space>
+    );
   }
 
   return (
@@ -95,7 +151,7 @@ export function AccountManagerAssociationPanel({
           <Tag color="blue">GAM</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="账号引用">
-          <Typography.Text code copyable>{managedAccountEmail}</Typography.Text>
+          <Typography.Text code copyable>{effectiveManagedEmail}</Typography.Text>
         </Descriptions.Item>
         {status && (
           <Descriptions.Item label="服务状态">
@@ -153,6 +209,36 @@ export function AccountManagerAssociationPanel({
       </Descriptions>
     </Space>
   );
+}
+
+function enrollmentPhaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
+    profile_creating: '正在创建 GAM 隔离 Profile',
+    login_opening: '正在打开 ChatGPT 登录页',
+    session_bootstrap: '正在导入现有 Web Session',
+    waiting_for_otp: '正在从 GongXi-Mail 读取验证码',
+    cloak_challenge_rotating_ip: '遇到人机验证，正在更换住宅 IP',
+    cloak_proxy_rotating_ip: '当前代理不可用，正在更换住宅 IP',
+    cloak_challenge_waiting_manual: '等待在该账号自己的 GAM Profile 中完成人机验证',
+    complete: '账号已纳入 GAM 管理',
+    import_failed: '账号导入失败',
+    operation_interrupted: '账号导入已中断'
+  };
+  return labels[phase] || phase;
+}
+
+function EnrollmentOperationState({
+  status
+}: {
+  status: NonNullable<ParentAccountManagerStatus['enrollmentOperation']>['status'];
+}) {
+  if (status === 'queued') return <Tag color="processing">等待执行</Tag>;
+  if (status === 'running') return <Tag color="processing">正在登录</Tag>;
+  if (status === 'waiting_for_otp') return <Tag color="warning">等待验证码</Tag>;
+  if (status === 'waiting_manual') return <Tag color="warning">等待人工处理</Tag>;
+  if (status === 'succeeded') return <Tag color="success">导入完成</Tag>;
+  if (status === 'interrupted') return <Tag>已终止</Tag>;
+  return <Tag color="error">导入失败</Tag>;
 }
 
 function AccountProfileState({

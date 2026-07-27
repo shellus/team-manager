@@ -118,6 +118,8 @@ export const apiClient = {
     call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
   getParentAccountManagerStatuses: () =>
     call<Record<string, ParentAccountManagerStatus>>('GET', '/accounts/account-manager/statuses'),
+  manageParentAccount: (id: string) =>
+    call<ParentAccountManagerStatus>('POST', `/accounts/${id}/account-manager/manage`),
   getParentAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('GET', `/accounts/${id}/account-manager/profile`),
   startParentAccountProfile: (id: string) =>

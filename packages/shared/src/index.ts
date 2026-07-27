@@ -617,6 +617,7 @@ export interface ParentAccountManagerStatus {
   teamUpgradeWorkspaces?: TeamUpgradeWorkspaceOption[];
   codexOperation?: AccountManagerOperationView;
   teamOperation?: AccountManagerOperationView;
+  enrollmentOperation?: AccountManagerOperationView;
   importedAccounts?: AccountSummaryView[];
   error?: string;
 }

@@ -102,6 +102,26 @@ class FakeAccountManager implements AccountManagerGateway {
     };
   }
 
+  async startAccountImport(input: {
+    email: string;
+    authMethod: 'email_otp' | 'password' | 'existing_session';
+    password?: string;
+    session?: AccountView['session'];
+  }) {
+    const operation: AccountManagerOperationView = {
+      id: `import-${this.operations.length}`,
+      type: 'import',
+      status: 'queued',
+      phase: 'profile_creating',
+      progress: 0,
+      requestSummary: { email: input.email, authMethod: input.authMethod },
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    this.operations.push(operation);
+    return operation;
+  }
+
   async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
     const operation = await this.operation(id);
     operation.status = 'queued';
@@ -226,6 +246,17 @@ class FakeAccountManager implements AccountManagerGateway {
     });
   }
 
+  completeImport(email: string) {
+    const operation = this.operations.find((item) => item.type === 'import')!;
+    operation.status = 'succeeded';
+    operation.accountId = email;
+    operation.email = email;
+    operation.progress = 100;
+    this.accounts.set(email, {
+      id: email, email, hasCodexSpace: false, hasTeamSubscription: false, workspaces: []
+    });
+  }
+
   completeCodex(email: string, workspaceId: string) {
     const operation = this.operations.find((item) => item.type === 'open_codex_space')!;
     operation.status = 'succeeded';
@@ -262,6 +293,7 @@ class FakeAccountManager implements AccountManagerGateway {
 }
 
 class FakeTeamService {
+  constructor(private readonly store: AccountStore) {}
   saved: Array<{
     kind: 'identity' | 'workspace';
     email: string;
@@ -280,6 +312,24 @@ class FakeTeamService {
     this.refreshCalls.push(id);
     if (!this.refreshResult) throw new Error('refresh result missing');
     return this.refreshResult;
+  }
+
+  async getAccountDetail(id: string): Promise<AccountView> {
+    const account = this.store.get(id);
+    if (!account) throw new Error('account missing');
+    return {
+      id: account.id,
+      managedAccountEmail: account.managedAccountEmail,
+      remark: account.remark,
+      groupName: account.groupName || '默认分组',
+      limitType: account.limitType || 'unknown',
+      accountId: account.accountId,
+      email: account.email,
+      planType: account.planType,
+      status: account.status || 'unknown',
+      hasTeamSubscription: account.hasTeamSubscription === true || account.planType === 'team',
+      canManageWorkspace: account.planType !== 'free'
+    };
   }
 
   async saveManagedParentIdentityFromSessionInput(email: string, _raw: unknown, groupName?: string): Promise<AccountView> {
@@ -323,7 +373,7 @@ async function withService(run: (
   const store = new AccountStore(dir);
   await store.init();
   const accountManager = new FakeAccountManager();
-  const teamService = new FakeTeamService();
+  const teamService = new FakeTeamService(store);
   try {
     await run(
       new ParentAccountManagerService(store, teamService as unknown as TeamService, accountManager),
@@ -337,6 +387,121 @@ async function withService(run: (
 }
 
 describe('ParentAccountManagerService', () => {
+  it('starts an email-OTP GAM import for an existing unmanaged parent', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        accountId: 'team-workspace',
+        email: 'Owner@Example.com',
+        accessToken: 'web-access-token',
+        planType: 'team'
+      });
+
+      const status = await service.startAccountManagement(parent.id);
+
+      assert.equal(status.managed, false);
+      assert.equal(status.enrollmentOperation?.type, 'import');
+      assert.equal(status.enrollmentOperation?.requestSummary?.email, 'owner@example.com');
+      assert.equal(status.enrollmentOperation?.requestSummary?.authMethod, 'email_otp');
+      assert.equal(store.get(parent.id)?.managedAccountEmail, undefined);
+      assert.equal(accountManager.operations.filter((operation) => operation.type === 'import').length, 1);
+    });
+  });
+
+  it('prefers the existing Team Manager session when it can bootstrap GAM identity', async () => {
+    await withService(async (service, _accountManager, _teamService, store) => {
+      const parent = await store.add({
+        accountId: 'team-workspace',
+        email: 'Owner@Example.com',
+        accessToken: 'web-access-token',
+        sessionToken: 'session-token',
+        planType: 'team'
+      });
+
+      const status = await service.startAccountManagement(parent.id);
+
+      assert.equal(status.enrollmentOperation?.requestSummary?.authMethod, 'existing_session');
+      assert.equal(status.enrollmentOperation?.requestSummary?.email, 'owner@example.com');
+      assert.equal(status.enrollmentOperation?.requestSummary?.session, undefined);
+    });
+  });
+
+  it('removes all terminal import history before retrying the same parent', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        accountId: 'team-workspace',
+        email: 'owner@example.com',
+        accessToken: 'web-access-token',
+        planType: 'team'
+      });
+      await service.startAccountManagement(parent.id);
+      accountManager.operations[0]!.status = 'failed';
+      accountManager.operations.push({
+        id: 'older-import',
+        type: 'import',
+        status: 'interrupted',
+        phase: 'operation_interrupted',
+        progress: 100,
+        requestSummary: { email: 'owner@example.com', authMethod: 'email_otp' },
+        createdAt: 0,
+        updatedAt: 0
+      });
+
+      await service.startAccountManagement(parent.id);
+
+      assert.equal(accountManager.operations.length, 1);
+      assert.equal(accountManager.operations[0]?.status, 'queued');
+    });
+  });
+
+  it('links the original parent after its GAM import succeeds without replacing local workspace data', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        accountId: 'team-workspace',
+        email: 'Owner@Example.com',
+        accessToken: 'existing-workspace-token',
+        planType: 'team',
+        remark: '客户备注'
+      });
+      await service.startAccountManagement(parent.id);
+      accountManager.completeImport('owner@example.com');
+
+      const statuses = await service.accountStatuses();
+
+      assert.equal(statuses[parent.id]?.managed, true);
+      assert.equal(statuses[parent.id]?.importedAccounts?.[0]?.id, parent.id);
+      assert.equal(store.get(parent.id)?.managedAccountEmail, 'owner@example.com');
+      assert.equal(store.get(parent.id)?.accountId, 'team-workspace');
+      assert.equal(store.get(parent.id)?.accessToken, 'existing-workspace-token');
+      assert.equal(store.get(parent.id)?.remark, '客户备注');
+      assert.equal(accountManager.operations.filter((operation) => operation.type === 'import').length, 0);
+    });
+  });
+
+  it('links an account already present in GAM without starting a duplicate import', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        accountId: 'team-workspace',
+        email: 'owner@example.com',
+        accessToken: 'web-access-token',
+        planType: 'team'
+      });
+      accountManager.accounts.set('owner@example.com', {
+        id: 'owner@example.com',
+        email: 'owner@example.com',
+        hasCodexSpace: false,
+        hasTeamSubscription: false,
+        workspaces: []
+      });
+
+      const status = await service.startAccountManagement(parent.id);
+
+      assert.equal(status.managed, true);
+      assert.equal(status.importedAccounts?.[0]?.id, parent.id);
+      assert.equal(store.get(parent.id)?.managedAccountEmail, 'owner@example.com');
+      assert.equal(accountManager.operations.filter((operation) => operation.type === 'import').length, 0);
+    });
+  });
+
   it('proxies managed parent Profile lifecycle without calling CloakBrowser directly', async () => {
     await withService(async (service, accountManager, _teamService, store) => {
       const parent = await store.add({

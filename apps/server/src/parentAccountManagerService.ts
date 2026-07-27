@@ -104,14 +104,26 @@ export class ParentAccountManagerService {
       };
     }
     if (!local.managedAccountEmail) {
-      return {
-        configured: true,
-        reachable: true,
-        managed: false,
-        hasCodexSpace: localHasCodexSpace,
-        hasTeamSubscription: localHasTeamSubscription,
-        error: '该母号未关联 GPT Account Manager'
-      };
+      try {
+        const operations = await this.accountManager.listOperations({ type: 'import' });
+        return this.reconcileAccountEnrollment(
+          accountId,
+          local.email,
+          findLatestEnrollmentOperation(operations, local.email),
+          localHasTeamSubscription,
+          localHasCodexSpace
+        );
+      } catch (error) {
+        return {
+          configured: true,
+          reachable: false,
+          managed: false,
+          hasCodexSpace: localHasCodexSpace,
+          hasTeamSubscription: localHasTeamSubscription,
+          accountEmail: local.email.trim().toLowerCase(),
+          error: error instanceof AccountManagerError ? error.message : (error as Error).message
+        };
+      }
     }
 
     const email = local.managedAccountEmail;
@@ -201,13 +213,42 @@ export class ParentAccountManagerService {
         current.push(operation);
         operationsByEmail.set(email, current);
       }
+      const enrollmentOperationsByEmail = new Map<string, AccountManagerOperationView[]>();
+      for (const operation of allOperations.filter(isAccountEnrollmentOperation)) {
+        const email = enrollmentOperationEmail(operation);
+        if (!email) continue;
+        const current = enrollmentOperationsByEmail.get(email) ?? [];
+        current.push(operation);
+        enrollmentOperationsByEmail.set(email, current);
+      }
 
       const entries = await Promise.all(accounts.map(async (local) => {
         const localHasCodexSpace = local.planType === CODEX_SPACE_PLAN;
         const localHasTeamSubscription = this.teamService.hasTeamSubscription(local.id);
         const email = local.managedAccountEmail?.trim().toLowerCase();
         if (!email) {
-          return [local.id, unmanagedLocalParentStatus(localHasTeamSubscription, localHasCodexSpace)] as const;
+          const localEmail = local.email.trim().toLowerCase();
+          const enrollmentOperation = (enrollmentOperationsByEmail.get(localEmail) ?? [])
+            .sort((a, b) => b.createdAt - a.createdAt)[0];
+          if (enrollmentOperation?.status === 'succeeded' && managedByEmail.has(localEmail)) {
+            const linkedAccount = await this.linkLocalAccount(local.id, localEmail);
+            await this.removeTerminalEnrollmentOperations(localEmail);
+            return [
+              local.id,
+              appendImportedAccount(await this.accountStatus(local.id), linkedAccount)
+            ] as const;
+          }
+          return [
+            local.id,
+            unmanagedLocalParentStatus(
+              localHasTeamSubscription,
+              localHasCodexSpace,
+              enrollmentOperation,
+              enrollmentOperation?.status === 'succeeded'
+                ? 'GAM 导入已完成，但账号状态尚未可读取，正在等待同步'
+                : undefined
+            )
+          ] as const;
         }
         const managed = managedByEmail.get(email);
         if (!managed) {
@@ -258,6 +299,62 @@ export class ParentAccountManagerService {
     }
   }
 
+  async startAccountManagement(accountId: string): Promise<ParentAccountManagerStatus> {
+    const local = this.store.get(accountId);
+    if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    if (local.managedAccountEmail) return this.accountStatus(accountId);
+
+    const email = local.email.trim().toLowerCase();
+    if (!email) throw new ServiceError(400, '母号邮箱不能为空');
+    const localHasCodexSpace = local.planType === CODEX_SPACE_PLAN;
+    const localHasTeamSubscription = this.teamService.hasTeamSubscription(local.id);
+    const managed = await this.findManagedAccount(email);
+    if (managed) {
+      const linkedAccount = await this.linkLocalAccount(local.id, email);
+      await this.removeTerminalEnrollmentOperations(email);
+      return appendImportedAccount(await this.accountStatus(local.id), linkedAccount);
+    }
+
+    const operations = await this.callAccountManager(() => this.accountManager!.listOperations({ type: 'import' }));
+    const existing = findLatestEnrollmentOperation(operations, email);
+    if (existing && existing.status !== 'failed' && existing.status !== 'interrupted') {
+      return this.reconcileAccountEnrollment(
+        local.id,
+        email,
+        existing,
+        localHasTeamSubscription,
+        localHasCodexSpace
+      );
+    }
+    for (const operation of operations.filter((item) =>
+      enrollmentOperationEmail(item) === email
+      && (item.status === 'failed' || item.status === 'interrupted')
+    )) {
+      await this.safeRemoveOperation(operation.id);
+    }
+
+    const operation = await this.callAccountManager(() => this.accountManager!.startAccountImport({
+      email,
+      authMethod: local.sessionToken ? 'existing_session' : 'email_otp',
+      ...(local.sessionToken
+        ? {
+            session: {
+              user: { email: local.email },
+              account: { id: local.accountId },
+              accessToken: local.accessToken,
+              sessionToken: local.sessionToken
+            }
+          }
+        : {})
+    }));
+    return unmanagedLocalParentStatus(
+      localHasTeamSubscription,
+      localHasCodexSpace,
+      operation
+    );
+  }
+
   async refreshAccount(accountId: string): Promise<AccountView> {
     const local = this.store.get(accountId);
     if (!local) throw new ServiceError(404, `母号不存在: ${accountId}`);
@@ -269,6 +366,60 @@ export class ParentAccountManagerService {
       managedSync
     ]);
     return refreshed;
+  }
+
+  private async reconcileAccountEnrollment(
+    accountId: string,
+    email: string,
+    operation: AccountManagerOperationView | undefined,
+    localHasTeamSubscription: boolean,
+    localHasCodexSpace: boolean
+  ): Promise<ParentAccountManagerStatus> {
+    if (operation?.status !== 'succeeded') {
+      return unmanagedLocalParentStatus(
+        localHasTeamSubscription,
+        localHasCodexSpace,
+        operation
+      );
+    }
+    const managed = await this.findManagedAccount(email);
+    if (!managed) {
+      return unmanagedLocalParentStatus(
+        localHasTeamSubscription,
+        localHasCodexSpace,
+        operation,
+        'GAM 导入已完成，但账号状态尚未可读取，正在等待同步'
+      );
+    }
+    const linkedAccount = await this.linkLocalAccount(accountId, email);
+    await this.removeTerminalEnrollmentOperations(email);
+    return appendImportedAccount(await this.accountStatus(accountId), linkedAccount);
+  }
+
+  private async findManagedAccount(email: string): Promise<ManagedAccountSummary | undefined> {
+    try {
+      return await this.accountManager!.account(email);
+    } catch (error) {
+      if (error instanceof AccountManagerError && error.status === 404) return undefined;
+      if (error instanceof AccountManagerError) throw new ServiceError(error.status, error.message);
+      throw error;
+    }
+  }
+
+  private async linkLocalAccount(accountId: string, email: string): Promise<AccountSummaryView> {
+    const updated = await this.store.update(accountId, { managedAccountEmail: email });
+    if (!updated) throw new ServiceError(404, `母号不存在: ${accountId}`);
+    return accountSummaryFromView(await this.teamService.getAccountDetail(accountId));
+  }
+
+  private async removeTerminalEnrollmentOperations(email: string): Promise<void> {
+    const operations = await this.callAccountManager(() => this.accountManager!.listOperations({ type: 'import' }));
+    for (const operation of operations.filter((item) =>
+      enrollmentOperationEmail(item) === email
+      && (item.status === 'succeeded' || item.status === 'failed' || item.status === 'interrupted')
+    )) {
+      await this.safeRemoveOperation(operation.id);
+    }
   }
 
   async accountProfile(accountId: string): Promise<AccountManagerProfileView> {
@@ -555,7 +706,9 @@ function managedParentStatus(
 
 function unmanagedLocalParentStatus(
   hasTeamSubscription: boolean,
-  hasCodexSpace = false
+  hasCodexSpace = false,
+  enrollmentOperation?: AccountManagerOperationView,
+  error?: string
 ): ParentAccountManagerStatus {
   return {
     configured: true,
@@ -563,7 +716,11 @@ function unmanagedLocalParentStatus(
     managed: false,
     hasCodexSpace,
     hasTeamSubscription,
-    error: '该母号未关联 GPT Account Manager'
+    ...(enrollmentOperation ? { enrollmentOperation } : {}),
+    error: error
+      || enrollmentOperation?.errorMessage
+      || enrollmentOperation?.message
+      || '该母号未关联 GPT Account Manager'
   };
 }
 
@@ -605,6 +762,29 @@ function operationAccountEmail(operation: AccountManagerOperationView): string |
   return email?.trim().toLowerCase() || undefined;
 }
 
+function enrollmentOperationEmail(operation: AccountManagerOperationView): string | undefined {
+  const requestEmail = operation.requestSummary?.email;
+  const email = typeof requestEmail === 'string'
+    ? requestEmail
+    : operation.accountId || operation.email;
+  return email?.trim().toLowerCase() || undefined;
+}
+
+function findLatestEnrollmentOperation(
+  operations: AccountManagerOperationView[],
+  email: string
+): AccountManagerOperationView | undefined {
+  const target = email.trim().toLowerCase();
+  return operations
+    .filter((operation) => isAccountEnrollmentOperation(operation)
+      && enrollmentOperationEmail(operation) === target)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+
+function isAccountEnrollmentOperation(operation: AccountManagerOperationView): boolean {
+  return operation.type === 'import';
+}
+
 function registrationEmail(operation: AccountManagerOperationView): string | undefined {
   const value = operation.accountId || operation.email;
   return value?.trim().toLowerCase() || undefined;
@@ -636,4 +816,14 @@ function mergeAccounts<T extends { id: string }>(current: T[], next: T[]): T[] {
   const byId = new Map(current.map((account) => [account.id, account]));
   for (const account of next) byId.set(account.id, account);
   return [...byId.values()];
+}
+
+function appendImportedAccount(
+  status: ParentAccountManagerStatus,
+  account: AccountSummaryView
+): ParentAccountManagerStatus {
+  return {
+    ...status,
+    importedAccounts: mergeAccounts(status.importedAccounts ?? [], [account])
+  };
 }

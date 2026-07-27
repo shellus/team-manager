@@ -16,6 +16,14 @@ Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT 
 
 Account Manager 已完成注册、Session 校验和账号同步，因此导入成功的个人母号直接保存为 `active`。没有 Workspace 只影响成员、邀请、设置和账单能力，不得把账号标记为“待同步”；后续 0.52、双席位、本地资料和 Workspace 同步入口仍可使用。
 
+## 已有母号纳管
+
+手工录入且尚无 `managedAccountEmail` 的母号可调用 `POST /api/accounts/:id/account-manager/manage` 纳入 GAM。Team Manager 优先把已有 `sessionToken`、当前 Workspace Web access token 和账号上下文交给 Account Manager；Account Manager 在自己的隔离 Profile 中写入 Session Cookie、校验 ChatGPT Session、保存浏览器身份归档并同步可见 Workspace。该流程不要求在 Team Manager 再次输入或持久化密码，也不得覆盖母号现有 `remark`、`groupName`、Workspace `accountId`、席位资料或成员邀请缓存。
+
+纳管操作类型为 `import`，以规范化邮箱幂等绑定。页面刷新后从 Account Manager 操作列表恢复进度；成功后只给原母号补写 `managedAccountEmail`，不创建第二条本地母号。同步 Workspace 失败但浏览器身份和 Session 已成功接收时，Account Manager 保留受管账号并记录 `lifecycleStatus=error` 与同步错误，便于后续重新授权；不得把它退回成“未纳管”。同一邮箱重试前清理所有失败、终止和已完成的历史导入操作，运行中的操作不得重复创建。
+
+没有 `sessionToken` 时才回退到 Account Manager 的交互式登录导入。Cloudflare、密码或验证码页面必须停留在该账号自己的 GAM Profile，不得借用默认浏览器或其他账号 Profile。
+
 注册中出现 Cloudflare 挑战页时，Account Manager 先保持 `running` 并等待中间页自动通过。最后一次 profile 中挑战持续存在时才进入 `waiting_manual`；Team Manager 把该状态视为活跃任务并继续轮询。挑战通过后自动回到 `running`，并从当前邮箱、密码、验证码或资料页继续。输入框因导航或 DOM 替换而消失时，Account Manager 重新识别当前阶段；资料页按姓名字段优先识别，年龄数字框不参与验证码判断。验证码或资料提交后仍停在原 DOM 时停止重复提交，进入活跃监听，DOM 推进后再回到 `running`。最终仍无法识别时保留 profile 并短暂等待后自动复用。Account Manager 重启后也会复用保留的 profile 恢复监听。
 
 母号和子号页面分别保存最后一次选中的分组。进入页面时优先恢复该选择；若该分组已不存在，选中第一个实际分组；只有没有任何实际分组时才回退到“所有”。明确带 `group` 的 URL 仍优先于本地偏好。
@@ -70,6 +78,7 @@ Account Manager 执行以下顺序：
 ## 安全与幂等
 
 - 手工录入且未关联 Account Manager 的母号不会按邮箱猜测关联。
+- 已有母号纳管必须由显式操作触发；只有同一邮箱的成功导入操作或 GAM 中已存在的同邮箱账号才能补写引用。
 - 注册、0.52 和双席位操作使用相同母号用途标记，但操作类型彼此独立。
 - 完整卡号和 CVC 不写入 Team Manager 运行数据或日志；Account Manager 也只在当前进程内保存待提交卡片。
 - 已开通的 0.52 或双席位操作返回幂等成功，不重复生成订单或扣款。

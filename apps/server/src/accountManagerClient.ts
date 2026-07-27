@@ -23,6 +23,13 @@ export interface AccountRegistrationRequest {
   clientReference?: string;
 }
 
+export interface AccountImportRequest {
+  email: string;
+  authMethod: 'email_otp' | 'password' | 'existing_session';
+  password?: string;
+  session?: ChatGptSessionInput;
+}
+
 export interface ManagedAccountWorkspace {
   id: string;
   name?: string;
@@ -73,6 +80,7 @@ export interface AccountManagerGateway {
   listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]>;
   listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]>;
   startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView>;
+  startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView>;
   retryRegistration(id: string): Promise<SubaccountRegistrationJobView>;
   rotateOperationIp(id: string): Promise<AccountManagerOperationView>;
   terminateOperation(id: string): Promise<AccountManagerOperationView>;
@@ -149,6 +157,10 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   async startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
     return registrationJobFromOperation(toOperation(await this.request('POST', '/v1/accounts/register', input)));
+  }
+
+  async startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request('POST', '/v1/accounts/imports', input));
   }
 
   async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {

@@ -126,6 +126,7 @@
 | 远端 Team 改名 | 远端修改成功后更新 `workspaceName` | 合并返回的母号 view |
 | 编辑本地资料 | 更新 `remark`、`groupName`、`isBanned`、`limitType`、`nextRenewalOn` 和 `proxy`；提供 session JSON 时先按母号 session 录入规则解析 Team workspace，再更新 `email`、`accountId`、`accessToken`、workspace 元数据和可用的 `sessionToken`，并清空 `lastError` | 合并返回的母号 view，已保存 session 明文回填到 `session` 字段 |
 | 自动注册母号 | 创建带母号用途标记的 Account Manager 注册操作；注册成功后立即保存 `managedAccountEmail` 与个人 Web Session，不触发支付 | 任务卡只展示账号注册；交付完成后立即替换为母号 view |
+| 已有母号纳入 GAM | 优先把本地已有 `sessionToken` 与当前 Web Session 交给 Account Manager 建立独立浏览器身份；成功后只给原记录补写规范化 `managedAccountEmail`，不覆盖 Workspace、备注、分组、席位资料或成员邀请缓存 | 账号管理页展示导入进度；刷新后继续轮询同一操作，完成后原母号切换为 GAM 状态 |
 | 开通 0.52 Workspace | 只把卡片请求转发给 Account Manager；成功状态由 GAM workspace 派生，不改变母号创建完成状态，也不把 0.52 workspace 当作 Team workspace | 展示独立后台操作状态；未受管或已开通账号的按钮禁用并说明原因 |
 | 开通双席位 Team | 把优惠码、国家、货币和可选卡片转发给 Account Manager；成功后按 Team workspace ID 更新同一 GAM 母号记录 | 展示独立后台操作状态并刷新双席位状态；既有 usage-based Workspace 的管理能力不依赖该动作 |
 

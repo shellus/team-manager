@@ -136,4 +136,36 @@ describe('parentAccountManagerStatusNeedsPolling', () => {
       }
     })).toBe(false);
   });
+
+  test('keeps polling while an existing parent is being enrolled into GAM', () => {
+    expect(parentAccountManagerStatusNeedsPolling({
+      ...status,
+      managed: false,
+      enrollmentOperation: {
+        id: 'import-1',
+        type: 'import',
+        status: 'running',
+        phase: 'login_opening',
+        progress: 10,
+        createdAt: 1,
+        updatedAt: 2
+      }
+    })).toBe(true);
+  });
+
+  test('stops polling after the GAM import is reflected as managed', () => {
+    expect(parentAccountManagerStatusNeedsPolling({
+      ...status,
+      enrollmentOperation: {
+        id: 'import-1',
+        type: 'import',
+        status: 'succeeded',
+        phase: 'complete',
+        progress: 100,
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2
+      }
+    })).toBe(false);
+  });
 });

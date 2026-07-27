@@ -129,7 +129,8 @@ export function parentAccountManagerStatusNeedsPolling(status: ParentAccountMana
     || (operation.status === 'succeeded' && !reflectedInAccountStatus)
   ));
   return operationNeedsPolling(status.codexOperation, status.hasCodexSpace)
-    || operationNeedsPolling(status.teamOperation, status.hasTeamSubscription);
+    || operationNeedsPolling(status.teamOperation, status.hasTeamSubscription)
+    || operationNeedsPolling(status.enrollmentOperation, status.managed);
 }
 
 function accountMatchesQuery(account: AccountSummaryView, query: string): boolean {
@@ -351,6 +352,19 @@ export function ParentRoutes({
     } finally {
       if (!background) setAccountManagerLoading(false);
     }
+  }, [onAccountSummaryChanged]);
+
+  const updateAccountManagerStatus = useCallback((id: string, status: ParentAccountManagerStatus) => {
+    for (const imported of status.importedAccounts ?? []) {
+      onAccountSummaryChanged(imported);
+      setAccountDetails((current) => {
+        if (!current[imported.id]) return current;
+        const next = { ...current };
+        delete next[imported.id];
+        return next;
+      });
+    }
+    setAccountManagerStatuses((current) => ({ ...current, [id]: status }));
   }, [onAccountSummaryChanged]);
 
   useEffect(() => {
@@ -809,6 +823,9 @@ export function ParentRoutes({
           onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
           onOpenLocalProfile={() => selectedSummary && openModal('edit-parent-profile', selectedSummary.id)}
           onAccountChanged={mergeAccountView}
+          onAccountManagerStatusChanged={(status) => {
+            if (selectedSummary) updateAccountManagerStatus(selectedSummary.id, status);
+          }}
         />
       </Space>
 

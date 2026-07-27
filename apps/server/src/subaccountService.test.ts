@@ -371,6 +371,10 @@ class FakeAccountManager implements AccountManagerGateway {
     return job;
   }
 
+  async startAccountImport(): Promise<AccountManagerOperationView> {
+    throw new Error('not implemented in subaccount tests');
+  }
+
   async listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]> {
     this.jobs = this.jobs.map((job) => job.status === 'queued' ? {
       ...job,

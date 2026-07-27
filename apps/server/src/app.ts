@@ -478,6 +478,10 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.accountStatus(c.req.param('id')))
   );
 
+  api.post('/accounts/:id/account-manager/manage', (c) =>
+    wrap(c, () => parentAccountManagerService.startAccountManagement(c.req.param('id')))
+  );
+
   api.get('/accounts/:id/account-manager/profile', (c) =>
     wrap(c, () => parentAccountManagerService.accountProfile(c.req.param('id')))
   );

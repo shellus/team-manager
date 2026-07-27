@@ -32,7 +32,8 @@ export function ParentDetail({
   onOpenCodexSpace,
   onOpenTeamSubscription,
   onOpenLocalProfile,
-  onAccountChanged
+  onAccountChanged,
+  onAccountManagerStatusChanged
 }: {
   account: AccountView | null;
   loading: boolean;
@@ -47,6 +48,7 @@ export function ParentDetail({
   onOpenTeamSubscription: () => void;
   onOpenLocalProfile: () => void;
   onAccountChanged: (account: AccountView) => void;
+  onAccountManagerStatusChanged?: (status: ParentAccountManagerStatus) => void;
 }) {
   if (loading) return <Card className="detail-pane" loading />;
 
@@ -250,6 +252,7 @@ export function ParentDetail({
                 managedAccountEmail={account.managedAccountEmail}
                 status={effectiveAccountManagerStatus}
                 loading={accountManagerLoading}
+                onStatusChanged={onAccountManagerStatusChanged}
               />
             )
           },
@@ -284,6 +287,7 @@ export function ParentDetail({
               managedAccountEmail={account.managedAccountEmail}
               status={effectiveAccountManagerStatus}
               loading={accountManagerLoading}
+              onStatusChanged={onAccountManagerStatusChanged}
             />
           )
         }]}

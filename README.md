@@ -40,7 +40,7 @@ corepack pnpm docs:build
 
 ## 功能范围
 
-- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；有 GAM 关联的母号可独立启动或关闭账号运行 Profile，并可开通 0.52 Codex Workspace 或双席位 Team。0.52 usage-based Workspace 与 Team Workspace 都支持成员、邀请、设置和账单操作；双席位状态只表示是否购买 Team 套餐。所有母号均可通过“同步 Workspace”发现外部开通的 0.52 或 Team 并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；自动点击 Pay 默认关闭。母号列表只显示已开通的 0.52、双席位能力标签，周限、月限或未知限额只在双席位母号上显示；关键词搜索下方可按 GAM、0.52、双席位、限额类型、封号和订单维护状态快捷筛选，所有二态维度统一使用“是 / 否”，筛选值会同时保存在 URL 和浏览器本地偏好中。
+- **母号管理**：录入已有可管理 Workspace，或通过 GPT Account Manager 自动注册账号并立即录入母号；手工录入且带 `sessionToken` 的既有母号可在账号管理页直接纳入 GAM，由 GAM 用现有 Web Session 建立独立浏览器身份，不要求 Team Manager 保存密码或 Profile。有 GAM 关联的母号可独立启动或关闭账号运行 Profile，并可开通 0.52 Codex Workspace 或双席位 Team。0.52 usage-based Workspace 与 Team Workspace 都支持成员、邀请、设置和账单操作；双席位状态只表示是否购买 Team 套餐。所有母号均可通过“同步 Workspace”发现外部开通的 0.52 或 Team 并校准本地状态。双席位可新建 Team，也可选择该账号下的既有 Workspace 进行升级；自动点击 Pay 默认关闭。母号列表只显示已开通的 0.52、双席位能力标签，周限、月限或未知限额只在双席位母号上显示；关键词搜索下方可按 GAM、0.52、双席位、限额类型、封号和订单维护状态快捷筛选，所有二态维度统一使用“是 / 否”，筛选值会同时保存在 URL 和浏览器本地偏好中。
 - **本地资料编辑**：GPT 账号名称统一使用 `email`，本地备注统一写入 `remark`。母号和子号都可按各自顶层 `groupName` 分组，并可人工维护独立的封号标记；母号另用 `limitType` 记录本地限额类型，并用 `nextRenewalOn` 记录 Team 下次续费日期。封号母号的空位不进入概览统计，封号子号不能邀请加入 Team，其他操作不受限制。母号和子号都可配置独立代理地址并替换 chatgpt.com session JSON；不会修改远端 Team 名称。子号顶层分组与 `codexCredentials[].groupName` 的 CPA 凭证号池分组彼此独立。
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
