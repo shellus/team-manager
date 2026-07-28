@@ -16,5 +16,6 @@ team-manager 用于管理 ChatGPT Team workspace 的母号、成员、邀请、�
 
 - [Team 账号、席位与凭证基本规则](./core/seat-and-credential-model)
 - [数据模型与本地缓存规则](./dev-spec/data-model)
+- [AT 凭证权限范围和账单信息提取](./dev-spec/at-credential-billing)
 - [Team 升级订单维护实现](./dev-spec/team-order-maintenance)
 - [子号管理实现边界](./dev-spec/subaccount-management)

@@ -35,6 +35,7 @@ export default defineConfig({
         text: '开发参考',
         items: [
           { text: '数据模型', link: '/dev-spec/data-model' },
+          { text: 'AT 凭证与账单提取', link: '/dev-spec/at-credential-billing' },
           { text: 'Team 升级订单维护', link: '/dev-spec/team-order-maintenance' },
           { text: '子号管理实现边界', link: '/dev-spec/subaccount-management' },
           { text: '子号注册与授权 SOP', link: '/dev-spec/subaccount-registration-sop' },
