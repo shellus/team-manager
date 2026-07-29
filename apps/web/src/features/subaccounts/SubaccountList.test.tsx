@@ -107,6 +107,16 @@ describe('SubaccountList', () => {
     expect(html).toContain('Pro 5x');
   });
 
+  test('renders the Pro 5x capability tag from the persisted local state', () => {
+    const html = renderList({
+      ...baseSubaccount,
+      managedAccountEmail: baseSubaccount.email,
+      accountManagerHasPro5x: true
+    });
+
+    expect(html).toContain('Pro 5x');
+  });
+
   test('renders live Pro 5x progress on the child account row', () => {
     const managed = { ...baseSubaccount, managedAccountEmail: baseSubaccount.email };
     const html = renderList(managed, [], {}, {

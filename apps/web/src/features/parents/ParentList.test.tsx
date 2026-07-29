@@ -149,6 +149,14 @@ describe('ParentList', () => {
     expect(html).toContain('Profile 已启动');
   });
 
+  test('renders the Pro 5x capability tag from the persisted local state', () => {
+    const html = renderList({
+      accounts: [{ ...parent, accountManagerHasPro5x: true }]
+    });
+
+    expect(html).toContain('Pro 5x');
+  });
+
   test('uses the local derived Team status for a legacy parent without GAM', () => {
     const html = renderList({
       accounts: [{

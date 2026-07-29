@@ -240,6 +240,10 @@ class FakeAccountManager implements AccountManagerGateway {
     operation.phase = 'pro5x_payment_card_received';
     operation.message = '已收到信用卡';
     operation.progress = 61;
+    operation.requestSummary = {
+      ...operation.requestSummary,
+      cardLast4: input.card.number.slice(-4)
+    };
     return operation;
   }
 
@@ -859,6 +863,7 @@ describe('ParentAccountManagerService', () => {
         email: 'owner@example.com',
         hasCodexSpace: false,
         hasTeamSubscription: false,
+        hasPro5x: true,
         workspaces: []
       });
       teamService.refreshResult = {
@@ -877,6 +882,9 @@ describe('ParentAccountManagerService', () => {
       const refreshed = await service.refreshAccount(parent.id);
 
       assert.equal(refreshed.planType, 'self_serve_business_usage_based');
+      assert.equal(refreshed.accountManagerHasPro5x, true);
+      assert.equal(refreshed.accountManagerPro5xCardLast4, '4242');
+      assert.equal(store.get(parent.id)?.accountManagerPro5xCardLast4, '4242');
       assert.deepEqual(teamService.refreshCalls, [parent.id]);
       assert.deepEqual(accountManager.syncCalls, ['owner@example.com']);
     });
@@ -1058,6 +1066,9 @@ describe('ParentAccountManagerService', () => {
       const status = await service.accountStatus(parent.id);
       assert.equal(status.hasPro5x, true);
       assert.equal(status.pro5xOperation, undefined);
+      assert.equal(store.get(parent.id)?.accountManagerHasPro5x, true);
+      assert.equal(store.get(parent.id)?.accountManagerPro5xCardLast4, '4444');
+      assert.equal(typeof store.get(parent.id)?.accountManagerSyncedAt, 'number');
     });
   });
 

@@ -19,6 +19,11 @@ import type { ActionBusyState } from '../../components/actionBusy.js';
 import { Pro5xOperationActions } from '../../components/Pro5xOperationActions.js';
 import { AccountStatusTag, DefaultSeatTag } from '../../components/StatusTag.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
+import {
+  hasManagedAccountReference,
+  hasPro5xFromLocalState,
+  openedPro5xButtonLabel
+} from '../../components/accountManagerLocalState.js';
 import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentBillingPanel } from './ParentBillingPanel.js';
 import { ParentMembersTable } from './ParentMembersTable.js';
@@ -94,32 +99,39 @@ export function ParentDetail({
   const pro5xWaitingManual = pro5xOperation?.status === 'waiting_manual';
   const pro5xNeedsCard = pro5xWaitingManual && pro5xOperation?.phase === 'pro5x_payment_card_required';
   const hasCodexSpace = hasParentCodexSpace(account, accountManagerStatus);
-  const accountManagerUnavailable = accountManagerLoading
-    || !accountManagerStatus
-    || accountManagerStatus?.configured === false
-    || accountManagerStatus?.reachable === false
-    || accountManagerStatus?.managed === false;
+  const locallyManaged = hasManagedAccountReference(account.managedAccountEmail);
+  const accountManagerUnavailable = !locallyManaged;
   const codexButtonDisabled = accountManagerLoading
     || accountManagerUnavailable
     || codexOpening
     || codexWaitingManual;
-  const codexButtonTitle = accountManagerStatus?.managed === false
-      ? accountManagerStatus.error || '该邮箱未由 GPT Account Manager 管理'
+  const codexButtonTitle = accountManagerUnavailable
+      ? '该母号尚未关联 GPT Account Manager'
       : codexWaitingManual
         ? codexOperation?.message || '付款页面等待人工处理，系统会继续监听'
         : accountManagerStatus?.error || '开通 13 Credits Workspace';
   const codexFailed = codexOperation?.status === 'failed' || codexOperation?.status === 'interrupted';
   const hasTeamSubscription = accountManagerStatus?.hasTeamSubscription || account.hasTeamSubscription;
-  const hasPro5x = accountManagerStatus?.hasPro5x === true;
+  const hasPro5x = hasPro5xFromLocalState(
+    account.accountManagerHasPro5x,
+    accountManagerStatus?.hasPro5x
+  );
   const effectiveAccountManagerStatus = accountManagerStatus
-    ? { ...accountManagerStatus, hasCodexSpace, hasTeamSubscription, hasPro5x }
+    ? {
+        ...accountManagerStatus,
+        managed: locallyManaged || accountManagerStatus.managed,
+        hasCodexSpace,
+        hasTeamSubscription,
+        hasPro5x,
+        ...(account.managedAccountEmail ? { accountEmail: account.managedAccountEmail } : {})
+      }
     : accountManagerStatus;
   const canManageWorkspace = canManageParentWorkspace(account, accountManagerStatus);
   const teamButtonDisabled = accountManagerUnavailable || hasTeamSubscription || teamOpening || teamWaitingManual;
   const teamButtonTitle = hasTeamSubscription
     ? '该 GPT 账号已开通双席位 Team'
-    : accountManagerStatus?.managed === false
-      ? accountManagerStatus.error || '该邮箱未由 GPT Account Manager 管理'
+    : accountManagerUnavailable
+      ? '该母号尚未关联 GPT Account Manager'
       : teamWaitingManual
         ? teamOperation?.message || '付款页面等待人工处理，系统会继续监听'
         : accountManagerStatus?.error || '创建两个固定席位的 Team 月付订单';
@@ -130,8 +142,8 @@ export function ParentDetail({
     || (pro5xWaitingManual && !pro5xNeedsCard);
   const pro5xButtonTitle = hasPro5x
     ? '该 GPT 个人账号已开通 Pro 5x'
-    : accountManagerStatus?.managed === false
-      ? accountManagerStatus.error || '该邮箱未由 GPT Account Manager 管理'
+    : accountManagerUnavailable
+      ? '该母号尚未关联 GPT Account Manager'
       : pro5xWaitingManual
         ? pro5xOperation?.message || '站内付款等待人工处理，系统会继续监听'
         : accountManagerStatus?.error || '使用新加坡指定 ASN 出口开通 Pro 5x';
@@ -224,7 +236,7 @@ export function ParentDetail({
                 onClick={onOpenPro5x}
               >
                 {hasPro5x
-                  ? '已开 Pro 5x'
+                  ? openedPro5xButtonLabel(account.accountManagerPro5xCardLast4)
                   : pro5xOpening
                     ? '开通中'
                     : pro5xNeedsCard

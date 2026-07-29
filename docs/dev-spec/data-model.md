@@ -23,6 +23,7 @@
 |---|---|---|
 | `id` | team-manager | 内部 id，所有 UI/API 操作使用该 id 定位母号 |
 | `managedAccountEmail` | Account Manager | 可选的规范化邮箱账号引用；手工录入且未受管的母号不设置 |
+| `accountManagerHasPro5x` / `accountManagerPro5xCardLast4` / `accountManagerSyncedAt` | Account Manager 主动同步或业务操作校准 | 最近一次明确确认的个人 Pro 5x 状态、成功支付卡后四位和校准时间；卡尾号只取 GAM 安全摘要或成功支付记录，页面打开不触发读取 |
 | `remark` | 本地输入 | 母号本地备注，不等同远端 Team 名称 |
 | `groupName` | 本地输入 | 母号本地分组，缺省归入 `默认分组` |
 | `limitType` | 本地输入 | 本地记录的额度窗口类型：`unknown`、`weekly`、`monthly` |
@@ -51,7 +52,9 @@
 
 `AccountView` 与 `AccountSummaryView` 的 `hasTeamSubscription` 优先读取当前订阅缓存，并兼容 `planType="team"` 和账单缓存中的 recurring upcoming invoice。既有 usage-based Workspace 升级 Team 后，`accounts/check` 可能仍返回 `self_serve_business_usage_based`，不能再只依赖 `planType` 判断双席位。`canManageWorkspace` 仍从 `planType` 派生，仅在 `planType="free"` 时为 `false`。因此 0.52 usage-based 历史母号即使没有双席位或 GAM profile，也仍可使用成员、邀请、设置和账单操作。
 
-母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；已有 Workspace 在同步成员和邀请时并行读取当前 upcoming invoice，用有效 recurring subscription 更新 `hasTeamSubscription`。关联 GAM 的母号在同一次 Team Manager 请求中并行触发 Account Manager 账号同步，但 GAM 同步失败不得抹掉本地已经确认的 Workspace；如果该账号仍有运行中或等待人工处理的 Workspace 开通任务，则跳过 GAM profile 同步，避免打断付款现场。`planType="self_serve_business_usage_based"` 本身就是 `hasCodexSpace` 的有效证据，不能只依赖付款操作成功状态。未发现候选时保持 `planType="free"`，将本次同步记为成功并清除旧错误，不请求成员、邀请或订阅接口；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
+母号的“同步 Workspace”不能由 `canManageWorkspace` 反向禁用。个人态记录需要通过该动作重新执行 `accounts/check`，发现唯一可管理的 owner/admin Workspace 后回写目标 `accountId`、Workspace Web access token、`planType`、角色和名称；已有 Workspace 在同步成员和邀请时并行读取当前 upcoming invoice，用有效 recurring subscription 更新 `hasTeamSubscription`。关联 GAM 的母号在同一次 Team Manager 请求中并行触发 Account Manager 账号同步，并把已确认的 Pro 5x 状态写入 `accountManagerHasPro5x`；GAM 同步失败不得抹掉本地已经确认的 Workspace 或 Pro 5x 状态。如果该账号仍有运行中或等待人工处理的 Workspace 开通任务，则跳过 GAM profile 同步，避免打断付款现场。`planType="self_serve_business_usage_based"` 本身就是 `hasCodexSpace` 的有效证据，不能只依赖付款操作成功状态。未发现候选时保持 `planType="free"`，将本次同步记为成功并清除旧错误，不请求成员、邀请或订阅接口；如果候选不唯一则拒绝猜测，并要求录入目标 Workspace session。所有依赖 Workspace 的 service 动作复用同一发现逻辑，避免 GAM 已确认开通但本地仍为 `free` 时形成不可恢复状态。
+
+母号和子号详情是否允许发起 GAM 操作只由本地 `managedAccountEmail` 决定，不以页面当前是否读取到 GAM、GAM 是否刚好可达或是否存在临时状态对象为前提。上游请求失败由本次操作返回错误；不能把“未读取”解释为“未纳管”。
 
 首页席位概览只为 `hasTeamSubscription=true` 且未标记封号的母号补足两个固定 ChatGPT 位置。封号母号仍展示实际存在的成员、邀请和已占用席位，但显式空 slot 与补足空位都不进入概览及其位置统计。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。母号、子号和概览列表都显示统一封号标签，并把封号账号排在未封号账号之后。
 
@@ -184,6 +187,8 @@
 | `rateLimitResetCredits` | `wham/rate-limit-reset-credits` | reset credits 明细、当前可用数、累计获得数和缓存时间 |
 | `codexCredentials[]` | OAuth/PAT 创建结果 | 子号在某 Team workspace 下的 Codex 凭证元数据 |
 | `managedAccountEmail` | Account Manager 交付 | 可选的规范化邮箱账号引用；手工录入且未受管的子号不设置 |
+| `accountManagerHasPro5x` / `accountManagerPro5xCardLast4` / `accountManagerSyncedAt` | Account Manager 主动同步或业务操作校准 | 最近一次明确确认的个人 Pro 5x 状态、成功支付卡后四位和校准时间；列表与详情直接读取该本地缓存 |
+| `pro5xSubscription` / `pro5xSubscriptionCheckedAt` | 子号主动同步 | 最近一次直接读取的 Pro 5x 订阅与续订状态；页面打开不触发读取 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
 | `status` / `lastError` | 注册、OAuth、PAT 或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
@@ -234,7 +239,7 @@ workspace key 以 `accountId` 为准。store 加载时接受 OAuth 与 PAT 两�
 | 录入 Web 登录态 | session JSON 对象写入或更新 `email`、`chatgptAccountId`、`webAccessToken`；如 session JSON 包含 `sessionToken`，同时写入 `sessionToken`；追加完整操作日志 | 合并返回的子号 view |
 | 自动注册子号 | Team Manager 向 GPT Account Manager 创建持久化账号操作；成功后按邮箱取得 Web Session，幂等写入 `email` 和 `managedAccountEmail`，再清理完成操作 | 立即显示任务项并轮询进度；刷新页面继续读取同一操作；完成后替换为正常子号 view |
 | 编辑本地资料 | 更新 `remark`、顶层 `groupName`、`isBanned` 和 `proxy`；提供 session JSON 时更新 `email`、`chatgptAccountId`、`webAccessToken` 和可用的 `sessionToken`；保留 Codex 凭证、Team 关联和日志 | 合并返回的子号 view |
-| 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
+| 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；显式同步 GAM 与 Pro 5x 订阅并持久化 `accountManagerHasPro5x`、订阅状态和缓存时间；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
 | 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |
 | 创建 PAT | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
 | OAuth 授权 | 创建 authorization-code + PKCE 会话；接收 localhost callback 后交换 token，校验凭证 `account_id`，写入同一 workspace 的独立凭证文件 | 合并返回的子号 view |

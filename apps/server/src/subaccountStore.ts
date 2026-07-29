@@ -586,6 +586,7 @@ export class SubaccountStore {
       memoryCachedAt: account.memoryCachedAt,
       rateLimitResetCredits: account.rateLimitResetCredits,
       accountManagerHasPro5x: account.accountManagerHasPro5x,
+      accountManagerPro5xCardLast4: account.accountManagerPro5xCardLast4,
       accountManagerSyncedAt: account.accountManagerSyncedAt,
       pro5xSubscription: account.pro5xSubscription,
       pro5xSubscriptionCheckedAt: account.pro5xSubscriptionCheckedAt,
@@ -738,6 +739,7 @@ async function normalizeStoredSubaccount(
     memoryCachedAt: record.memoryCachedAt,
     rateLimitResetCredits: normalizeRateLimitCredits(record.rateLimitResetCredits),
     accountManagerHasPro5x: record.accountManagerHasPro5x,
+    accountManagerPro5xCardLast4: normalizeCardLast4(record.accountManagerPro5xCardLast4),
     accountManagerSyncedAt: record.accountManagerSyncedAt,
     pro5xSubscription: normalizePro5xSubscription(record.pro5xSubscription),
     pro5xSubscriptionCheckedAt: record.pro5xSubscriptionCheckedAt,
@@ -782,6 +784,7 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     memoryCachedAt: input.memoryCachedAt,
     rateLimitResetCredits: normalizeRateLimitCredits(input.rateLimitResetCredits),
     accountManagerHasPro5x: input.accountManagerHasPro5x,
+    accountManagerPro5xCardLast4: normalizeCardLast4(input.accountManagerPro5xCardLast4),
     accountManagerSyncedAt: input.accountManagerSyncedAt,
     pro5xSubscription: normalizePro5xSubscription(input.pro5xSubscription),
     pro5xSubscriptionCheckedAt: input.pro5xSubscriptionCheckedAt,
@@ -860,6 +863,11 @@ function normalizePro5xSubscription(value: unknown): Subaccount['pro5xSubscripti
       ? { billingCurrency: record.billingCurrency.trim() } : {}),
     isDelinquent: record.isDelinquent === true
   };
+}
+
+function normalizeCardLast4(value: unknown): string | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return /^\d{4}$/.test(normalized) ? normalized : undefined;
 }
 
 function normalizeRateLimitCredits(value: unknown): Subaccount['rateLimitResetCredits'] {

@@ -6,6 +6,8 @@ Team Manager 负责保存子号 Web Session、Team 关联和 Codex OAuth/PAT 凭
 
 子号列表通过 Account Manager 批量状态派生“Profile 已启动”标签。只有 `running` 状态置顶，未启动记录保持原备注/邮箱自然排序；Profile 状态不进入子号持久化模型。详情页启动、关闭或轮询到状态变化后立即更新列表派生状态。
 
+Pro 5x 与 Profile 不同：`managedAccountEmail`、`accountManagerHasPro5x`、可选的 `accountManagerPro5xCardLast4` 和最近一次同步时间属于子号本地模型。列表与详情直接读取本地 Pro 5x 缓存；已开通按钮在卡尾号存在时追加显示后四位。卡尾号只取 GAM 开通任务安全摘要或成功支付统计，不保存完整卡片。打开页面不读取 GAM 或 ChatGPT 订阅接口。只有操作员主动同步、发起开通或后台任务校准时访问上游并更新缓存，临时读取失败不清空本地状态，也不把开通按钮默认禁用。
+
 ## 子号数据
 
 - `data/subaccounts.json` 保存子号邮箱、本地备注与分组、Web Session、可选 `managedAccountEmail` 引用、Team 关联和 Codex 凭证元数据。

@@ -147,7 +147,7 @@ export function AccountManagerAssociationPanel({
               icon={<ImportOutlined />}
               loading={enrollmentLoading}
               disabled={loading || enrollmentLoading || Boolean(operationActive)
-                || status?.configured === false || status?.reachable === false}
+                || status?.configured === false}
               onClick={() => void enrollAccount()}
             >
               {operation?.status === 'failed' || operation?.status === 'interrupted'

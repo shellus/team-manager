@@ -23,6 +23,62 @@ const operationControlProps = {
 };
 
 describe('ParentDetail', () => {
+  test('keeps Pro 5x enabled from the local GAM association without loading live status', () => {
+    const html = renderToStaticMarkup(
+      <ParentDetail
+        {...operationControlProps}
+        account={parent}
+        loading={false}
+        activeTab="account-manager"
+        syncing={false}
+        accountManagerStatus={null}
+        accountManagerLoading={false}
+        onTabChange={() => undefined}
+        onSync={() => undefined}
+        onOpenInvite={() => undefined}
+        onOpenCodexSpace={() => undefined}
+        onOpenTeamSubscription={() => undefined}
+        onOpenPro5x={() => undefined}
+        onOpenLocalProfile={() => undefined}
+        onAccountChanged={() => undefined}
+      />
+    );
+
+    const button = html.match(
+      /<button[^>]*>(?:(?!<\/button>)[\s\S])*开通 Pro 5x(?:(?!<\/button>)[\s\S])*<\/button>/
+    )?.[0] ?? '';
+    expect(button).toContain('开通 Pro 5x');
+    expect(button).not.toContain('disabled');
+  });
+
+  test('shows the successful Pro 5x payment card tail in the opened button', () => {
+    const html = renderToStaticMarkup(
+      <ParentDetail
+        {...operationControlProps}
+        account={{
+          ...parent,
+          accountManagerHasPro5x: true,
+          accountManagerPro5xCardLast4: '4242'
+        }}
+        loading={false}
+        activeTab="account-manager"
+        syncing={false}
+        accountManagerStatus={null}
+        accountManagerLoading={false}
+        onTabChange={() => undefined}
+        onSync={() => undefined}
+        onOpenInvite={() => undefined}
+        onOpenCodexSpace={() => undefined}
+        onOpenTeamSubscription={() => undefined}
+        onOpenPro5x={() => undefined}
+        onOpenLocalProfile={() => undefined}
+        onAccountChanged={() => undefined}
+      />
+    );
+
+    expect(html).toContain('已开 Pro 5x · 4242');
+  });
+
   test('opens Workspace management when GAM has discovered a Codex Workspace', () => {
     const html = renderToStaticMarkup(
       <ParentDetail

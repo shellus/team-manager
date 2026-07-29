@@ -28,6 +28,7 @@ import { formatDateTime } from '../../components/format.js';
 import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
 import { AccountOperationProgress } from '../../components/AccountOperationProgress.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
+import { hasPro5xFromLocalState } from '../../components/accountManagerLocalState.js';
 import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
 
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
@@ -223,7 +224,8 @@ export function SubaccountList({
           const selected = selectedId === subaccount.id;
           const title = subaccount.remark || subaccount.email;
           const repeatedEmail = title.trim().toLowerCase() === subaccount.email.trim().toLowerCase();
-          const pro5xOperation = accountManagerStatuses[subaccount.id]?.pro5xOperation;
+          const managerStatus = accountManagerStatuses[subaccount.id];
+          const pro5xOperation = managerStatus?.pro5xOperation;
           return (
             <List.Item>
               <Card
@@ -293,7 +295,10 @@ export function SubaccountList({
                   </Tag>
                   <RunningProfileTag profile={accountProfileStatuses[subaccount.id]} />
                   <WorkspaceOpeningStatusTags
-                    hasPro5x={accountManagerStatuses[subaccount.id]?.hasPro5x === true}
+                    hasPro5x={hasPro5xFromLocalState(
+                      subaccount.accountManagerHasPro5x,
+                      managerStatus?.hasPro5x
+                    )}
                   />
                   <span className="record-status-time">更新 {formatDateTime(subaccount.updatedAt)}</span>
                 </div>

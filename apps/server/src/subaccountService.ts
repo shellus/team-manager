@@ -37,6 +37,11 @@ import {
   fetchWorkspaceWebSessionFromSessionToken,
   resolveChatGptSessionImportInput,
 } from './chatgptWebSession.js';
+import {
+  normalizePro5xCardLast4,
+  pro5xOperationCardLast4,
+  successfulPro5xCardLast4ByAccount
+} from './pro5xPaymentCard.js';
 import { createTransport, type Transport } from './transport.js';
 import { SubaccountStore } from './subaccountStore.js';
 import {
@@ -417,15 +422,21 @@ export class SubaccountService {
       )
         .filter(isSubaccountPro5xOperation)
         .sort((left, right) => right.createdAt - left.createdAt)[0];
+      const operationCardLast4 = pro5xOperationCardLast4(pro5xOperation);
       if (pro5xOperation?.status === 'succeeded' && managed.hasPro5x) {
         await this.safeRemoveAccountOperation(pro5xOperation.id);
         pro5xOperation = undefined;
       }
+      const hasPro5x = managed.hasPro5x === true || pro5xOperation?.status === 'succeeded';
+      const cardLast4 = hasPro5x && !operationCardLast4 && !subaccount.accountManagerPro5xCardLast4
+        ? await this.historicalPro5xCardLast4(email)
+        : operationCardLast4;
+      await this.cacheAccountManagerState(id, hasPro5x, { cardLast4 });
       return {
         configured: true,
         reachable: true,
         managed: true,
-        hasPro5x: managed.hasPro5x === true || pro5xOperation?.status === 'succeeded',
+        hasPro5x,
         accountEmail: email,
         ...(pro5xOperation ? { pro5xOperation } : {}),
         ...(pro5xOperation?.errorMessage ? { error: pro5xOperation.errorMessage } : {})
@@ -487,6 +498,39 @@ export class SubaccountService {
         enrollmentOperationsByEmail.set(email, current);
       }
 
+      const needsPaymentHistory = subaccounts.some((subaccount) => {
+        const email = subaccount.managedAccountEmail?.trim().toLowerCase();
+        const managed = email ? managedByEmail.get(email) : undefined;
+        if (!email || !managed) return false;
+        const pro5xOperation = (operationsByEmail.get(email) ?? [])
+          .sort((left, right) => right.createdAt - left.createdAt)[0];
+        const hasPro5x = managed.hasPro5x === true || pro5xOperation?.status === 'succeeded';
+        return hasPro5x
+          && !subaccount.accountManagerPro5xCardLast4
+          && !pro5xOperationCardLast4(pro5xOperation);
+      });
+      const historicalCardLast4ByAccount = needsPaymentHistory
+        ? await this.historicalPro5xCardLast4ByAccount()
+        : new Map<string, string>();
+
+      for (const subaccount of subaccounts) {
+        const email = subaccount.managedAccountEmail?.trim().toLowerCase();
+        const managed = email ? managedByEmail.get(email) : undefined;
+        if (managed) {
+          const pro5xOperation = (operationsByEmail.get(email!) ?? [])
+            .sort((left, right) => right.createdAt - left.createdAt)[0];
+          await this.cacheAccountManagerState(
+            subaccount.id,
+            managed.hasPro5x === true || pro5xOperation?.status === 'succeeded',
+            {
+              cardLast4: pro5xOperationCardLast4(pro5xOperation)
+                ?? historicalCardLast4ByAccount.get(email!),
+              refreshTimestamp: false
+            }
+          );
+        }
+      }
+
       const entries = await Promise.all(subaccounts.map(async (subaccount) => {
         const email = subaccount.managedAccountEmail?.trim().toLowerCase();
         if (!email) {
@@ -534,6 +578,43 @@ export class SubaccountService {
           ? unreachableManagedSubaccountStatus(subaccount.managedAccountEmail, message)
           : unmanagedSubaccountStatus()
       ]));
+    }
+  }
+
+  private async cacheAccountManagerState(
+    id: string,
+    hasPro5x: boolean,
+    options: { cardLast4?: string; refreshTimestamp?: boolean } = {}
+  ): Promise<void> {
+    const current = this.store.get(id);
+    if (!current) return;
+    const cardLast4 = hasPro5x
+      ? normalizePro5xCardLast4(options.cardLast4) ?? current.accountManagerPro5xCardLast4
+      : undefined;
+    if (
+      options.refreshTimestamp === false
+      && current.accountManagerHasPro5x === hasPro5x
+      && current.accountManagerPro5xCardLast4 === cardLast4
+      && typeof current.accountManagerSyncedAt === 'number'
+    ) return;
+    await this.store.update(id, {
+      accountManagerHasPro5x: hasPro5x,
+      accountManagerPro5xCardLast4: cardLast4,
+      accountManagerSyncedAt: Date.now()
+    });
+  }
+
+  private async historicalPro5xCardLast4(email: string): Promise<string | undefined> {
+    return (await this.historicalPro5xCardLast4ByAccount()).get(email.trim().toLowerCase());
+  }
+
+  private async historicalPro5xCardLast4ByAccount(): Promise<Map<string, string>> {
+    try {
+      return successfulPro5xCardLast4ByAccount(
+        await this.accountManager!.pro5xPaymentStatistics()
+      );
+    } catch {
+      return new Map();
     }
   }
 
@@ -624,6 +705,7 @@ export class SubaccountService {
   ): Promise<AccountManagerOperationView> {
     const email = this.requireManagedAccountEmail(id);
     const managed = await this.callAccountManager(() => this.accountManager!.account(email));
+    await this.cacheAccountManagerState(id, managed.hasPro5x === true);
     if (managed.hasPro5x) throw new ServiceError(409, '该账号已开通 Pro 5x');
     await this.removeFailedPro5xOperations(email);
     return this.callAccountManager(() => this.accountManager!.openPro5x(email, {
@@ -910,6 +992,15 @@ export class SubaccountService {
       } catch (error) {
         errors.push(`Pro 5x 订阅同步失败: ${fullErrorMessage(error)}`);
       }
+    }
+
+    if (patch.accountManagerHasPro5x === true) {
+      patch.accountManagerPro5xCardLast4 = initial.accountManagerPro5xCardLast4
+        ?? await this.historicalPro5xCardLast4(
+          initial.managedAccountEmail?.trim() || initial.email
+        );
+    } else if (patch.accountManagerHasPro5x === false) {
+      patch.accountManagerPro5xCardLast4 = undefined;
     }
 
     patch.lastRefreshAt = Date.now();

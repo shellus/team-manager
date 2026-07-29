@@ -28,6 +28,11 @@ import {
   isAccountEnrollmentOperation,
   isTerminalAccountEnrollmentOperation
 } from './accountManagerEnrollment.js';
+import {
+  normalizePro5xCardLast4,
+  pro5xOperationCardLast4,
+  successfulPro5xCardLast4ByAccount
+} from './pro5xPaymentCard.js';
 
 const TEAM_PLAN = 'team';
 const CODEX_SPACE_PLAN = 'self_serve_business_usage_based';
@@ -163,6 +168,7 @@ export class ParentAccountManagerService {
       let codexOperation = operations.find(isParentCodexOperation);
       let teamOperation = operations.find(isParentTeamOperation);
       let pro5xOperation = operations.find(isParentPro5xOperation);
+      const operationCardLast4 = pro5xOperationCardLast4(pro5xOperation);
       let importedAccounts: AccountSummaryView[] = [];
 
       if (teamOperation?.status === 'succeeded') {
@@ -185,6 +191,12 @@ export class ParentAccountManagerService {
         await this.safeRemoveOperation(pro5xOperation.id);
         pro5xOperation = undefined;
       }
+
+      const hasPro5x = managed.hasPro5x === true || pro5xOperation?.status === 'succeeded';
+      const cardLast4 = hasPro5x && !operationCardLast4 && !local.accountManagerPro5xCardLast4
+        ? await this.historicalPro5xCardLast4(email)
+        : operationCardLast4;
+      await this.cacheAccountManagerState(accountId, hasPro5x, { cardLast4 });
 
       return managedParentStatus(
         email,
@@ -253,6 +265,41 @@ export class ParentAccountManagerService {
         const current = enrollmentOperationsByEmail.get(email) ?? [];
         current.push(operation);
         enrollmentOperationsByEmail.set(email, current);
+      }
+
+      const needsPaymentHistory = accounts.some((local) => {
+        const email = local.managedAccountEmail?.trim().toLowerCase();
+        const managed = email ? managedByEmail.get(email) : undefined;
+        if (!email || !managed) return false;
+        const pro5xOperation = (operationsByEmail.get(email) ?? [])
+          .sort((left, right) => right.createdAt - left.createdAt)
+          .find(isParentPro5xOperation);
+        const hasPro5x = managed.hasPro5x === true || pro5xOperation?.status === 'succeeded';
+        return hasPro5x
+          && !local.accountManagerPro5xCardLast4
+          && !pro5xOperationCardLast4(pro5xOperation);
+      });
+      const historicalCardLast4ByAccount = needsPaymentHistory
+        ? await this.historicalPro5xCardLast4ByAccount()
+        : new Map<string, string>();
+
+      for (const local of accounts) {
+        const email = local.managedAccountEmail?.trim().toLowerCase();
+        const managed = email ? managedByEmail.get(email) : undefined;
+        if (managed) {
+          const pro5xOperation = (operationsByEmail.get(email!) ?? [])
+            .sort((left, right) => right.createdAt - left.createdAt)
+            .find(isParentPro5xOperation);
+          await this.cacheAccountManagerState(
+            local.id,
+            managed.hasPro5x === true || pro5xOperation?.status === 'succeeded',
+            {
+              cardLast4: pro5xOperationCardLast4(pro5xOperation)
+                ?? historicalCardLast4ByAccount.get(email!),
+              refreshTimestamp: false
+            }
+          );
+        }
       }
 
       const entries = await Promise.all(accounts.map(async (local) => {
@@ -396,11 +443,22 @@ export class ParentAccountManagerService {
     const managedSync = local.managedAccountEmail && this.accountManager
       ? this.syncManagedAccountIfIdle(local.managedAccountEmail).catch(() => undefined)
       : Promise.resolve(undefined);
-    const [refreshed] = await Promise.all([
+    const [refreshed, managed] = await Promise.all([
       this.teamService.refreshAccount(accountId),
       managedSync
     ]);
-    return refreshed;
+    if (!managed) return refreshed;
+    const cardLast4 = managed.hasPro5x && !local.accountManagerPro5xCardLast4
+      ? await this.historicalPro5xCardLast4(managed.email)
+      : undefined;
+    await this.cacheAccountManagerState(accountId, managed.hasPro5x === true, { cardLast4 });
+    const cached = this.store.get(accountId);
+    return {
+      ...refreshed,
+      accountManagerHasPro5x: cached?.accountManagerHasPro5x,
+      accountManagerPro5xCardLast4: cached?.accountManagerPro5xCardLast4,
+      accountManagerSyncedAt: cached?.accountManagerSyncedAt
+    };
   }
 
   private async reconcileAccountEnrollment(
@@ -541,6 +599,7 @@ export class ParentAccountManagerService {
     if (!local.managedAccountEmail) throw new ServiceError(409, '该母号未关联 GPT Account Manager');
     const email = local.managedAccountEmail;
     const managed = await this.callAccountManager(() => this.accountManager!.account(email));
+    await this.cacheAccountManagerState(accountId, managed.hasPro5x === true);
     if (managed.hasPro5x) throw new ServiceError(409, '该账号已开通 Pro 5x');
     await this.removeFailedOperations(email, isParentPro5xOperation);
     return this.callAccountManager(() => this.accountManager!.openPro5x(email, {
@@ -712,14 +771,51 @@ export class ParentAccountManagerService {
     return this.removeFailedOperations(email, isParentCodexOperation);
   }
 
-  private async syncManagedAccountIfIdle(email: string): Promise<void> {
+  private async cacheAccountManagerState(
+    accountId: string,
+    hasPro5x: boolean,
+    options: { cardLast4?: string; refreshTimestamp?: boolean } = {}
+  ): Promise<void> {
+    const current = this.store.get(accountId);
+    if (!current) return;
+    const cardLast4 = hasPro5x
+      ? normalizePro5xCardLast4(options.cardLast4) ?? current.accountManagerPro5xCardLast4
+      : undefined;
+    if (
+      options.refreshTimestamp === false
+      && current.accountManagerHasPro5x === hasPro5x
+      && current.accountManagerPro5xCardLast4 === cardLast4
+      && typeof current.accountManagerSyncedAt === 'number'
+    ) return;
+    await this.store.update(accountId, {
+      accountManagerHasPro5x: hasPro5x,
+      accountManagerPro5xCardLast4: cardLast4,
+      accountManagerSyncedAt: Date.now()
+    });
+  }
+
+  private async historicalPro5xCardLast4(email: string): Promise<string | undefined> {
+    return (await this.historicalPro5xCardLast4ByAccount()).get(email.trim().toLowerCase());
+  }
+
+  private async historicalPro5xCardLast4ByAccount(): Promise<Map<string, string>> {
+    try {
+      return successfulPro5xCardLast4ByAccount(
+        await this.accountManager!.pro5xPaymentStatistics()
+      );
+    } catch {
+      return new Map();
+    }
+  }
+
+  private async syncManagedAccountIfIdle(email: string): Promise<ManagedAccountSummary | undefined> {
     const operations = await this.accountManager!.listAccountOperations(email);
     const hasActiveWorkspacePurchase = operations.some((operation) =>
       isParentWorkspacePurchaseOperation(operation)
       && ['queued', 'running', 'waiting_for_otp', 'waiting_manual'].includes(operation.status)
     );
-    if (hasActiveWorkspacePurchase) return;
-    await this.accountManager!.syncAccount(email);
+    if (hasActiveWorkspacePurchase) return undefined;
+    return this.accountManager!.syncAccount(email);
   }
 
   private async removeFailedOperations(

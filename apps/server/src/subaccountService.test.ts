@@ -592,6 +592,10 @@ class FakeAccountManager implements AccountManagerGateway {
     operation.phase = 'pro5x_payment_card_received';
     operation.message = '已收到信用卡';
     operation.progress = 61;
+    operation.requestSummary = {
+      ...operation.requestSummary,
+      cardLast4: input.card.number.slice(-4)
+    };
     operation.updatedAt += 1;
     return operation;
   }
@@ -720,7 +724,7 @@ class FakeAccountManager implements AccountManagerGateway {
       phase: 'pro5x_queued',
       message: '已加入 Pro 5x 开通队列',
       progress: 0,
-      requestSummary: { requestTag: input.requestTag },
+      requestSummary: { requestTag: input.requestTag, cardLast4: input.card.number.slice(-4) },
       createdAt: 10,
       updatedAt: 10
     };
@@ -893,6 +897,7 @@ describe('Subaccount API', () => {
       assert.equal(synced.status, 200, body);
       assert.deepEqual(accountManager.syncRequests, ['child@example.com']);
       assert.equal(view.accountManagerHasPro5x, true);
+      assert.equal(view.accountManagerPro5xCardLast4, '4242');
       assert.equal(typeof view.accountManagerSyncedAt, 'number');
       assert.equal(typeof view.pro5xSubscriptionCheckedAt, 'number');
       assert.equal(
@@ -902,6 +907,7 @@ describe('Subaccount API', () => {
 
       const stored = await subaccountStore.detail(subaccount.id);
       assert.equal(stored?.accountManagerHasPro5x, true);
+      assert.equal(stored?.accountManagerPro5xCardLast4, '4242');
       assert.equal(typeof stored?.accountManagerSyncedAt, 'number');
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -991,6 +997,9 @@ describe('Subaccount API', () => {
       assert.equal(completedStatus.hasPro5x, true);
       assert.equal(completedStatus.pro5xOperation, undefined);
       assert.equal((await accountManager.listAccountOperations('child@example.com')).length, 0);
+      assert.equal(subaccountStore.get(subaccount.id)?.accountManagerHasPro5x, true);
+      assert.equal(subaccountStore.get(subaccount.id)?.accountManagerPro5xCardLast4, '4444');
+      assert.equal(typeof subaccountStore.get(subaccount.id)?.accountManagerSyncedAt, 'number');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

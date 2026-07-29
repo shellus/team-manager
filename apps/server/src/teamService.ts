@@ -275,6 +275,9 @@ export class TeamService {
     return {
       id: account.id,
       managedAccountEmail: account.managedAccountEmail,
+      accountManagerHasPro5x: account.accountManagerHasPro5x,
+      accountManagerPro5xCardLast4: account.accountManagerPro5xCardLast4,
+      accountManagerSyncedAt: account.accountManagerSyncedAt,
       remark: account.remark,
       groupName: account.groupName || '默认分组',
       limitType: account.limitType ?? 'unknown',

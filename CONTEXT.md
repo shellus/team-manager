@@ -24,6 +24,10 @@ _Avoid_: Workspace 成员数、Codex 席位、可管理 Workspace
 可选的规范化邮箱，表示当前母号或子号在 GPT Account Manager 中存在对应受管账号。引用不改变 Team Manager 对 Web Session 和 Team 业务关系的独立所有权。
 _Avoid_: CloakBrowser Profile ID、Account Manager 数据库 UUID、注册任务 ID
 
+**Account Manager 状态缓存**:
+Team Manager 在本地母号或子号记录中保存最近一次明确同步或业务操作确认的账号能力状态。`managedAccountEmail` 决定账号是否具备发起 GAM 操作的本地能力，`accountManagerHasPro5x` 表示最近一次确认的 Pro 5x 开通结果；确认成功且 GAM 有安全摘要时，`accountManagerPro5xCardLast4` 保存对应支付卡后四位。列表和详情优先使用这些本地字段。页面打开本身不读取上游，运行中任务状态只作为临时进度覆盖，读取失败不得清空本地已确认能力、卡尾号或默认禁用操作。
+_Avoid_: 页面实时状态、GAM 可达性真值、Profile 运行状态、付款任务状态
+
 **封号标记**:
 由用户人工维护、独立于远端 `status` 和 Web Session 可用性的账号运营标记。封号母号的空位不进入概览统计；封号子号不能再被邀请加入 Team；同步、编辑、退出 Team、订单维护等其他操作不受限制。
 _Avoid_: 自动封号检测、账号状态、停用账号、删除账号
@@ -50,7 +54,7 @@ _Avoid_: 0.52 开通、增加两个成员
 _Avoid_: 双席位 Team、等待优惠弹窗、站外 Stripe Checkout、永久修改账号代理
 
 **Pro 5x 状态**:
-受管 GPT 个人 Account 当前是否已经返回 `pro` 或 `prolite` 套餐。该能力可由母号或子号详情派生展示，独立于 0.52 Workspace、双席位订阅和子号 Team 关联。
+受管 GPT 个人 Account 最近一次明确同步或业务操作确认是否已经返回 `pro` 或 `prolite` 套餐。Team Manager 将该结果作为 `accountManagerHasPro5x` 本地缓存供母号和子号列表、详情使用；GAM 开通任务摘要或成功支付统计存在卡尾号时，同时写入 `accountManagerPro5xCardLast4`，详情按钮显示该后四位。上游状态只在主动同步、开通操作及任务校准时更新缓存。该能力独立于 0.52 Workspace、双席位订阅和子号 Team 关联。
 _Avoid_: Team 套餐、Workspace 类型、付款任务状态
 
 **Pro 5x 补充卡片**:

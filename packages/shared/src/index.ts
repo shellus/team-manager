@@ -80,6 +80,9 @@ export interface MemberRemovalRecord {
 export interface Account {
   id: string;                 // team-manager 内部 id（uuid）
   managedAccountEmail?: string; // GPT Account Manager 的规范化邮箱引用
+  accountManagerHasPro5x?: boolean; // 最近一次明确同步确认的个人 Pro 5x 状态
+  accountManagerPro5xCardLast4?: string; // 最近一次确认成功的 Pro 5x 支付卡尾号
+  accountManagerSyncedAt?: number; // 最近一次明确同步 Account Manager 状态的时间
   remark?: string;            // 本地备注，不等同远端 Team 名称
   groupName?: string;         // 本地母号分组，缺省由后端归入默认分组
   limitType?: AccountLimitType; // 本地记录的额度窗口类型
@@ -133,6 +136,9 @@ export interface AccountFingerprint {
 export interface AccountView {
   id: string;
   managedAccountEmail?: string;
+  accountManagerHasPro5x?: boolean;
+  accountManagerPro5xCardLast4?: string;
+  accountManagerSyncedAt?: number;
   remark?: string;
   groupName: string;
   limitType: AccountLimitType;
@@ -177,6 +183,9 @@ export interface AccountView {
 export interface AccountSummaryView {
   id: string;
   managedAccountEmail?: string;
+  accountManagerHasPro5x?: boolean;
+  accountManagerPro5xCardLast4?: string;
+  accountManagerSyncedAt?: number;
   remark?: string;
   groupName: string;
   limitType: AccountLimitType;
@@ -327,6 +336,9 @@ export function accountSummaryFromView(account: AccountView): AccountSummaryView
   return {
     id: account.id,
     managedAccountEmail: account.managedAccountEmail,
+    accountManagerHasPro5x: account.accountManagerHasPro5x,
+    accountManagerPro5xCardLast4: account.accountManagerPro5xCardLast4,
+    accountManagerSyncedAt: account.accountManagerSyncedAt,
     remark: account.remark,
     groupName: account.groupName,
     limitType: account.limitType,
@@ -807,6 +819,7 @@ export interface Subaccount {
   memoryCachedAt?: number;
   rateLimitResetCredits?: SubaccountRateLimitResetCredits;
   accountManagerHasPro5x?: boolean;
+  accountManagerPro5xCardLast4?: string;
   accountManagerSyncedAt?: number;
   pro5xSubscription?: Pro5xSubscriptionView;
   pro5xSubscriptionCheckedAt?: number;
@@ -853,6 +866,7 @@ export interface SubaccountView {
   memoryCachedAt?: number;
   rateLimitResetCredits?: SubaccountRateLimitResetCredits;
   accountManagerHasPro5x?: boolean;
+  accountManagerPro5xCardLast4?: string;
   accountManagerSyncedAt?: number;
   pro5xSubscription?: Pro5xSubscriptionView;
   pro5xSubscriptionCheckedAt?: number;
@@ -876,6 +890,7 @@ export interface SubaccountSummaryView {
   isBanned?: boolean;
   managedAccountEmail?: string;
   accountManagerHasPro5x?: boolean;
+  accountManagerPro5xCardLast4?: string;
   accountManagerSyncedAt?: number;
   pro5xSubscription?: Pro5xSubscriptionView;
   pro5xSubscriptionCheckedAt?: number;
@@ -927,6 +942,7 @@ export function subaccountSummaryFromView(subaccount: SubaccountView): Subaccoun
     isBanned: subaccount.isBanned,
     managedAccountEmail: subaccount.managedAccountEmail,
     accountManagerHasPro5x: subaccount.accountManagerHasPro5x,
+    accountManagerPro5xCardLast4: subaccount.accountManagerPro5xCardLast4,
     accountManagerSyncedAt: subaccount.accountManagerSyncedAt,
     pro5xSubscription: subaccount.pro5xSubscription,
     pro5xSubscriptionCheckedAt: subaccount.pro5xSubscriptionCheckedAt,

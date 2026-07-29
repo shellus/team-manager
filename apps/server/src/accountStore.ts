@@ -267,6 +267,15 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
   const normalized: Account = {
     id: input.id,
     ...(normalizeEmail(input.managedAccountEmail) ? { managedAccountEmail: normalizeEmail(input.managedAccountEmail) } : {}),
+    ...(typeof input.accountManagerHasPro5x === 'boolean'
+      ? { accountManagerHasPro5x: input.accountManagerHasPro5x }
+      : {}),
+    ...(/^\d{4}$/.test(readTrimmedString(input.accountManagerPro5xCardLast4))
+      ? { accountManagerPro5xCardLast4: readTrimmedString(input.accountManagerPro5xCardLast4) }
+      : {}),
+    ...(typeof input.accountManagerSyncedAt === 'number'
+      ? { accountManagerSyncedAt: input.accountManagerSyncedAt }
+      : {}),
     ...(remark ? { remark } : {}),
     groupName: readTrimmedString(input.groupName) || DEFAULT_ACCOUNT_GROUP,
     limitType: normalizeLimitType(input.limitType),

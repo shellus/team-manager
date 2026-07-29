@@ -22,6 +22,7 @@ import { KeywordSearchInput } from '../../components/KeywordSearchInput.js';
 import { BannedStatusTag, LimitTypeTag } from '../../components/StatusTag.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
+import { hasPro5xFromLocalState } from '../../components/accountManagerLocalState.js';
 import { ParentQuickFilterBar } from './ParentQuickFilterBar.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 import {
@@ -331,7 +332,10 @@ export function ParentList({
                   <WorkspaceOpeningStatusTags
                     hasCodexSpace={hasParentCodexSpace(account, managerStatus)}
                     hasTeamSubscription={hasTeamSubscription}
-                    hasPro5x={managerStatus?.hasPro5x === true}
+                    hasPro5x={hasPro5xFromLocalState(
+                      account.accountManagerHasPro5x,
+                      managerStatus?.hasPro5x
+                    )}
                   />
                   {maintainedAccountIds.has(account.id) && <Tag color="processing">订单维护中</Tag>}
                   <span className="record-status-time">同步 {formatRelativeTime(account.lastRefreshAt)}</span>

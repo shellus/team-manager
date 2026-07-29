@@ -22,6 +22,11 @@ import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { AccountManagerAssociationPanel } from '../../components/AccountManagerAssociationPanel.js';
 import { Pro5xOperationActions } from '../../components/Pro5xOperationActions.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
+import {
+  hasManagedAccountReference,
+  hasPro5xFromLocalState,
+  openedPro5xButtonLabel
+} from '../../components/accountManagerLocalState.js';
 import { formatDateTime } from '../../components/format.js';
 import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag.js';
 import { SubaccountLogPanel } from './SubaccountLogPanel.js';
@@ -119,7 +124,21 @@ export function SubaccountDetail({
   const hasDirectPro5x = Boolean(
     pro5xSubscription && ['pro', 'prolite'].includes(pro5xSubscription.planType.toLowerCase())
   );
-  const hasPro5x = accountManagerStatus?.hasPro5x === true || hasDirectPro5x;
+  const hasPro5x = hasPro5xFromLocalState(
+    subaccount.accountManagerHasPro5x,
+    accountManagerStatus?.hasPro5x
+  ) || hasDirectPro5x;
+  const locallyManaged = hasManagedAccountReference(subaccount.managedAccountEmail);
+  const effectiveAccountManagerStatus = accountManagerStatus
+    ? {
+        ...accountManagerStatus,
+        managed: locallyManaged || accountManagerStatus.managed,
+        hasPro5x,
+        ...(subaccount.managedAccountEmail
+          ? { accountEmail: subaccount.managedAccountEmail }
+          : {})
+      }
+    : accountManagerStatus;
   const pro5xRenewalCancelled = pro5xSubscription?.willRenew === false;
   const pro5xCancellationBusy = isActionBusy(
     busyState,
@@ -128,19 +147,15 @@ export function SubaccountDetail({
   const pro5xAccessUntil = pro5xSubscription?.activeUntil
     ? formatDateTime(pro5xSubscription.activeUntil)
     : '当前计费周期结束';
-  const accountManagerUnavailable = accountManagerLoading
-    || !accountManagerStatus
-    || accountManagerStatus.configured === false
-    || accountManagerStatus.reachable === false
-    || accountManagerStatus.managed === false;
+  const accountManagerUnavailable = !locallyManaged;
   const pro5xButtonDisabled = accountManagerUnavailable
     || hasPro5x
     || pro5xOpening
     || (pro5xWaitingManual && !pro5xNeedsCard);
   const pro5xButtonTitle = hasPro5x
     ? '该 GPT 个人账号已开通 Pro 5x'
-    : accountManagerStatus?.managed === false
-      ? accountManagerStatus.error || '该邮箱未由 GPT Account Manager 管理'
+    : accountManagerUnavailable
+      ? '该子号尚未关联 GPT Account Manager'
       : pro5xWaitingManual
         ? pro5xOperation?.message || '站内付款等待人工处理，系统会继续监听'
         : accountManagerStatus?.error || '使用新加坡指定 ASN 出口开通 Pro 5x';
@@ -176,7 +191,7 @@ export function SubaccountDetail({
                 onClick={onOpenPro5x}
               >
                 {hasPro5x
-                  ? '已开 Pro 5x'
+                  ? openedPro5xButtonLabel(subaccount.accountManagerPro5xCardLast4)
                   : pro5xOpening
                     ? '开通中'
                     : pro5xNeedsCard
@@ -309,7 +324,7 @@ export function SubaccountDetail({
                 recordLabel="子号"
                 recordId={subaccount.id}
                 managedAccountEmail={subaccount.managedAccountEmail}
-                status={accountManagerStatus}
+                status={effectiveAccountManagerStatus}
                 loading={accountManagerLoading}
                 onStatusChanged={onAccountManagerStatusChanged}
                 onProfileChanged={onAccountProfileChanged}
