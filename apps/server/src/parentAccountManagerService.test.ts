@@ -10,6 +10,7 @@ import type {
   OpenCodexSpaceRequest,
   OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
+  Pro5xPaymentStatisticsView,
   ResidentialProxyConfig,
   SubaccountRegistrationJobView
 } from '@team-manager/shared';
@@ -24,6 +25,55 @@ import {
 } from './accountManagerClient.js';
 import { ParentAccountManagerService } from './parentAccountManagerService.js';
 import type { TeamService } from './teamService.js';
+
+function paymentStatisticsFixture(): Pro5xPaymentStatisticsView {
+  return {
+    totalAttempts: 2,
+    decisionAttempts: 2,
+    uniqueOperations: 1,
+    succeeded: 1,
+    paymentNotApproved: 1,
+    cardDeclined: 0,
+    technicalFailures: 0,
+    interrupted: 0,
+    waitingManual: 0,
+    pending: 0,
+    transitions: {
+      payment_not_approved_to_succeeded: 1,
+      payment_not_approved_to_payment_not_approved: 0,
+      payment_not_approved_to_card_declined: 0,
+      card_declined_to_succeeded: 0,
+      card_declined_to_payment_not_approved: 0,
+      card_declined_to_card_declined: 0
+    },
+    recentAttempts: [{
+      id: 'attempt-2',
+      operationId: 'operation-1',
+      accountId: 'owner@example.com',
+      cardLast4: '4242',
+      cardFingerprintSuffix: 'fingerprint-1',
+      number: 2,
+      startedAt: 2_000,
+      completedAt: 3_000,
+      outcome: 'succeeded',
+      decision: 'succeeded',
+      proxyObservation: {
+        sid: 'sid-2',
+        ip: '203.0.113.2',
+        country: 'SG',
+        asn: 'AS18106',
+        state: null,
+        city: null,
+        observedAt: 2_100
+      },
+      checkoutSessionId: 'cs_live_2',
+      checkoutRecreated: true,
+      intervalFromPreviousMs: 500,
+      cardHardFailure: false
+    }],
+    updatedAt: 3_000
+  };
+}
 
 class FakeAccountManager implements AccountManagerGateway {
   operations: AccountManagerOperationView[] = [];
@@ -42,6 +92,10 @@ class FakeAccountManager implements AccountManagerGateway {
   proxyConfigs = new Map<string, ResidentialProxyConfig>();
 
   async health() { return { status: 'ok', accountRegistrationConfigured: true }; }
+
+  async pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView> {
+    return paymentStatisticsFixture();
+  }
 
   async listAccounts() {
     this.listAccountsCalls += 1;
@@ -147,6 +201,14 @@ class FakeAccountManager implements AccountManagerGateway {
     this.controls.push(`rotate:${id}`);
     operation.phase = 'proxy_rotation_requested';
     operation.message = '已请求更换IP';
+    return operation;
+  }
+
+  async retryOperationCurrentStep(id: string) {
+    const operation = await this.operation(id);
+    this.controls.push(`retry:${id}`);
+    operation.phase = 'pro5x_retry_requested';
+    operation.message = '已请求重试当前步骤';
     return operation;
   }
 
@@ -453,6 +515,15 @@ async function withService(run: (
 }
 
 describe('ParentAccountManagerService', () => {
+  it('proxies Pro 5x payment statistics from Account Manager', async () => {
+    await withService(async (service) => {
+      const statistics = await service.pro5xPaymentStatistics();
+      assert.equal(statistics.totalAttempts, 2);
+      assert.equal(statistics.transitions.payment_not_approved_to_succeeded, 1);
+      assert.equal(statistics.recentAttempts[0]?.proxyObservation?.ip, '203.0.113.2');
+    });
+  });
+
   it('starts an email-OTP GAM import for an existing unmanaged parent', async () => {
     await withService(async (service, accountManager, _teamService, store) => {
       const parent = await store.add({
@@ -970,6 +1041,11 @@ describe('ParentAccountManagerService', () => {
       assert.equal(accountManager.providedCards[0]?.operationId, operation.id);
       assert.equal(accountManager.providedCards[0]?.input.autoPay, true);
       assert.equal(accountManager.providedCards[0]?.input.card.number, '5555555555554444');
+
+      storedOperation.phase = 'payment_processing_manual';
+      const retried = await service.retryAccountOperationCurrentStep(parent.id, operation.id);
+      assert.equal(retried.phase, 'pro5x_retry_requested');
+      assert.deepEqual(accountManager.controls, [`retry:${operation.id}`]);
 
       accountManager.accounts.set('owner@example.com', {
         ...accountManager.accounts.get('owner@example.com')!,

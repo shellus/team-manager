@@ -499,6 +499,7 @@ export type NotificationChannelKey = keyof NotificationChannels;
 export type SubaccountStatus =
   | 'empty'
   | 'session_ready'
+  | 'codex_auth_pending'
   | 'pat_creating'
   | 'codex_ready'
   | 'verification_required'
@@ -533,10 +534,11 @@ export interface AccountManagerOperationView {
   progress: number;
   control?: {
     id: string;
-    type: 'rotate_proxy_sid';
+    type: 'retry_current_step' | 'rotate_proxy_sid';
     status: 'queued' | 'executing' | 'succeeded' | 'failed';
     requestedAt: number;
     updatedAt: number;
+    requestedFromPhase?: string;
     completedAt?: number;
     error?: string;
   };
@@ -603,6 +605,94 @@ export interface OpenPro5xRequest {
   };
 }
 
+export type PaymentAttemptOutcome =
+  | 'pending'
+  | 'waiting_manual'
+  | 'succeeded'
+  | 'failed'
+  | 'interrupted';
+
+export interface PaymentProxyObservation {
+  sid?: string;
+  ip?: string;
+  country?: string;
+  asn?: string | null;
+  state?: string | null;
+  city?: string | null;
+  observedAt: number;
+  observationError?: string;
+}
+
+export interface PaymentBillingObservation {
+  email?: string;
+  holderName: string;
+  address: {
+    line1: string;
+    city?: string;
+    state?: string;
+    postalCode: string;
+    phone?: string;
+    country: string;
+  };
+  recordedAt: number;
+}
+
+export type Pro5xPaymentDecision =
+  | 'succeeded'
+  | 'payment_not_approved'
+  | 'card_declined'
+  | 'technical_failure'
+  | 'interrupted'
+  | 'waiting_manual'
+  | 'pending';
+
+export type Pro5xPaymentTransition =
+  | 'payment_not_approved_to_succeeded'
+  | 'payment_not_approved_to_payment_not_approved'
+  | 'payment_not_approved_to_card_declined'
+  | 'card_declined_to_succeeded'
+  | 'card_declined_to_payment_not_approved'
+  | 'card_declined_to_card_declined';
+
+export interface Pro5xPaymentAttemptView {
+  id: string;
+  operationId: string;
+  accountId: string;
+  cardLast4: string;
+  cardFingerprintSuffix: string;
+  number: number;
+  startedAt: number;
+  completedAt?: number;
+  outcome?: PaymentAttemptOutcome;
+  decision: Pro5xPaymentDecision;
+  proxyObservation?: PaymentProxyObservation;
+  billingObservation?: PaymentBillingObservation;
+  checkoutSessionId?: string;
+  checkoutRecreated?: boolean;
+  intervalFromPreviousMs?: number;
+  amount?: number;
+  currency?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  cardHardFailure: boolean;
+}
+
+export interface Pro5xPaymentStatisticsView {
+  totalAttempts: number;
+  decisionAttempts: number;
+  uniqueOperations: number;
+  succeeded: number;
+  paymentNotApproved: number;
+  cardDeclined: number;
+  technicalFailures: number;
+  interrupted: number;
+  waitingManual: number;
+  pending: number;
+  transitions: Record<Pro5xPaymentTransition, number>;
+  recentAttempts: Pro5xPaymentAttemptView[];
+  updatedAt?: number;
+}
+
 export interface TeamUpgradeWorkspaceOption {
   id: string;
   name?: string;
@@ -650,7 +740,27 @@ export interface SubaccountAccountManagerStatus {
   hasPro5x: boolean;
   accountEmail?: string;
   pro5xOperation?: AccountManagerOperationView;
+  enrollmentOperation?: AccountManagerOperationView;
   error?: string;
+}
+
+/** ChatGPT 个人 Pro 订阅的续订状态；取消续订不等于退款或立即失去权益。 */
+export interface Pro5xSubscriptionView {
+  id: string;
+  planType: string;
+  activeStart?: string;
+  activeUntil?: string;
+  billingPeriod?: string;
+  scheduledBillingPeriod?: string;
+  willRenew: boolean;
+  cancellationOutcome?: string;
+  billingCurrency?: string;
+  isDelinquent: boolean;
+}
+
+export interface Pro5xRenewalCancellationResult {
+  idempotent: boolean;
+  subscription: Pro5xSubscriptionView;
 }
 
 /** 自动注册后台任务。任务本身不包含密码、Cookie、验证码或 Token。 */
@@ -678,6 +788,7 @@ export interface Subaccount {
   chatgptAccountId?: string;   // session.account.id
   webAccessToken?: string;     // 子号 ChatGPT Web accessToken
   sessionToken?: string;       // ChatGPT session JSON 中的 sessionToken，用于按 workspace 换取 Web accessToken
+  webSessionCookies?: ChatGptWebSessionCookies; // 刷新 Web accessToken 所需的非浏览器会话 Cookie
   proxy?: string;              // 每子号独立代理
   managedAccountEmail?: string; // GPT Account Manager 的邮箱引用；未关联账号不设置
   chatgptUserId?: string;
@@ -702,6 +813,14 @@ export interface Subaccount {
   updatedAt: number;
   lastRefreshAt?: number;
   lastError?: string;
+}
+
+/** 仅后端持久化；不会通过 SubaccountView 下发到前端。 */
+export interface ChatGptWebSessionCookies {
+  oaiDid?: string;
+  clientAuthInfo?: string;
+  puid?: string;
+  oaiIs?: string;
 }
 
 /** 下发前端的子号视图。管理后台可信，允许编辑本地保存的 Web session JSON。 */
@@ -840,20 +959,43 @@ export interface SubaccountCodexCredentialView {
   lastCreatedAt?: number;
 }
 
-/** CPA / Codex PAT 凭证 JSON，后端按需显式导出。 */
-export interface CodexCredentialJson {
+interface CodexCredentialBase {
   access_token: string;
-  personal_access_token: string;
   account_id: string;
   last_refresh: string;
   email: string;
   type: 'codex';
   expired: string;
   plan_type?: string;
+}
+
+/** Codex OAuth authorization-code + PKCE 生成的 CPA/Codex 凭证。 */
+export interface CodexOAuthCredentialJson extends CodexCredentialBase {
+  id_token: string;
+  refresh_token: string;
+  auth_mode: 'chatgpt';
+  credential_source: 'oauth';
+}
+
+/** ChatGPT workspace 个人访问令牌生成的 CPA/Codex 凭证。 */
+export interface CodexPersonalAccessTokenCredentialJson extends CodexCredentialBase {
+  personal_access_token: string;
   auth_mode: 'personalAccessToken';
   credential_source: 'personal_access_token';
   credential_id?: string;
   chatgpt_user_id?: string;
+}
+
+/** 后端按需显式导出的 Codex 凭证 JSON。 */
+export type CodexCredentialJson =
+  | CodexOAuthCredentialJson
+  | CodexPersonalAccessTokenCredentialJson;
+
+export interface CodexAuthStart {
+  sessionId: string;
+  authUrl: string;
+  expiresAt: number;
+  targetChatgptAccountId?: string;
 }
 
 export interface QuotaWindow {

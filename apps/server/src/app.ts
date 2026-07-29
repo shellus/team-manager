@@ -40,6 +40,7 @@ export interface BuildAppDeps {
   store: AccountStore;
   subaccountStore: SubaccountStore;
   subaccountQuotaTransport?: Transport;
+  subaccountCodexFetch?: typeof fetch;
   subaccountAccountManager?: AccountManagerGateway;
   teamTransport?: Transport;
   settingsStore?: AppSettingsStore;
@@ -82,6 +83,7 @@ export async function buildApp({
   store,
   subaccountStore,
   subaccountQuotaTransport,
+  subaccountCodexFetch,
   subaccountAccountManager,
   teamTransport,
   settingsStore,
@@ -104,7 +106,8 @@ export async function buildApp({
     subaccountStore,
     subaccountQuotaTransport,
     teamTransport,
-    accountManager
+    accountManager,
+    subaccountCodexFetch
   );
   const parentAccountManagerService = new ParentAccountManagerService(store, service, accountManager);
   const teamOrderStore = new TeamOrderStore(config.dataDir);
@@ -528,6 +531,10 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.accountStatuses())
   );
 
+  api.get('/account-manager/pro5x/payment-statistics', (c) =>
+    wrap(c, () => parentAccountManagerService.pro5xPaymentStatistics())
+  );
+
   api.post('/accounts/:id/account-manager/open-codex-space', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => parentAccountManagerService.openAccountCodexSpace(
@@ -548,6 +555,13 @@ export async function buildApp({
 
   api.post('/accounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
     wrap(c, () => parentAccountManagerService.rotateAccountOperationIp(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
+  api.post('/accounts/:id/account-manager/operations/:operationId/retry', (c) =>
+    wrap(c, () => parentAccountManagerService.retryAccountOperationCurrentStep(
       c.req.param('id'),
       c.req.param('operationId')
     ))
@@ -775,12 +789,24 @@ export async function buildApp({
     wrap(c, () => Promise.resolve(subaccountService.detail(c.req.param('id'))))
   );
 
+  api.get('/subaccounts/:id/pro5x-subscription', (c) =>
+    wrap(c, () => subaccountService.pro5xSubscription(c.req.param('id')))
+  );
+
+  api.post('/subaccounts/:id/pro5x-subscription/cancel-renewal', (c) =>
+    wrap(c, () => subaccountService.cancelPro5xRenewal(c.req.param('id')))
+  );
+
   api.get('/subaccounts/:id/account-manager/profile', (c) =>
     wrap(c, () => subaccountService.accountProfile(c.req.param('id')))
   );
 
   api.get('/subaccounts/:id/account-manager/status', (c) =>
     wrap(c, () => subaccountService.accountStatus(c.req.param('id')))
+  );
+
+  api.post('/subaccounts/:id/account-manager/manage', (c) =>
+    wrap(c, () => subaccountService.startAccountManagement(c.req.param('id')))
   );
 
   api.get('/subaccounts/account-manager/statuses', (c) =>
@@ -818,6 +844,13 @@ export async function buildApp({
 
   api.post('/subaccounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
     wrap(c, () => subaccountService.rotateAccountOperationIp(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
+  api.post('/subaccounts/:id/account-manager/operations/:operationId/retry', (c) =>
+    wrap(c, () => subaccountService.retryAccountOperationCurrentStep(
       c.req.param('id'),
       c.req.param('operationId')
     ))
@@ -928,6 +961,26 @@ export async function buildApp({
     );
   });
 
+  api.post('/subaccounts/:id/codex-auth/start', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { chatgptAccountId?: string };
+    return wrap(c, () => subaccountService.startCodexAuth(c.req.param('id'), body.chatgptAccountId));
+  });
+
+  api.post('/subaccounts/:id/codex-auth/callback', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      sessionId?: string;
+      callbackUrl?: string;
+    };
+    if (!body.sessionId?.trim() || !body.callbackUrl?.trim()) {
+      return c.json({ ok: false, error: '缺少 sessionId 或 callbackUrl' }, 400);
+    }
+    return wrap(c, () => subaccountService.completeCodexAuth(
+      c.req.param('id'),
+      body.sessionId!,
+      body.callbackUrl!
+    ));
+  });
+
   api.get('/subaccounts/:id/pat-credentials', (c) =>
     wrap(c, () =>
       Promise.resolve(subaccountService.getCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
@@ -935,6 +988,16 @@ export async function buildApp({
   );
 
   api.delete('/subaccounts/:id/pat-credentials', (c) =>
+    wrap(c, () => subaccountService.removeCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
+  );
+
+  api.get('/subaccounts/:id/codex-credentials', (c) =>
+    wrap(c, () =>
+      Promise.resolve(subaccountService.getCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
+    )
+  );
+
+  api.delete('/subaccounts/:id/codex-credentials', (c) =>
     wrap(c, () => subaccountService.removeCodexCredential(c.req.param('id'), c.req.query('chatgptAccountId')))
   );
 

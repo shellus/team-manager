@@ -678,6 +678,45 @@ export function ParentRoutes({
     }
   };
 
+  const retryPro5x = async (accountId: string, operationId: string) => {
+    const key = `retry-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.retryParentOperationCurrentStep(accountId, operationId);
+        await loadAccountManagerStatuses();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const rotatePro5x = async (accountId: string, operationId: string) => {
+    const key = `rotate-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.rotateParentOperationIp(accountId, operationId);
+        await loadAccountManagerStatuses();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const terminatePro5x = async (accountId: string, operationId: string) => {
+    const key = `terminate-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.terminateParentOperation(accountId, operationId);
+        await loadAccountManagerStatuses();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const dismissOperation = async (
     account: AccountSummaryView,
     operation: ParentAccountManagerStatus['codexOperation']
@@ -893,12 +932,22 @@ export function ParentRoutes({
             syncing={selectedSummary ? syncingIds.has(selectedSummary.id) : false}
             accountManagerStatus={accountManagerStatus}
             accountManagerLoading={accountManagerLoading}
+            busyState={actionBusy.busyState}
             onTabChange={changeTab}
             onSync={() => selectedSummary && void refreshAccount(selectedSummary)}
             onOpenInvite={() => openModal('invite-member', selectedSummary?.id ?? '')}
             onOpenCodexSpace={() => selectedSummary && openCodexModal(selectedSummary.id)}
             onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
             onOpenPro5x={() => selectedSummary && openModal('open-pro-5x', selectedSummary.id)}
+            onRetryPro5x={(operationId) => {
+              if (selectedSummary) void retryPro5x(selectedSummary.id, operationId);
+            }}
+            onRotatePro5x={(operationId) => {
+              if (selectedSummary) void rotatePro5x(selectedSummary.id, operationId);
+            }}
+            onTerminatePro5x={(operationId) => {
+              if (selectedSummary) void terminatePro5x(selectedSummary.id, operationId);
+            }}
             onOpenLocalProfile={() => selectedSummary && openModal('edit-parent-profile', selectedSummary.id)}
             onAccountChanged={mergeAccountView}
             onAccountManagerStatusChanged={(status) => {

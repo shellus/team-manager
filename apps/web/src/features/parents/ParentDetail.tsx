@@ -15,6 +15,8 @@ import {
 import type { ParentTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { AccountManagerAssociationPanel } from '../../components/AccountManagerAssociationPanel.js';
+import type { ActionBusyState } from '../../components/actionBusy.js';
+import { Pro5xOperationActions } from '../../components/Pro5xOperationActions.js';
 import { AccountStatusTag, DefaultSeatTag } from '../../components/StatusTag.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { ParentInvitesTable } from './ParentInvitesTable.js';
@@ -31,12 +33,16 @@ export function ParentDetail({
   syncing,
   accountManagerStatus,
   accountManagerLoading,
+  busyState,
   onTabChange,
   onSync,
   onOpenInvite,
   onOpenCodexSpace,
   onOpenTeamSubscription,
   onOpenPro5x,
+  onRetryPro5x,
+  onRotatePro5x,
+  onTerminatePro5x,
   onOpenLocalProfile,
   onAccountChanged,
   onAccountManagerStatusChanged,
@@ -48,12 +54,16 @@ export function ParentDetail({
   syncing: boolean;
   accountManagerStatus: ParentAccountManagerStatus | null;
   accountManagerLoading: boolean;
+  busyState: ActionBusyState;
   onTabChange: (tab: ParentTab) => void;
   onSync: () => void;
   onOpenInvite: () => void;
   onOpenCodexSpace: () => void;
   onOpenTeamSubscription: () => void;
   onOpenPro5x?: () => void;
+  onRetryPro5x: (operationId: string) => void;
+  onRotatePro5x: (operationId: string) => void;
+  onTerminatePro5x: (operationId: string) => void;
   onOpenLocalProfile: () => void;
   onAccountChanged: (account: AccountView) => void;
   onAccountManagerStatusChanged?: (status: ParentAccountManagerStatus) => void;
@@ -275,6 +285,15 @@ export function ParentDetail({
           message="Pro 5x 站内付款等待人工处理"
           description={pro5xOperation?.message
             || '在对应 GAM Profile 中核对付款信息并点击 Subscribe；系统会继续监听个人账号套餐状态。'}
+          action={pro5xOperation ? (
+            <Pro5xOperationActions
+              operationId={pro5xOperation.id}
+              busyState={busyState}
+              onRetryCurrentStep={() => onRetryPro5x(pro5xOperation.id)}
+              onRotateIp={() => onRotatePro5x(pro5xOperation.id)}
+              onTerminate={() => onTerminatePro5x(pro5xOperation.id)}
+            />
+          ) : undefined}
         />
       )}
 

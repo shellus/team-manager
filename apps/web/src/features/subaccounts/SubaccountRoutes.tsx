@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   subaccountSummaryFromView,
   type AccountSummaryView,
+  type CodexAuthStart,
   type CodexQuotaSnapshot,
   type OpenPro5xRequest,
+  type Pro5xSubscriptionView,
   type SeatType,
   type SubaccountAccountManagerStatus,
   type SubaccountAuthLog,
@@ -14,7 +16,7 @@ import {
   type SubaccountSummaryView,
   type SubaccountView
 } from '@team-manager/shared';
-import { Alert, Form, Modal, Select, Space } from 'antd';
+import { Alert, Button, Form, Input, Modal, Select, Space, Typography } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
 import {
@@ -58,7 +60,44 @@ interface TeamInviteValues {
   seat: SeatType;
 }
 
+interface ManualCodexAuthSession extends CodexAuthStart {
+  targetTeamTitle: string;
+}
+
 const SUBACCOUNT_GROUP_PREFERENCE_KEY = 'team-manager:subaccounts:last-group';
+const CODEX_AUTH_SESSION_STORAGE_PREFIX = 'team-manager:codex-oauth:';
+
+function codexAuthStorageKey(subaccountId: string): string {
+  return `${CODEX_AUTH_SESSION_STORAGE_PREFIX}${subaccountId}`;
+}
+
+function readStoredCodexAuthSession(subaccountId: string): ManualCodexAuthSession | null {
+  try {
+    const raw = window.sessionStorage.getItem(codexAuthStorageKey(subaccountId));
+    if (!raw) return null;
+    const session = JSON.parse(raw) as Partial<ManualCodexAuthSession>;
+    if (
+      typeof session.sessionId !== 'string'
+      || typeof session.authUrl !== 'string'
+      || typeof session.expiresAt !== 'number'
+      || typeof session.targetTeamTitle !== 'string'
+      || session.expiresAt <= Date.now()
+    ) {
+      window.sessionStorage.removeItem(codexAuthStorageKey(subaccountId));
+      return null;
+    }
+    return session as ManualCodexAuthSession;
+  } catch {
+    window.sessionStorage.removeItem(codexAuthStorageKey(subaccountId));
+    return null;
+  }
+}
+
+function storeCodexAuthSession(subaccountId: string, session: ManualCodexAuthSession | null): void {
+  const key = codexAuthStorageKey(subaccountId);
+  if (session) window.sessionStorage.setItem(key, JSON.stringify(session));
+  else window.sessionStorage.removeItem(key);
+}
 
 function toSearch(params: URLSearchParams): string {
   const value = params.toString();
@@ -77,13 +116,21 @@ function accountOptionLabel(account: AccountSummaryView): string {
 export function subaccountAccountManagerStatusNeedsPolling(
   status: SubaccountAccountManagerStatus
 ): boolean {
-  const operation = status.pro5xOperation;
-  return Boolean(operation && (
-    operation.status === 'queued'
-    || operation.status === 'running'
-    || operation.status === 'waiting_for_otp'
-    || operation.status === 'waiting_manual'
-    || (operation.status === 'succeeded' && !status.hasPro5x)
+  const enrollment = status.enrollmentOperation;
+  if (enrollment && (
+    enrollment.status === 'queued'
+    || enrollment.status === 'running'
+    || enrollment.status === 'waiting_for_otp'
+    || enrollment.status === 'waiting_manual'
+    || (enrollment.status === 'succeeded' && !status.managed)
+  )) return true;
+  const pro5x = status.pro5xOperation;
+  return Boolean(pro5x && (
+    pro5x.status === 'queued'
+    || pro5x.status === 'running'
+    || pro5x.status === 'waiting_for_otp'
+    || pro5x.status === 'waiting_manual'
+    || (pro5x.status === 'succeeded' && !status.hasPro5x)
   ));
 }
 
@@ -112,8 +159,14 @@ export function SubaccountRoutes({
   const [accountProfileStatuses, setAccountProfileStatuses] = useState<Record<string, AccountManagerProfileView>>({});
   const [accountManagerStatuses, setAccountManagerStatuses] = useState<Record<string, SubaccountAccountManagerStatus>>({});
   const [accountManagerLoadingId, setAccountManagerLoadingId] = useState('');
+  const [pro5xSubscriptions, setPro5xSubscriptions] = useState<
+    Record<string, Pro5xSubscriptionView | null>
+  >({});
+  const [pro5xSubscriptionLoadingId, setPro5xSubscriptionLoadingId] = useState('');
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
+  const [authSession, setAuthSession] = useState<ManualCodexAuthSession | null>(null);
+  const [callbackUrl, setCallbackUrl] = useState('');
   const [quota, setQuota] = useState<CodexQuotaSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState('');
@@ -305,6 +358,28 @@ export function SubaccountRoutes({
     void loadAccountManagerStatus(selectedSummary.id);
   }, [loadAccountManagerStatus, selectedSummary?.id]);
 
+  useEffect(() => {
+    if (!selectedSummary) return;
+    const id = selectedSummary.id;
+    let cancelled = false;
+    setPro5xSubscriptionLoadingId(id);
+    void apiClient.getSubaccountPro5xSubscription(id)
+      .then((subscription) => {
+        if (!cancelled) setPro5xSubscriptions((current) => ({ ...current, [id]: subscription }));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) reportLocalError(error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPro5xSubscriptionLoadingId((current) => current === id ? '' : current);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportLocalError, selectedSummary?.id]);
+
   const hasActiveRegistration = registrationJobs.some(
     (job) => registrationStatusNeedsPolling(job.status)
   );
@@ -337,35 +412,58 @@ export function SubaccountRoutes({
     };
   }, [hasActiveRegistration]);
 
-  const hasActivePro5xOperation = Object.values(accountManagerStatuses).some(
+  const hasActiveAccountManagerOperation = Object.values(accountManagerStatuses).some(
     subaccountAccountManagerStatusNeedsPolling
   );
+  const hasActiveEnrollmentOperation = Object.values(accountManagerStatuses).some((status) => {
+    const operation = status.enrollmentOperation;
+    return Boolean(operation && (
+      operation.status === 'queued'
+      || operation.status === 'running'
+      || operation.status === 'waiting_for_otp'
+      || operation.status === 'waiting_manual'
+      || (operation.status === 'succeeded' && !status.managed)
+    ));
+  });
   const shouldRetryAccountManagerStatus = Object.values(accountManagerStatuses).some(
     (status) => status.configured && status.reachable === false
   );
 
   useEffect(() => {
-    if (!hasActivePro5xOperation && !shouldRetryAccountManagerStatus) return undefined;
+    if (!hasActiveAccountManagerOperation && !shouldRetryAccountManagerStatus) return undefined;
     let cancelled = false;
     let timer: number | undefined;
     const poll = async () => {
       try {
-        const statuses = await apiClient.getSubaccountAccountManagerStatuses();
-        if (!cancelled) setAccountManagerStatuses(statuses);
+        const [statuses, nextSubaccounts] = await Promise.all([
+          apiClient.getSubaccountAccountManagerStatuses(),
+          hasActiveEnrollmentOperation ? apiClient.listSubaccounts() : Promise.resolve(undefined)
+        ]);
+        if (!cancelled) {
+          setAccountManagerStatuses(statuses);
+          if (nextSubaccounts) setSubaccounts(sortSubaccountsForList(nextSubaccounts));
+        }
+        const selectedId = selectedSummary?.id;
+        if (!cancelled && hasActiveEnrollmentOperation && selectedId && statuses[selectedId]?.managed) {
+          mergeSubaccount(await apiClient.getSubaccount(selectedId));
+        }
       } catch {
         // 后台任务仍保留在 GAM，短暂读取失败不清空列表中的现有进度。
       }
       if (!cancelled) {
-        timer = window.setTimeout(poll, hasActivePro5xOperation ? 1500 : 3000);
+        timer = window.setTimeout(poll, hasActiveAccountManagerOperation ? 1500 : 3000);
       }
     };
-    timer = window.setTimeout(poll, hasActivePro5xOperation ? 700 : 2000);
+    timer = window.setTimeout(poll, hasActiveAccountManagerOperation ? 700 : 2000);
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [
-    hasActivePro5xOperation,
+    hasActiveAccountManagerOperation,
+    hasActiveEnrollmentOperation,
+    mergeSubaccount,
+    selectedSummary?.id,
     shouldRetryAccountManagerStatus
   ]);
 
@@ -429,6 +527,8 @@ export function SubaccountRoutes({
 
   useEffect(() => {
     setQuota(null);
+    setAuthSession(selectedSummary ? readStoredCodexAuthSession(selectedSummary.id) : null);
+    setCallbackUrl('');
     setLocalError('');
   }, [selectedSummary?.id]);
 
@@ -500,7 +600,14 @@ export function SubaccountRoutes({
     try {
       await actionBusy.run('import-session', async () => {
         const record = payload && typeof payload === 'object'
-          ? payload as { remark?: string; groupName?: string; isBanned?: boolean; proxy?: string; session?: unknown }
+          ? payload as {
+              remark?: string;
+              groupName?: string;
+              isBanned?: boolean;
+              proxy?: string;
+              manageWithAccountManager?: boolean;
+              session?: unknown;
+            }
           : {};
         if (!record.session) throw new Error('请粘贴 Session JSON');
         const added = await apiClient.importSubaccountSession({
@@ -511,8 +618,21 @@ export function SubaccountRoutes({
           session: record.session
         });
         mergeSubaccount(added);
+        const manageWithAccountManager = record.manageWithAccountManager !== false;
+        if (manageWithAccountManager) {
+          try {
+            const status = await apiClient.manageSubaccountAccount(added.id);
+            setAccountManagerStatuses((current) => ({ ...current, [added.id]: status }));
+            if (status.managed) mergeSubaccount(await apiClient.getSubaccount(added.id));
+          } catch (error) {
+            throw new Error(`Session 已保存，但自动纳管未完成：${(error as Error).message}`);
+          }
+        }
         closeModal();
-        navigate({ pathname: `/subaccounts/${added.id}`, search: '?tab=teams' });
+        navigate({
+          pathname: `/subaccounts/${added.id}`,
+          search: manageWithAccountManager ? '?tab=account-manager' : '?tab=teams'
+        });
       });
     } catch (error) {
       reportLocalError(error);
@@ -627,6 +747,32 @@ export function SubaccountRoutes({
     }
   };
 
+  const retryPro5x = async (subaccountId: string, operationId: string) => {
+    const key = `retry-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.retrySubaccountOperationCurrentStep(subaccountId, operationId);
+        await loadAccountManagerStatus(subaccountId);
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const rotatePro5x = async (subaccountId: string, operationId: string) => {
+    const key = `rotate-pro5x-${operationId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.rotateSubaccountOperationIp(subaccountId, operationId);
+        await loadAccountManagerStatus(subaccountId);
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const dismissPro5x = async (subaccountId: string, operationId: string) => {
     const key = `dismiss-pro5x-${operationId}`;
     setLocalError('');
@@ -634,6 +780,23 @@ export function SubaccountRoutes({
       await actionBusy.run(key, async () => {
         await apiClient.dismissSubaccountOperation(subaccountId, operationId);
         await loadAccountManagerStatus(subaccountId);
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const cancelPro5xRenewal = async (subaccountId: string) => {
+    const key = `cancel-pro5x-renewal-${subaccountId}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        const result = await apiClient.cancelSubaccountPro5xRenewal(subaccountId);
+        setPro5xSubscriptions((current) => ({
+          ...current,
+          [subaccountId]: result.subscription
+        }));
+        if (searchState.tab === 'logs') await loadLogs(subaccountId);
       });
     } catch (error) {
       reportLocalError(error);
@@ -687,6 +850,47 @@ export function SubaccountRoutes({
       reportLocalError(error);
     } finally {
       actionBusy.finish('invite-to-team');
+    }
+  };
+
+  const startCodexOauth = async (workspaceId: string, teamTitle: string) => {
+    if (!selectedSummary || !workspaceId) return;
+    const key = actionKey('oauth-start', workspaceId);
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        const session: ManualCodexAuthSession = {
+          ...(await apiClient.startSubaccountCodexAuth(selectedSummary.id, workspaceId)),
+          targetTeamTitle: teamTitle
+        };
+        setAuthSession(session);
+        setCallbackUrl('');
+        storeCodexAuthSession(selectedSummary.id, session);
+        openModal('manual-codex-callback', workspaceId);
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const completeCodexOauth = async () => {
+    if (!selectedSummary || !authSession || !callbackUrl.trim()) return;
+    setLocalError('');
+    try {
+      await actionBusy.run('oauth-callback', async () => {
+        mergeSubaccount(await apiClient.completeSubaccountCodexAuth(
+          selectedSummary.id,
+          authSession.sessionId,
+          callbackUrl.trim()
+        ));
+        storeCodexAuthSession(selectedSummary.id, null);
+        setAuthSession(null);
+        setCallbackUrl('');
+        closeModal();
+        if (searchState.tab === 'logs') await loadLogs(selectedSummary.id);
+      });
+    } catch (error) {
+      reportLocalError(error);
     }
   };
 
@@ -807,6 +1011,10 @@ export function SubaccountRoutes({
             busyState={actionBusy.busyState}
             accountManagerStatus={accountManagerStatus}
             accountManagerLoading={accountManagerLoadingId === selectedSummary?.id}
+            pro5xSubscription={selectedSummary
+              ? pro5xSubscriptions[selectedSummary.id] ?? null
+              : null}
+            pro5xSubscriptionLoading={pro5xSubscriptionLoadingId === selectedSummary?.id}
             quota={quota}
             syncing={actionBusy.isBusy('subaccount-refresh')}
             onTabChange={changeTab}
@@ -814,17 +1022,36 @@ export function SubaccountRoutes({
             onAccountProfileChanged={(profile) => {
               if (selectedSummary) updateAccountProfileStatus(selectedSummary.id, profile);
             }}
+            onAccountManagerStatusChanged={(status) => {
+              if (!selectedSummary) return;
+              setAccountManagerStatuses((current) => ({ ...current, [selectedSummary.id]: status }));
+              if (status.managed) {
+                void apiClient.getSubaccount(selectedSummary.id)
+                  .then(mergeSubaccount)
+                  .catch(reportLocalError);
+              }
+            }}
             onOpenEdit={() => selectedSummary && openModal('edit-subaccount-profile', selectedSummary.id)}
             onOpenDelete={() => selectedSummary && openModal('delete-subaccount', selectedSummary.id)}
             onOpenPro5x={() => selectedSummary && openModal('open-pro-5x', selectedSummary.id)}
+            onRetryPro5x={(operationId) => {
+              if (selectedSummary) void retryPro5x(selectedSummary.id, operationId);
+            }}
+            onRotatePro5x={(operationId) => {
+              if (selectedSummary) void rotatePro5x(selectedSummary.id, operationId);
+            }}
             onTerminatePro5x={(operationId) => {
               if (selectedSummary) void terminatePro5x(selectedSummary.id, operationId);
             }}
             onDismissPro5x={(operationId) => {
               if (selectedSummary) void dismissPro5x(selectedSummary.id, operationId);
             }}
+            onCancelPro5xRenewal={() => {
+              if (selectedSummary) void cancelPro5xRenewal(selectedSummary.id);
+            }}
             onSync={() => void syncSubaccount()}
             onOpenInvite={() => openModal('invite-to-team', selectedSummary?.id ?? '')}
+            onStartOauth={(workspaceId, teamTitle) => void startCodexOauth(workspaceId, teamTitle)}
             onCreatePat={(workspaceId) => void createPersonalAccessToken(workspaceId)}
             onRefreshQuota={(workspaceId) => void refreshQuota(workspaceId)}
             onExportPat={(workspaceId) => void exportCredential(workspaceId)}
@@ -837,10 +1064,17 @@ export function SubaccountRoutes({
         open={searchState.modal === 'import-session'}
         mode="subaccount"
         title="录入子号 Session"
-        description="保存子号本地记录后，可继续生成 Codex 凭证并查询额度。粘贴 chatgpt.com session JSON，建议包含 sessionToken。"
+        description="保存子号本地记录，并可使用该 Session 自动纳入 GPT Account Manager。建议包含 sessionToken，以便无需密码建立浏览器身份归档。"
         submitLabel="保存子号"
         requireSession
-        initialValues={{ remark: '', groupName: '默认分组', isBanned: false, proxy: '' }}
+        showAccountManagerEnrollment
+        initialValues={{
+          remark: '',
+          groupName: '默认分组',
+          isBanned: false,
+          proxy: '',
+          manageWithAccountManager: true
+        }}
         confirmLoading={actionBusy.isBusy('import-session')}
         onCancel={closeModal}
         onSubmit={importSession}
@@ -938,16 +1172,57 @@ export function SubaccountRoutes({
       </Modal>
 
       <Modal
+        open={searchState.modal === 'manual-codex-callback' && Boolean(selectedSummary && authSession)}
+        title={`Codex OAuth 授权${authSession?.targetTeamTitle ? ` · ${authSession.targetTeamTitle}` : ''}`}
+        okText="提交回调并保存凭证"
+        cancelText="取消"
+        confirmLoading={actionBusy.isBusy('oauth-callback')}
+        okButtonProps={{ disabled: !callbackUrl.trim() }}
+        onCancel={closeModal}
+        onOk={() => void completeCodexOauth()}
+      >
+        <Space direction="vertical" size={12} className="panel-stack">
+          <Alert
+            type="info"
+            showIcon
+            message="在浏览器完成 OpenAI 授权后，复制地址栏里的完整 localhost 回调 URL，再粘贴到下方。"
+          />
+          <Button type="primary" href={authSession?.authUrl} target="_blank" rel="noreferrer">
+            打开 Codex OAuth 授权页
+          </Button>
+          <Typography.Text type="secondary">
+            授权会话有效期至 {authSession ? new Date(authSession.expiresAt).toLocaleString() : '-'}。
+            回调页面无法打开是正常现象，只需复制浏览器地址栏 URL。
+          </Typography.Text>
+          <Input.TextArea
+            rows={4}
+            value={authSession?.authUrl ?? ''}
+            readOnly
+            spellCheck={false}
+          />
+          <Input.TextArea
+            rows={5}
+            value={callbackUrl}
+            disabled={actionBusy.isBusy('oauth-callback')}
+            spellCheck={false}
+            placeholder="粘贴 http://localhost:1455/auth/callback?code=...&state=..."
+            onChange={(event) => setCallbackUrl(event.target.value)}
+          />
+          <ModalErrorAlert message={searchState.modal === 'manual-codex-callback' ? localError : ''} />
+        </Space>
+      </Modal>
+
+      <Modal
         open={searchState.modal === 'delete-pat-credential' && Boolean(selectedSummary)}
-        title="删除 PAT 凭证"
-        okText="删除 PAT"
+        title="删除 Codex 凭证"
+        okText="删除凭证"
         cancelText="取消"
         okButtonProps={{ danger: true, loading: actionBusy.isBusy(actionKey('pat-delete', searchState.target)) }}
         onCancel={closeModal}
         onOk={() => void deleteCredential()}
       >
         <Space direction="vertical" size={12} className="panel-stack">
-          <span>确认删除 workspace {searchState.target || '当前'} 的 PAT 凭证？这不会移除 Team 成员关系。</span>
+          <span>确认删除 workspace {searchState.target || '当前'} 的 Codex 凭证？这不会移除 Team 成员关系。</span>
           <ModalErrorAlert message={searchState.modal === 'delete-pat-credential' ? localError : ''} />
         </Space>
       </Modal>

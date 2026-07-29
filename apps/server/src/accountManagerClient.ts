@@ -6,6 +6,7 @@ import type {
   OpenCodexSpaceRequest,
   OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
+  Pro5xPaymentStatisticsView,
   ResidentialProxyConfig,
   SubaccountRegistrationJobStatus,
   SubaccountRegistrationJobView
@@ -79,12 +80,14 @@ export interface AccountManagerGateway {
   health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
   listAccounts?(): Promise<ManagedAccountSummary[]>;
   listOperations(filter?: AccountManagerOperationFilter): Promise<AccountManagerOperationView[]>;
+  pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView>;
   operation(id: string): Promise<AccountManagerOperationView>;
   listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]>;
   listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]>;
   startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView>;
   startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView>;
   retryRegistration(id: string): Promise<SubaccountRegistrationJobView>;
+  retryOperationCurrentStep(id: string): Promise<AccountManagerOperationView>;
   rotateOperationIp(id: string): Promise<AccountManagerOperationView>;
   operationProxyConfig(id: string): Promise<ResidentialProxyConfig>;
   configureOperationProxy(id: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
@@ -152,6 +155,10 @@ export class AccountManagerClient implements AccountManagerGateway {
       : operations;
   }
 
+  pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView> {
+    return this.request('GET', '/v1/payment-attempts/statistics');
+  }
+
   async operation(id: string): Promise<AccountManagerOperationView> {
     return toOperation(await this.request('GET', `/v1/operations/${encodeURIComponent(id)}`));
   }
@@ -188,6 +195,14 @@ export class AccountManagerClient implements AccountManagerGateway {
     return toOperation(await this.request(
       'POST',
       `/v1/operations/${encodeURIComponent(id)}/controls/rotate-ip`,
+      {}
+    ));
+  }
+
+  async retryOperationCurrentStep(id: string): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/operations/${encodeURIComponent(id)}/controls/retry`,
       {}
     ));
   }

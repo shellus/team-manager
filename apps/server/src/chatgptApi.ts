@@ -92,6 +92,19 @@ export interface AutomaticReloadSettingsResponse extends Record<string, unknown>
   immediate_top_up_message?: string | null;
 }
 
+export interface ChatGptPro5xSubscriptionResponse extends Record<string, unknown> {
+  id?: string;
+  plan_type?: string;
+  active_start?: string;
+  active_until?: string;
+  billing_period?: string;
+  scheduled_billing_period?: string;
+  will_renew?: boolean;
+  cancellation_outcome?: string;
+  billing_currency?: string;
+  is_delinquent?: boolean;
+}
+
 /**
  * ChatGPT 网页 backend-api 薄封装。
  * 阶段一实测：所有请求必须带 Authorization: Bearer；workspace 操作还需 chatgpt-account-id。
@@ -226,6 +239,19 @@ export class ChatGptApi {
       workspaceName: entry.workspaceName,
       nextRenewalOn: entry.nextRenewalOn
     };
+  }
+
+  async getPro5xSubscription(): Promise<ChatGptPro5xSubscriptionResponse> {
+    return this.request<ChatGptPro5xSubscriptionResponse>(
+      'GET',
+      `/backend-api/subscriptions?account_id=${encodeURIComponent(this.account.accountId)}`
+    );
+  }
+
+  async cancelPro5xRenewal(): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>('POST', '/backend-api/subscriptions/cancel', {
+      account_id: this.account.accountId
+    });
   }
 
   /** 列成员（分页 ≤25，自动翻页聚合） */

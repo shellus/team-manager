@@ -78,6 +78,24 @@ describe('AccountManagerAssociationPanel', () => {
     expect(html).toContain('disabled');
   });
 
+  test('offers the same GAM enrollment action for an independently imported child', () => {
+    const html = renderToStaticMarkup(
+      <AccountManagerAssociationPanel
+        recordLabel="子号"
+        recordId="child-1"
+        status={{
+          configured: true,
+          reachable: true,
+          managed: false,
+          hasPro5x: false
+        }}
+      />
+    );
+
+    expect(html).toContain('该子号独立录入，未关联 GPT Account Manager');
+    expect(html).toContain('纳入 GAM 管理');
+  });
+
   test('does not show a missing 0.52 state for a Team subscription', () => {
     const html = renderToStaticMarkup(
       <AccountManagerAssociationPanel

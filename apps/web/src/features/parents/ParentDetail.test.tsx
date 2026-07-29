@@ -15,10 +15,18 @@ const parent: AccountView = {
   canManageWorkspace: false
 };
 
+const operationControlProps = {
+  busyState: {},
+  onRetryPro5x: () => undefined,
+  onRotatePro5x: () => undefined,
+  onTerminatePro5x: () => undefined
+};
+
 describe('ParentDetail', () => {
   test('opens Workspace management when GAM has discovered a Codex Workspace', () => {
     const html = renderToStaticMarkup(
       <ParentDetail
+        {...operationControlProps}
         account={parent}
         loading={false}
         activeTab="account-manager"
@@ -62,6 +70,7 @@ describe('ParentDetail', () => {
   test('keeps Workspace sync enabled for a personal parent without a known Workspace', () => {
     const html = renderToStaticMarkup(
       <ParentDetail
+        {...operationControlProps}
         account={parent}
         loading={false}
         activeTab="account-manager"
@@ -93,6 +102,7 @@ describe('ParentDetail', () => {
   test('keeps workspace operations enabled for a legacy usage-based parent', () => {
     const html = renderToStaticMarkup(
       <ParentDetail
+        {...operationControlProps}
         account={{
           ...parent,
           planType: 'self_serve_business_usage_based',
@@ -133,6 +143,7 @@ describe('ParentDetail', () => {
   test('hides the negative 0.52 tag after Team is recognized', () => {
     const html = renderToStaticMarkup(
       <ParentDetail
+        {...operationControlProps}
         account={{
           ...parent,
           planType: 'self_serve_business_usage_based',
@@ -167,6 +178,7 @@ describe('ParentDetail', () => {
   test('shows editable customer seat profiles for Codex members', () => {
     const html = renderToStaticMarkup(
       <ParentDetail
+        {...operationControlProps}
         account={{
           ...parent,
           planType: 'self_serve_business_usage_based',

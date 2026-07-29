@@ -1,8 +1,12 @@
 import type {
   AccountManagerOperationView,
+  CodexAuthStart,
   CodexCredentialJson,
+  CodexPersonalAccessTokenCredentialJson,
   CodexQuotaSnapshot,
   OpenPro5xRequest,
+  Pro5xRenewalCancellationResult,
+  Pro5xSubscriptionView,
   Subaccount,
   SubaccountAccountManagerStatus,
   SubaccountAuthLog,
@@ -14,6 +18,11 @@ import type {
   SubaccountSummaryView,
   SubaccountView
 } from '@team-manager/shared';
+import {
+  createCodexAuthSession,
+  exchangeCodexCallback,
+  type CodexAuthSession
+} from './codexAuth.js';
 import { fetchCodexQuota } from './codexQuota.js';
 import { ServiceError } from './teamService.js';
 import {
@@ -24,6 +33,7 @@ import {
 import {
   ChatGptWebSessionError,
   fetchWorkspaceWebAccessTokenFromSessionToken,
+  fetchWorkspaceWebSessionFromStoredCookies,
   fetchWorkspaceWebSessionFromSessionToken,
   resolveChatGptSessionImportInput,
 } from './chatgptWebSession.js';
@@ -33,20 +43,38 @@ import {
   ACCOUNT_MANAGER_REQUEST_TAGS,
   AccountManagerError,
   registrationJobFromOperation,
-  type AccountManagerGateway
+  type AccountManagerGateway,
+  type ManagedAccountSummary
 } from './accountManagerClient.js';
 import { accountManagerProfilesByLocalId } from './accountManagerProfiles.js';
+import {
+  accountEnrollmentOperationEmail,
+  findLatestAccountEnrollmentOperation,
+  isAccountEnrollmentOperation,
+  isTerminalAccountEnrollmentOperation
+} from './accountManagerEnrollment.js';
+import {
+  cancelPro5xRenewal,
+  Pro5xSubscriptionError,
+  readPro5xSubscription
+} from './pro5xSubscription.js';
 
 const CODEX_PAT_NAME = 'team-manager';
 const CODEX_PAT_TTL_SECONDS = 30 * 24 * 60 * 60;
 const CODEX_LOCAL_ACCESS_SCOPE = 'chatgpt.workspace.feature.allow-codex-local-access.access';
 
 export class SubaccountService {
+  private readonly codexSessions = new Map<
+    string,
+    { subaccountId: string; session: CodexAuthSession; targetChatgptAccountId?: string }
+  >();
+
   constructor(
     private readonly store: SubaccountStore,
     private readonly quotaTransport: Transport = createTransport(),
     private readonly webTransport: Transport = createTransport(),
-    private readonly accountManager?: AccountManagerGateway
+    private readonly accountManager?: AccountManagerGateway,
+    private readonly codexFetch: typeof fetch = fetch
   ) {}
 
   list(): SubaccountView[] {
@@ -61,6 +89,54 @@ export class SubaccountService {
     const subaccount = this.store.detail(id);
     if (!subaccount) throw new ServiceError(404, `子号不存在: ${id}`);
     return subaccount;
+  }
+
+  async pro5xSubscription(id: string): Promise<Pro5xSubscriptionView | null> {
+    const subaccount = this.requireSubaccount(id);
+    try {
+      const api = await this.directPro5xApiFor(subaccount);
+      const subscription = await readPro5xSubscription(api);
+      await this.store.update(id, {
+        webAccessTokenStatus: 'valid',
+        webAccessTokenCheckedAt: Date.now(),
+        lastError: undefined
+      });
+      return subscription;
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  async cancelPro5xRenewal(id: string): Promise<Pro5xRenewalCancellationResult> {
+    const subaccount = this.requireSubaccount(id);
+    try {
+      const result = await cancelPro5xRenewal(await this.directPro5xApiFor(subaccount));
+      const checkedAt = Date.now();
+      await this.store.update(id, {
+        webAccessTokenStatus: 'valid',
+        webAccessTokenCheckedAt: checkedAt,
+        lastRefreshAt: checkedAt,
+        lastError: undefined
+      });
+      await this.store.appendLog(id, {
+        phase: 'pro5x_renewal_cancel',
+        status: 'success',
+        message: result.idempotent ? 'Pro 5x 已处于不续订状态' : '已关闭 Pro 5x 自动续订',
+        data: {
+          idempotent: result.idempotent,
+          subscription: result.subscription
+        }
+      });
+      return result;
+    } catch (error) {
+      await this.persistWebRequestError(
+        id,
+        'pro5x_renewal_cancel',
+        '关闭 Pro 5x 自动续订失败',
+        error
+      );
+      throw asServiceError(error);
+    }
   }
 
   localProfile(id: string): SubaccountLocalProfileView {
@@ -208,6 +284,65 @@ export class SubaccountService {
     }
   }
 
+  async startAccountManagement(id: string): Promise<SubaccountAccountManagerStatus> {
+    const subaccount = this.requireSubaccount(id);
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    if (subaccount.managedAccountEmail) return this.accountStatus(id);
+
+    const email = subaccount.email.trim().toLowerCase();
+    if (!email) throw new ServiceError(400, '子号邮箱不能为空');
+    const canBootstrapExistingSession = Boolean(
+      subaccount.sessionToken?.trim()
+      && subaccount.chatgptAccountId?.trim()
+      && subaccount.webAccessToken?.trim()
+    );
+    const managed = await this.findManagedAccount(email);
+    if (managed) {
+      await this.linkExistingManagedSubaccount(id, email);
+      await this.removeTerminalEnrollmentOperations(email);
+      return this.accountStatus(id);
+    }
+
+    const operations = await this.callAccountManager(() => this.accountManager!.listOperations({ type: 'import' }));
+    const existing = findLatestAccountEnrollmentOperation(operations, email);
+    if (existing && existing.status !== 'failed' && existing.status !== 'interrupted') {
+      return this.reconcileAccountEnrollment(id, email, existing);
+    }
+    for (const operation of operations.filter((item) =>
+      accountEnrollmentOperationEmail(item) === email
+      && (item.status === 'failed' || item.status === 'interrupted')
+    )) {
+      await this.safeRemoveAccountOperation(operation.id);
+    }
+
+    const operation = await this.callAccountManager(() => this.accountManager!.startAccountImport({
+      email,
+      authMethod: canBootstrapExistingSession ? 'existing_session' : 'email_otp',
+      ...(canBootstrapExistingSession
+        ? {
+            session: {
+              user: { email: subaccount.email },
+              account: { id: subaccount.chatgptAccountId! },
+              accessToken: subaccount.webAccessToken!,
+              sessionToken: subaccount.sessionToken!
+            }
+          }
+        : {})
+    }));
+    await this.store.appendLog(id, {
+      phase: 'account_manager_enrollment_start',
+      status: operation.status,
+      message: canBootstrapExistingSession
+        ? '已使用现有 Web Session 发起 GAM 纳管'
+        : '已发起 GAM 邮箱验证码登录纳管',
+      data: {
+        operationId: operation.id,
+        authMethod: canBootstrapExistingSession ? 'existing_session' : 'email_otp'
+      }
+    });
+    return unmanagedSubaccountStatus(operation);
+  }
+
   async accountProfile(id: string): Promise<AccountManagerProfileView> {
     const email = this.requireManagedAccountEmail(id);
     return this.callAccountManager(() => this.accountManager!.accountProfile(email));
@@ -256,13 +391,23 @@ export class SubaccountService {
     }
     const email = subaccount.managedAccountEmail?.trim().toLowerCase();
     if (!email) {
-      return {
-        configured: true,
-        reachable: true,
-        managed: false,
-        hasPro5x: false,
-        error: '该子号未关联 GPT Account Manager'
-      };
+      try {
+        const operations = await this.accountManager.listOperations({ type: 'import' });
+        return this.reconcileAccountEnrollment(
+          id,
+          subaccount.email,
+          findLatestAccountEnrollmentOperation(operations, subaccount.email)
+        );
+      } catch (error) {
+        return {
+          configured: true,
+          reachable: false,
+          managed: false,
+          hasPro5x: false,
+          accountEmail: subaccount.email.trim().toLowerCase(),
+          error: error instanceof AccountManagerError ? error.message : (error as Error).message
+        };
+      }
     }
 
     try {
@@ -318,29 +463,56 @@ export class SubaccountService {
     }
 
     try {
-      const [managedAccounts, operations] = await Promise.all([
+      const [managedAccounts, allOperations] = await Promise.all([
         this.accountManager.listAccounts(),
-        this.accountManager.listOperations({
-          type: 'open_pro_5x',
-          requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
-        })
+        this.accountManager.listOperations()
       ]);
       const managedByEmail = new Map(
         managedAccounts.map((account) => [account.email.trim().toLowerCase(), account])
       );
       const operationsByEmail = new Map<string, AccountManagerOperationView[]>();
-      for (const operation of operations.filter(isSubaccountPro5xOperation)) {
+      for (const operation of allOperations.filter(isSubaccountPro5xOperation)) {
         const email = operationAccountEmail(operation);
         if (!email) continue;
         const current = operationsByEmail.get(email) ?? [];
         current.push(operation);
         operationsByEmail.set(email, current);
       }
+      const enrollmentOperationsByEmail = new Map<string, AccountManagerOperationView[]>();
+      for (const operation of allOperations.filter(isAccountEnrollmentOperation)) {
+        const email = accountEnrollmentOperationEmail(operation);
+        if (!email) continue;
+        const current = enrollmentOperationsByEmail.get(email) ?? [];
+        current.push(operation);
+        enrollmentOperationsByEmail.set(email, current);
+      }
 
       const entries = await Promise.all(subaccounts.map(async (subaccount) => {
         const email = subaccount.managedAccountEmail?.trim().toLowerCase();
         if (!email) {
-          return [subaccount.id, unmanagedSubaccountStatus()] as const;
+          const localEmail = subaccount.email.trim().toLowerCase();
+          const enrollmentOperation = (enrollmentOperationsByEmail.get(localEmail) ?? [])
+            .sort((left, right) => right.createdAt - left.createdAt)[0];
+          const imported = managedByEmail.get(localEmail);
+          if (enrollmentOperation?.status === 'succeeded' && imported) {
+            await this.linkImportedSubaccount(subaccount.id, localEmail, enrollmentOperation.id);
+            await this.removeTerminalEnrollmentOperations(localEmail);
+            const pro5xOperation = (operationsByEmail.get(localEmail) ?? [])
+              .sort((left, right) => right.createdAt - left.createdAt)[0];
+            return [
+              subaccount.id,
+              managedSubaccountStatus(localEmail, imported.hasPro5x === true, pro5xOperation)
+            ] as const;
+          }
+          return [
+            subaccount.id,
+            unmanagedSubaccountStatus(
+              enrollmentOperation,
+              enrollmentOperation?.status === 'succeeded'
+                ? 'GAM 导入已完成，但账号状态尚未可读取，正在等待同步'
+                : undefined
+            )
+          ] as const;
         }
         const managed = managedByEmail.get(email);
         if (!managed) {
@@ -365,6 +537,87 @@ export class SubaccountService {
     }
   }
 
+  private async reconcileAccountEnrollment(
+    id: string,
+    email: string,
+    operation?: AccountManagerOperationView
+  ): Promise<SubaccountAccountManagerStatus> {
+    if (operation?.status !== 'succeeded') {
+      return unmanagedSubaccountStatus(operation);
+    }
+    const normalizedEmail = email.trim().toLowerCase();
+    const managed = await this.findManagedAccount(normalizedEmail);
+    if (!managed) {
+      return unmanagedSubaccountStatus(
+        operation,
+        'GAM 导入已完成，但账号状态尚未可读取，正在等待同步'
+      );
+    }
+    await this.linkImportedSubaccount(id, normalizedEmail, operation.id);
+    await this.removeTerminalEnrollmentOperations(normalizedEmail);
+    return this.accountStatus(id);
+  }
+
+  private async findManagedAccount(email: string): Promise<ManagedAccountSummary | undefined> {
+    try {
+      return await this.accountManager!.account(email);
+    } catch (error) {
+      if (error instanceof AccountManagerError && error.status === 404) return undefined;
+      if (error instanceof AccountManagerError) throw new ServiceError(error.status, error.message);
+      throw error;
+    }
+  }
+
+  private async linkExistingManagedSubaccount(id: string, email: string): Promise<SubaccountView> {
+    const existing = this.requireSubaccount(id);
+    if (existing.managedAccountEmail?.trim().toLowerCase() === email) return this.detail(id);
+    const updated = await this.store.update(id, { managedAccountEmail: email });
+    if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+    await this.store.appendLog(id, {
+      phase: 'account_manager_link',
+      status: updated.status,
+      message: '已关联现有 GPT Account Manager 账号',
+      data: { managedAccountEmail: email }
+    });
+    return updated;
+  }
+
+  private async linkImportedSubaccount(
+    id: string,
+    email: string,
+    operationId: string
+  ): Promise<SubaccountView> {
+    const existing = this.requireSubaccount(id);
+    if (existing.email.trim().toLowerCase() !== email) {
+      throw new ServiceError(409, 'GAM 导入邮箱与子号邮箱不一致');
+    }
+    if (existing.managedAccountEmail?.trim().toLowerCase() === email) return this.detail(id);
+    const session = await this.callAccountManager(() => this.accountManager!.session(email));
+    const linked = await this.store.saveManagedSubaccount({
+      managedAccountEmail: email,
+      email: existing.email,
+      session,
+      status: existing.status
+    });
+    await this.store.appendLog(id, {
+      phase: 'account_manager_session_import',
+      status: linked.status,
+      message: 'GAM 已建立浏览器身份归档并完成子号关联',
+      data: { managedAccountEmail: email, operationId }
+    });
+    return linked;
+  }
+
+  private async removeTerminalEnrollmentOperations(email: string): Promise<void> {
+    const operations = await this.callAccountManager(() => this.accountManager!.listOperations({ type: 'import' }));
+    for (const operation of operations.filter((item) =>
+      accountEnrollmentOperationEmail(item) === email
+      && isTerminalAccountEnrollmentOperation(item)
+    )) {
+      await this.safeRemoveAccountOperation(operation.id);
+    }
+  }
+
   async openAccountPro5x(
     id: string,
     input: OpenPro5xRequest
@@ -386,6 +639,14 @@ export class SubaccountService {
   ): Promise<AccountManagerOperationView> {
     await this.requireSubaccountPro5xOperation(id, operationId);
     return this.callAccountManager(() => this.accountManager!.rotateOperationIp(operationId));
+  }
+
+  async retryAccountOperationCurrentStep(
+    id: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    await this.requireSubaccountPro5xOperation(id, operationId);
+    return this.callAccountManager(() => this.accountManager!.retryOperationCurrentStep(operationId));
   }
 
   async terminateAccountOperation(
@@ -799,6 +1060,31 @@ export class SubaccountService {
     );
   }
 
+  private async directPro5xApiFor(subaccount: Subaccount): Promise<ChatGptApi> {
+    const accountId = subaccount.chatgptAccountId?.trim();
+    if (!accountId) throw new ServiceError(400, '子号缺少 ChatGPT account.id');
+    const storedCookieSession = subaccount.sessionToken?.trim() && subaccount.webSessionCookies
+      ? await fetchWorkspaceWebSessionFromStoredCookies(
+          this.webTransport,
+          subaccount.sessionToken,
+          subaccount.webSessionCookies,
+          accountId,
+          subaccount.proxy
+        )
+      : undefined;
+    const accessToken = storedCookieSession
+      ? readSessionAccessToken(storedCookieSession)
+      : await this.resolveWorkspaceWebAccessToken(subaccount, accountId);
+    if (accessToken !== subaccount.webAccessToken) {
+      await this.store.update(subaccount.id, {
+        webAccessToken: accessToken,
+        sessionTokenStatus: 'valid',
+        sessionTokenCheckedAt: Date.now()
+      });
+    }
+    return new ChatGptApi({ accountId, accessToken, proxy: subaccount.proxy }, this.webTransport);
+  }
+
   private async persistWebRequestError(
     id: string,
     phase: string,
@@ -829,6 +1115,83 @@ export class SubaccountService {
 
   async remove(id: string): Promise<boolean> {
     return this.store.remove(id);
+  }
+
+  async startCodexAuth(id: string, targetChatgptAccountId?: string): Promise<CodexAuthStart> {
+    const subaccount = this.requireSubaccount(id);
+    const target = cleanTargetAccountId(targetChatgptAccountId);
+    this.pruneExpiredCodexSessions();
+    const session = createCodexAuthSession({ loginHint: subaccount.email });
+    this.codexSessions.set(session.id, {
+      subaccountId: id,
+      session,
+      targetChatgptAccountId: target
+    });
+    await this.store.update(id, { status: 'codex_auth_pending', lastError: undefined });
+    await this.store.appendLog(id, {
+      phase: 'codex_auth_start',
+      status: 'codex_auth_pending',
+      message: '已创建 Codex OAuth 授权 URL',
+      data: {
+        sessionId: session.id,
+        expiresAt: session.expiresAt,
+        targetChatgptAccountId: target
+      }
+    });
+    return {
+      sessionId: session.id,
+      authUrl: session.authUrl,
+      expiresAt: session.expiresAt,
+      targetChatgptAccountId: target
+    };
+  }
+
+  async completeCodexAuth(
+    id: string,
+    sessionId: string,
+    callbackUrl: string
+  ): Promise<SubaccountView> {
+    this.requireSubaccount(id);
+    this.pruneExpiredCodexSessions();
+    const entry = this.codexSessions.get(sessionId);
+    if (!entry || entry.subaccountId !== id) {
+      throw new ServiceError(404, 'Codex OAuth 会话不存在或已过期，请重新生成授权 URL');
+    }
+
+    try {
+      const credential = await exchangeCodexCallback({
+        callbackUrl,
+        session: entry.session,
+        fetchImpl: this.codexFetch
+      });
+      assertCredentialMatchesTarget(credential, entry.targetChatgptAccountId);
+      const updated = await this.store.saveCodexCredential(id, credential);
+      if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
+      this.codexSessions.delete(sessionId);
+      await this.store.appendLog(id, {
+        phase: 'codex_auth_callback',
+        status: 'codex_ready',
+        message: 'Codex OAuth 授权完成，已保存凭证 JSON',
+        data: {
+          email: credential.email,
+          accountId: credential.account_id,
+          targetChatgptAccountId: entry.targetChatgptAccountId,
+          expiresAt: credential.expired
+        }
+      });
+      return updated;
+    } catch (error) {
+      const message = (error as Error).message;
+      await this.store.update(id, { status: 'error', lastError: message });
+      await this.store.appendLog(id, {
+        phase: 'codex_auth_callback',
+        status: 'error',
+        message,
+        data: { sessionId, targetChatgptAccountId: entry.targetChatgptAccountId }
+      });
+      if (error instanceof ServiceError) throw error;
+      throw new ServiceError(message.startsWith('Codex token exchange') ? 502 : 400, message);
+    }
   }
 
   async createPersonalAccessTokenCredential(
@@ -916,6 +1279,12 @@ export class SubaccountService {
       throw new ServiceError(400, '子号缺少 ChatGPT Web session，无法创建个人访问令牌');
     }
     return subaccount.webAccessToken;
+  }
+
+  private pruneExpiredCodexSessions(now = Date.now()): void {
+    for (const [sessionId, entry] of this.codexSessions) {
+      if (entry.session.expiresAt <= now) this.codexSessions.delete(sessionId);
+    }
   }
 
   private async resolveSubaccountSessionInput(
@@ -1040,13 +1409,20 @@ function managedSubaccountStatus(
   };
 }
 
-function unmanagedSubaccountStatus(): SubaccountAccountManagerStatus {
+function unmanagedSubaccountStatus(
+  enrollmentOperation?: AccountManagerOperationView,
+  error?: string
+): SubaccountAccountManagerStatus {
   return {
     configured: true,
     reachable: true,
     managed: false,
     hasPro5x: false,
-    error: '该子号未关联 GPT Account Manager'
+    ...(enrollmentOperation ? { enrollmentOperation } : {}),
+    error: error
+      || enrollmentOperation?.errorMessage
+      || enrollmentOperation?.message
+      || '该子号未关联 GPT Account Manager'
   };
 }
 
@@ -1087,6 +1463,16 @@ function parseJsonObject(body: string, message: string): Record<string, unknown>
 function cleanTargetAccountId(value?: string): string | undefined {
   const target = value?.trim();
   return target || undefined;
+}
+
+function assertCredentialMatchesTarget(credential: CodexCredentialJson, target?: string): void {
+  if (!target) return;
+  if (credential.account_id !== target) {
+    throw new ServiceError(
+      409,
+      `Codex OAuth 选择的 workspace 与目标不一致：目标 ${target}，实际 ${credential.account_id || '空'}`
+    );
+  }
 }
 
 function parseSubaccountSessionImportPayload(raw: unknown): {
@@ -1229,12 +1615,21 @@ function fullErrorMessage(error: unknown): string {
 
 function asServiceError(error: unknown): ServiceError {
   if (error instanceof ServiceError) return error;
-  if (error instanceof ChatGptWebSessionError) return new ServiceError(error.status, fullErrorMessage(error));
+  if (error instanceof Pro5xSubscriptionError) {
+    return new ServiceError(upstreamServiceStatus(error.status), error.message);
+  }
+  if (error instanceof ChatGptWebSessionError) {
+    return new ServiceError(upstreamServiceStatus(error.status), fullErrorMessage(error));
+  }
   if (error instanceof ChatGptApiError) {
-    const status = error.status >= 400 && error.status < 500 ? error.status : 502;
-    return new ServiceError(status, fullErrorMessage(error));
+    return new ServiceError(upstreamServiceStatus(error.status), fullErrorMessage(error));
   }
   return new ServiceError(502, fullErrorMessage(error));
+}
+
+function upstreamServiceStatus(status: number): number {
+  if (status === 401) return 502;
+  return status >= 400 && status < 500 ? status : 502;
 }
 
 function isOptionalPersonalProfileUnavailable(error: unknown): boolean {
@@ -1254,7 +1649,7 @@ function codexCredentialFromPersonalAccessTokenResponse(
   fallbackEmail: string,
   targetAccountId?: string,
   now: Date = new Date()
-): CodexCredentialJson {
+): CodexPersonalAccessTokenCredentialJson {
   const accessToken = response.access_token?.trim();
   if (!accessToken) throw new ServiceError(502, '个人访问令牌响应缺少 access_token');
   const issuedAccountId = response.workspace_id?.trim();

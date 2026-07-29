@@ -81,6 +81,15 @@ describe('routeState', () => {
     expect(state.target).toBe('child-1');
   });
 
+  test('persists the child Codex OAuth callback modal and workspace target', () => {
+    const state = parseSubaccountSearchState(
+      new URLSearchParams('tab=pat&modal=manual-codex-callback&target=workspace-1')
+    );
+
+    expect(state.modal).toBe('manual-codex-callback');
+    expect(state.target).toBe('workspace-1');
+  });
+
   test('does not persist the child Team leave action as a blocking route modal', () => {
     const state = parseSubaccountSearchState(new URLSearchParams('tab=teams&modal=leave-team&target=workspace-1'));
 

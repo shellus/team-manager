@@ -1,4 +1,4 @@
-# 子号与 PAT 凭证
+# 子号与 Codex 凭证
 
 ## 创建或录入子号
 
@@ -43,39 +43,55 @@ Cloudflare 中间挑战页会先在自动阶段等待自行通过。持续存在
 4. 自动填写新加坡账单地址并直接点击 Subscribe。
 5. 任务结束后恢复账号原住宅代理配置。
 
-遇到 Cloudflare、额外验证或页面暂时不可操作时，子号详情会持续显示任务状态，GAM Profile 保持现场可检查；人工完成验证后，后台会重新接管并继续创建 Checkout、填卡和提交。GAM 对未完成任务的付款资料加密持久化，服务热重载后自动恢复；旧任务缺少密文时，按钮会切换为“补充卡片并继续”，复用快捷输入把卡片交给原任务并立即恢复自动提交，无需终止任务。失败或手动终止的任务记录可清除后重新发起；Pro 5x 最终状态以 GAM 同步到的个人套餐为准。
+遇到 Cloudflare、额外验证或页面暂时不可操作时，子号详情会持续显示任务状态，GAM Profile 保持现场可检查；人工完成验证后，后台会重新接管并继续创建 Checkout、填卡和提交。等待人工状态提供“重试当前步骤”和“更换 IP 并重试”，分别用于保留当前住宅出口重置自动化，或轮换 SID/IP 后继续。GAM 对未完成任务的付款资料加密持久化，服务热重载后自动恢复；旧任务缺少密文时，按钮会切换为“补充卡片并继续”，复用快捷输入把卡片交给原任务并立即恢复自动提交，无需终止任务。失败或手动终止的任务记录可清除后重新发起；Pro 5x 最终状态以 GAM 同步到的个人套餐为准。
+
+PNA 或硬拒首次出现时，子号任务同样会自动更换 SID/IP、重新创建 Checkout 并仅重试一次。母号与子号的付款提交统一进入概览页全局统计，失败任务从列表清除后不会丢失对应的提交历史。
 
 ## Team 关联
 
 邀请子号加入 Team 后，在“Team 关联”页刷新。系统只使用子号自己的 Web Session 请求一次可见 workspace 列表，不使用母号凭证，也不逐 Workspace 查询成员。已有关联保留原席位类型，新发现的 Workspace 默认按 Codex 席位展示。
 
-一个子号可以加入多个 Team。PAT 和额度都按“子号 × Team workspace”分别保存。
+一个子号可以加入多个 Team。OAuth/PAT 凭证和额度都按“子号 × Team workspace”分别保存。
+
+## OAuth 授权
+
+进入“Codex 凭证”页签，在目标 Team 行点击“OAuth 授权”：
+
+1. 在弹窗中打开 Codex OAuth 授权页。
+2. 在 OpenAI 页面登录目标子号，并选择对应 Team workspace。
+3. 浏览器跳转到 `http://localhost:1455/auth/callback?...` 后，即使页面无法打开，也复制地址栏中的完整 URL。
+4. 把 callback URL 粘贴回弹窗并提交。后端使用同一 PKCE 会话换取 token，校验凭证 `account_id` 与目标 workspace 一致后保存。
+
+授权会话有效期为 5 分钟。它只保存在当前 Team Manager 后端进程中；后端重启或会话过期后，需要重新点击“OAuth 授权”。
 
 ## 创建 PAT
 
-进入“PAT 凭证”页签，在目标 Team 行点击“创建 PAT”。系统会：
+进入“Codex 凭证”页签，在目标 Team 行点击“创建 PAT”。系统会：
 
 1. 按目标 workspace 获取 Web access token。
 2. 调用 ChatGPT 的个人访问令牌接口。
 3. 校验返回的 workspace 与目标一致。
 4. 保存 PAT 文件和元数据。
 
-页面只提供四个凭证动作：
+页面提供五个凭证动作：
 
+- OAuth 授权
 - 创建或重新创建 PAT
 - 刷新额度
-- 下载 PAT
-- 删除 PAT
+- 下载凭证
+- 删除凭证
 
 PAT 必须由当前子号 Web Session 针对目标 workspace 创建。
 
 ## 额度
 
-“刷新额度”使用目标 PAT 调用 `/backend-api/wham/usage`。结果按 workspace 缓存，不同 Team 的额度互不影响。
+“刷新额度”使用目标 workspace 当前保存的 OAuth 或 PAT access token 调用 `/backend-api/wham/usage`。结果按 workspace 缓存，不同 Team 的额度互不影响。
 
 ## 常见问题
 
 - 创建 PAT 返回 workspace 不一致：重新录入含 `sessionToken` 的当前 ChatGPT Session，并确认子号已加入目标 Team。
 - 创建 PAT 被拒绝：检查母号 Team 是否允许成员创建个人访问令牌，以及子号的席位与成员状态。
-- 额度返回 401：确认子号仍在目标 Team，然后重新创建该 Team 的 PAT。
+- OAuth callback 提示 state 不匹配或会话过期：重新点击“OAuth 授权”，不要复用旧回调 URL。
+- OAuth 提示 workspace 不一致：重新授权并在 OpenAI 页面选择按钮所在行对应的 Team。
+- 额度返回 401：确认子号仍在目标 Team，然后重新授权或创建该 Team 的 PAT。
 - 注册等待人工处理：完成注册服务保留 profile 中的人机验证，再点击“人工验证后继续”。

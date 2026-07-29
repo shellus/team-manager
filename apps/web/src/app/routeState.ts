@@ -21,6 +21,7 @@ export type SubaccountModal =
   | 'edit-subaccount-profile'
   | 'delete-subaccount'
   | 'invite-to-team'
+  | 'manual-codex-callback'
   | 'delete-pat-credential';
 
 export interface ParentSearchState {
@@ -61,6 +62,7 @@ const subaccountModalSet = new Set<SubaccountModal>([
   'edit-subaccount-profile',
   'delete-subaccount',
   'invite-to-team',
+  'manual-codex-callback',
   'delete-pat-credential'
 ]);
 

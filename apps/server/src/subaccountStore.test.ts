@@ -21,6 +21,22 @@ function patCredential(accountId: string, token = `at-${accountId}`): CodexCrede
   };
 }
 
+function oauthCredential(accountId: string): CodexCredentialJson {
+  return {
+    id_token: 'oauth-id-token',
+    access_token: 'oauth-access-token',
+    refresh_token: 'oauth-refresh-token',
+    account_id: accountId,
+    last_refresh: '2026-06-18T00:00:00.000Z',
+    email: 'child@example.com',
+    type: 'codex',
+    expired: '2026-06-18T01:00:00.000Z',
+    plan_type: 'team',
+    auth_mode: 'chatgpt',
+    credential_source: 'oauth'
+  };
+}
+
 function hasOwn(value: object | undefined, key: string): boolean {
   return Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
 }
@@ -226,6 +242,27 @@ describe('SubaccountStore', () => {
       assert.equal(store.getCodexCredentialForAccount(saved.id, 'chatgpt-account-id')?.personal_access_token, 'at-chatgpt-account-id');
       const credentialFile = join(dir, 'subaccount-credentials', saved.id, view.codexCredentials[0]!.fileName);
       assert.equal((await stat(credentialFile)).mode & 0o777, 0o600);
+    });
+  });
+
+  it('stores and reloads OAuth Codex credentials alongside PAT support', async () => {
+    await withStore(async (store, dir) => {
+      const saved = await store.importSession({
+        user: { email: 'child@example.com' },
+        account: { id: 'chatgpt-account-id' },
+        accessToken: 'web-access-token'
+      });
+
+      await store.saveCodexCredential(saved.id, oauthCredential('workspace-account-id'));
+      const fileName = store.list()[0]!.codexCredentials[0]!.fileName;
+      const reloaded = new SubaccountStore(dir);
+      await reloaded.init();
+
+      const credential = reloaded.getCodexCredentialForAccount(saved.id, 'workspace-account-id');
+      assert.equal(credential?.credential_source, 'oauth');
+      assert.equal(credential?.auth_mode, 'chatgpt');
+      assert.equal('refresh_token' in (credential ?? {}), true);
+      assert.equal((await stat(join(dir, 'subaccount-credentials', saved.id, fileName))).mode & 0o777, 0o600);
     });
   });
 

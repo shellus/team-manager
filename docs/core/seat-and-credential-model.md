@@ -2,7 +2,7 @@
 
 本文件记录 team-manager 开发和运营中必须先理解的基础规则。涉及母号、子号、Team workspace、席位类型、Codex 凭证、额度或 Team 关联的任务，应先阅读本文件。
 
-## 一、ChatGPT 账号注册、登录与 PAT
+## 一、ChatGPT 账号注册、登录与 Codex 凭证
 
 1. **Team 邀请发给邮箱，不要求邮箱已注册 ChatGPT 账号。**
    Team 母号邀请成员时，目标是邮箱地址。该邮箱是否已经注册 ChatGPT 账号，不影响母号发出邀请。
@@ -19,7 +19,10 @@
 5. **PAT 创建必须指定 workspace。**
    同一个 ChatGPT 账号如果属于一个或多个 Team workspace，系统按目标 `chatgptAccountId` 获取 workspace Web Session，并校验远端返回的 `workspace_id`。
 
-6. **一个 ChatGPT 账号可以加入多个 Team workspace。**
+6. **OAuth 授权也必须选择并校验目标 workspace。**
+   系统生成 authorization-code + PKCE 登录 URL，操作员在 OpenAI 页面完成登录和 workspace 选择，再把 localhost callback URL 提交给后端换取 OAuth 凭证。凭证中的 `account_id` 与目标 workspace 不一致时拒绝保存。
+
+7. **一个 ChatGPT 账号可以加入多个 Team workspace。**
    同一个账号可以在不同 Team 中作为 owner 或 member 存在。每个 Team workspace 是独立上下文，有自己的 workspace `account_id`。
 
 ## 二、Team workspace、母号子号与席位类型
@@ -67,10 +70,10 @@
 ## 三、凭证、Team 位置与额度
 
 1. **Codex 凭证绑定到“ChatGPT 账号 × Team workspace”。**
-   一个 ChatGPT 账号在一个 Team workspace 下生成一份对应 PAT。该凭证绑定创建时指定的 Team workspace。
+   一个 ChatGPT 账号在一个 Team workspace 下保存一份对应 Codex 凭证。凭证可以来自 OAuth 或 PAT，但都绑定创建或授权时指定的 Team workspace。
 
 2. **凭证不能靠改字段或改请求头跨 Team 使用。**
-   同一 PAT 即使更换 `Chatgpt-Account-Id` 请求头，也只认它创建时绑定的 Team。要让同一账号使用另一个 Team 的额度，需要为目标 Team 重新创建 PAT。
+   同一份 OAuth/PAT 凭证即使更换 `Chatgpt-Account-Id` 请求头，也只认它绑定的 Team。要让同一账号使用另一个 Team 的额度，需要为目标 Team 重新授权或创建 PAT。
 
 3. **一个账号加入多个 Team 时，可以保留多份凭证。**
    如果一个 ChatGPT 账号要在多个 Team 下使用额度，需要分别保留对应 Team 的凭证。多份凭证可以同时使用，互不影响；每份凭证对应一份独立的 Team workspace 位置和用量状态。
@@ -94,8 +97,8 @@
 8. **切回 ChatGPT 席位即可复用同 Team 凭证。**
    为了腾出席位，可以暂时把账号从 `default` 切到 `usage_based`。后续额度恢复或需要重新使用该 Team 额度时，把它切回 `default` 即可复用原来绑定该 Team 的凭证，不需要重新生成凭证。
 
-9. **跨 Team 搬迁需要重新创建 PAT。**
-   如果账号从原 Team 移除并加入另一个 Team，要使用目标 Team 的额度，必须为目标 Team 创建新 PAT。原 Team PAT 不能通过改字段或改请求头转成目标 Team 凭证。
+9. **跨 Team 搬迁需要重新生成凭证。**
+   如果账号从原 Team 移除并加入另一个 Team，要使用目标 Team 的额度，必须为目标 Team 重新 OAuth 授权或创建 PAT。原 Team 凭证不能通过改字段或改请求头转成目标 Team 凭证。
 
 10. **移除后再加回同一 Team 的凭证复用状态未确认。**
     尚未专门观察“移除成员后再邀请回同一 Team”时，原 Team 凭证是否一定能复用。因此文档和系统操作应按风险处理：只要目标是同 Team 腾席位，就优先切席位，不用移除。

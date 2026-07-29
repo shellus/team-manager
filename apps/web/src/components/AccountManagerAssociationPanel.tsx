@@ -1,4 +1,9 @@
-import type { AccountManagerProfileView, ParentAccountManagerStatus } from '@team-manager/shared';
+import type {
+  AccountManagerOperationView,
+  AccountManagerProfileView,
+  ParentAccountManagerStatus,
+  SubaccountAccountManagerStatus
+} from '@team-manager/shared';
 import { ImportOutlined, PlayCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Empty, Space, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -32,7 +37,9 @@ export function AccountManagerAssociationPanel({
   managedAccountEmail?: string;
   status?: AccountManagerAssociationStatus | null;
   loading?: boolean;
-  onStatusChanged?: (status: ParentAccountManagerStatus) => void;
+  onStatusChanged?:
+    | ((status: ParentAccountManagerStatus) => void)
+    | ((status: SubaccountAccountManagerStatus) => void);
   onProfileChanged?: (profile: AccountManagerProfileView) => void;
 }) {
   const [profile, setProfile] = useState<AccountManagerProfileView | null>(null);
@@ -130,12 +137,20 @@ export function AccountManagerAssociationPanel({
     }
   };
 
-  const enrollParentAccount = async () => {
-    if (!recordId || recordLabel !== '母号') return;
+  const enrollAccount = async () => {
+    if (!recordId) return;
     setEnrollmentLoading(true);
     setEnrollmentError(undefined);
     try {
-      onStatusChanged?.(await apiClient.manageParentAccount(recordId));
+      if (recordLabel === '母号') {
+        (onStatusChanged as ((status: ParentAccountManagerStatus) => void) | undefined)?.(
+          await apiClient.manageParentAccount(recordId)
+        );
+      } else {
+        (onStatusChanged as ((status: SubaccountAccountManagerStatus) => void) | undefined)?.(
+          await apiClient.manageSubaccountAccount(recordId)
+        );
+      }
     } catch (error) {
       setEnrollmentError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -151,14 +166,14 @@ export function AccountManagerAssociationPanel({
     return (
       <Space direction="vertical" size={12} className="panel-stack account-manager-association-panel">
         <Empty description={`该${recordLabel}独立录入，未关联 GPT Account Manager`}>
-          {recordLabel === '母号' && recordId && (
+          {recordId && (
             <Button
               type="primary"
               icon={<ImportOutlined />}
               loading={enrollmentLoading}
               disabled={loading || enrollmentLoading || Boolean(operationActive)
                 || status?.configured === false || status?.reachable === false}
-              onClick={() => void enrollParentAccount()}
+              onClick={() => void enrollAccount()}
             >
               {operation?.status === 'failed' || operation?.status === 'interrupted'
                 ? '重新纳入 GAM 管理'
@@ -277,7 +292,7 @@ function enrollmentPhaseLabel(phase: string): string {
 function EnrollmentOperationState({
   status
 }: {
-  status: NonNullable<ParentAccountManagerStatus['enrollmentOperation']>['status'];
+  status: AccountManagerOperationView['status'];
 }) {
   if (status === 'queued') return <Tag color="processing">等待执行</Tag>;
   if (status === 'running') return <Tag color="processing">正在登录</Tag>;

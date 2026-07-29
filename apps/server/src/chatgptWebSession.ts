@@ -1,5 +1,6 @@
 import {
   parseChatGptSessionImportInput,
+  type ChatGptWebSessionCookies,
   type ChatGptSessionInput
 } from '@team-manager/shared';
 import type { Transport } from './transport.js';
@@ -55,12 +56,41 @@ export async function fetchWorkspaceWebSessionFromSessionToken(
   targetChatgptAccountId: string,
   proxy?: string
 ): Promise<Record<string, unknown>> {
+  return fetchWorkspaceWebSessionWithCookies(
+    transport,
+    buildSessionTokenHeader(sessionToken, targetChatgptAccountId),
+    targetChatgptAccountId,
+    proxy
+  );
+}
+
+export async function fetchWorkspaceWebSessionFromStoredCookies(
+  transport: Transport,
+  sessionToken: string,
+  cookies: ChatGptWebSessionCookies,
+  targetChatgptAccountId: string,
+  proxy?: string
+): Promise<Record<string, unknown>> {
+  return fetchWorkspaceWebSessionWithCookies(
+    transport,
+    buildStoredSessionCookieHeader(sessionToken, cookies, targetChatgptAccountId),
+    targetChatgptAccountId,
+    proxy
+  );
+}
+
+async function fetchWorkspaceWebSessionWithCookies(
+  transport: Transport,
+  cookie: string,
+  targetChatgptAccountId: string,
+  proxy?: string
+): Promise<Record<string, unknown>> {
   const response = await transport.fetch({
     method: 'GET',
     path: `/api/auth/session?team_manager_workspace=${encodeURIComponent(targetChatgptAccountId)}&t=${Date.now()}`,
     headers: {
       accept: 'application/json',
-      cookie: buildSessionTokenHeader(sessionToken, targetChatgptAccountId),
+      cookie,
       'user-agent': CHATGPT_WEB_USER_AGENT
     },
     proxy: proxy?.trim() || undefined
@@ -161,6 +191,29 @@ function buildSessionTokenHeader(sessionToken: string, targetChatgptAccountId: s
     `_account=${targetChatgptAccountId}`,
     '_account_residency_region=no_constraint'
   ].join('; ');
+}
+
+function buildStoredSessionCookieHeader(
+  sessionToken: string,
+  cookies: ChatGptWebSessionCookies,
+  targetChatgptAccountId: string
+): string {
+  const base = buildSessionTokenHeader(sessionToken, targetChatgptAccountId).split('; ');
+  const values: Array<[string, string | undefined]> = [
+    ['oai-did', cookies.oaiDid],
+    ['oai-client-auth-info', cookies.clientAuthInfo],
+    ['_puid', cookies.puid],
+    ['__Secure-oai-is', cookies.oaiIs]
+  ];
+  for (const [name, value] of values) {
+    const trimmed = value?.trim();
+    if (!trimmed) continue;
+    if (/[;\r\n]/.test(trimmed)) {
+      throw new ChatGptWebSessionError(400, `${name} Cookie 无效`);
+    }
+    base.push(`${name}=${trimmed}`);
+  }
+  return base.join('; ');
 }
 
 function parseJsonObject(body: string, message: string): Record<string, unknown> {

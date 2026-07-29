@@ -1,6 +1,6 @@
 # team-manager
 
-ChatGPT Team 母号与子号管理后台。系统录入 Team 母号和子号的 ChatGPT session，通过 ChatGPT Web backend-api 管理 Team workspace 的成员、邀请、席位类型、默认席位、Team 名称、子号 PAT 和额度查询。
+ChatGPT Team 母号与子号管理后台。系统录入 Team 母号和子号的 ChatGPT session，通过 ChatGPT Web backend-api 管理 Team workspace 的成员、邀请、席位类型、默认席位、Team 名称、子号 Codex OAuth/PAT 凭证和额度查询。
 
 ## Agent Quick Start
 
@@ -48,8 +48,8 @@ corepack pnpm docs:build
 - **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
 - **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；注册成功前可从任务卡进入账号管理页配置国家、ASN 或州/省与城市及 SID，成功后自动切换到正式子号的同一 Tab。有 GAM 关联的子号可继续修改代理配置、启动或关闭账号运行 Profile，并使用与母号相同的新加坡指定 ASN、站内 custom Checkout 和信用卡快捷输入开通个人账号 Pro 5x。开通过程展示实时任务状态，人工付款阶段保留对应 Profile。运行中的手动 Profile 同样显示列表标签并优先排列。
-- **Pro 5x 续跑**：Team Manager 不保存母号或子号的完整卡片；GPT Account Manager 使用账号管理密钥加密持久化未完成任务的付款资料，服务热重载后自动恢复排队、运行中和等待人工的任务。旧任务缺少密文时仍可使用“补充卡片并继续”，不需要终止或新建任务。
-- **PAT 与额度**：按子号和 Team workspace 创建 PAT，查询并缓存对应 workspace 的 Codex 额度。
+- **Pro 5x 续跑与统计**：Team Manager 不保存母号或子号的完整卡片；GPT Account Manager 使用账号管理密钥加密持久化未完成任务的付款资料，服务热重载后自动恢复排队、运行中和等待人工的任务。PNA 或硬拒首次出现时自动更换 SID/IP、重新创建 Checkout 并仅重试一次，第二次拒绝结束任务。等待人工状态仍提供“重试当前步骤”和“更换 IP 并重试”：前者保留 Profile、SID 与 IP 并重置当前自动化步骤，后者轮换住宅出口后继续；旧任务缺少密文时仍可使用“补充卡片并继续”，不需要终止或新建任务。概览页展示全局结果分布、PNA/硬拒重试转化，以及每次提交记录的账号、卡片后四位与指纹后缀、完整 SID/IP、Checkout Session、账单姓名/地址、间隔和错误；失败记录从任务列表清除后仍保留统计历史。
+- **Codex 凭证与额度**：按子号和 Team workspace 通过 OAuth 授权或 Web Session 创建 PAT，查询并缓存对应 workspace 的 Codex 额度。
 - **子号加入母号**：用子号邮箱邀请加入指定 Team，并同步本地 Team 关系状态。
 - **Team 升级订单维护**：把选定的 Codex Workspace 母号显式加入独立维护池，按全局配置和可选逐字段覆盖每 8 小时生成一个普通两席位 Team 升级订单；支持单个立即生成、10 分钟内分散批量触发、支付链接有效期和最近 30 条历史，不轮询付款状态。
 
@@ -122,7 +122,7 @@ corepack pnpm docs:build
 
 GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType`、`nextRenewalOn` 和人工维护的 `isBanned`，子号也使用独立的顶层 `groupName` 与 `isBanned`。母号和子号都可保存 `proxy`，ChatGPT Web 请求、workspace token 换取、子号 PAT 创建和额度刷新会优先使用对应账号的代理；未配置账号代理时才使用运行环境全局代理。本地资料弹窗会回填已保存的分组、封号标记、session JSON 和代理地址。
 
-通过 GPT Account Manager 创建的子号额外保存 `managedAccountEmail`，其值是规范化邮箱账号引用。Team Manager 不保存注册密码、CloakBrowser profile、浏览器追踪或支付状态。系统的 Codex 凭证模型只有 PAT，由当前子号 Web Session 针对目标 workspace 创建。
+通过 GPT Account Manager 创建的子号额外保存 `managedAccountEmail`，其值是规范化邮箱账号引用。Team Manager 不保存注册密码、CloakBrowser profile、浏览器追踪或支付状态。Codex 凭证支持 OAuth authorization-code + PKCE 和 PAT 两种来源，都按当前子号与目标 workspace 独立保存。
 
 ## 开发命令
 
@@ -154,7 +154,7 @@ corepack pnpm docs:build
 - [`docs/guide/fill-credential-pool.md`](./docs/guide/fill-credential-pool.md)：使用新子号加入多个 Team、生成 PAT 凭证并填充 CPA/Codex 号池的 SOP。
 - [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：Team、母号、子号、席位类型、Codex 凭证维度和账单红线。涉及这些对象的任务应先读本文件。
 - [`docs/dev-spec/data-model.md`](./docs/dev-spec/data-model.md)：母号、子号、缓存、派生字段和本地资料编辑的数据模型规则。
-- [`docs/dev-spec/subaccount-management.md`](./docs/dev-spec/subaccount-management.md)：子号池、PAT、额度查询和 Team 关联同步的实现边界。
+- [`docs/dev-spec/subaccount-management.md`](./docs/dev-spec/subaccount-management.md)：子号池、Codex OAuth/PAT、额度查询和 Team 关联同步的实现边界。
 - [`docs/dev-spec/subaccount-registration-sop.md`](./docs/dev-spec/subaccount-registration-sop.md)：Account Manager 注册操作、Session 交付与幂等规则。
 - [`docs/dev-spec/parent-account-registration.md`](./docs/dev-spec/parent-account-registration.md)：母号自动注册、0.52 开通与 Workspace 导入状态机。
 - [`docs/guide/team-order-maintenance.md`](./docs/guide/team-order-maintenance.md)：订单维护池、配置继承和手动触发操作说明。
@@ -165,7 +165,7 @@ corepack pnpm docs:build
 
 - 全新 GPT 账号注册由独立 GPT Account Manager 执行。Team Manager 只创建账号操作、展示进度、保存邮箱引用和 ChatGPT Web Session。
 - CloakBrowser、GongXi-Mail、Mihomo、家宽 SID、Cloudflare/CAPTCHA 重试和浏览器 trace 都属于注册服务，不进入 Team Manager 源码或运行配置。
-- 两个项目可独立运行：Team Manager 只凭 Web Session 即可管理母号、子号、Team 和 PAT；Account Manager 只凭账号凭据和 CloakBrowser profile 即可执行注册、同步和支付操作。
+- 两个项目可独立运行：Team Manager 可凭 Web Session 管理母号、子号、Team 和 PAT，也可独立完成手动 Codex OAuth callback 换取凭证；Account Manager 只凭账号凭据和 CloakBrowser profile 即可执行注册、同步和支付操作。
 - curl_cffi worker 只保留 ChatGPT Web 请求转发，不执行注册或凭证创建。
-- 子号凭证能力只保留 PAT 创建、下载、删除和额度刷新。
+- 子号凭证能力包括手动 OAuth 授权、PAT 创建、凭证下载、删除和额度刷新。
 - 系统不对接外部 credential-status 服务，Codex 额度直接由目标 workspace 对应凭证查询。

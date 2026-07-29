@@ -2,6 +2,7 @@ import type {
   AccountSummaryView,
   AccountManagerProfileView,
   CodexQuotaSnapshot,
+  Pro5xSubscriptionView,
   SubaccountAccountManagerStatus,
   SubaccountAuthLog,
   SubaccountView
@@ -19,6 +20,7 @@ import {
 import type { SubaccountTab } from '../../app/routeState.js';
 import { CountedTabLabel } from '../../components/CountedTabLabel.js';
 import { AccountManagerAssociationPanel } from '../../components/AccountManagerAssociationPanel.js';
+import { Pro5xOperationActions } from '../../components/Pro5xOperationActions.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { formatDateTime } from '../../components/format.js';
 import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag.js';
@@ -37,18 +39,25 @@ export function SubaccountDetail({
   busyState,
   accountManagerStatus,
   accountManagerLoading,
+  pro5xSubscription,
+  pro5xSubscriptionLoading,
   quota,
   syncing,
   onTabChange,
   onSubaccountChanged,
+  onAccountManagerStatusChanged,
   onAccountProfileChanged,
   onOpenEdit,
   onOpenDelete,
   onOpenPro5x,
+  onRetryPro5x,
+  onRotatePro5x,
   onTerminatePro5x,
   onDismissPro5x,
+  onCancelPro5xRenewal,
   onSync,
   onOpenInvite,
+  onStartOauth,
   onCreatePat,
   onRefreshQuota,
   onExportPat,
@@ -63,18 +72,25 @@ export function SubaccountDetail({
   busyState: ActionBusyState;
   accountManagerStatus: SubaccountAccountManagerStatus | null;
   accountManagerLoading: boolean;
+  pro5xSubscription: Pro5xSubscriptionView | null;
+  pro5xSubscriptionLoading: boolean;
   quota: CodexQuotaSnapshot | null;
   syncing: boolean;
   onTabChange: (tab: SubaccountTab) => void;
   onSubaccountChanged: (subaccount: SubaccountView) => void;
+  onAccountManagerStatusChanged?: (status: SubaccountAccountManagerStatus) => void;
   onAccountProfileChanged?: (profile: AccountManagerProfileView) => void;
   onOpenEdit: () => void;
   onOpenDelete: () => void;
   onOpenPro5x: () => void;
+  onRetryPro5x: (operationId: string) => void;
+  onRotatePro5x: (operationId: string) => void;
   onTerminatePro5x: (operationId: string) => void;
   onDismissPro5x: (operationId: string) => void;
+  onCancelPro5xRenewal: () => void;
   onSync: () => void;
   onOpenInvite: () => void;
+  onStartOauth: (workspaceId: string, teamTitle: string) => void;
   onCreatePat: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
   onExportPat: (workspaceId: string) => void;
@@ -100,7 +116,18 @@ export function SubaccountDetail({
   const pro5xWaitingManual = pro5xOperation?.status === 'waiting_manual';
   const pro5xNeedsCard = pro5xWaitingManual && pro5xOperation?.phase === 'pro5x_payment_card_required';
   const pro5xFailed = pro5xOperation?.status === 'failed' || pro5xOperation?.status === 'interrupted';
-  const hasPro5x = accountManagerStatus?.hasPro5x === true;
+  const hasDirectPro5x = Boolean(
+    pro5xSubscription && ['pro', 'prolite'].includes(pro5xSubscription.planType.toLowerCase())
+  );
+  const hasPro5x = accountManagerStatus?.hasPro5x === true || hasDirectPro5x;
+  const pro5xRenewalCancelled = pro5xSubscription?.willRenew === false;
+  const pro5xCancellationBusy = isActionBusy(
+    busyState,
+    `cancel-pro5x-renewal-${subaccount.id}`
+  );
+  const pro5xAccessUntil = pro5xSubscription?.activeUntil
+    ? formatDateTime(pro5xSubscription.activeUntil)
+    : '当前计费周期结束';
   const accountManagerUnavailable = accountManagerLoading
     || !accountManagerStatus
     || accountManagerStatus.configured === false
@@ -162,6 +189,26 @@ export function SubaccountDetail({
               </Button>
             </span>
           </Tooltip>
+          {(hasPro5x || pro5xSubscriptionLoading) && (
+            <Popconfirm
+              title="取消 Pro 5x 自动续订？"
+              description={`仅关闭自动续订，不退款；Pro 权益保留到 ${pro5xAccessUntil}。`}
+              okText="确认取消续订"
+              okButtonProps={{ danger: true }}
+              cancelText="返回"
+              disabled={pro5xRenewalCancelled || pro5xSubscriptionLoading}
+              onConfirm={onCancelPro5xRenewal}
+            >
+              <Button
+                danger={!pro5xRenewalCancelled}
+                icon={<StopOutlined />}
+                loading={pro5xSubscriptionLoading || pro5xCancellationBusy}
+                disabled={pro5xRenewalCancelled || pro5xSubscriptionLoading}
+              >
+                {pro5xRenewalCancelled ? '已取消续订' : '取消 Pro 续订'}
+              </Button>
+            </Popconfirm>
+          )}
           <Button icon={<EditOutlined />} onClick={onOpenEdit}>
             本地资料
           </Button>
@@ -198,6 +245,14 @@ export function SubaccountDetail({
             >
               清除记录
             </Button>
+          ) : pro5xWaitingManual ? (
+            <Pro5xOperationActions
+              operationId={pro5xOperation.id}
+              busyState={busyState}
+              onRetryCurrentStep={() => onRetryPro5x(pro5xOperation.id)}
+              onRotateIp={() => onRotatePro5x(pro5xOperation.id)}
+              onTerminate={() => onTerminatePro5x(pro5xOperation.id)}
+            />
           ) : (
             <Popconfirm
               title="终止当前 Pro 5x 开通任务？"
@@ -217,6 +272,16 @@ export function SubaccountDetail({
               </Button>
             </Popconfirm>
           )}
+        />
+      )}
+
+      {pro5xRenewalCancelled && (
+        <Alert
+          className="detail-operation-alert"
+          type="success"
+          showIcon
+          message="Pro 5x 自动续订已关闭"
+          description={`没有发起退款，当前 Pro 权益保留到 ${pro5xAccessUntil}。`}
         />
       )}
 
@@ -246,6 +311,7 @@ export function SubaccountDetail({
                 managedAccountEmail={subaccount.managedAccountEmail}
                 status={accountManagerStatus}
                 loading={accountManagerLoading}
+                onStatusChanged={onAccountManagerStatusChanged}
                 onProfileChanged={onAccountProfileChanged}
               />
             )
@@ -262,13 +328,14 @@ export function SubaccountDetail({
           },
           {
             key: 'pat',
-            label: <CountedTabLabel label="PAT 凭证" count={credentialCount} />,
+            label: <CountedTabLabel label="Codex 凭证" count={credentialCount} />,
             children: (
               <SubaccountPatCredentialPanel
                 subaccount={subaccount}
                 accounts={accounts}
                 busyState={busyState}
                 quota={quota}
+                onStartOauth={onStartOauth}
                 onCreate={onCreatePat}
                 onRefreshQuota={onRefreshQuota}
                 onExport={onExportPat}

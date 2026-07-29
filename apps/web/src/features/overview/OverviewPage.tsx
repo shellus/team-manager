@@ -11,6 +11,7 @@ import {
   seatOverviewCardIdentity,
   type SeatOverviewItem
 } from './seatOverview.js';
+import { Pro5xPaymentStatisticsPanel } from './Pro5xPaymentStatisticsPanel.js';
 
 const POSITION_STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
   empty: '空位',
@@ -95,6 +96,8 @@ export function OverviewPage({ initialAccounts }: { initialAccounts?: AccountOve
           </Space>
         </div>
       </div>
+
+      <Pro5xPaymentStatisticsPanel />
 
       {error && <Alert type="error" showIcon message={error} />}
 

@@ -17,6 +17,9 @@ import type {
   OpenPro5xRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
+  Pro5xPaymentStatisticsView,
+  Pro5xRenewalCancellationResult,
+  Pro5xSubscriptionView,
   ResidentialProxyConfig,
   PublicSeatSlotView,
   PendingInvite,
@@ -28,6 +31,7 @@ import type {
   SubaccountRegistrationJobView,
   SubaccountSummaryView,
   SubaccountView,
+  CodexAuthStart,
   CodexCredentialJson,
   CodexQuotaSnapshot,
   MaintainedTeamOrder,
@@ -125,6 +129,8 @@ export const apiClient = {
     call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
   getParentAccountManagerStatuses: () =>
     call<Record<string, ParentAccountManagerStatus>>('GET', '/accounts/account-manager/statuses'),
+  getPro5xPaymentStatistics: () =>
+    call<Pro5xPaymentStatisticsView>('GET', '/account-manager/pro5x/payment-statistics'),
   manageParentAccount: (id: string) =>
     call<ParentAccountManagerStatus>('POST', `/accounts/${id}/account-manager/manage`),
   getParentAccountProfile: (id: string) =>
@@ -157,6 +163,11 @@ export const apiClient = {
     call<AccountManagerOperationView>(
       'POST',
       `/accounts/${id}/account-manager/operations/${operationId}/rotate-ip`
+    ),
+  retryParentOperationCurrentStep: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/accounts/${id}/account-manager/operations/${operationId}/retry`
     ),
   terminateParentOperation: (id: string, operationId: string) =>
     call<AccountManagerOperationView>(
@@ -254,12 +265,21 @@ export const apiClient = {
     call<MaintainedTeamOrder>('POST', `/accounts/${id}/team-orders/${encodeURIComponent(orderId)}/retry`),
   listSubaccounts: () => call<SubaccountSummaryView[]>('GET', '/subaccounts'),
   getSubaccount: (id: string) => call<SubaccountView>('GET', `/subaccounts/${id}`),
+  getSubaccountPro5xSubscription: (id: string) =>
+    call<Pro5xSubscriptionView | null>('GET', `/subaccounts/${id}/pro5x-subscription`),
+  cancelSubaccountPro5xRenewal: (id: string) =>
+    call<Pro5xRenewalCancellationResult>(
+      'POST',
+      `/subaccounts/${id}/pro5x-subscription/cancel-renewal`
+    ),
   getSubaccountAccountProfile: (id: string) =>
     call<AccountManagerProfileView>('GET', `/subaccounts/${id}/account-manager/profile`),
   getSubaccountAccountManagerStatus: (id: string) =>
     call<SubaccountAccountManagerStatus>('GET', `/subaccounts/${id}/account-manager/status`),
   getSubaccountAccountManagerStatuses: () =>
     call<Record<string, SubaccountAccountManagerStatus>>('GET', '/subaccounts/account-manager/statuses'),
+  manageSubaccountAccount: (id: string) =>
+    call<SubaccountAccountManagerStatus>('POST', `/subaccounts/${id}/account-manager/manage`),
   getSubaccountAccountProfiles: () =>
     call<Record<string, AccountManagerProfileView>>('GET', '/subaccounts/account-manager/profiles'),
   startSubaccountAccountProfile: (id: string) =>
@@ -280,6 +300,11 @@ export const apiClient = {
     call<AccountManagerOperationView>(
       'POST',
       `/subaccounts/${id}/account-manager/operations/${operationId}/rotate-ip`
+    ),
+  retrySubaccountOperationCurrentStep: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'POST',
+      `/subaccounts/${id}/account-manager/operations/${operationId}/retry`
     ),
   terminateSubaccountOperation: (id: string, operationId: string) =>
     call<AccountManagerOperationView>(
@@ -335,14 +360,18 @@ export const apiClient = {
     call<AccountManagerRuntimeStatus>('GET', '/subaccounts/registration/status'),
   createSubaccountPersonalAccessTokenCredential: (id: string, chatgptAccountId?: string) =>
     call<SubaccountView>('POST', `/subaccounts/${id}/pat-credentials`, { chatgptAccountId }),
+  startSubaccountCodexAuth: (id: string, chatgptAccountId: string) =>
+    call<CodexAuthStart>('POST', `/subaccounts/${id}/codex-auth/start`, { chatgptAccountId }),
+  completeSubaccountCodexAuth: (id: string, sessionId: string, callbackUrl: string) =>
+    call<SubaccountView>('POST', `/subaccounts/${id}/codex-auth/callback`, { sessionId, callbackUrl }),
   getSubaccountCodexCredential: (id: string, chatgptAccountId?: string) => {
     const suffix = chatgptAccountId ? `?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}` : '';
-    return call<CodexCredentialJson>('GET', `/subaccounts/${id}/pat-credentials${suffix}`);
+    return call<CodexCredentialJson>('GET', `/subaccounts/${id}/codex-credentials${suffix}`);
   },
   removeSubaccountCodexCredential: (id: string, chatgptAccountId: string) =>
     call<SubaccountView>(
       'DELETE',
-      `/subaccounts/${id}/pat-credentials?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
+      `/subaccounts/${id}/codex-credentials?chatgptAccountId=${encodeURIComponent(chatgptAccountId)}`
     ),
   refreshSubaccountQuota: (id: string, chatgptAccountId?: string) =>
     call<CodexQuotaSnapshot>('POST', `/subaccounts/${id}/quota/refresh`, { chatgptAccountId }),

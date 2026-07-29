@@ -1,6 +1,6 @@
 # 子号管理实现边界
 
-Team Manager 负责保存子号 Web Session、Team 关联和 PAT 凭证，不负责执行 GPT 账号注册。账号注册由独立的 GPT Account Manager 完成，Team Manager 只创建账号操作、查询进度并取得最终 Web Session。
+Team Manager 负责保存子号 Web Session、Team 关联和 Codex OAuth/PAT 凭证，不负责执行 GPT 账号注册。账号注册由独立的 GPT Account Manager 完成，Team Manager 只创建账号操作、查询进度并取得最终 Web Session。
 
 已保存 `managedAccountEmail` 的子号可通过账号管理页启动或关闭 Account Manager 运行 Profile，并编辑国家、ASN、州/省、城市和上游 SID。ASN 有值时州/省与城市清空并禁用。Team Manager 只转发控制请求并展示状态，不保存 Profile ID 或住宅代理配置、不提供浏览器查看能力，也不绕过 Account Manager 调用 CloakBrowser。
 
@@ -8,11 +8,11 @@ Team Manager 负责保存子号 Web Session、Team 关联和 PAT 凭证，不负
 
 ## 子号数据
 
-- `data/subaccounts.json` 保存子号邮箱、本地备注与分组、Web Session、可选 `managedAccountEmail` 引用、Team 关联和 PAT 凭证元数据。
-- `data/subaccount-credentials/<subaccountId>/` 只保存 PAT 凭证文件。
-- PAT 元数据按“子号 × Team workspace”保存，包含 `accountId`、`fileName`、`groupName`、额度缓存和创建时间。
-- 普通子号 view 不返回 PAT 明文；只有显式下载接口返回完整 PAT JSON。
-- Codex 凭证数据结构固定为 PAT。
+- `data/subaccounts.json` 保存子号邮箱、本地备注与分组、Web Session、可选 `managedAccountEmail` 引用、Team 关联和 Codex 凭证元数据。
+- `data/subaccount-credentials/<subaccountId>/` 保存 OAuth 或 PAT 凭证文件。
+- 凭证元数据按“子号 × Team workspace”保存，包含 `accountId`、`fileName`、`groupName`、额度缓存和创建时间。
+- 普通子号 view 不返回凭证明文；只有显式下载接口返回完整凭证 JSON。
+- 同一 workspace 当前只保留一份凭证；重新 OAuth 授权或创建 PAT 会覆盖该 workspace 原凭证文件。
 
 ## 注册服务对接
 
@@ -53,16 +53,21 @@ Team Manager 对外保持稳定的注册任务 API：
 - `DELETE /api/subaccounts/:id/team-links/:accountId` 使用子号 Web Session 退出目标 Team。
 - `teamLinks` 是本地缓存，不是远端唯一事实源。
 
-## PAT 凭证
+## Codex OAuth 与 PAT 凭证
+
+- `POST /api/subaccounts/:id/codex-auth/start` 为目标 workspace 创建 5 分钟有效的 OAuth authorization-code + PKCE 会话并返回登录 URL。
+- `POST /api/subaccounts/:id/codex-auth/callback` 接收完整 localhost callback URL，校验 state、交换 token、校验凭证 workspace 并保存 OAuth JSON。
+- OAuth 会话只在后端内存中保存，不依赖 curl_cffi worker 或 GPT Account Manager。
 
 - `POST /api/subaccounts/:id/pat-credentials` 为目标 workspace 创建 PAT。
 - 若子号保存了 `sessionToken`，先换取目标 workspace 的 Web access token。
 - 创建请求调用 `POST /backend-api/wham/auth-credentials`，scope 固定为 `chatgpt.workspace.feature.allow-codex-local-access.access`，TTL 为 30 天。
 - 返回的 `workspace_id` 必须和目标 workspace 一致，否则拒绝保存。
 - 保存格式固定为 `auth_mode:"personalAccessToken"`、`credential_source:"personal_access_token"`，并同时写入 `access_token` 与 `personal_access_token`。
-- `GET /api/subaccounts/:id/pat-credentials?chatgptAccountId=...` 下载目标 PAT。
-- `DELETE /api/subaccounts/:id/pat-credentials?chatgptAccountId=...` 删除目标 PAT。
-- `POST /api/subaccounts/:id/quota/refresh` 使用目标 PAT 调用 `/backend-api/wham/usage` 并缓存额度窗口。
+- `GET /api/subaccounts/:id/codex-credentials?chatgptAccountId=...` 下载目标 OAuth/PAT 凭证。
+- `DELETE /api/subaccounts/:id/codex-credentials?chatgptAccountId=...` 删除目标 OAuth/PAT 凭证。
+- 旧的 PAT GET/DELETE 路径继续保留兼容；前端使用通用 Codex 凭证路径。
+- `POST /api/subaccounts/:id/quota/refresh` 使用目标凭证的 `access_token` 调用 `/backend-api/wham/usage` 并缓存额度窗口。
 
 ## curl_cffi worker
 

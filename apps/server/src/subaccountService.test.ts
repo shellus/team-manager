@@ -11,6 +11,7 @@ import type {
   OpenCodexSpaceRequest,
   OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
+  Pro5xPaymentStatisticsView,
   ResidentialProxyConfig,
   SubaccountAccountManagerStatus,
   SubaccountLocalProfileView,
@@ -22,7 +23,10 @@ import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
 import {
   ACCOUNT_MANAGER_REQUEST_TAGS,
+  AccountManagerError,
   type AccountManagerGateway,
+  type AccountImportRequest,
+  type AccountManagerOperationFilter,
   type AccountRegistrationRequest
 } from './accountManagerClient.js';
 import type { AppConfig } from './config.js';
@@ -31,6 +35,55 @@ import type { Transport } from './transport.js';
 
 function hasOwn(value: object | undefined, key: string): boolean {
   return Boolean(value && Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function paymentStatisticsFixture(): Pro5xPaymentStatisticsView {
+  return {
+    totalAttempts: 2,
+    decisionAttempts: 2,
+    uniqueOperations: 1,
+    succeeded: 1,
+    paymentNotApproved: 1,
+    cardDeclined: 0,
+    technicalFailures: 0,
+    interrupted: 0,
+    waitingManual: 0,
+    pending: 0,
+    transitions: {
+      payment_not_approved_to_succeeded: 1,
+      payment_not_approved_to_payment_not_approved: 0,
+      payment_not_approved_to_card_declined: 0,
+      card_declined_to_succeeded: 0,
+      card_declined_to_payment_not_approved: 0,
+      card_declined_to_card_declined: 0
+    },
+    recentAttempts: [{
+      id: 'attempt-2',
+      operationId: 'operation-1',
+      accountId: 'child@example.com',
+      cardLast4: '4242',
+      cardFingerprintSuffix: 'fingerprint-1',
+      number: 2,
+      startedAt: 2_000,
+      completedAt: 3_000,
+      outcome: 'succeeded',
+      decision: 'succeeded',
+      proxyObservation: {
+        sid: 'sid-2',
+        ip: '203.0.113.2',
+        country: 'SG',
+        asn: 'AS18106',
+        state: null,
+        city: null,
+        observedAt: 2_100
+      },
+      checkoutSessionId: 'cs_live_2',
+      checkoutRecreated: true,
+      intervalFromPreviousMs: 500,
+      cardHardFailure: false
+    }],
+    updatedAt: 3_000
+  };
 }
 
 function base64UrlJson(value: unknown): string {
@@ -245,6 +298,11 @@ class RecordingTeamTransport implements Transport {
         body: JSON.stringify({ credits: [{ source: 'promotion', count: 2 }], available_count: 2, total_earned_count: 3 })
       };
     }
+    if (req.method === 'GET' && req.path.startsWith('/backend-api/subscriptions?')) {
+      const failed = this.authFailure(req);
+      if (failed) return failed;
+      return { status: 404, body: JSON.stringify({ error: 'subscription not found' }) };
+    }
     if (req.method === 'GET' && req.path.startsWith('/backend-api/accounts/check/')) {
       const token = req.headers.Authorization?.replace(/^Bearer\s+/i, '') ?? '';
       if (this.invalidatedAccessTokens.has(token)) return tokenInvalidatedResponse();
@@ -354,6 +412,7 @@ class FakeAccountManager implements AccountManagerGateway {
   private accountOperations: AccountManagerOperationView[] = [];
   private requestTags = new Map<string, string>();
   pro5xAccounts = new Set<string>();
+  managedAccounts = new Set(['child@example.com', 'registered-child@example.com']);
   openedPro5x?: {
     accountId: string;
     input: OpenPro5xRequest & { requestTag?: string };
@@ -365,6 +424,10 @@ class FakeAccountManager implements AccountManagerGateway {
 
   async health() {
     return { status: 'ok', accountRegistrationConfigured: true };
+  }
+
+  async pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView> {
+    return paymentStatisticsFixture();
   }
 
   async startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
@@ -383,8 +446,25 @@ class FakeAccountManager implements AccountManagerGateway {
     return job;
   }
 
-  async startAccountImport(): Promise<AccountManagerOperationView> {
-    throw new Error('not implemented in subaccount tests');
+  async startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView> {
+    const operation: AccountManagerOperationView = {
+      id: `import-${this.accountOperations.length + 1}`,
+      accountId: input.email,
+      email: input.email,
+      type: 'import',
+      status: 'queued',
+      phase: 'import_queued',
+      message: '已加入账号导入队列',
+      progress: 0,
+      requestSummary: {
+        email: input.email,
+        authMethod: input.authMethod
+      },
+      createdAt: 20 + this.accountOperations.length,
+      updatedAt: 20 + this.accountOperations.length
+    };
+    this.accountOperations.push(operation);
+    return operation;
   }
 
   async listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]> {
@@ -403,8 +483,12 @@ class FakeAccountManager implements AccountManagerGateway {
       : this.jobs;
   }
 
-  async listOperations(): Promise<AccountManagerOperationView[]> {
-    return this.jobs.map((job) => this.operationFromJob(job));
+  async listOperations(filter: AccountManagerOperationFilter = {}): Promise<AccountManagerOperationView[]> {
+    return [...this.jobs.map((job) => this.operationFromJob(job)), ...this.accountOperations]
+      .filter((operation) => !filter.type || operation.type === filter.type)
+      .filter((operation) => !filter.status || operation.status === filter.status)
+      .filter((operation) => !filter.requestTag
+        || operation.requestSummary?.requestTag === filter.requestTag);
   }
 
   async operation(id: string): Promise<AccountManagerOperationView> {
@@ -464,6 +548,15 @@ class FakeAccountManager implements AccountManagerGateway {
     return this.operationFromJob(rotated);
   }
 
+  async retryOperationCurrentStep(id: string): Promise<AccountManagerOperationView> {
+    const operation = await this.operation(id);
+    this.controls.push(`retry:${id}`);
+    operation.phase = 'pro5x_retry_requested';
+    operation.message = '已请求重试当前步骤';
+    operation.updatedAt += 1;
+    return operation;
+  }
+
   async operationProxyConfig(id: string) {
     await this.operation(id);
     return this.proxyConfigs.get(id) ?? {
@@ -510,7 +603,15 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async session(accountId: string) {
-    if (accountId !== 'registered-child@example.com') throw new Error('managed account missing');
+    if (!this.managedAccounts.has(accountId)) throw new Error('managed account missing');
+    if (accountId !== 'registered-child@example.com') {
+      return {
+        user: { email: accountId },
+        account: { id: `personal-${accountId}` },
+        accessToken: chatGptWebAccessToken(`personal-${accountId}`, 'free'),
+        sessionToken: `session-${accountId}`
+      };
+    }
     return {
       user: { email: 'registered-child@example.com' },
       account: { id: 'registered-child-chatgpt-account-id' },
@@ -520,6 +621,9 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async account(accountId: string) {
+    if (!this.managedAccounts.has(accountId)) {
+      throw new AccountManagerError(404, `账号不存在: ${accountId}`);
+    }
     return {
       id: accountId,
       email: accountId,
@@ -635,6 +739,20 @@ class FakeAccountManager implements AccountManagerGateway {
     operation.completedAt = operation.updatedAt;
   }
 
+  completeAccountImport(accountId: string): void {
+    const operation = this.accountOperations.find((item) =>
+      item.accountId === accountId && item.type === 'import'
+    );
+    if (!operation) throw new Error('account import operation missing');
+    this.managedAccounts.add(accountId);
+    operation.status = 'succeeded';
+    operation.phase = 'complete';
+    operation.message = '账号已纳入 GAM 管理';
+    operation.progress = 100;
+    operation.updatedAt += 1;
+    operation.completedAt = operation.updatedAt;
+  }
+
   private operationFromJob(job: SubaccountRegistrationJobView): AccountManagerOperationView {
     return {
       id: job.id,
@@ -654,7 +772,10 @@ class FakeAccountManager implements AccountManagerGateway {
 }
 
 
-async function buildTestApp(options: { accountManager?: AccountManagerGateway } = {}) {
+async function buildTestApp(options: {
+  accountManager?: AccountManagerGateway;
+  codexFetch?: typeof fetch;
+} = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'teammgr-subaccount-api-'));
   const config: AppConfig = {
     port: 0,
@@ -682,6 +803,7 @@ async function buildTestApp(options: { accountManager?: AccountManagerGateway } 
     store,
     subaccountStore,
     subaccountQuotaTransport: quotaTransport,
+    subaccountCodexFetch: options.codexFetch,
     subaccountAccountManager: options.accountManager,
     teamTransport
   } as Parameters<typeof buildApp>[0]);
@@ -720,6 +842,23 @@ async function waitForRegistrationJob(
 }
 
 describe('Subaccount API', () => {
+  it('exposes global Pro 5x payment statistics', async () => {
+    const accountManager = new FakeAccountManager();
+    const { app, dir, authHeaders } = await buildTestApp({ accountManager });
+    try {
+      const response = await app.request('/api/account-manager/pro5x/payment-statistics', {
+        headers: authHeaders
+      });
+      const body = (await response.json()) as ApiResult<Pro5xPaymentStatisticsView>;
+      assert.equal(response.status, 200);
+      assert.equal(body.data?.totalAttempts, 2);
+      assert.equal(body.data?.transitions.payment_not_approved_to_succeeded, 1);
+      assert.equal(body.data?.recentAttempts[0]?.checkoutRecreated, true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('opens Pro 5x for a managed child and reconciles the personal plan status', async () => {
     const accountManager = new FakeAccountManager();
     const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ accountManager });
@@ -784,6 +923,16 @@ describe('Subaccount API', () => {
       assert.equal(accountManager.providedCards[0]?.operationId, operation.id);
       assert.equal(accountManager.providedCards[0]?.input.autoPay, true);
       assert.equal(accountManager.providedCards[0]?.input.card.number, '5555555555554444');
+
+      storedOperation.phase = 'payment_processing_manual';
+      const retried = await app.request(
+        `/api/subaccounts/${subaccount.id}/account-manager/operations/${operation.id}/retry`,
+        { method: 'POST', headers: authHeaders }
+      );
+      const retriedOperation = ((await retried.json()) as ApiResult<AccountManagerOperationView>).data!;
+      assert.equal(retried.status, 200);
+      assert.equal(retriedOperation.phase, 'pro5x_retry_requested');
+      assert.deepEqual(accountManager.controls, [`retry:${operation.id}`]);
 
       accountManager.completePro5x('child@example.com');
       const completed = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/status`, {
@@ -850,6 +999,95 @@ describe('Subaccount API', () => {
         'start:child@example.com',
         'stop:child@example.com'
       ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('imports an existing child Session into GAM idempotently and links only after completion', async () => {
+    const accountManager = new FakeAccountManager();
+    const { app, dir, authHeaders, subaccountStore } = await buildTestApp({ accountManager });
+    try {
+      const imported = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'unmanaged-child@example.com' },
+          account: { id: 'unmanaged-personal-account' },
+          accessToken: 'unmanaged-web-access-token',
+          sessionToken: 'unmanaged-session-token'
+        })
+      });
+      const subaccount = ((await imported.json()) as ApiResult<SubaccountView>).data!;
+
+      const started = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/manage`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const startedStatus = ((await started.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(started.status, 200);
+      assert.equal(startedStatus.managed, false);
+      assert.equal(startedStatus.enrollmentOperation?.type, 'import');
+      assert.equal(startedStatus.enrollmentOperation?.requestSummary?.authMethod, 'existing_session');
+      assert.equal(startedStatus.enrollmentOperation?.requestSummary?.email, 'unmanaged-child@example.com');
+      assert.equal(startedStatus.enrollmentOperation?.requestSummary?.session, undefined);
+      assert.equal(subaccountStore.get(subaccount.id)?.managedAccountEmail, undefined);
+
+      const repeated = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/manage`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const repeatedStatus = ((await repeated.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(repeatedStatus.enrollmentOperation?.id, startedStatus.enrollmentOperation?.id);
+      assert.equal((await accountManager.listOperations({ type: 'import' })).length, 1);
+
+      accountManager.completeAccountImport('unmanaged-child@example.com');
+      const completed = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/status`, {
+        headers: authHeaders
+      });
+      const completedStatus = ((await completed.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(completed.status, 200);
+      assert.equal(completedStatus.managed, true);
+      assert.equal(completedStatus.accountEmail, 'unmanaged-child@example.com');
+      assert.equal(completedStatus.enrollmentOperation, undefined);
+      assert.equal(subaccountStore.get(subaccount.id)?.managedAccountEmail, 'unmanaged-child@example.com');
+      assert.equal((await accountManager.listOperations({ type: 'import' })).length, 0);
+
+      const profile = await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
+        headers: authHeaders
+      });
+      const profileJson = (await profile.json()) as ApiResult<SubaccountLocalProfileView>;
+      assert.equal(profileJson.data?.session?.sessionToken, 'session-unmanaged-child@example.com');
+
+      const logs = await app.request(`/api/subaccounts/${subaccount.id}/logs`, { headers: authHeaders });
+      const logJson = (await logs.json()) as ApiResult<Array<{ phase: string }>>;
+      assert.ok(logJson.data?.some((entry) => entry.phase === 'account_manager_enrollment_start'));
+      assert.ok(logJson.data?.some((entry) => entry.phase === 'account_manager_session_import'));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to GAM email OTP import when a child Session has no sessionToken', async () => {
+    const accountManager = new FakeAccountManager();
+    const { app, dir, authHeaders } = await buildTestApp({ accountManager });
+    try {
+      const imported = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'otp-child@example.com' },
+          account: { id: 'otp-personal-account' },
+          accessToken: 'otp-web-access-token'
+        })
+      });
+      const subaccount = ((await imported.json()) as ApiResult<SubaccountView>).data!;
+      const started = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/manage`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const status = ((await started.json()) as ApiResult<SubaccountAccountManagerStatus>).data!;
+      assert.equal(status.enrollmentOperation?.requestSummary?.authMethod, 'email_otp');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1051,6 +1289,38 @@ describe('Subaccount API', () => {
       assert.equal(refreshedJson.data!.lastError, undefined);
       assert.equal(refreshedJson.data!.remoteDisplayName, 'Child User');
       assert.equal(refreshedJson.data!.remoteUsername, undefined);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps an upstream Pro 5x authentication failure separate from Team Manager login', async () => {
+    const { app, dir, authHeaders, teamTransport } = await buildTestApp();
+    try {
+      const invalidatedToken = chatGptWebAccessToken('child-chatgpt-account-id', 'free');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('child-chatgpt-account-id', invalidatedToken);
+      teamTransport.invalidatedAccessTokens.add(invalidatedToken);
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: invalidatedToken,
+          sessionToken: 'child-session-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const response = await app.request(`/api/subaccounts/${subaccount.id}/pro5x-subscription`, {
+        headers: authHeaders
+      });
+      const body = await response.text();
+      const json = JSON.parse(body) as ApiResult<unknown>;
+
+      assert.equal(response.status, 502, body);
+      assert.match(json.error ?? '', /HTTP 401/);
+      assert.match(json.error ?? '', /token_invalidated/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1468,6 +1738,85 @@ describe('Subaccount API', () => {
       assert.equal(exportedJson.data!.email, 'child@example.com');
       assert.equal(exportedJson.data!.type, 'codex');
       assert.equal(exportedJson.data!.auth_mode, 'personalAccessToken');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('completes Codex OAuth authorization and stores the workspace credential', async () => {
+    const requests: Array<{ url: string; body: string }> = [];
+    const idToken = unsignedJwt({
+      email: 'child@example.com',
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'workspace-account-id',
+        chatgpt_plan_type: 'team'
+      }
+    });
+    const codexFetch = async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(url), body: String(init?.body ?? '') });
+      return new Response(JSON.stringify({
+        access_token: 'oauth-access-token',
+        refresh_token: 'oauth-refresh-token',
+        id_token: idToken,
+        expires_in: 3600
+      }), { status: 200 });
+    };
+    const { app, dir, authHeaders } = await buildTestApp({ codexFetch: codexFetch as typeof fetch });
+    try {
+      const added = await app.request('/api/subaccounts/session', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          user: { email: 'child@example.com' },
+          account: { id: 'child-chatgpt-account-id' },
+          accessToken: 'child-web-access-token'
+        })
+      });
+      const subaccount = ((await added.json()) as ApiResult<SubaccountView>).data!;
+
+      const started = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/start`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ chatgptAccountId: 'workspace-account-id' })
+      });
+      const startedJson = (await started.json()) as ApiResult<{
+        sessionId: string;
+        authUrl: string;
+      }>;
+      const state = new URL(startedJson.data!.authUrl).searchParams.get('state');
+
+      assert.equal(started.status, 200);
+      assert.equal(new URL(startedJson.data!.authUrl).searchParams.get('login_hint'), 'child@example.com');
+      assert.ok(state);
+
+      const completed = await app.request(`/api/subaccounts/${subaccount.id}/codex-auth/callback`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          sessionId: startedJson.data!.sessionId,
+          callbackUrl: `http://localhost:1455/auth/callback?code=oauth-code&state=${state}`
+        })
+      });
+      const completedBody = await completed.text();
+      const completedJson = JSON.parse(completedBody) as ApiResult<SubaccountView>;
+
+      assert.equal(completed.status, 200, completedBody);
+      assert.equal(completedJson.data!.status, 'codex_ready');
+      assert.equal(completedJson.data!.codexCredentials[0]!.accountId, 'workspace-account-id');
+
+      const exported = await app.request(
+        `/api/subaccounts/${subaccount.id}/codex-credentials?chatgptAccountId=workspace-account-id`,
+        { headers: authHeaders }
+      );
+      const exportedJson = (await exported.json()) as ApiResult<Record<string, unknown>>;
+      assert.equal(exportedJson.data!.access_token, 'oauth-access-token');
+      assert.equal(exportedJson.data!.refresh_token, 'oauth-refresh-token');
+      assert.equal(exportedJson.data!.auth_mode, 'chatgpt');
+      assert.equal(exportedJson.data!.credential_source, 'oauth');
+
+      const tokenBody = new URLSearchParams(requests[0]!.body);
+      assert.equal(requests[0]!.url, 'https://auth.openai.com/oauth/token');
+      assert.equal(tokenBody.get('code'), 'oauth-code');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -40,6 +40,7 @@ export function SubaccountPatCredentialPanel({
   accounts,
   busyState,
   quota,
+  onStartOauth,
   onCreate,
   onRefreshQuota,
   onExport,
@@ -49,6 +50,7 @@ export function SubaccountPatCredentialPanel({
   accounts: AccountSummaryView[];
   busyState: ActionBusyState;
   quota: CodexQuotaSnapshot | null;
+  onStartOauth: (workspaceId: string, teamTitle: string) => void;
   onCreate: (workspaceId: string) => void;
   onRefreshQuota: (workspaceId: string) => void;
   onExport: (workspaceId: string) => void;
@@ -104,10 +106,10 @@ export function SubaccountPatCredentialPanel({
           <SeatTag seat={row.link.seat} />
           <TeamLinkStatusTag status={row.link.status} />
         </Space>
-      ) : '仅有 PAT'
+      ) : '仅有凭证'
     },
     {
-      title: 'PAT 凭证',
+      title: 'Codex 凭证',
       key: 'credential',
       width: 240,
       render: (_, row) => row.credential ? (
@@ -122,11 +124,18 @@ export function SubaccountPatCredentialPanel({
     {
       title: '操作',
       key: 'actions',
-      width: 390,
+      width: 500,
       render: (_, row) => (
         <Space wrap>
           <Button
             type="primary"
+            disabled={!row.workspaceId || row.link?.planType === 'k12'}
+            loading={isActionBusy(busyState, actionKey('oauth-start', row.workspaceId))}
+            onClick={() => onStartOauth(row.workspaceId, row.teamTitle)}
+          >
+            OAuth 授权
+          </Button>
+          <Button
             disabled={!row.workspaceId || !subaccount.hasWebSession}
             loading={isActionBusy(busyState, actionKey('pat-create', row.workspaceId))}
             onClick={() => onCreate(row.workspaceId)}
@@ -145,11 +154,11 @@ export function SubaccountPatCredentialPanel({
             loading={isActionBusy(busyState, actionKey('pat-export', row.workspaceId))}
             onClick={() => onExport(row.workspaceId)}
           >
-            下载 PAT
+            下载凭证
           </Button>
           {row.credential && (
             <Button danger onClick={() => onOpenDelete(row.credential!.accountId)}>
-              删除 PAT
+              删除凭证
             </Button>
           )}
         </Space>
@@ -159,10 +168,10 @@ export function SubaccountPatCredentialPanel({
 
   return (
     <Space direction="vertical" size={16} className="panel-stack">
-      <Card title="PAT 凭证概览">
+      <Card title="Codex 凭证概览">
         <Descriptions column={{ xs: 1, md: 3 }} bordered size="small">
           <Descriptions.Item label="Web Session">{subaccount.hasWebSession ? '已录入' : '未录入'}</Descriptions.Item>
-          <Descriptions.Item label="PAT 凭证">{subaccount.codexCredentials.length} 份</Descriptions.Item>
+          <Descriptions.Item label="Codex 凭证">{subaccount.codexCredentials.length} 份</Descriptions.Item>
           <Descriptions.Item label="最近更新">{formatDateTime(subaccount.updatedAt)}</Descriptions.Item>
         </Descriptions>
       </Card>
@@ -171,7 +180,7 @@ export function SubaccountPatCredentialPanel({
         columns={columns}
         dataSource={rows}
         pagination={false}
-        locale={{ emptyText: '先同步 Team 关联，再为目标 workspace 创建 PAT' }}
+        locale={{ emptyText: '先同步 Team 关联，再为目标 workspace 创建 OAuth 或 PAT 凭证' }}
       />
       {quota && (
         <Card title="本次额度刷新结果">

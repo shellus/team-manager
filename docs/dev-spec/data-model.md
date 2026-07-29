@@ -8,7 +8,7 @@
 - 写操作成功后必须更新对应本地事实源，或返回已经更新的 view 供前端合并。
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
-- 运行数据目录固定使用 `0700`；包含 Web Session、PAT、账单、通知密钥或操作日志的文件固定使用 `0600`。
+- 运行数据目录固定使用 `0700`；包含 Web Session、Codex 凭证、账单、通知密钥或操作日志的文件固定使用 `0600`。
 - curl_cffi worker 是通用 ChatGPT 请求转发能力。注册密码、GongXi-Mail、CloakBrowser、Mihomo、家宽代理和支付状态属于 GPT Account Manager，不是 Team Manager 账号业务模型字段。
 - store 只接受并持久化当前 schema；不属于当前 schema 的输入字段不会写入事实源。
 - GPT 账号基础字段统一为 `email` 和 `remark`。`email` 是账号名称和唯一可读身份；`remark` 是本系统本地备注。母号、子号和席位资料不得再使用 `label`、`note`、`displayName` 或 `name` 表示本地账号名称/备注。
@@ -182,10 +182,10 @@
 | `marketingPushEnabled` / `marketingEmailEnabled` | notifications settings | 子号个人营销通知缓存 |
 | `memoryEnabled` | `account_user_setting?feature=m3m` 写操作 | 子号记忆开关最近一次明确修改结果；未修改前可为未知 |
 | `rateLimitResetCredits` | `wham/rate-limit-reset-credits` | reset credits 明细、当前可用数、累计获得数和缓存时间 |
-| `codexCredentials[]` | PAT 创建结果 | 子号在某 Team workspace 下的 PAT 凭证元数据 |
+| `codexCredentials[]` | OAuth/PAT 创建结果 | 子号在某 Team workspace 下的 Codex 凭证元数据 |
 | `managedAccountEmail` | Account Manager 交付 | 可选的规范化邮箱账号引用；手工录入且未受管的子号不设置 |
 | `teamLinks[]` | 邀请/同步结果 | 子号与已录入母号的本地关系缓存 |
-| `status` / `lastError` | 注册、PAT 或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
+| `status` / `lastError` | 注册、OAuth、PAT 或同步流程 | 子号流程状态和错误摘要；账号锁定使用独立 `account_locked` 状态，不与待验证混用 |
 | `createdAt` / `updatedAt` | store | 本地记录生命周期 |
 
 ### Codex credential
@@ -195,15 +195,15 @@
 - `accountId`：凭证绑定的 Team workspace account id，来自 credential JSON 的 `account_id`。
 - `fileName`：独立凭证文件名，文件位于 `data/subaccount-credentials/<subaccountId>/`。
 - `groupName`：CPA 号池分组名，缺省为 `默认号池`。
-- `planType`：PAT 创建响应对应的套餐摘要。
+- `planType`：OAuth token 或 PAT 创建响应对应的套餐摘要。
 - 独立凭证文件固定使用 `auth_mode:"personalAccessToken"` 和 `credential_source:"personal_access_token"`。
-- 创建 PAT 时，远端响应的 `workspace_id` 必须和用户选择的目标 workspace 一致；不一致时拒绝保存，避免凭证和 Team 位置断链。
+- 创建 PAT 时，远端响应的 `workspace_id` 必须和用户选择的目标 workspace 一致；OAuth callback 换取的凭证 `account_id` 也必须与目标一致。不一致时拒绝保存，避免凭证和 Team 位置断链。
 - `lastQuota` / `lastQuotaAt`：该 workspace 凭证的额度缓存。
-- `lastCreatedAt`：该 workspace PAT 最近创建时间。
+- `lastCreatedAt`：该 workspace 当前 OAuth/PAT 凭证最近保存时间。
 
-CPA/Codex PAT 凭证明文 JSON 不写入 `subaccounts.json`，只写入独立凭证文件。普通列表和详情接口只返回 `SubaccountCodexCredentialView` 元数据；只有显式导出接口读取并返回目标凭证 JSON。
+CPA/Codex OAuth/PAT 凭证明文 JSON 不写入 `subaccounts.json`，只写入独立凭证文件。普通列表和详情接口只返回 `SubaccountCodexCredentialView` 元数据；只有显式导出接口读取并返回目标凭证 JSON。
 
-workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其他凭证文件和元数据会被移除。
+workspace key 以 `accountId` 为准。store 加载时接受 OAuth 与 PAT 两种 Codex 凭证，并兼容读取恢复功能删除前未标记 `auth_mode` / `credential_source` 的旧 OAuth 文件；其他无效凭证文件和元数据会被移除。
 
 ### Team links
 
@@ -237,6 +237,7 @@ workspace key 以 `accountId` 为准。store 加载时只接受 PAT 文件，其
 | 同步 Web 账号 | 验证 `sessionToken`，回写新 `webAccessToken`，调用 `/backend-api/me`、个人 profile、notifications settings 和 reset credits；分别持久化 Cookie/AT 状态、个人资料、设置缓存、错误和完整日志 | 合并返回的子号 view；刷新后状态不丢失 |
 | 修改子号个人资料或常用设置 | 通过统一 `ChatGptApi` 修改用户名、显示名、营销 Push/Email 或记忆，成功后更新对应缓存 | 合并返回的子号 view |
 | 创建 PAT | 用子号 Web Session 在目标 workspace 调用 `wham/auth-credentials`；远端 `workspace_id` 和目标一致时，返回的 `at-...` token 写入独立凭证文件，并按目标 workspace upsert `codexCredentials[]` 元数据 | 合并返回的子号 view |
+| OAuth 授权 | 创建 authorization-code + PKCE 会话；接收 localhost callback 后交换 token，校验凭证 `account_id`，写入同一 workspace 的独立凭证文件 | 合并返回的子号 view |
 | 刷新额度 | 只更新目标 workspace 凭证的 `lastQuota` / `lastQuotaAt` | 更新对应子号 view |
 | 邀请加入母号 | `isBanned=true` 时在任何 Team Manager 邀请入口拒绝请求；否则远端邀请成功后写入 `teamLinks[].status = "invited"`，不做账单风险预检 | 合并返回的子号 view |
 | 同步 Team 关联 | 只用子号 `accounts/check` 读取可见 workspace；保留已有 link 的席位类型，新 link 使用 `usage_based`，汇总后一次落盘 | 合并返回的子号 view |
@@ -297,4 +298,4 @@ Content-Type: application/json
 
 PATCH 请求中的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。编辑弹窗先读取对应 GET 接口，用返回的分组、`session` 和 `proxy` 回填表单。
 
-Codex 凭证只有 PAT，由当前子号 Web Session 针对目标 Team workspace 创建。
+Codex 凭证支持 OAuth authorization-code + PKCE 和 PAT。两种凭证都按目标 Team workspace 保存，同一 workspace 后保存的凭证覆盖前一份。

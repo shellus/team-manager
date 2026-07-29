@@ -12,6 +12,16 @@ describe('subaccount error handling', () => {
     expect(shouldForwardSubaccountErrorToGlobal(new Error('普通错误'))).toBe(false);
   });
 
+  test('keeps upstream authentication failures local to the selected child', () => {
+    expect(
+      shouldForwardSubaccountErrorToGlobal(new ApiError(
+        502,
+        'GET /backend-api/subscriptions HTTP 401: token_invalidated',
+        '/subaccounts/x/pro5x-subscription'
+      ))
+    ).toBe(false);
+  });
+
   test('still forwards expired login errors to the app shell', () => {
     expect(
       shouldForwardSubaccountErrorToGlobal(new ApiError(401, '登录已失效，请重新登录', '/subaccounts'))

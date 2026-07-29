@@ -9,6 +9,7 @@ import type {
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
+  Pro5xPaymentStatisticsView,
   ResidentialProxyConfig
 } from '@team-manager/shared';
 import { accountSummaryFromView } from '@team-manager/shared';
@@ -21,6 +22,12 @@ import {
 } from './accountManagerClient.js';
 import { ServiceError, TeamService } from './teamService.js';
 import { accountManagerProfilesByLocalId } from './accountManagerProfiles.js';
+import {
+  accountEnrollmentOperationEmail,
+  findLatestAccountEnrollmentOperation,
+  isAccountEnrollmentOperation,
+  isTerminalAccountEnrollmentOperation
+} from './accountManagerEnrollment.js';
 
 const TEAM_PLAN = 'team';
 const CODEX_SPACE_PLAN = 'self_serve_business_usage_based';
@@ -52,6 +59,11 @@ export class ParentAccountManagerService {
         error: error instanceof AccountManagerError ? error.message : (error as Error).message
       };
     }
+  }
+
+  async pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView> {
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    return this.callAccountManager(() => this.accountManager!.pro5xPaymentStatistics());
   }
 
   async listRegistrationTasks(): Promise<ParentRegistrationTaskView[]> {
@@ -125,7 +137,7 @@ export class ParentAccountManagerService {
         return this.reconcileAccountEnrollment(
           accountId,
           local.email,
-          findLatestEnrollmentOperation(operations, local.email),
+          findLatestAccountEnrollmentOperation(operations, local.email),
           localHasTeamSubscription,
           localHasCodexSpace
         );
@@ -236,7 +248,7 @@ export class ParentAccountManagerService {
       }
       const enrollmentOperationsByEmail = new Map<string, AccountManagerOperationView[]>();
       for (const operation of allOperations.filter(isAccountEnrollmentOperation)) {
-        const email = enrollmentOperationEmail(operation);
+        const email = accountEnrollmentOperationEmail(operation);
         if (!email) continue;
         const current = enrollmentOperationsByEmail.get(email) ?? [];
         current.push(operation);
@@ -340,7 +352,7 @@ export class ParentAccountManagerService {
     }
 
     const operations = await this.callAccountManager(() => this.accountManager!.listOperations({ type: 'import' }));
-    const existing = findLatestEnrollmentOperation(operations, email);
+    const existing = findLatestAccountEnrollmentOperation(operations, email);
     if (existing && existing.status !== 'failed' && existing.status !== 'interrupted') {
       return this.reconcileAccountEnrollment(
         local.id,
@@ -351,7 +363,7 @@ export class ParentAccountManagerService {
       );
     }
     for (const operation of operations.filter((item) =>
-      enrollmentOperationEmail(item) === email
+      accountEnrollmentOperationEmail(item) === email
       && (item.status === 'failed' || item.status === 'interrupted')
     )) {
       await this.safeRemoveOperation(operation.id);
@@ -438,8 +450,8 @@ export class ParentAccountManagerService {
   private async removeTerminalEnrollmentOperations(email: string): Promise<void> {
     const operations = await this.callAccountManager(() => this.accountManager!.listOperations({ type: 'import' }));
     for (const operation of operations.filter((item) =>
-      enrollmentOperationEmail(item) === email
-      && (item.status === 'succeeded' || item.status === 'failed' || item.status === 'interrupted')
+      accountEnrollmentOperationEmail(item) === email
+      && isTerminalAccountEnrollmentOperation(item)
     )) {
       await this.safeRemoveOperation(operation.id);
     }
@@ -544,6 +556,15 @@ export class ParentAccountManagerService {
   ): Promise<AccountManagerOperationView> {
     await this.requireParentWorkspacePurchase(accountId, operationId);
     return this.callAccountManager(() => this.accountManager!.rotateOperationIp(operationId));
+  }
+
+  async retryAccountOperationCurrentStep(
+    accountId: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    const operation = await this.requireParentWorkspacePurchase(accountId, operationId);
+    if (operation.type !== 'open_pro_5x') throw new ServiceError(409, '该操作不是 Pro 5x 开通任务');
+    return this.callAccountManager(() => this.accountManager!.retryOperationCurrentStep(operationId));
   }
 
   async terminateAccountOperation(
@@ -838,29 +859,6 @@ function unreachableManagedParentStatus(
 function operationAccountEmail(operation: AccountManagerOperationView): string | undefined {
   const email = operation.accountId || operation.email;
   return email?.trim().toLowerCase() || undefined;
-}
-
-function enrollmentOperationEmail(operation: AccountManagerOperationView): string | undefined {
-  const requestEmail = operation.requestSummary?.email;
-  const email = typeof requestEmail === 'string'
-    ? requestEmail
-    : operation.accountId || operation.email;
-  return email?.trim().toLowerCase() || undefined;
-}
-
-function findLatestEnrollmentOperation(
-  operations: AccountManagerOperationView[],
-  email: string
-): AccountManagerOperationView | undefined {
-  const target = email.trim().toLowerCase();
-  return operations
-    .filter((operation) => isAccountEnrollmentOperation(operation)
-      && enrollmentOperationEmail(operation) === target)
-    .sort((a, b) => b.createdAt - a.createdAt)[0];
-}
-
-function isAccountEnrollmentOperation(operation: AccountManagerOperationView): boolean {
-  return operation.type === 'import';
 }
 
 function registrationEmail(operation: AccountManagerOperationView): string | undefined {

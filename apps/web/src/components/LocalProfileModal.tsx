@@ -14,6 +14,7 @@ interface LocalProfileFormValues {
   isBanned?: boolean;
   nextRenewalOn?: string;
   proxy?: string;
+  manageWithAccountManager?: boolean;
   rawSession?: string;
 }
 
@@ -25,6 +26,7 @@ export function LocalProfileModal({
   initialValues,
   submitLabel = '保存',
   requireSession = false,
+  showAccountManagerEnrollment = false,
   loading = false,
   confirmLoading = false,
   onCancel,
@@ -41,10 +43,12 @@ export function LocalProfileModal({
     isBanned?: boolean;
     nextRenewalOn?: string;
     proxy?: string;
+    manageWithAccountManager?: boolean;
     session?: ChatGptSessionInput;
   };
   submitLabel?: string;
   requireSession?: boolean;
+  showAccountManagerEnrollment?: boolean;
   loading?: boolean;
   confirmLoading?: boolean;
   onCancel: () => void;
@@ -55,6 +59,7 @@ export function LocalProfileModal({
     isBanned?: boolean;
     nextRenewalOn?: string;
     proxy?: string;
+    manageWithAccountManager?: boolean;
     session?: unknown;
   }) => Promise<void>;
 }) {
@@ -75,6 +80,7 @@ export function LocalProfileModal({
       isBanned: initialValues.isBanned ?? false,
       nextRenewalOn: initialValues.nextRenewalOn ?? '',
       proxy: initialValues.proxy ?? '',
+      manageWithAccountManager: initialValues.manageWithAccountManager ?? false,
       rawSession: initialSessionJson
     });
     setRawSession(initialSessionJson);
@@ -86,6 +92,7 @@ export function LocalProfileModal({
     initialValues.limitType,
     initialValues.nextRenewalOn,
     initialValues.proxy,
+    initialValues.manageWithAccountManager,
     initialValues.remark,
     initialSessionJson,
     open
@@ -139,6 +146,9 @@ export function LocalProfileModal({
         groupName: values.groupName?.trim() || '默认分组',
         isBanned: values.isBanned ?? false,
         proxy: values.proxy?.trim() ?? '',
+        ...(showAccountManagerEnrollment
+          ? { manageWithAccountManager: values.manageWithAccountManager === true }
+          : {}),
         ...(mode === 'parent' ? {
           limitType: values.limitType ?? 'unknown',
           nextRenewalOn: values.nextRenewalOn?.trim() ?? ''
@@ -231,6 +241,16 @@ export function LocalProfileModal({
             <Form.Item name="proxy" label="代理地址">
               <Input placeholder="http://proxy-host:port 或 socks5://proxy-host:port" />
             </Form.Item>
+            {showAccountManagerEnrollment && (
+              <Form.Item
+                name="manageWithAccountManager"
+                label="GPT Account Manager"
+                valuePropName="checked"
+                extra="保存 Session 后发起 GAM 导入；GAM 建立浏览器身份归档后自动关联。关闭后只保存 Team Manager 本地记录。"
+              >
+                <Switch checkedChildren="同时纳管" unCheckedChildren="仅本地" />
+              </Form.Item>
+            )}
             <Form.Item
               name="rawSession"
               label="Session JSON"
