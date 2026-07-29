@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import type { SubaccountAccountManagerStatus } from '@team-manager/shared';
-import { subaccountAccountManagerStatusNeedsPolling } from './SubaccountRoutes.js';
+import {
+  cachedSubaccountAccountManagerStatus,
+  subaccountAccountManagerStatusNeedsPolling
+} from './SubaccountRoutes.js';
 
 function status(
   patch: Partial<SubaccountAccountManagerStatus> = {}
@@ -13,6 +16,34 @@ function status(
     ...patch
   };
 }
+
+describe('cachedSubaccountAccountManagerStatus', () => {
+  test('builds the detail status from the last explicit sync cache', () => {
+    expect(cachedSubaccountAccountManagerStatus({
+      managedAccountEmail: 'Child@Example.com',
+      accountManagerHasPro5x: true,
+      accountManagerSyncedAt: 123
+    })).toEqual({
+      configured: true,
+      reachable: true,
+      managed: true,
+      hasPro5x: true,
+      accountEmail: 'child@example.com'
+    });
+  });
+
+  test('does not claim that GAM was contacted before an explicit sync', () => {
+    expect(cachedSubaccountAccountManagerStatus({
+      managedAccountEmail: 'child@example.com'
+    })).toEqual({
+      configured: true,
+      reachable: false,
+      managed: true,
+      hasPro5x: false,
+      accountEmail: 'child@example.com'
+    });
+  });
+});
 
 describe('subaccountAccountManagerStatusNeedsPolling', () => {
   test('keeps polling while a child is being imported into GAM', () => {

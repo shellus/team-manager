@@ -1,7 +1,7 @@
 import type { ResidentialProxyConfig } from '@team-manager/shared';
 import { ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import { Alert, Button, Form, Input, Select, Skeleton, Space, Typography } from 'antd';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ACCOUNT_PROXY_COUNTRIES } from './teamCheckoutOptions.js';
 
 export function ResidentialProxyConfigurationPanel({
@@ -12,28 +12,26 @@ export function ResidentialProxyConfigurationPanel({
   saveConfig: (config: ResidentialProxyConfig) => Promise<ResidentialProxyConfig>;
 }) {
   const [form] = Form.useForm<ResidentialProxyConfig>();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
   const selectedAsn = Form.useWatch('asn', form);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = async () => {
     setLoading(true);
     setError(undefined);
-    void loadConfig()
-      .then((config) => {
-        if (!cancelled) form.setFieldsValue(config);
-      })
-      .catch((loadError) => {
-        if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [form, loadConfig]);
+    try {
+      const config = await loadConfig();
+      form.setFieldsValue(config);
+      setLoaded(true);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const submit = async (values: ResidentialProxyConfig) => {
     setSaving(true);
@@ -67,7 +65,11 @@ export function ResidentialProxyConfigurationPanel({
           </Typography.Text>
         </div>
       </div>
-      {loading ? (
+      {!loaded ? (
+        <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>
+          读取代理配置
+        </Button>
+      ) : loading ? (
         <Skeleton active paragraph={{ rows: 3 }} title={false} />
       ) : (
         <Form form={form} layout="vertical" onFinish={(values) => void submit(values)}>

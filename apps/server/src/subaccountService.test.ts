@@ -411,6 +411,7 @@ class FakeAccountManager implements AccountManagerGateway {
   private jobs: SubaccountRegistrationJobView[] = [];
   private accountOperations: AccountManagerOperationView[] = [];
   private requestTags = new Map<string, string>();
+  syncRequests: string[] = [];
   pro5xAccounts = new Set<string>();
   managedAccounts = new Set(['child@example.com', 'registered-child@example.com']);
   openedPro5x?: {
@@ -635,6 +636,7 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async syncAccount(accountId: string) {
+    this.syncRequests.push(accountId);
     return this.account(accountId);
   }
 
@@ -854,6 +856,53 @@ describe('Subaccount API', () => {
       assert.equal(body.data?.totalAttempts, 2);
       assert.equal(body.data?.transitions.payment_not_approved_to_succeeded, 1);
       assert.equal(body.data?.recentAttempts[0]?.checkoutRecreated, true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('persists GAM and Pro 5x state only during an explicit child sync', async () => {
+    const accountManager = new FakeAccountManager();
+    accountManager.pro5xAccounts.add('child@example.com');
+    const { app, dir, authHeaders, subaccountStore, teamTransport } = await buildTestApp({ accountManager });
+    try {
+      const token = chatGptWebAccessToken('personal-account', 'prolite');
+      teamTransport.sessionAccessTokensByWorkspaceId.set('personal-account', token);
+      const subaccount = await subaccountStore.saveManagedSubaccount({
+        managedAccountEmail: 'child@example.com',
+        email: 'child@example.com',
+        session: {
+          user: { email: 'child@example.com' },
+          account: { id: 'personal-account' },
+          accessToken: token,
+          sessionToken: 'session-token'
+        }
+      });
+
+      const detail = await app.request(`/api/subaccounts/${subaccount.id}`, { headers: authHeaders });
+      assert.equal(detail.status, 200);
+      assert.deepEqual(accountManager.syncRequests, []);
+      assert.equal(teamTransport.requests.some((request) => request.path.startsWith('/backend-api/subscriptions?')), false);
+
+      const synced = await app.request(`/api/subaccounts/${subaccount.id}/refresh`, {
+        method: 'POST', headers: authHeaders
+      });
+      const body = await synced.text();
+      const view = (JSON.parse(body) as ApiResult<SubaccountView>).data!;
+
+      assert.equal(synced.status, 200, body);
+      assert.deepEqual(accountManager.syncRequests, ['child@example.com']);
+      assert.equal(view.accountManagerHasPro5x, true);
+      assert.equal(typeof view.accountManagerSyncedAt, 'number');
+      assert.equal(typeof view.pro5xSubscriptionCheckedAt, 'number');
+      assert.equal(
+        teamTransport.requests.some((request) => request.path.startsWith('/backend-api/subscriptions?')),
+        true
+      );
+
+      const stored = await subaccountStore.detail(subaccount.id);
+      assert.equal(stored?.accountManagerHasPro5x, true);
+      assert.equal(typeof stored?.accountManagerSyncedAt, 'number');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

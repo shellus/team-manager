@@ -6,7 +6,7 @@ import type {
 } from '@team-manager/shared';
 import { ImportOutlined, PlayCircleOutlined, PoweroffOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Empty, Space, Tag, Typography } from 'antd';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '../api.js';
 import { ResidentialProxyConfigurationPanel } from './ResidentialProxyConfigurationPanel.js';
 import { WorkspaceOpeningStatusTags } from './WorkspaceOpeningStatusTags.js';
@@ -75,46 +75,21 @@ export function AccountManagerAssociationPanel({
       : await apiClient.updateSubaccountAccountProxy(recordId, config);
   }, [effectiveManagedEmail, recordId, recordLabel]);
 
-  useEffect(() => {
-    if (!recordId || !effectiveManagedEmail) {
-      setProfile(null);
-      return;
-    }
-    let cancelled = false;
+  const refreshProfile = async () => {
     setProfileLoading(true);
     setProfileError(undefined);
-    void requestProfile()
-      .then((next) => {
-        if (!cancelled && next) {
-          setProfile(next);
-          onProfileChangedRef.current?.(next);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) setProfileError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (!cancelled) setProfileLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [effectiveManagedEmail, recordId, requestProfile]);
-
-  useEffect(() => {
-    if (profile?.status !== 'queued' && profile?.status !== 'stopping') return;
-    const timer = window.setInterval(() => {
-      void requestProfile()
-        .then((next) => {
-          if (next) {
-            setProfile(next);
-            onProfileChangedRef.current?.(next);
-          }
-        })
-        .catch((error) => {
-          setProfileError(error instanceof Error ? error.message : String(error));
-        });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [profile?.status, requestProfile]);
+    try {
+      const next = await requestProfile();
+      if (next) {
+        setProfile(next);
+        onProfileChangedRef.current?.(next);
+      }
+    } catch (error) {
+      setProfileError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProfileLoading(false);
+    }
+  };
 
   const changeProfile = async (action: 'start' | 'stop') => {
     if (!recordId) return;
@@ -229,6 +204,15 @@ export function AccountManagerAssociationPanel({
         <Descriptions.Item label="Profile">
           <Space size={8} wrap>
             <AccountProfileState profile={profile} loading={profileLoading} />
+            <Button
+              size="small"
+              icon={<ImportOutlined />}
+              loading={profileLoading}
+              disabled={!recordId || profileAction !== null}
+              onClick={() => void refreshProfile()}
+            >
+              读取状态
+            </Button>
             <Button
               size="small"
               icon={<PlayCircleOutlined />}

@@ -806,6 +806,10 @@ export interface Subaccount {
   memoryEnabled?: boolean;
   memoryCachedAt?: number;
   rateLimitResetCredits?: SubaccountRateLimitResetCredits;
+  accountManagerHasPro5x?: boolean;
+  accountManagerSyncedAt?: number;
+  pro5xSubscription?: Pro5xSubscriptionView;
+  pro5xSubscriptionCheckedAt?: number;
   codexCredentials?: SubaccountCodexCredential[];
   teamLinks?: SubaccountTeamLink[];
   status: SubaccountStatus;
@@ -848,6 +852,10 @@ export interface SubaccountView {
   memoryEnabled?: boolean;
   memoryCachedAt?: number;
   rateLimitResetCredits?: SubaccountRateLimitResetCredits;
+  accountManagerHasPro5x?: boolean;
+  accountManagerSyncedAt?: number;
+  pro5xSubscription?: Pro5xSubscriptionView;
+  pro5xSubscriptionCheckedAt?: number;
   session?: ChatGptSessionInput;
   status: SubaccountStatus;
   hasWebSession: boolean;
@@ -867,6 +875,10 @@ export interface SubaccountSummaryView {
   groupName?: string;
   isBanned?: boolean;
   managedAccountEmail?: string;
+  accountManagerHasPro5x?: boolean;
+  accountManagerSyncedAt?: number;
+  pro5xSubscription?: Pro5xSubscriptionView;
+  pro5xSubscriptionCheckedAt?: number;
   status: SubaccountStatus;
   hasWebSession: boolean;
   codexCredentialCount: number;
@@ -914,6 +926,10 @@ export function subaccountSummaryFromView(subaccount: SubaccountView): Subaccoun
     groupName: subaccount.groupName,
     isBanned: subaccount.isBanned,
     managedAccountEmail: subaccount.managedAccountEmail,
+    accountManagerHasPro5x: subaccount.accountManagerHasPro5x,
+    accountManagerSyncedAt: subaccount.accountManagerSyncedAt,
+    pro5xSubscription: subaccount.pro5xSubscription,
+    pro5xSubscriptionCheckedAt: subaccount.pro5xSubscriptionCheckedAt,
     status: subaccount.status,
     hasWebSession: subaccount.hasWebSession,
     codexCredentialCount: subaccount.codexCredentials.length,

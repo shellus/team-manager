@@ -585,6 +585,10 @@ export class SubaccountStore {
       memoryEnabled: account.memoryEnabled,
       memoryCachedAt: account.memoryCachedAt,
       rateLimitResetCredits: account.rateLimitResetCredits,
+      accountManagerHasPro5x: account.accountManagerHasPro5x,
+      accountManagerSyncedAt: account.accountManagerSyncedAt,
+      pro5xSubscription: account.pro5xSubscription,
+      pro5xSubscriptionCheckedAt: account.pro5xSubscriptionCheckedAt,
       session:
         account.webAccessToken && account.chatgptAccountId
           ? {
@@ -733,6 +737,10 @@ async function normalizeStoredSubaccount(
     memoryEnabled: record.memoryEnabled,
     memoryCachedAt: record.memoryCachedAt,
     rateLimitResetCredits: normalizeRateLimitCredits(record.rateLimitResetCredits),
+    accountManagerHasPro5x: record.accountManagerHasPro5x,
+    accountManagerSyncedAt: record.accountManagerSyncedAt,
+    pro5xSubscription: normalizePro5xSubscription(record.pro5xSubscription),
+    pro5xSubscriptionCheckedAt: record.pro5xSubscriptionCheckedAt,
     codexCredentials: dedupeCodexCredentials(credentials),
     teamLinks,
     status: normalizeStoredSubaccountStatus(record.status, credentials.length > 0, Boolean(record.webAccessToken || record.sessionToken)),
@@ -773,6 +781,10 @@ function sanitizeSubaccount(input: Subaccount): Subaccount {
     memoryEnabled: input.memoryEnabled,
     memoryCachedAt: input.memoryCachedAt,
     rateLimitResetCredits: normalizeRateLimitCredits(input.rateLimitResetCredits),
+    accountManagerHasPro5x: input.accountManagerHasPro5x,
+    accountManagerSyncedAt: input.accountManagerSyncedAt,
+    pro5xSubscription: normalizePro5xSubscription(input.pro5xSubscription),
+    pro5xSubscriptionCheckedAt: input.pro5xSubscriptionCheckedAt,
     codexCredentials: dedupeCodexCredentials(input.codexCredentials ?? []),
     teamLinks: (input.teamLinks ?? []).map((link) => ({
       accountId: link.accountId,
@@ -820,6 +832,34 @@ function normalizeStoredSubaccountStatus(
   if (value === 'codex_ready' && hasCredential) return value;
   if (value === 'session_ready' && hasSession) return value;
   return hasCredential ? 'codex_ready' : hasSession ? 'session_ready' : 'empty';
+}
+
+function normalizePro5xSubscription(value: unknown): Subaccount['pro5xSubscription'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.id !== 'string' || !record.id.trim()
+    || typeof record.planType !== 'string' || !record.planType.trim()
+    || typeof record.willRenew !== 'boolean'
+  ) return undefined;
+  return {
+    id: record.id.trim(),
+    planType: record.planType.trim(),
+    ...(typeof record.activeStart === 'string' && record.activeStart.trim()
+      ? { activeStart: record.activeStart.trim() } : {}),
+    ...(typeof record.activeUntil === 'string' && record.activeUntil.trim()
+      ? { activeUntil: record.activeUntil.trim() } : {}),
+    ...(typeof record.billingPeriod === 'string' && record.billingPeriod.trim()
+      ? { billingPeriod: record.billingPeriod.trim() } : {}),
+    ...(typeof record.scheduledBillingPeriod === 'string' && record.scheduledBillingPeriod.trim()
+      ? { scheduledBillingPeriod: record.scheduledBillingPeriod.trim() } : {}),
+    willRenew: record.willRenew,
+    ...(typeof record.cancellationOutcome === 'string' && record.cancellationOutcome.trim()
+      ? { cancellationOutcome: record.cancellationOutcome.trim() } : {}),
+    ...(typeof record.billingCurrency === 'string' && record.billingCurrency.trim()
+      ? { billingCurrency: record.billingCurrency.trim() } : {}),
+    isDelinquent: record.isDelinquent === true
+  };
 }
 
 function normalizeRateLimitCredits(value: unknown): Subaccount['rateLimitResetCredits'] {

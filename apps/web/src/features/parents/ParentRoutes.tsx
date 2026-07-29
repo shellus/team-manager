@@ -388,14 +388,6 @@ export function ParentRoutes({
     }
   }, [onAccountSummaryChanged]);
 
-  const loadAccountProfileStatuses = useCallback(async () => {
-    try {
-      setAccountProfileStatuses(await apiClient.getParentAccountProfiles());
-    } catch {
-      // Profile 标签是列表辅助信息，读取失败不阻塞母号工作台。
-    }
-  }, []);
-
   const updateAccountProfileStatus = useCallback((id: string, profile: AccountManagerProfileView) => {
     setAccountProfileStatuses((current) => ({ ...current, [id]: profile }));
   }, []);
@@ -497,11 +489,6 @@ export function ParentRoutes({
     void loadRegistrationTasks();
     void loadRuntimeStatus();
   }, [loadRegistrationTasks, loadRuntimeStatus]);
-
-  useEffect(() => {
-    if (loading || accounts.length === 0) return;
-    void Promise.all([loadAccountManagerStatuses(), loadAccountProfileStatuses()]);
-  }, [accountIdsKey, accounts.length, loadAccountManagerStatuses, loadAccountProfileStatuses, loading]);
 
   const hasActiveRegistrationTask = registrationTasks.some((task) =>
     parentRegistrationStageNeedsPolling(task.stage)
@@ -875,7 +862,14 @@ export function ParentRoutes({
 
   const refreshAccount = async (account: AccountSummaryView) => {
     const updated = await onRefreshAccount(account);
-    if (updated) setAccountDetails((current) => ({ ...current, [updated.id]: updated }));
+    if (!updated) return;
+    setAccountDetails((current) => ({ ...current, [updated.id]: updated }));
+    await Promise.all([
+      loadAccountManagerStatuses(),
+      apiClient.getParentAccountProfile(updated.id)
+        .then((profile) => updateAccountProfileStatus(updated.id, profile))
+        .catch(() => undefined)
+    ]);
   };
 
   return (

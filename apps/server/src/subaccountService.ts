@@ -790,6 +790,8 @@ export class SubaccountService {
     let profileResponse: Record<string, unknown> | undefined;
     let notificationsResponse: Record<string, unknown> | undefined;
     let creditsResponse: Record<string, unknown> | undefined;
+    let accountManagerSync: ManagedAccountSummary | undefined;
+    let pro5xSubscription: Pro5xSubscriptionView | null | undefined;
     let patch: Partial<Subaccount> = { lastRefreshAt: checkedAt };
 
     if (!initial.sessionToken?.trim()) {
@@ -888,6 +890,28 @@ export class SubaccountService {
       }
     }
 
+    if (initial.managedAccountEmail?.trim() && this.accountManager) {
+      try {
+        accountManagerSync = await this.accountManager.syncAccount(initial.managedAccountEmail);
+        patch.accountManagerHasPro5x = accountManagerSync.hasPro5x === true;
+        patch.accountManagerSyncedAt = Date.now();
+      } catch (error) {
+        errors.push(`GAM 账号同步失败: ${fullErrorMessage(error)}`);
+      }
+    }
+
+    if (initial.chatgptAccountId?.trim()) {
+      try {
+        const current = { ...initial, ...patch };
+        pro5xSubscription = await readPro5xSubscription(await this.directPro5xApiFor(current));
+        patch.pro5xSubscription = pro5xSubscription ?? undefined;
+        patch.pro5xSubscriptionCheckedAt = Date.now();
+        if (pro5xSubscription) patch.accountManagerHasPro5x = true;
+      } catch (error) {
+        errors.push(`Pro 5x 订阅同步失败: ${fullErrorMessage(error)}`);
+      }
+    }
+
     patch.lastRefreshAt = Date.now();
     patch.lastError = errors.length ? errors.join('\n') : undefined;
     if ((patch.sessionTokenStatus ?? initial.sessionTokenStatus) === 'valid' && initial.status === 'error') {
@@ -907,6 +931,8 @@ export class SubaccountService {
         profile: profileResponse,
         notifications: notificationsResponse,
         rateLimitResetCredits: creditsResponse,
+        accountManager: accountManagerSync,
+        pro5xSubscription,
         errors
       }
     });

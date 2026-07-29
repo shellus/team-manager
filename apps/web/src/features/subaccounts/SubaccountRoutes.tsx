@@ -134,6 +134,22 @@ export function subaccountAccountManagerStatusNeedsPolling(
   ));
 }
 
+export function cachedSubaccountAccountManagerStatus(
+  subaccount: Pick<
+    SubaccountSummaryView,
+    'managedAccountEmail' | 'accountManagerHasPro5x' | 'accountManagerSyncedAt'
+  >
+): SubaccountAccountManagerStatus {
+  const email = subaccount.managedAccountEmail?.trim().toLowerCase();
+  return {
+    configured: true,
+    reachable: Boolean(subaccount.accountManagerSyncedAt),
+    managed: Boolean(email),
+    hasPro5x: subaccount.accountManagerHasPro5x === true,
+    ...(email ? { accountEmail: email } : {})
+  };
+}
+
 export function SubaccountRoutes({
   accounts,
   onError
@@ -162,7 +178,6 @@ export function SubaccountRoutes({
   const [pro5xSubscriptions, setPro5xSubscriptions] = useState<
     Record<string, Pro5xSubscriptionView | null>
   >({});
-  const [pro5xSubscriptionLoadingId, setPro5xSubscriptionLoadingId] = useState('');
   const [logs, setLogs] = useState<SubaccountAuthLog[]>([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [authSession, setAuthSession] = useState<ManualCodexAuthSession | null>(null);
@@ -196,7 +211,7 @@ export function SubaccountRoutes({
       ?? null;
   const selected = selectedSummary ? subaccountDetails[selectedSummary.id] ?? null : null;
   const accountManagerStatus = selectedSummary
-    ? accountManagerStatuses[selectedSummary.id] ?? null
+    ? accountManagerStatuses[selectedSummary.id] ?? cachedSubaccountAccountManagerStatus(selectedSummary)
     : null;
   const deleteTarget =
     searchState.modal === 'delete-subaccount'
@@ -280,14 +295,12 @@ export function SubaccountRoutes({
     setLoading(true);
     setLocalError('');
     try {
-      const [nextJobs, nextSubaccounts, nextAccountManagerStatuses] = await Promise.all([
+      const [nextJobs, nextSubaccounts] = await Promise.all([
         apiClient.listSubaccountRegistrationJobs(),
-        apiClient.listSubaccounts(),
-        apiClient.getSubaccountAccountManagerStatuses()
+        apiClient.listSubaccounts()
       ]);
       setSubaccounts(sortSubaccountsForList(nextSubaccounts));
       setRegistrationJobs(nextJobs);
-      setAccountManagerStatuses(nextAccountManagerStatuses);
     } catch (error) {
       reportLocalError(error);
     } finally {
@@ -305,14 +318,6 @@ export function SubaccountRoutes({
         reachable: false,
         error: (error as Error).message
       });
-    }
-  }, []);
-
-  const loadAccountProfileStatuses = useCallback(async () => {
-    try {
-      setAccountProfileStatuses(await apiClient.getSubaccountAccountProfiles());
-    } catch {
-      // Profile 标签是列表辅助信息，读取失败不阻塞子号工作台。
     }
   }, []);
 
@@ -350,35 +355,7 @@ export function SubaccountRoutes({
   useEffect(() => {
     void loadSubaccounts();
     void loadRuntimeStatus();
-    void loadAccountProfileStatuses();
-  }, [loadAccountProfileStatuses, loadRuntimeStatus, loadSubaccounts]);
-
-  useEffect(() => {
-    if (!selectedSummary) return;
-    void loadAccountManagerStatus(selectedSummary.id);
-  }, [loadAccountManagerStatus, selectedSummary?.id]);
-
-  useEffect(() => {
-    if (!selectedSummary) return;
-    const id = selectedSummary.id;
-    let cancelled = false;
-    setPro5xSubscriptionLoadingId(id);
-    void apiClient.getSubaccountPro5xSubscription(id)
-      .then((subscription) => {
-        if (!cancelled) setPro5xSubscriptions((current) => ({ ...current, [id]: subscription }));
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) reportLocalError(error);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPro5xSubscriptionLoadingId((current) => current === id ? '' : current);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reportLocalError, selectedSummary?.id]);
+  }, [loadRuntimeStatus, loadSubaccounts]);
 
   const hasActiveRegistration = registrationJobs.some(
     (job) => registrationStatusNeedsPolling(job.status)
@@ -706,7 +683,16 @@ export function SubaccountRoutes({
     setLocalError('');
     try {
       await actionBusy.run('subaccount-refresh', async () => {
-        mergeSubaccount(await apiClient.refreshSubaccount(selectedSummary.id));
+        const updated = await apiClient.refreshSubaccount(selectedSummary.id);
+        mergeSubaccount(updated);
+        setAccountManagerStatuses((current) => ({
+          ...current,
+          [updated.id]: cachedSubaccountAccountManagerStatus(updated)
+        }));
+        setPro5xSubscriptions((current) => ({
+          ...current,
+          [updated.id]: updated.pro5xSubscription ?? null
+        }));
         if (searchState.tab === 'logs') await loadLogs(selectedSummary.id);
       });
     } catch (error) {
@@ -1011,10 +997,9 @@ export function SubaccountRoutes({
             busyState={actionBusy.busyState}
             accountManagerStatus={accountManagerStatus}
             accountManagerLoading={accountManagerLoadingId === selectedSummary?.id}
-            pro5xSubscription={selectedSummary
-              ? pro5xSubscriptions[selectedSummary.id] ?? null
-              : null}
-            pro5xSubscriptionLoading={pro5xSubscriptionLoadingId === selectedSummary?.id}
+            pro5xSubscription={selected?.pro5xSubscription
+              ?? (selectedSummary ? pro5xSubscriptions[selectedSummary.id] ?? null : null)}
+            pro5xSubscriptionLoading={false}
             quota={quota}
             syncing={actionBusy.isBusy('subaccount-refresh')}
             onTabChange={changeTab}
