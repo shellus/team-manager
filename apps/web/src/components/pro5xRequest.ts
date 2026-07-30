@@ -21,6 +21,18 @@ export const DEFAULT_PRO_5X_FORM_VALUES: Pro5xFormValues = {
   cvc: ''
 };
 
+export function createPro5xFormValues(
+  mode: 'open' | 'resume',
+  defaultPromoCode?: string,
+  defaultUsePromoCode = true
+): Pro5xFormValues {
+  return {
+    ...DEFAULT_PRO_5X_FORM_VALUES,
+    usePromoCode: mode === 'open' && defaultUsePromoCode,
+    promoCode: mode === 'open' ? resolvePro5xPromoCode(defaultPromoCode) : ''
+  };
+}
+
 export function resolvePro5xPromoCode(value?: string): string {
   return String(value ?? '').trim() || DEFAULT_PRO_5X_PROMO_CODE;
 }
@@ -34,7 +46,7 @@ export function buildPro5xRequest(values: Pro5xFormValues): OpenPro5xRequest {
   return {
     autoPay: true,
     usePromoCode,
-    ...(usePromoCode ? { promoCode } : {}),
+    ...(promoCode ? { promoCode } : {}),
     card: {
       number: String(values.number ?? '').replace(/\s+/g, ''),
       ...expiry,

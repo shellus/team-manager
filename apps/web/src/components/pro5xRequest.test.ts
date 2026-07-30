@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   buildPro5xRequest,
+  createPro5xFormValues,
   DEFAULT_PRO_5X_FORM_VALUES,
   DEFAULT_PRO_5X_PROMO_CODE,
   resolvePro5xPromoCode
@@ -13,6 +14,25 @@ describe('Pro 5x request', () => {
     expect(DEFAULT_PRO_5X_PROMO_CODE).toBe('stb');
     expect(resolvePro5xPromoCode()).toBe('stb');
     expect(resolvePro5xPromoCode('  custom  ')).toBe('custom');
+  });
+
+  test('recreates the promotion defaults whenever the opening form is mounted again', () => {
+    expect(createPro5xFormValues('open')).toMatchObject({
+      usePromoCode: true,
+      promoCode: 'stb'
+    });
+    expect(createPro5xFormValues('open', '')).toMatchObject({
+      usePromoCode: true,
+      promoCode: 'stb'
+    });
+    expect(createPro5xFormValues('open', 'saved-code', false)).toMatchObject({
+      usePromoCode: false,
+      promoCode: 'saved-code'
+    });
+    expect(createPro5xFormValues('resume', 'ignored')).toMatchObject({
+      usePromoCode: false,
+      promoCode: ''
+    });
   });
 
   test('normalizes the required card and always enables automatic payment', () => {
@@ -35,7 +55,7 @@ describe('Pro 5x request', () => {
     });
   });
 
-  test('omits the promotion code when the switch is disabled', () => {
+  test('keeps the saved code while marking the checkout as promotion-disabled', () => {
     expect(buildPro5xRequest({
       usePromoCode: false,
       promoCode: 'current-promo',
@@ -45,6 +65,7 @@ describe('Pro 5x request', () => {
     })).toEqual({
       autoPay: true,
       usePromoCode: false,
+      promoCode: 'current-promo',
       card: {
         number: '4242424242424242',
         expiryMonth: 7,

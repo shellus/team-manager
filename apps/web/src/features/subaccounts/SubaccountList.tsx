@@ -35,6 +35,7 @@ import {
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { hasPro5xFromLocalState } from '../../components/accountManagerLocalState.js';
 import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
+import { visibleSubaccountRegistrationJobs } from './subaccountListState.js';
 
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
   if (registrationTaskIsCancelled(job.phase)) return '注册任务已取消，可按原邮箱重试';
@@ -101,26 +102,15 @@ export function SubaccountList({
   onOpenEdit: (subaccount: SubaccountSummaryView) => void;
   onOpenDelete: (subaccount: SubaccountSummaryView) => void;
 }) {
-  const subaccountById = new Map(subaccounts.map((subaccount) => [subaccount.id, subaccount]));
-  const visibleJobs = registrationJobs.filter((job) => {
-    if (job.status === 'succeeded') return false;
-    if (job.subaccountId && !subaccountById.has(job.subaccountId)) return false;
-    if (job.status === 'failed' || job.status === 'interrupted' || job.status === 'waiting_manual') {
-      const linkedSubaccount = job.subaccountId ? subaccountById.get(job.subaccountId) : undefined;
-      if (linkedSubaccount && linkedSubaccount.status !== 'error' && linkedSubaccount.status !== 'verification_required') {
-        return false;
-      }
-      return true;
-    }
-    return !job.subaccountId || !subaccountById.has(job.subaccountId);
-  });
+  const visibleJobs = visibleSubaccountRegistrationJobs(registrationJobs, subaccounts);
   const jobSubaccountIds = new Set(
     visibleJobs.map((job) => job.subaccountId).filter((id): id is string => Boolean(id))
   );
   const matchingSubaccounts = subaccounts.filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery));
   const visibleSubaccounts = filterByLocalGroup(matchingSubaccounts, activeGroup)
     .filter((subaccount) => !jobSubaccountIds.has(subaccount.id));
-  const matchingJobs = visibleJobs.filter((job) => registrationJobMatchesQuery(job, searchQuery));
+  const matchingJobs = filterByLocalGroup(visibleJobs, activeGroup)
+    .filter((job) => registrationJobMatchesQuery(job, searchQuery));
   const records = [
     ...matchingJobs.map((job) => ({ kind: 'job' as const, id: job.id, job })),
     ...visibleSubaccounts.map((subaccount) => ({ kind: 'subaccount' as const, id: subaccount.id, subaccount }))

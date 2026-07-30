@@ -162,10 +162,17 @@ export class SubaccountService {
     email?: string;
     password?: string;
     resumeExisting?: boolean;
+    country?: string;
+    groupName?: string;
   }): Promise<SubaccountRegistrationJobView> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
     return this.callAccountManager(() => this.accountManager!.startRegistration({
-      ...input,
+      mailGroup: input.mailGroup,
+      email: input.email,
+      password: input.password,
+      resumeExisting: input.resumeExisting,
+      country: normalizeSubaccountRegistrationCountry(input.country),
+      clientReference: normalizeSubaccountRegistrationGroupName(input.groupName),
       requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
     }));
   }
@@ -244,6 +251,7 @@ export class SubaccountService {
       const registered = await this.store.saveManagedSubaccount({
         managedAccountEmail: job.email,
         email: job.email,
+        groupName: job.groupName,
         session,
         status: 'session_ready'
       });
@@ -1655,6 +1663,21 @@ function parseSubaccountSessionImportPayload(raw: unknown): {
 function cleanOptionalString(value?: string): string | undefined {
   const cleaned = value?.trim();
   return cleaned || undefined;
+}
+
+function normalizeSubaccountRegistrationGroupName(value: unknown): string {
+  if (value !== undefined && typeof value !== 'string') {
+    throw new ServiceError(400, '子号分组必须是字符串');
+  }
+  return typeof value === 'string' ? value.trim() || '默认分组' : '默认分组';
+}
+
+function normalizeSubaccountRegistrationCountry(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^[A-Z]{2}$/u.test(value.trim().toUpperCase())) {
+    throw new ServiceError(400, '注册国家必须是两位国家代码');
+  }
+  return value.trim().toUpperCase();
 }
 
 function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {

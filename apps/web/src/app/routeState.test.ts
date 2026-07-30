@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   clearModalState,
+  normalizeRegistrationRouteSearch,
   parseParentSearchState,
   parseSubaccountSearchState,
   resolveParentTabForWorkspace,
@@ -139,5 +140,19 @@ describe('routeState', () => {
 
     expect(opened.toString()).toBe('group=A&tab=members&modal=invite-member&target=team-1');
     expect(clearModalState(opened).toString()).toBe('group=A&tab=members');
+  });
+
+  test('keeps an opened modal while normalizing an existing registration task route', () => {
+    const params = new URLSearchParams('group=A&tab=members&modal=open-pro-5x&target=account-1');
+
+    expect(normalizeRegistrationRouteSearch(params, true).toString()).toBe(
+      'group=A&tab=account-manager&modal=open-pro-5x&target=account-1'
+    );
+  });
+
+  test('clears modal state when a registration task route no longer exists', () => {
+    const params = new URLSearchParams('group=A&modal=register-subaccount&target=account-1');
+
+    expect(normalizeRegistrationRouteSearch(params, false).toString()).toBe('group=A&tab=account-manager');
   });
 });

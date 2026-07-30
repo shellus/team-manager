@@ -12,6 +12,7 @@ import type {
   OpenTeamSubscriptionRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
+  RegistrationFormPreference,
   SeatType
 } from '@team-manager/shared';
 import { Alert, Form, Input, Modal, Select, Space } from 'antd';
@@ -19,6 +20,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { apiClient } from '../../api.js';
 import {
   clearModalState,
+  normalizeRegistrationRouteSearch,
   parseParentSearchState,
   resolveParentTabForWorkspace,
   setModalState,
@@ -34,6 +36,7 @@ import { OpenTeamSubscriptionModal } from '../../components/OpenTeamSubscription
 import { OpenPro5xModal } from '../../components/OpenPro5xModal.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
 import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
+import { RegistrationStartModal } from '../../components/RegistrationStartModal.js';
 import { compareRunningProfileFirst } from '../../components/AccountProfileListStatus.js';
 import { parentRegistrationStageNeedsPolling } from '../../components/registrationPolling.js';
 import {
@@ -42,6 +45,7 @@ import {
   resolvePreferredLocalGroup
 } from '../../components/recordGroups.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
+import { useTaskFormPreferences } from '../../components/useTaskFormPreferences.js';
 import { SEAT_LABEL } from '../../labels.js';
 import { defaultSeatSlotExpiresOn, SeatSlotProfileFields } from './SeatSlotProfileModal.js';
 import { ParentDetail } from './ParentDetail.js';
@@ -61,7 +65,8 @@ import {
   countParentGroups,
   DEFAULT_PARENT_GROUP,
   filterParentsByGroup,
-  parentGroupName
+  parentGroupName,
+  parentRegistrationTaskGroupName
 } from './parentGroups.js';
 
 interface InviteValues {
@@ -204,6 +209,7 @@ export function ParentRoutes({
   const [accountManagerStatusError, setAccountManagerStatusError] = useState('');
   const [maintainedAccountIds, setMaintainedAccountIds] = useState<Set<string>>(new Set());
   const actionBusy = useActionBusy();
+  const { preferences: taskFormPreferences, rememberPreference } = useTaskFormPreferences();
   const searchQuery = searchParams.get('q') ?? '';
   const quickFilters = useMemo(
     () => searchParams.has(PARENT_QUICK_FILTER_PARAM)
@@ -258,7 +264,10 @@ export function ParentRoutes({
     };
   }, [accountIdsKey]);
 
-  const groups = useMemo(() => countParentGroups(sortedAccounts), [sortedAccounts]);
+  const groups = useMemo(() => countParentGroups([
+    ...sortedAccounts,
+    ...registrationTasks.map((task) => ({ groupName: parentRegistrationTaskGroupName(task) }))
+  ]), [registrationTasks, sortedAccounts]);
   const activeGroup = resolvePreferredLocalGroup(
     searchParams.has('group') ? searchState.group : undefined,
     readLocalGroupPreference(PARENT_GROUP_PREFERENCE_KEY),
@@ -412,8 +421,7 @@ export function ParentRoutes({
   useEffect(() => {
     if (registrationOperationId) {
       if (!registrationTasksLoaded) return;
-      const nextParams = clearModalState(searchParams);
-      nextParams.set('tab', 'account-manager');
+      const nextParams = normalizeRegistrationRouteSearch(searchParams, Boolean(selectedRegistrationTask));
       const nextPath = selectedRegistrationTask
         ? `/parents/registrations/${registrationOperationId}`
         : '/parents';
@@ -555,13 +563,12 @@ export function ParentRoutes({
     }
   };
 
-  const registerParent = async () => {
+  const registerParent = async (values: RegistrationFormPreference) => {
     setLocalError('');
+    rememberPreference('parentRegistration', values);
     try {
       await actionBusy.run('register-parent', async () => {
-        const operation = await apiClient.registerParentAccount({
-          groupName: activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup
-        });
+        const operation = await apiClient.registerParentAccount(values);
         closeModal();
         await loadRegistrationTasks();
         await loadRuntimeStatus();
@@ -651,6 +658,10 @@ export function ParentRoutes({
         if (operation?.phase === 'pro5x_payment_card_required') {
           await apiClient.provideParentPro5xPaymentCard(target, operation.id, payload);
         } else {
+          rememberPreference('pro5x', {
+            usePromoCode: payload.usePromoCode !== false,
+            promoCode: payload.promoCode?.trim() ?? ''
+          });
           await apiClient.openParentPro5x(target, payload);
         }
         await loadAccountManagerStatuses();
@@ -1014,24 +1025,17 @@ export function ParentRoutes({
         onSubmit={updateLocalProfile}
       />
 
-      <Modal
+      <RegistrationStartModal
         open={searchState.modal === 'register-parent'}
         title="自动注册母号"
-        okText="开始注册"
-        cancelText="取消"
+        description="系统会通过 GPT Account Manager 注册新 GPT 账号，并按本次设置应用住宅代理国家和母号分组。账号创建并交付 Session 后立即完成；0.52 和双席位可稍后独立开通。"
+        initialValues={taskFormPreferences.parentRegistration}
+        groupNames={groups.map((group) => group.name)}
         confirmLoading={actionBusy.isBusy('register-parent')}
+        error={searchState.modal === 'register-parent' ? localError : ''}
         onCancel={closeModal}
-        onOk={() => void registerParent()}
-      >
-        <Space direction="vertical" size={12} className="panel-stack">
-          <span>
-            系统会通过 GPT Account Manager 注册新 GPT 账号，并录入到「
-            {activeGroup === ALL_PARENT_GROUP ? DEFAULT_PARENT_GROUP : activeGroup}
-            」分组。账号创建并交付 Session 后立即完成；0.52 和双席位可稍后独立开通。
-          </span>
-          <ModalErrorAlert message={searchState.modal === 'register-parent' ? localError : ''} />
-        </Space>
-      </Modal>
+        onSubmit={registerParent}
+      />
 
       <OpenCodexSpaceModal
         open={searchState.modal === 'open-codex-space'}
@@ -1055,7 +1059,8 @@ export function ParentRoutes({
         open={searchState.modal === 'open-pro-5x'}
         confirmLoading={actionBusy.isBusy('open-pro-5x')}
         error={searchState.modal === 'open-pro-5x' ? localError : ''}
-        defaultPromoCode={runtimeStatus?.pro5xPromoCode}
+        defaultUsePromoCode={taskFormPreferences.pro5x.usePromoCode}
+        defaultPromoCode={taskFormPreferences.pro5x.promoCode}
         mode={accountManagerStatus?.pro5xOperation?.phase === 'pro5x_payment_card_required'
           ? 'resume'
           : 'open'}

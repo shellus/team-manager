@@ -121,3 +121,12 @@ export function clearModalState(params: URLSearchParams): URLSearchParams {
   next.delete('target');
   return next;
 }
+
+export function normalizeRegistrationRouteSearch(
+  params: URLSearchParams,
+  registrationExists: boolean
+): URLSearchParams {
+  const next = registrationExists ? new URLSearchParams(params) : clearModalState(params);
+  next.set('tab', 'account-manager');
+  return next;
+}

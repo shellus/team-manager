@@ -29,7 +29,11 @@ import {
   registrationTaskIsCancelled
 } from '../../components/RegistrationTaskCancelButton.js';
 import { ParentQuickFilterBar } from './ParentQuickFilterBar.js';
-import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
+import {
+  ALL_PARENT_GROUP,
+  ALL_PARENT_GROUP_LABEL,
+  filterParentRegistrationTasksByGroup
+} from './parentGroups.js';
 import {
   parentChatGptSeatUsageCount,
   parentListIdentity,
@@ -136,7 +140,8 @@ export function ParentList({
   onOpenDelete: (account: AccountSummaryView) => void;
 }) {
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const matchingTasks = quickFilters.length > 0 ? [] : registrationTasks.filter((task) =>
+  const groupedRegistrationTasks = filterParentRegistrationTasksByGroup(registrationTasks, activeGroup);
+  const matchingTasks = quickFilters.length > 0 ? [] : groupedRegistrationTasks.filter((task) =>
     !normalizedQuery || [task.email, task.registration.message, task.error]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(normalizedQuery))

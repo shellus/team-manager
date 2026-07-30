@@ -10,7 +10,8 @@ import type {
   AccountView,
   ApiResult,
   NotificationSettings,
-  PublicSeatSlotView
+  PublicSeatSlotView,
+  TaskFormPreferences
 } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
@@ -877,6 +878,46 @@ describe('Global notification settings API', () => {
     assert.equal(response.status, 200);
     assert.equal(json.data!.channels.webhook.enabled, false);
     assert.equal(json.data!.channels.webhook.url, '');
+  });
+});
+
+describe('Task form preferences API', () => {
+  it('returns defaults and persists partial task form updates', async () => {
+    const { app, authHeaders } = await buildParentApiTestApp();
+
+    const defaultsResponse = await app.request('/api/settings/task-forms', {
+      headers: authHeaders
+    });
+    const defaults = (await defaultsResponse.json()) as ApiResult<TaskFormPreferences>;
+    assert.deepEqual(defaults.data?.parentRegistration, {
+      country: 'US',
+      groupName: '默认分组'
+    });
+    assert.deepEqual(defaults.data?.pro5x, {
+      usePromoCode: true,
+      promoCode: 'stb'
+    });
+
+    const updateResponse = await app.request('/api/settings/task-forms', {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({
+        subaccountRegistration: { country: 'jp', groupName: ' 子号池 ' },
+        pro5x: { usePromoCode: false, promoCode: 'saved-code' }
+      })
+    });
+    const updated = (await updateResponse.json()) as ApiResult<TaskFormPreferences>;
+
+    assert.equal(updateResponse.status, 200);
+    assert.deepEqual(updated.data?.subaccountRegistration, {
+      country: 'JP',
+      groupName: '子号池'
+    });
+    assert.deepEqual(updated.data?.pro5x, {
+      usePromoCode: false,
+      promoCode: 'saved-code'
+    });
+    assert.deepEqual(updated.data?.parentRegistration, defaults.data?.parentRegistration);
   });
 });
 

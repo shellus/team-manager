@@ -8,6 +8,7 @@ import {
   resolveLocalGroup,
   type LocalGroupCount
 } from '../../components/recordGroups.js';
+import type { ParentRegistrationTaskView } from '@team-manager/shared';
 
 export const ALL_PARENT_GROUP = ALL_LOCAL_GROUP;
 export const ALL_PARENT_GROUP_LABEL = ALL_LOCAL_GROUP_LABEL;
@@ -17,6 +18,13 @@ export type ParentGroupCount = LocalGroupCount;
 
 export function parentGroupName(account: { groupName?: string }): string {
   return localGroupName(account);
+}
+
+export function parentRegistrationTaskGroupName(task: ParentRegistrationTaskView): string {
+  const clientReference = task.registration.requestSummary?.clientReference;
+  return localGroupName({
+    groupName: typeof clientReference === 'string' ? clientReference.trim() : undefined
+  });
 }
 
 export function countParentGroups<T extends { groupName?: string }>(accounts: T[]): ParentGroupCount[] {
@@ -29,4 +37,12 @@ export function resolveParentGroup(requestedGroup: string, groups: ParentGroupCo
 
 export function filterParentsByGroup<T extends { groupName?: string }>(accounts: T[], activeGroup: string): T[] {
   return filterByLocalGroup(accounts, activeGroup);
+}
+
+export function filterParentRegistrationTasksByGroup(
+  tasks: ParentRegistrationTaskView[],
+  activeGroup: string
+): ParentRegistrationTaskView[] {
+  if (activeGroup === ALL_PARENT_GROUP) return tasks;
+  return tasks.filter((task) => parentRegistrationTaskGroupName(task) === activeGroup);
 }

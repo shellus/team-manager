@@ -21,6 +21,7 @@ import type {
   Pro5xRenewalCancellationResult,
   Pro5xSubscriptionView,
   ResidentialProxyConfig,
+  RrwebRecordingUploadView,
   PublicSeatSlotView,
   PendingInvite,
   SeatType,
@@ -39,7 +40,8 @@ import type {
   TeamOrderConfig,
   TeamOrderConfigOverrides,
   TeamOrderDashboardView,
-  TeamOrderMaintenanceView
+  TeamOrderMaintenanceView,
+  TaskFormPreferences
 } from '@team-manager/shared';
 
 const TOKEN_KEY = 'teammgr_token';
@@ -106,6 +108,10 @@ export const apiClient = {
     publicCall<PublicSeatSlotView>('POST', `/seat-slots/${encodeURIComponent(seatKey)}/swap`, { email }),
   login: (username: string, password: string) =>
     call<{ token: string }>('POST', '/auth/login', { username, password }),
+  uploadRrwebRecording: (recording: unknown) =>
+    call<RrwebRecordingUploadView>('POST', '/devtools/rrweb-recordings', recording),
+  getRrwebRecording: (uuid: string) =>
+    call<unknown>('GET', `/devtools/rrweb-recordings/${encodeURIComponent(uuid)}`),
   listAccounts: () => call<AccountSummaryView[]>('GET', '/accounts'),
   listAccountOverview: () => call<AccountOverviewView[]>('GET', '/accounts/overview'),
   getAccount: (id: string) => call<AccountView>('GET', `/accounts/${id}`),
@@ -115,7 +121,7 @@ export const apiClient = {
     call<AccountManagerRuntimeStatus>('GET', '/accounts/registration/status'),
   listParentRegistrationTasks: () =>
     call<ParentRegistrationTaskView[]>('GET', '/accounts/registration/tasks'),
-  registerParentAccount: (payload: { groupName: string }) =>
+  registerParentAccount: (payload: { country: string; groupName: string }) =>
     call<AccountManagerOperationView>('POST', '/accounts/registration/start', payload),
   retryParentRegistration: (operationId: string) =>
     call<AccountManagerOperationView>('POST', `/accounts/registration/tasks/${operationId}/retry`),
@@ -249,6 +255,10 @@ export const apiClient = {
   getNotificationSettings: () => call<NotificationSettings>('GET', '/settings/notifications'),
   updateNotificationSettings: (payload: NotificationSettings) =>
     call<NotificationSettings>('PATCH', '/settings/notifications', payload),
+  getTaskFormPreferences: () =>
+    call<TaskFormPreferences>('GET', '/settings/task-forms'),
+  updateTaskFormPreferences: (payload: Partial<TaskFormPreferences>) =>
+    call<TaskFormPreferences>('PATCH', '/settings/task-forms', payload),
   getTeamOrderDashboard: () => call<TeamOrderDashboardView>('GET', '/team-orders'),
   updateTeamOrderGlobalConfig: (payload: TeamOrderConfig) =>
     call<TeamOrderConfig>('PATCH', '/team-orders/settings', payload),
@@ -343,7 +353,7 @@ export const apiClient = {
     call<ResidentialProxyConfig>('GET', `/subaccounts/registration/jobs/${jobId}/proxy`),
   updateSubaccountRegistrationProxy: (jobId: string, payload: ResidentialProxyConfig) =>
     call<ResidentialProxyConfig>('PUT', `/subaccounts/registration/jobs/${jobId}/proxy`, payload),
-  registerSubaccount: (payload: { mailGroup?: string } = {}) =>
+  registerSubaccount: (payload: { mailGroup?: string; country: string; groupName: string }) =>
     call<SubaccountRegistrationJobView>('POST', '/subaccounts/registration/start', payload),
   updateSubaccountLocalProfile: (
     id: string,

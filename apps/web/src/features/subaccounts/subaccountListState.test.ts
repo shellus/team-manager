@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import type { SubaccountView } from '@team-manager/shared';
+import { subaccountSummaryFromView, type SubaccountView } from '@team-manager/shared';
 import {
   resolveSubaccountDeleteTarget,
   sortSubaccountsForList,
-  subaccountAfterRemoval
+  subaccountAfterRemoval,
+  visibleSubaccountRegistrationJobs
 } from './subaccountListState.js';
 
 function subaccount(input: Partial<SubaccountView> & Pick<SubaccountView, 'id' | 'email'>): SubaccountView {
@@ -64,5 +65,38 @@ describe('subaccount list state', () => {
 
     expect(subaccountAfterRemoval([deleted, nextSelected], deleted.id)).toBe(nextSelected);
     expect(subaccountAfterRemoval([deleted], deleted.id)).toBeNull();
+  });
+
+  test('keeps only registration jobs that should appear in the child list', () => {
+    const healthy = subaccount({ id: 'healthy', email: 'healthy@example.com' });
+    const retryable = subaccount({
+      id: 'retryable',
+      email: 'retryable@example.com',
+      status: 'error'
+    });
+    const jobs = [
+      {
+        id: 'active', status: 'running' as const, phase: 'registration_running', message: '注册中',
+        progress: 50, groupName: 'A', createdAt: 1, updatedAt: 1
+      },
+      {
+        id: 'linked-healthy', status: 'failed' as const, phase: 'registration_failed', message: '失败',
+        progress: 100, subaccountId: healthy.id, groupName: 'A', createdAt: 1, updatedAt: 1
+      },
+      {
+        id: 'linked-retryable', status: 'failed' as const, phase: 'registration_failed', message: '失败',
+        progress: 100, subaccountId: retryable.id, groupName: 'B', createdAt: 1, updatedAt: 1
+      },
+      {
+        id: 'completed', status: 'succeeded' as const, phase: 'registration_succeeded', message: '完成',
+        progress: 100, groupName: 'B', createdAt: 1, updatedAt: 1
+      }
+    ];
+
+    expect(visibleSubaccountRegistrationJobs(
+      jobs,
+      [healthy, retryable].map(subaccountSummaryFromView)
+    ).map((job) => job.id))
+      .toEqual(['active', 'linked-retryable']);
   });
 });

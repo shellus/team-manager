@@ -8,13 +8,13 @@ Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT 
 
 ## 自动注册
 
-1. `POST /api/accounts/registration/start` 创建用途标记为 `team-manager:parent` 的注册操作，并把当前母号分组作为 Account Manager 的调用方关联值持久化。
+1. `POST /api/accounts/registration/start` 接收两位国家代码和母号分组。Team Manager 先把本次值保存到 `taskFormPreferences.parentRegistration`，再创建用途标记为 `team-manager:parent` 的注册操作；国家在任务入队前写入 GAM 住宅代理配置，分组作为 Account Manager 的调用方关联值持久化。
 2. `GET /api/accounts/registration/tasks` 返回注册、人工验证、失败或导入状态。
-3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session，按规范化邮箱幂等保存 GAM 母号，并写入发起任务时选中的母号分组。
+3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session，按规范化邮箱幂等保存 GAM 母号，并写入发起任务时提交的母号分组。
 4. 新母号在尚无 Team workspace 时保存个人账号上下文，并立即从注册任务切换为正常母号列表项。
 5. 完成导入后清理注册操作；0.52 和双席位按钮在母号详情中独立提供。
 
-注册任务卡在成功前始终可选中，并使用 `/parents/registrations/:operationId?tab=account-manager` 持久化当前记录和 Tab。右侧临时详情只提供账号管理 Tab，通过 `GET/PUT /api/accounts/registration/tasks/:operationId/proxy` 编辑必填国家、可空 ASN、可空州/省、可空城市和上游 SID；ASN 有值时清空并禁用州/省与城市。SID 默认回填上次值，并提供随机生成。注册成功并导入本地母号后，页面切换到 `/parents/:id?tab=account-manager`，不创建半成品母号记录。
+注册任务只出现在创建时提交的母号分组中；选择“所有”时聚合展示全部分组的任务。任务卡在成功前始终可选中，并使用 `/parents/registrations/:operationId?tab=account-manager` 持久化当前记录和 Tab。右侧临时详情只提供账号管理 Tab，通过 `GET/PUT /api/accounts/registration/tasks/:operationId/proxy` 编辑必填国家、可空 ASN、可空州/省、可空城市和上游 SID；ASN 有值时清空并禁用州/省与城市。SID 默认回填上次值，并提供随机生成。注册成功并导入本地母号后，页面切换到 `/parents/:id?tab=account-manager`，不创建半成品母号记录。
 
 Account Manager 已完成注册、Session 校验和账号同步，因此导入成功的个人母号直接保存为 `active`。没有 Workspace 只影响成员、邀请、设置和账单能力，不得把账号标记为“待同步”；后续 0.52、双席位、本地资料和 Workspace 同步入口仍可使用。
 

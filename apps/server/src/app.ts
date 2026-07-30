@@ -10,6 +10,7 @@ import { hashPassword, verifyPasswordHash } from './auth/password.js';
 import { AccountStore } from './accountStore.js';
 import { AccountBillingStore } from './accountBillingStore.js';
 import { AppSettingsStore } from './appSettingsStore.js';
+import { RrwebRecordingStore, RrwebRecordingStoreError } from './rrwebRecordingStore.js';
 import { TeamService, ServiceError } from './teamService.js';
 import { SubaccountService } from './subaccountService.js';
 import { SubaccountStore } from './subaccountStore.js';
@@ -46,6 +47,7 @@ export interface BuildAppDeps {
   settingsStore?: AppSettingsStore;
   billingStore?: AccountBillingStore;
   teamCodeGateway?: TeamCodeGateway;
+  rrwebRecordingStore?: RrwebRecordingStore;
   startTeamOrderScheduler?: boolean;
 }
 
@@ -89,6 +91,7 @@ export async function buildApp({
   settingsStore,
   billingStore,
   teamCodeGateway,
+  rrwebRecordingStore,
   startTeamOrderScheduler = false
 }: BuildAppDeps): Promise<Hono> {
   const app = new Hono();
@@ -101,6 +104,8 @@ export async function buildApp({
   const service = new TeamService(store, teamTransport, accountBillingStore, assertSubaccountCanBeInvited);
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
+  const debugRecordingStore = rrwebRecordingStore ?? new RrwebRecordingStore(config.dataDir);
+  await debugRecordingStore.init();
   const accountManager = subaccountAccountManager ?? createAccountManagerClient();
   const subaccountService = new SubaccountService(
     subaccountStore,
@@ -384,6 +389,37 @@ export async function buildApp({
     return wrap(c, () => appSettingsStore.updateNotificationSettings(body));
   });
 
+  api.get('/settings/task-forms', (c) =>
+    wrap(c, () => Promise.resolve(appSettingsStore.getTaskFormPreferences()))
+  );
+
+  api.patch('/settings/task-forms', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return wrap(c, () => appSettingsStore.updateTaskFormPreferences(body));
+  });
+
+  // ---- 开发调试录制 ----
+  api.post('/devtools/rrweb-recordings', async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    if (!body) return c.json({ ok: false, error: '缺少 rrweb 录制内容' }, 400);
+    return wrap(c, async () => {
+      try {
+        return await debugRecordingStore.save(body);
+      } catch (error) {
+        if (error instanceof RrwebRecordingStoreError) {
+          throw new ServiceError(error.status, error.message);
+        }
+        throw error;
+      }
+    });
+  });
+
+  api.get('/devtools/rrweb-recordings/:uuid', (c) => wrap(c, async () => {
+    const recording = await debugRecordingStore.read(c.req.param('uuid'));
+    if (!recording) throw new ServiceError(404, 'rrweb 录制文件不存在');
+    return recording;
+  }));
+
   // ---- Team 升级订单维护 ----
   api.get('/team-orders', (c) => wrap(c, () => teamOrderService.dashboard()));
 
@@ -433,8 +469,19 @@ export async function buildApp({
   );
 
   api.post('/accounts/registration/start', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { groupName?: unknown };
-    return wrap(c, () => parentAccountManagerService.startRegistration(body.groupName));
+    const body = (await c.req.json().catch(() => ({}))) as {
+      country?: unknown;
+      groupName?: unknown;
+    };
+    return wrap(c, async () => {
+      const preferences = await appSettingsStore.updateTaskFormPreferences({
+        parentRegistration: {
+          country: body.country,
+          groupName: body.groupName
+        }
+      });
+      return parentAccountManagerService.startRegistration(preferences.parentRegistration);
+    });
   });
 
   api.post('/accounts/registration/tasks/:operationId/retry', (c) =>
@@ -554,7 +601,18 @@ export async function buildApp({
 
   api.post('/accounts/:id/account-manager/open-pro-5x', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as OpenPro5xRequest;
-    return wrap(c, () => parentAccountManagerService.openAccountPro5x(c.req.param('id'), body));
+    return wrap(c, async () => {
+      const preferences = await appSettingsStore.updateTaskFormPreferences({
+        pro5x: {
+          ...(typeof body.usePromoCode === 'boolean' ? { usePromoCode: body.usePromoCode } : {}),
+          ...(typeof body.promoCode === 'string' ? { promoCode: body.promoCode } : {})
+        }
+      });
+      return parentAccountManagerService.openAccountPro5x(c.req.param('id'), {
+        ...body,
+        ...preferences.pro5x
+      });
+    });
   });
 
   api.post('/accounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
@@ -782,15 +840,24 @@ export async function buildApp({
       email?: string;
       password?: string;
       resumeExisting?: boolean;
+      country?: unknown;
+      groupName?: unknown;
     };
-    return wrap(c, () =>
-      subaccountService.startSubaccountRegistration({
+    return wrap(c, async () => {
+      const preferences = await appSettingsStore.updateTaskFormPreferences({
+        subaccountRegistration: {
+          country: body.country,
+          groupName: body.groupName
+        }
+      });
+      return subaccountService.startSubaccountRegistration({
         mailGroup: body.mailGroup,
         email: body.email,
         password: body.password,
-        resumeExisting: body.resumeExisting
-      })
-    );
+        resumeExisting: body.resumeExisting,
+        ...preferences.subaccountRegistration
+      });
+    });
   });
 
   api.get('/subaccounts/:id', (c) =>
@@ -847,7 +914,18 @@ export async function buildApp({
 
   api.post('/subaccounts/:id/account-manager/open-pro-5x', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as OpenPro5xRequest;
-    return wrap(c, () => subaccountService.openAccountPro5x(c.req.param('id'), body));
+    return wrap(c, async () => {
+      const preferences = await appSettingsStore.updateTaskFormPreferences({
+        pro5x: {
+          ...(typeof body.usePromoCode === 'boolean' ? { usePromoCode: body.usePromoCode } : {}),
+          ...(typeof body.promoCode === 'string' ? { promoCode: body.promoCode } : {})
+        }
+      });
+      return subaccountService.openAccountPro5x(c.req.param('id'), {
+        ...body,
+        ...preferences.pro5x
+      });
+    });
   });
 
   api.post('/subaccounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>

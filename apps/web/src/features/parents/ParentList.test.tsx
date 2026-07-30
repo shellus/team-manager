@@ -36,7 +36,7 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
   return renderToStaticMarkup(
     <ParentList
       groups={[]}
-      activeGroup="all"
+      activeGroup=""
       accounts={[]}
       accountManagerStatuses={{}}
       accountProfileStatuses={{}}

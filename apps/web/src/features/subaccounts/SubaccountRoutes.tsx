@@ -6,6 +6,7 @@ import {
   type CodexQuotaSnapshot,
   type OpenPro5xRequest,
   type Pro5xSubscriptionView,
+  type RegistrationFormPreference,
   type SeatType,
   type SubaccountAccountManagerStatus,
   type SubaccountAuthLog,
@@ -21,6 +22,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { apiClient } from '../../api.js';
 import {
   clearModalState,
+  normalizeRegistrationRouteSearch,
   parseSubaccountSearchState,
   setModalState,
   setSearchValue,
@@ -33,7 +35,9 @@ import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { OpenPro5xModal } from '../../components/OpenPro5xModal.js';
 import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
+import { RegistrationStartModal } from '../../components/RegistrationStartModal.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
+import { useTaskFormPreferences } from '../../components/useTaskFormPreferences.js';
 import {
   ALL_LOCAL_GROUP,
   countLocalGroups,
@@ -51,7 +55,8 @@ import { SubaccountList } from './SubaccountList.js';
 import {
   resolveSubaccountDeleteTarget,
   sortSubaccountsForList,
-  subaccountAfterRemoval
+  subaccountAfterRemoval,
+  visibleSubaccountRegistrationJobs
 } from './subaccountListState.js';
 import { subaccountMatchesQuery } from './subaccountSearch.js';
 
@@ -186,13 +191,21 @@ export function SubaccountRoutes({
   const [loading, setLoading] = useState(false);
   const [localError, setLocalError] = useState('');
   const actionBusy = useActionBusy();
+  const { preferences: taskFormPreferences, rememberPreference } = useTaskFormPreferences();
   const searchQuery = searchParams.get('q') ?? '';
   const matchingSubaccounts = useMemo(
     () => sortSubaccountsForList(subaccounts, accountProfileStatuses)
       .filter((subaccount) => subaccountMatchesQuery(subaccount, searchQuery)),
     [accountProfileStatuses, searchQuery, subaccounts]
   );
-  const groups = useMemo(() => countLocalGroups(subaccounts), [subaccounts]);
+  const registrationJobsForList = useMemo(
+    () => visibleSubaccountRegistrationJobs(registrationJobs, subaccounts),
+    [registrationJobs, subaccounts]
+  );
+  const groups = useMemo(
+    () => countLocalGroups([...subaccounts, ...registrationJobsForList]),
+    [registrationJobsForList, subaccounts]
+  );
   const activeGroup = resolvePreferredLocalGroup(
     searchParams.has('group') ? searchParams.get('group')?.trim() ?? ALL_LOCAL_GROUP : undefined,
     readLocalGroupPreference(SUBACCOUNT_GROUP_PREFERENCE_KEY),
@@ -470,8 +483,7 @@ export function SubaccountRoutes({
   useEffect(() => {
     if (registrationJobId) {
       if (!registrationJobsLoaded) return;
-      const nextParams = clearModalState(searchParams);
-      nextParams.set('tab', 'account-manager');
+      const nextParams = normalizeRegistrationRouteSearch(searchParams, Boolean(selectedRegistrationJob));
       const nextPath = selectedRegistrationJob
         ? `/subaccounts/registrations/${registrationJobId}`
         : '/subaccounts';
@@ -627,11 +639,12 @@ export function SubaccountRoutes({
     }
   };
 
-  const registerSubaccount = async () => {
+  const registerSubaccount = async (values: RegistrationFormPreference) => {
     setLocalError('');
+    rememberPreference('subaccountRegistration', values);
     try {
       await actionBusy.run('register-subaccount', async () => {
-        const job = await apiClient.registerSubaccount();
+        const job = await apiClient.registerSubaccount(values);
         setRegistrationJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
         closeModal();
         void loadRuntimeStatus();
@@ -735,6 +748,10 @@ export function SubaccountRoutes({
         if (operation?.phase === 'pro5x_payment_card_required') {
           await apiClient.provideSubaccountPro5xPaymentCard(target, operation.id, payload);
         } else {
+          rememberPreference('pro5x', {
+            usePromoCode: payload.usePromoCode !== false,
+            promoCode: payload.promoCode?.trim() ?? ''
+          });
           await apiClient.openSubaccountPro5x(target, payload);
         }
         await loadAccountManagerStatus(target);
@@ -1113,26 +1130,24 @@ export function SubaccountRoutes({
         onSubmit={updateLocalProfile}
       />
 
-      <Modal
+      <RegistrationStartModal
         open={searchState.modal === 'register-subaccount'}
         title="自动注册子号"
-        okText="开始注册"
-        cancelText="取消"
+        description="系统会取一个 GongXi-Mail 邮箱，按本次设置应用住宅代理国家并完成账号注册，取得 chatgpt.com Web Session 后录入到所选子号分组。本按钮不会生成 Codex 凭证。"
+        initialValues={taskFormPreferences.subaccountRegistration}
+        groupNames={groups.map((group) => group.name)}
         confirmLoading={actionBusy.isBusy('register-subaccount')}
+        error={searchState.modal === 'register-subaccount' ? localError : ''}
         onCancel={closeModal}
-        onOk={() => void registerSubaccount()}
-      >
-        <Space direction="vertical" size={12} className="panel-stack">
-          <span>系统会取一个 GongXi-Mail 邮箱，完成账号注册、资料与密码设置，获取 chatgpt.com Web Session，录入为子号，最后把邮箱转移到已注册分组。本按钮不会生成 Codex 凭证。</span>
-          <ModalErrorAlert message={searchState.modal === 'register-subaccount' ? localError : ''} />
-        </Space>
-      </Modal>
+        onSubmit={registerSubaccount}
+      />
 
       <OpenPro5xModal
         open={searchState.modal === 'open-pro-5x'}
         confirmLoading={actionBusy.isBusy('open-pro-5x')}
         error={searchState.modal === 'open-pro-5x' ? localError : ''}
-        defaultPromoCode={runtimeStatus?.pro5xPromoCode}
+        defaultUsePromoCode={taskFormPreferences.pro5x.usePromoCode}
+        defaultPromoCode={taskFormPreferences.pro5x.promoCode}
         mode={accountManagerStatus?.pro5xOperation?.phase === 'pro5x_payment_card_required'
           ? 'resume'
           : 'open'}

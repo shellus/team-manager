@@ -22,6 +22,8 @@ export interface AccountRegistrationRequest {
   mailGroup?: string;
   email?: string;
   password?: string;
+  resumeExisting?: boolean;
+  country?: string;
   requestTag?: string;
   clientReference?: string;
 }
@@ -391,6 +393,12 @@ export function registrationJobFromOperation(
   operation: AccountManagerOperationView
 ): SubaccountRegistrationJobView {
   const status = normalizeRegistrationStatus(operation.status);
+  const country = typeof operation.requestSummary?.country === 'string'
+    ? operation.requestSummary.country.trim().toUpperCase()
+    : '';
+  const groupName = typeof operation.requestSummary?.clientReference === 'string'
+    ? operation.requestSummary.clientReference.trim()
+    : '';
   return {
     id: operation.id,
     status,
@@ -398,6 +406,8 @@ export function registrationJobFromOperation(
     message: operation.message || operation.errorMessage || operation.phase,
     progress: operation.progress,
     ...(operation.email || operation.accountId ? { email: operation.email || operation.accountId } : {}),
+    ...(country ? { country } : {}),
+    ...(groupName ? { groupName } : {}),
     createdAt: operation.createdAt,
     updatedAt: operation.updatedAt,
     ...(operation.completedAt ? { completedAt: operation.completedAt } : {}),

@@ -26,7 +26,8 @@ function renderList(
   subaccount: SubaccountView,
   registrationJobs: SubaccountRegistrationJobView[] = [],
   accountProfileStatuses: Record<string, AccountManagerProfileView> = {},
-  accountManagerStatuses: Record<string, SubaccountAccountManagerStatus> = {}
+  accountManagerStatuses: Record<string, SubaccountAccountManagerStatus> = {},
+  activeGroup = ''
 ) {
   const summary: SubaccountSummaryView = subaccountSummaryFromView(subaccount);
   return renderToStaticMarkup(
@@ -36,7 +37,7 @@ function renderList(
       accountProfileStatuses={accountProfileStatuses}
       accountManagerStatuses={accountManagerStatuses}
       groups={[]}
-      activeGroup=""
+      activeGroup={activeGroup}
       searchQuery=""
       selectedId={summary.id}
       runtimeStatus={{ configured: true, reachable: true }}
@@ -179,5 +180,22 @@ describe('SubaccountList', () => {
     expect(html).toContain('已取消');
     expect(html).toContain('重试此邮箱');
     expect(html).not.toContain('取消任务');
+  });
+
+  test('shows a registration job only in its own group', () => {
+    const job: SubaccountRegistrationJobView = {
+      id: 'registration-group-a',
+      email: 'group-a@example.com',
+      status: 'running',
+      phase: 'registration_running',
+      message: '注册中',
+      progress: 30,
+      groupName: 'A',
+      createdAt: 1,
+      updatedAt: 2
+    };
+
+    expect(renderList(baseSubaccount, [job], {}, {}, 'A')).toContain('group-a@example.com');
+    expect(renderList(baseSubaccount, [job], {}, {}, 'B')).not.toContain('group-a@example.com');
   });
 });

@@ -486,6 +486,29 @@ export interface NotificationSettings {
   lastRunAt?: number;
 }
 
+export interface RegistrationFormPreference {
+  country: string;
+  groupName: string;
+}
+
+export interface Pro5xFormPreference {
+  usePromoCode: boolean;
+  promoCode: string;
+}
+
+/** 跨浏览器保存的任务表单默认值；由 Team Manager 服务端持久化。 */
+export interface TaskFormPreferences {
+  parentRegistration: RegistrationFormPreference;
+  subaccountRegistration: RegistrationFormPreference;
+  pro5x: Pro5xFormPreference;
+}
+
+export const DEFAULT_TASK_FORM_PREFERENCES: TaskFormPreferences = {
+  parentRegistration: { country: 'US', groupName: '默认分组' },
+  subaccountRegistration: { country: 'US', groupName: '默认分组' },
+  pro5x: { usePromoCode: true, promoCode: 'stb' }
+};
+
 export interface NotificationChannels {
   webhook: {
     enabled: boolean;
@@ -785,6 +808,8 @@ export interface SubaccountRegistrationJobView {
   message: string;
   progress: number;
   email?: string;
+  country?: string;
+  groupName?: string;
   subaccountId?: string;
   createdAt: number;
   updatedAt: number;
@@ -1051,6 +1076,14 @@ export interface AccountManagerRuntimeStatus {
   reachable: boolean;
   pro5xPromoCode?: string;
   error?: string;
+}
+
+export interface RrwebRecordingUploadView {
+  uuid: string;
+  uploadedAt: number;
+  eventCount: number;
+  uncompressedBytes: number;
+  compressedBytes: number;
 }
 
 export interface SubaccountAuthLog {

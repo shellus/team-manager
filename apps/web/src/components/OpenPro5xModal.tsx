@@ -1,13 +1,12 @@
 import type { OpenPro5xRequest } from '@team-manager/shared';
 import { Alert, Form, Input, Modal, Space, Switch, Typography } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ModalErrorAlert } from './ModalErrorAlert.js';
 import { PaymentCardFields } from './PaymentCardFields.js';
 import {
   buildPro5xRequest,
+  createPro5xFormValues,
   DEFAULT_PRO_5X_PROMO_CODE,
-  DEFAULT_PRO_5X_FORM_VALUES,
-  resolvePro5xPromoCode,
   type Pro5xFormValues
 } from './pro5xRequest.js';
 
@@ -29,6 +28,7 @@ export function OpenPro5xModal({
   confirmLoading,
   error,
   mode = 'open',
+  defaultUsePromoCode = true,
   defaultPromoCode = DEFAULT_PRO_5X_PROMO_CODE,
   onCancel,
   onSubmit
@@ -37,22 +37,22 @@ export function OpenPro5xModal({
   confirmLoading: boolean;
   error: string;
   mode?: 'open' | 'resume';
+  defaultUsePromoCode?: boolean;
   defaultPromoCode?: string;
   onCancel: () => void;
   onSubmit: (payload: OpenPro5xRequest) => void | Promise<void>;
 }) {
   const [form] = Form.useForm<Pro5xFormValues>();
   const usePromoCode = Form.useWatch('usePromoCode', form) !== false;
+  const initialValues = useMemo(
+    () => createPro5xFormValues(mode, defaultPromoCode, defaultUsePromoCode),
+    [defaultPromoCode, defaultUsePromoCode, mode]
+  );
 
   useEffect(() => {
-    if (open) {
-      form.setFieldsValue({
-        ...DEFAULT_PRO_5X_FORM_VALUES,
-        usePromoCode: mode === 'open',
-        promoCode: mode === 'open' ? resolvePro5xPromoCode(defaultPromoCode) : ''
-      });
-    }
-  }, [defaultPromoCode, form, mode, open]);
+    form.resetFields();
+    form.setFieldsValue(initialValues);
+  }, [form, initialValues, open]);
 
   return (
     <Modal
@@ -64,7 +64,7 @@ export function OpenPro5xModal({
       confirmLoading={confirmLoading}
       onCancel={onCancel}
       onOk={() => form.submit()}
-      destroyOnHidden
+      forceRender
       width={600}
     >
       <Space direction="vertical" size={12} className="panel-stack">
@@ -87,7 +87,7 @@ export function OpenPro5xModal({
           form={form}
           layout="vertical"
           disabled={confirmLoading}
-          preserve={false}
+          initialValues={initialValues}
           onFinish={(values) => onSubmit(buildPro5xRequest(values))}
         >
           {mode === 'open' && (

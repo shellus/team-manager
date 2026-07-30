@@ -250,6 +250,7 @@ export class SubaccountStore {
   async saveManagedSubaccount(input: {
     managedAccountEmail: string;
     email: string;
+    groupName?: string;
     session: ChatGptSessionInput;
     status?: Subaccount['status'];
     lastError?: string;
@@ -272,7 +273,9 @@ export class SubaccountStore {
       id: existing?.id ?? randomUUID(),
       email,
       remark: existing?.remark,
-      groupName: existing?.groupName,
+      groupName: input.groupName === undefined
+        ? existing?.groupName
+        : normalizeSubaccountGroupName(input.groupName),
       chatgptAccountId: input.session.account.id,
       webAccessToken: input.session.accessToken,
       sessionToken: input.session.sessionToken,

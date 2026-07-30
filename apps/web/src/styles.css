@@ -93,6 +93,37 @@ body {
   margin-bottom: 12px;
 }
 
+.rrweb-dev-tools {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 50;
+  max-width: calc(100vw - 40px);
+  padding: 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  box-shadow: 0 4px 8px rgb(0 0 0 / 12%);
+}
+
+.rrweb-replay-panel {
+  width: 100%;
+}
+
+.rrweb-upload-uuid {
+  max-width: min(430px, calc(100vw - 80px));
+  overflow-wrap: anywhere;
+}
+
+.rrweb-replay-host {
+  width: 100%;
+  overflow: auto;
+}
+
+.rrweb-replay-host .rr-player {
+  margin: 0 auto;
+}
+
 .login-page {
   display: flex;
   min-height: 100vh;

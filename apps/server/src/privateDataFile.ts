@@ -14,6 +14,11 @@ export async function writePrivateFile(path: string, body: string): Promise<void
   await chmod(path, 0o600);
 }
 
+export async function writePrivateBuffer(path: string, body: Uint8Array): Promise<void> {
+  await writeFile(path, body, { mode: 0o600 });
+  await chmod(path, 0o600);
+}
+
 export async function appendPrivateFile(path: string, body: string): Promise<void> {
   await appendFile(path, body, { encoding: 'utf8', mode: 0o600 });
   await chmod(path, 0o600);

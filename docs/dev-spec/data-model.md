@@ -139,9 +139,23 @@
 
 `expireRemove` 是本地运营标记，不会在提醒任务中自动移除远端成员。远端移除仍必须由页面、API 或 service 显式调用。
 
-## 全局通知设置
+## 全局设置
 
-全局通知设置持久化在 `data/app-settings.json`，不属于任何母号。当前模型只保存到期提醒所需配置：
+全局设置持久化在 `data/app-settings.json`，不属于任何母号。`AppSettingsStore` 同时保存通知配置和跨浏览器任务表单偏好，旧的通知专用 JSON 会在读取时补齐默认表单偏好。
+
+`taskFormPreferences` 包含以下服务端默认值：
+
+| 字段 | 说明 |
+|---|---|
+| `parentRegistration.country` / `groupName` | 最近一次提交的母号自动注册国家和归属分组，默认 `US` / `默认分组` |
+| `subaccountRegistration.country` / `groupName` | 最近一次提交的子号自动注册国家和归属分组，默认 `US` / `默认分组` |
+| `pro5x.usePromoCode` / `promoCode` | 最近一次新建 Pro 5x 任务时提交的优惠码开关和值，默认 `true` / `stb` |
+
+前端通过 `GET /api/settings/task-forms` 读取偏好。创建母号或子号注册任务、创建新的 Pro 5x 任务时，服务端先规范化并持久化本次表单值；补充旧 Pro 5x 任务卡片不覆盖优惠码偏好。
+
+母号和子号的注册任务都按创建时持久化的 `groupName` 归属列表分组，只在对应分组或“所有”聚合视图中展示。任务表单弹窗使用 URL 查询参数 `modal` 和 `target` 持久化打开状态；轮询或列表数据刷新只能规范化仍然有效的路由，不能清除正在打开的弹窗。只有用户显式关闭，或 `target` 指向的业务对象已经不存在时，才能移除弹窗路由状态。
+
+通知配置字段如下：
 
 | 字段 | 说明 |
 |---|---|
@@ -304,3 +318,9 @@ Content-Type: application/json
 PATCH 请求中的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。编辑弹窗先读取对应 GET 接口，用返回的分组、`session` 和 `proxy` 回填表单。
 
 Codex 凭证支持 OAuth authorization-code + PKCE 和 PAT。两种凭证都按目标 Team workspace 保存，同一 workspace 后保存的凭证覆盖前一份。
+
+## rrweb 调试录制
+
+开发模式前端可使用 rrweb 录制页面状态和交互。停止录制后通过 `POST /api/devtools/rrweb-recordings` 上报，服务端生成 UUID，并将内容压缩保存为 `data/rrweb-recordings/<uuid>.json.gz`。目录权限固定为 `0700`，文件权限固定为 `0600`。
+
+单条录制的未压缩 JSON 上限为 25 MB。文件保留 30 天，store 初始化或写入新录制时清理过期文件。`GET /api/devtools/rrweb-recordings/:uuid` 需要管理端鉴权，并返回解压后的录制内容。录制可能包含页面可见信息，只能作为私有运行数据处理，不得复制到源码仓库或项目文档。

@@ -17,7 +17,8 @@ import type {
   SubaccountLocalProfileView,
   SubaccountRegistrationJobView,
   SubaccountSummaryView,
-  SubaccountView
+  SubaccountView,
+  TaskFormPreferences
 } from '@team-manager/shared';
 import { AccountStore } from './accountStore.js';
 import { buildApp } from './app.js';
@@ -439,6 +440,8 @@ class FakeAccountManager implements AccountManagerGateway {
       phase: 'registration_queued',
       message: '已加入账号注册队列',
       progress: 0,
+      ...(input.country ? { country: input.country } : {}),
+      ...(input.clientReference ? { groupName: input.clientReference } : {}),
       createdAt: 1,
       updatedAt: 1
     };
@@ -786,7 +789,11 @@ class FakeAccountManager implements AccountManagerGateway {
       phase: job.phase,
       message: job.message,
       progress: job.progress,
-      requestSummary: { requestTag: this.requestTags.get(job.id) },
+      requestSummary: {
+        requestTag: this.requestTags.get(job.id),
+        country: job.country,
+        clientReference: job.groupName
+      },
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
       ...(job.completedAt ? { completedAt: job.completedAt } : {}),
@@ -975,6 +982,13 @@ describe('Subaccount API', () => {
       assert.equal(accountManager.openedPro5x?.input.promoCode, 'ignored-promo');
       assert.deepEqual(accountManager.openedPro5x?.input.card, {
         number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123'
+      });
+
+      const preferencesResponse = await app.request('/api/settings/task-forms', { headers: authHeaders });
+      const preferences = (await preferencesResponse.json()) as ApiResult<TaskFormPreferences>;
+      assert.deepEqual(preferences.data?.pro5x, {
+        usePromoCode: false,
+        promoCode: 'ignored-promo'
       });
 
       const running = await app.request(`/api/subaccounts/${subaccount.id}/account-manager/status`, {
@@ -2045,7 +2059,11 @@ describe('Subaccount API', () => {
       const started = await app.request('/api/subaccounts/registration/start', {
         method: 'POST',
         headers: authHeaders,
-        body: JSON.stringify({ mailGroup: 'clean-outlook' })
+        body: JSON.stringify({
+          mailGroup: 'clean-outlook',
+          country: 'sg',
+          groupName: ' 子号池 '
+        })
       });
       assert.equal(started.status, 200);
       const startedJson = (await started.json()) as ApiResult<SubaccountRegistrationJobView>;
@@ -2058,8 +2076,18 @@ describe('Subaccount API', () => {
       assert.equal(registered.hasWebSession, true);
       assert.equal(Object.hasOwn(registered, 'session'), false);
       assert.equal(registered.managedAccountEmail, 'registered-child@example.com');
+      assert.equal(registered.groupName, '子号池');
       assert.equal(registered.codexCredentials.length, 0);
       assert.equal(accountManager.requests[0]!.mailGroup, 'clean-outlook');
+      assert.equal(accountManager.requests[0]!.country, 'SG');
+      assert.equal(accountManager.requests[0]!.clientReference, '子号池');
+
+      const preferencesResponse = await app.request('/api/settings/task-forms', { headers: authHeaders });
+      const preferences = (await preferencesResponse.json()) as ApiResult<TaskFormPreferences>;
+      assert.deepEqual(preferences.data?.subaccountRegistration, {
+        country: 'SG',
+        groupName: '子号池'
+      });
 
       const profileResponse = await app.request(`/api/subaccounts/${registered.id}/local-profile`, { headers: authHeaders });
       const profile = ((await profileResponse.json()) as ApiResult<SubaccountLocalProfileView>).data!;

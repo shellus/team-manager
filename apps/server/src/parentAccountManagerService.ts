@@ -83,12 +83,17 @@ export class ParentAccountManagerService {
     return tasks;
   }
 
-  async startRegistration(groupName?: unknown): Promise<AccountManagerOperationView> {
+  async startRegistration(input: {
+    groupName?: unknown;
+    country?: unknown;
+  } = {}): Promise<AccountManagerOperationView> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
-    const targetGroup = normalizeRegistrationGroupName(groupName);
+    const targetGroup = normalizeRegistrationGroupName(input.groupName);
+    const country = normalizeRegistrationCountry(input.country);
     const job = await this.callAccountManager(() => this.accountManager!.startRegistration({
       requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent,
-      clientReference: targetGroup
+      clientReference: targetGroup,
+      ...(country ? { country } : {})
     }));
     return this.callAccountManager(() => this.accountManager!.operation(job.id));
   }
@@ -877,6 +882,14 @@ function normalizeRegistrationGroupName(value: unknown): string {
     throw new ServiceError(400, '母号分组必须是字符串');
   }
   return typeof value === 'string' ? value.trim() || '默认分组' : '默认分组';
+}
+
+function normalizeRegistrationCountry(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^[A-Z]{2}$/u.test(value.trim().toUpperCase())) {
+    throw new ServiceError(400, '注册国家必须是两位国家代码');
+  }
+  return value.trim().toUpperCase();
 }
 
 function registrationGroupName(operation: AccountManagerOperationView): string {

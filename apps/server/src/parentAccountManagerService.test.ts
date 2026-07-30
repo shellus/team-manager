@@ -144,7 +144,8 @@ class FakeAccountManager implements AccountManagerGateway {
       progress: 0,
       requestSummary: {
         requestTag: input.requestTag,
-        clientReference: input.clientReference
+        clientReference: input.clientReference,
+        country: input.country
       },
       createdAt: 1,
       updatedAt: 1
@@ -726,9 +727,13 @@ describe('ParentAccountManagerService', () => {
 
   it('finishes parent registration immediately without requiring 0.52', async () => {
     await withService(async (service, accountManager, teamService) => {
-      const started = await service.startRegistration(' 客户 A ');
+      const started = await service.startRegistration({
+        groupName: ' 客户 A ',
+        country: 'sg'
+      });
       assert.equal(started.requestSummary?.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.parent);
       assert.equal(started.requestSummary?.clientReference, '客户 A');
+      assert.equal(started.requestSummary?.country, 'SG');
 
       accountManager.completeRegistration('parent@example.com');
       const completed = await service.listRegistrationTasks();
