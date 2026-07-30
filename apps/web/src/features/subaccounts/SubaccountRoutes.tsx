@@ -339,6 +339,17 @@ export function SubaccountRoutes({
     }
   }, [reportLocalError]);
 
+  const loadAccountManagerStatuses = useCallback(async (background = false) => {
+    try {
+      const statuses = await apiClient.getSubaccountAccountManagerStatuses();
+      setAccountManagerStatuses(statuses);
+      return statuses;
+    } catch (error) {
+      if (!background) reportLocalError(error);
+      return undefined;
+    }
+  }, [reportLocalError]);
+
   const loadLogs = useCallback(
     async (id: string) => {
       setLogsLoaded(false);
@@ -355,7 +366,8 @@ export function SubaccountRoutes({
   useEffect(() => {
     void loadSubaccounts();
     void loadRuntimeStatus();
-  }, [loadRuntimeStatus, loadSubaccounts]);
+    void loadAccountManagerStatuses();
+  }, [loadAccountManagerStatuses, loadRuntimeStatus, loadSubaccounts]);
 
   const hasActiveRegistration = registrationJobs.some(
     (job) => registrationStatusNeedsPolling(job.status)
@@ -413,15 +425,12 @@ export function SubaccountRoutes({
     const poll = async () => {
       try {
         const [statuses, nextSubaccounts] = await Promise.all([
-          apiClient.getSubaccountAccountManagerStatuses(),
+          loadAccountManagerStatuses(true),
           hasActiveEnrollmentOperation ? apiClient.listSubaccounts() : Promise.resolve(undefined)
         ]);
-        if (!cancelled) {
-          setAccountManagerStatuses(statuses);
-          if (nextSubaccounts) setSubaccounts(sortSubaccountsForList(nextSubaccounts));
-        }
+        if (!cancelled && nextSubaccounts) setSubaccounts(sortSubaccountsForList(nextSubaccounts));
         const selectedId = selectedSummary?.id;
-        if (!cancelled && hasActiveEnrollmentOperation && selectedId && statuses[selectedId]?.managed) {
+        if (!cancelled && statuses && hasActiveEnrollmentOperation && selectedId && statuses[selectedId]?.managed) {
           mergeSubaccount(await apiClient.getSubaccount(selectedId));
         }
       } catch {
@@ -439,6 +448,7 @@ export function SubaccountRoutes({
   }, [
     hasActiveAccountManagerOperation,
     hasActiveEnrollmentOperation,
+    loadAccountManagerStatuses,
     mergeSubaccount,
     selectedSummary?.id,
     shouldRetryAccountManagerStatus
@@ -644,6 +654,21 @@ export function SubaccountRoutes({
       await actionBusy.run(key, async () => {
         const retried = await apiClient.retrySubaccountRegistration(job.id);
         setRegistrationJobs((current) => current.map((item) => (item.id === retried.id ? retried : item)));
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
+  const cancelRegistration = async (job: SubaccountRegistrationJobView) => {
+    const key = `cancel-registration-${job.id}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        const cancelled = await apiClient.cancelSubaccountRegistration(job.id);
+        setRegistrationJobs((current) => current.map((item) => (
+          item.id === cancelled.id ? cancelled : item
+        )));
       });
     } catch (error) {
       reportLocalError(error);
@@ -958,6 +983,7 @@ export function SubaccountRoutes({
         onOpenImportSession={() => openModal('import-session')}
         onOpenRegister={() => openModal('register-subaccount')}
         onRetryRegistration={(job) => void retryRegistration(job)}
+        onCancelRegistration={(job) => void cancelRegistration(job)}
         onSelectRegistration={selectRegistrationJob}
         onTerminateOperation={(subaccount, operation) => {
           void terminatePro5x(subaccount.id, operation.id);
@@ -982,6 +1008,10 @@ export function SubaccountRoutes({
             email={selectedRegistrationJob.email}
             message={selectedRegistrationJob.message}
             progress={selectedRegistrationJob.progress}
+            status={selectedRegistrationJob.status}
+            phase={selectedRegistrationJob.phase}
+            cancelLoading={actionBusy.isBusy(`cancel-registration-${selectedRegistrationJob.id}`)}
+            onCancel={() => void cancelRegistration(selectedRegistrationJob)}
             failed={selectedRegistrationJob.status === 'failed'
               || selectedRegistrationJob.status === 'interrupted'}
             waitingManual={selectedRegistrationJob.status === 'waiting_manual'}
@@ -1102,6 +1132,7 @@ export function SubaccountRoutes({
         open={searchState.modal === 'open-pro-5x'}
         confirmLoading={actionBusy.isBusy('open-pro-5x')}
         error={searchState.modal === 'open-pro-5x' ? localError : ''}
+        defaultPromoCode={runtimeStatus?.pro5xPromoCode}
         mode={accountManagerStatus?.pro5xOperation?.phase === 'pro5x_payment_card_required'
           ? 'resume'
           : 'open'}

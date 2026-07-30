@@ -20,4 +20,8 @@ describe('OpenPro5xModal', () => {
     expect(PRO_5X_RESUME_MODAL_COPY.okText).toContain('继续自动付款');
     expect(PRO_5X_RESUME_MODAL_COPY.description).toContain('重新提供信用卡');
   });
+
+  test('explains that the promotion can be disabled for a normal checkout', () => {
+    expect(PRO_5X_MODAL_COPY.offerMessage).toContain('优惠');
+  });
 });

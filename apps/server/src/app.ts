@@ -441,6 +441,10 @@ export async function buildApp({
     wrap(c, () => parentAccountManagerService.retryRegistration(c.req.param('operationId')))
   );
 
+  api.post('/accounts/registration/tasks/:operationId/cancel', (c) =>
+    wrap(c, () => parentAccountManagerService.cancelRegistration(c.req.param('operationId')))
+  );
+
   api.post('/accounts/registration/tasks/:operationId/rotate-ip', (c) =>
     wrap(c, () => parentAccountManagerService.rotateRegistrationIp(c.req.param('operationId')))
   );
@@ -741,6 +745,10 @@ export async function buildApp({
 
   api.post('/subaccounts/registration/jobs/:jobId/retry', (c) =>
     wrap(c, () => subaccountService.retrySubaccountRegistration(c.req.param('jobId')))
+  );
+
+  api.post('/subaccounts/registration/jobs/:jobId/cancel', (c) =>
+    wrap(c, () => subaccountService.cancelSubaccountRegistration(c.req.param('jobId')))
   );
 
   api.post('/subaccounts/registration/jobs/:jobId/rotate-ip', (c) =>

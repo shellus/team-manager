@@ -176,6 +176,14 @@ export class SubaccountService {
     return this.callAccountManager(() => this.accountManager!.retryRegistration(jobId));
   }
 
+  async cancelSubaccountRegistration(jobId: string): Promise<SubaccountRegistrationJobView> {
+    if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
+    await this.requireSubaccountRegistration(jobId);
+    return registrationJobFromOperation(
+      await this.callAccountManager(() => this.accountManager!.terminateOperation(jobId))
+    );
+  }
+
   async rotateSubaccountRegistrationIp(jobId: string): Promise<SubaccountRegistrationJobView> {
     if (!this.accountManager) throw new ServiceError(503, '未配置 GPT Account Manager');
     const operation = await this.requireSubaccountRegistration(jobId);
@@ -278,6 +286,7 @@ export class SubaccountService {
       return {
         configured: health.accountRegistrationConfigured === true,
         reachable: health.status === 'ok',
+        ...(health.pro5xPromoCode ? { pro5xPromoCode: health.pro5xPromoCode } : {}),
         ...(health.accountRegistrationConfigured === true ? {} : { error: 'GPT Account Manager 注册环境未配置完整' })
       };
     } catch (error) {

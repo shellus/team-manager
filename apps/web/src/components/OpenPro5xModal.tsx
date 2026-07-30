@@ -1,11 +1,13 @@
 import type { OpenPro5xRequest } from '@team-manager/shared';
-import { Alert, Form, Modal, Space, Typography } from 'antd';
+import { Alert, Form, Input, Modal, Space, Switch, Typography } from 'antd';
 import { useEffect } from 'react';
 import { ModalErrorAlert } from './ModalErrorAlert.js';
 import { PaymentCardFields } from './PaymentCardFields.js';
 import {
   buildPro5xRequest,
+  DEFAULT_PRO_5X_PROMO_CODE,
   DEFAULT_PRO_5X_FORM_VALUES,
+  resolvePro5xPromoCode,
   type Pro5xFormValues
 } from './pro5xRequest.js';
 
@@ -27,6 +29,7 @@ export function OpenPro5xModal({
   confirmLoading,
   error,
   mode = 'open',
+  defaultPromoCode = DEFAULT_PRO_5X_PROMO_CODE,
   onCancel,
   onSubmit
 }: {
@@ -34,14 +37,22 @@ export function OpenPro5xModal({
   confirmLoading: boolean;
   error: string;
   mode?: 'open' | 'resume';
+  defaultPromoCode?: string;
   onCancel: () => void;
   onSubmit: (payload: OpenPro5xRequest) => void | Promise<void>;
 }) {
   const [form] = Form.useForm<Pro5xFormValues>();
+  const usePromoCode = Form.useWatch('usePromoCode', form) !== false;
 
   useEffect(() => {
-    if (open) form.setFieldsValue(DEFAULT_PRO_5X_FORM_VALUES);
-  }, [form, open]);
+    if (open) {
+      form.setFieldsValue({
+        ...DEFAULT_PRO_5X_FORM_VALUES,
+        usePromoCode: mode === 'open',
+        promoCode: mode === 'open' ? resolvePro5xPromoCode(defaultPromoCode) : ''
+      });
+    }
+  }, [defaultPromoCode, form, mode, open]);
 
   return (
     <Modal
@@ -65,8 +76,12 @@ export function OpenPro5xModal({
         <Alert
           type="info"
           showIcon
-          message={PRO_5X_MODAL_COPY.offerMessage}
-          description={PRO_5X_MODAL_COPY.offerDescription}
+          message={mode === 'open' && !usePromoCode
+            ? '本次不使用优惠码'
+            : PRO_5X_MODAL_COPY.offerMessage}
+          description={mode === 'open' && !usePromoCode
+            ? '系统将创建不带 promo_code 的普通 Pro 5x Checkout，实际金额与条款以付款页为准。'
+            : PRO_5X_MODAL_COPY.offerDescription}
         />
         <Form<Pro5xFormValues>
           form={form}
@@ -75,6 +90,29 @@ export function OpenPro5xModal({
           preserve={false}
           onFinish={(values) => onSubmit(buildPro5xRequest(values))}
         >
+          {mode === 'open' && (
+            <>
+              <Form.Item
+                name="usePromoCode"
+                label="使用优惠码"
+                valuePropName="checked"
+                extra="默认勾选并填入 stb；关闭后账单请求不会携带 promo_code。"
+              >
+                <Switch checkedChildren="使用优惠码" unCheckedChildren="不使用优惠码" />
+              </Form.Item>
+              <Form.Item
+                name="promoCode"
+                label="优惠码"
+                rules={usePromoCode ? [{ required: true, whitespace: true, message: '请输入优惠码' }] : undefined}
+              >
+                <Input
+                  disabled={!usePromoCode}
+                  placeholder="输入 Pro 5x 优惠码"
+                  autoComplete="off"
+                />
+              </Form.Item>
+            </>
+          )}
           <Typography.Text strong>信用卡（必填）</Typography.Text>
           <PaymentCardFields required quickInput numberOnOwnRow />
           <Typography.Text type="secondary" className="payment-security-note">

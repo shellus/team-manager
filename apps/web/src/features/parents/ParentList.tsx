@@ -23,6 +23,11 @@ import { BannedStatusTag, LimitTypeTag } from '../../components/StatusTag.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
 import { hasPro5xFromLocalState } from '../../components/accountManagerLocalState.js';
+import {
+  RegistrationTaskCancelButton,
+  registrationTaskCanCancel,
+  registrationTaskIsCancelled
+} from '../../components/RegistrationTaskCancelButton.js';
 import { ParentQuickFilterBar } from './ParentQuickFilterBar.js';
 import { ALL_PARENT_GROUP, ALL_PARENT_GROUP_LABEL } from './parentGroups.js';
 import {
@@ -35,6 +40,7 @@ import { canManageParentWorkspace, hasParentCodexSpace } from './parentWorkspace
 import type { ParentQuickFilter } from './parentQuickFilters.js';
 
 function taskSummary(task: ParentRegistrationTaskView): string {
+  if (registrationTaskIsCancelled(task.registration.phase)) return '注册任务已取消，可按原邮箱重试';
   if (task.stage === 'registration_failed') return task.error || '注册未完成，可按原邮箱重试';
   if (task.stage === 'waiting_manual') {
     return task.registration.message || '可以人工处理验证；系统会持续监听并在通过后自动继续';
@@ -93,6 +99,7 @@ export function ParentList({
   onOpenRegister,
   onOpenImport,
   onRetryRegistration,
+  onCancelRegistration,
   onTerminateOperation,
   onDismissOperation,
   onSelect,
@@ -120,6 +127,7 @@ export function ParentList({
   onOpenRegister: () => void;
   onOpenImport: () => void;
   onRetryRegistration: (task: ParentRegistrationTaskView) => void;
+  onCancelRegistration: (task: ParentRegistrationTaskView) => void;
   onTerminateOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onDismissOperation: (account: AccountSummaryView, operation: AccountManagerOperationView) => void;
   onSelect: (account: AccountSummaryView) => void;
@@ -190,6 +198,8 @@ export function ParentList({
           if (record.kind === 'task') {
             const task = record.task;
             const failed = task.stage === 'registration_failed' || task.stage === 'import_failed';
+            const cancelled = registrationTaskIsCancelled(task.registration.phase);
+            const canCancel = registrationTaskCanCancel(task.registration.status);
             const waiting = task.stage === 'waiting_manual';
             return (
               <List.Item>
@@ -211,8 +221,10 @@ export function ParentList({
                         {taskSummary(task)}
                       </Typography.Text>
                     </div>
-                    <Tag color={failed ? 'error' : waiting ? 'warning' : 'default'}>
-                      {task.stage === 'waiting_manual'
+                    <Tag color={cancelled ? 'default' : failed ? 'error' : waiting ? 'warning' : 'default'}>
+                      {cancelled
+                            ? '已取消'
+                            : task.stage === 'waiting_manual'
                             ? '等待人工'
                             : failed
                               ? '操作失败'
@@ -223,24 +235,32 @@ export function ParentList({
                     className="registration-job-progress"
                     percent={taskProgress(task)}
                     size="small"
-                    status={failed ? 'exception' : 'active'}
+                    status={cancelled ? 'normal' : failed ? 'exception' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {(task.stage === 'registration_failed' || task.stage === 'import_failed') && (
+                  {(failed || canCancel) && (
                     <Space wrap>
-                      <Button
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        loading={isBusy(`retry-parent-registration-${task.registration.id}`)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRetryRegistration(task);
-                        }}
-                      >
-                        {task.stage === 'import_failed'
-                            ? '重试导入'
-                            : '重试注册'}
-                      </Button>
+                      {failed && (
+                        <Button
+                          size="small"
+                          icon={<ReloadOutlined />}
+                          loading={isBusy(`retry-parent-registration-${task.registration.id}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRetryRegistration(task);
+                          }}
+                        >
+                          {task.stage === 'import_failed'
+                              ? '重试导入'
+                              : '重试注册'}
+                        </Button>
+                      )}
+                      {canCancel && (
+                        <RegistrationTaskCancelButton
+                          loading={isBusy(`cancel-parent-registration-${task.registration.id}`)}
+                          onConfirm={() => onCancelRegistration(task)}
+                        />
+                      )}
                     </Space>
                   )}
                 </Card>

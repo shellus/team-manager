@@ -572,6 +572,24 @@ class FakeAccountManager implements AccountManagerGateway {
   }
 
   async terminateOperation(id: string): Promise<AccountManagerOperationView> {
+    const job = this.jobs.find((item) => item.id === id);
+    if (job) {
+      const cancelled: SubaccountRegistrationJobView = {
+        ...job,
+        status: 'interrupted',
+        phase: 'registration_cancelled',
+        message: '注册任务已取消',
+        error: '注册任务已取消',
+        updatedAt: job.updatedAt + 1,
+        completedAt: job.updatedAt + 1
+      };
+      this.jobs = [cancelled];
+      this.controls.push(`terminate:${id}`);
+      return {
+        ...this.operationFromJob(cancelled),
+        errorCode: 'registration_cancelled_by_user'
+      };
+    }
     const operation = this.accountOperations.find((item) => item.id === id);
     if (!operation) throw new Error(`unexpected terminate: ${id}`);
     this.controls.push(`terminate:${id}`);
@@ -941,6 +959,8 @@ describe('Subaccount API', () => {
         headers: authHeaders,
         body: JSON.stringify({
           autoPay: false,
+          usePromoCode: false,
+          promoCode: 'ignored-promo',
           card: { number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123' }
         })
       });
@@ -951,6 +971,8 @@ describe('Subaccount API', () => {
       assert.equal(accountManager.openedPro5x?.accountId, 'child@example.com');
       assert.equal(accountManager.openedPro5x?.input.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.subaccount);
       assert.equal(accountManager.openedPro5x?.input.autoPay, true);
+      assert.equal(accountManager.openedPro5x?.input.usePromoCode, false);
+      assert.equal(accountManager.openedPro5x?.input.promoCode, 'ignored-promo');
       assert.deepEqual(accountManager.openedPro5x?.input.card, {
         number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123'
       });
@@ -2085,6 +2107,27 @@ describe('Subaccount API', () => {
       assert.equal(body.data!.status, 'waiting_manual');
       assert.equal(body.data!.phase, 'registration_manual_proxy_rotation_complete');
       assert.deepEqual(accountManager.controls, [`rotate:${job.id}`]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('cancels an active child registration and preserves it as retryable history', async () => {
+    const accountManager = new FakeAccountManager();
+    const job = accountManager.seedWaitingManualRegistration();
+    const { app, dir, authHeaders } = await buildTestApp({ accountManager });
+    try {
+      const response = await app.request(`/api/subaccounts/registration/jobs/${job.id}/cancel`, {
+        method: 'POST',
+        headers: authHeaders
+      });
+      const body = (await response.json()) as ApiResult<SubaccountRegistrationJobView>;
+
+      assert.equal(response.status, 200);
+      assert.equal(body.data!.status, 'interrupted');
+      assert.equal(body.data!.phase, 'registration_cancelled');
+      assert.equal(body.data!.progress, 95);
+      assert.deepEqual(accountManager.controls, [`terminate:${job.id}`]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

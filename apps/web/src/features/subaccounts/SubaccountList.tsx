@@ -27,11 +27,17 @@ import { BannedStatusTag, SubaccountStatusTag } from '../../components/StatusTag
 import { formatDateTime } from '../../components/format.js';
 import { RunningProfileTag } from '../../components/AccountProfileListStatus.js';
 import { AccountOperationProgress } from '../../components/AccountOperationProgress.js';
+import {
+  RegistrationTaskCancelButton,
+  registrationTaskCanCancel,
+  registrationTaskIsCancelled
+} from '../../components/RegistrationTaskCancelButton.js';
 import { WorkspaceOpeningStatusTags } from '../../components/WorkspaceOpeningStatusTags.js';
 import { hasPro5xFromLocalState } from '../../components/accountManagerLocalState.js';
 import { registrationJobMatchesQuery, subaccountMatchesQuery } from './subaccountSearch.js';
 
 function registrationJobSummary(job: SubaccountRegistrationJobView): string {
+  if (registrationTaskIsCancelled(job.phase)) return '注册任务已取消，可按原邮箱重试';
   if (job.status === 'failed') return '注册未完成，可使用原邮箱和密码重试';
   if (job.status === 'interrupted') return '任务因服务重启中断，可继续重试';
   if (job.status === 'waiting_manual') {
@@ -58,6 +64,7 @@ export function SubaccountList({
   onOpenImportSession,
   onOpenRegister,
   onRetryRegistration,
+  onCancelRegistration,
   onSelectRegistration,
   onTerminateOperation,
   onDismissOperation,
@@ -81,6 +88,7 @@ export function SubaccountList({
   onOpenImportSession: () => void;
   onOpenRegister: () => void;
   onRetryRegistration: (job: SubaccountRegistrationJobView) => void;
+  onCancelRegistration: (job: SubaccountRegistrationJobView) => void;
   onSelectRegistration: (job: SubaccountRegistrationJobView) => void;
   onTerminateOperation: (
     subaccount: SubaccountSummaryView,
@@ -164,6 +172,8 @@ export function SubaccountList({
           if (record.kind === 'job') {
             const job = record.job;
             const failed = job.status === 'failed' || job.status === 'interrupted';
+            const cancelled = registrationTaskIsCancelled(job.phase);
+            const canCancel = registrationTaskCanCancel(job.status);
             const waitingManual = job.status === 'waiting_manual';
             const selected = job.id === selectedRegistrationId;
             return (
@@ -184,8 +194,10 @@ export function SubaccountList({
                         {registrationJobSummary(job)}
                       </Typography.Text>
                     </div>
-                    <Tag color={failed ? 'error' : waitingManual ? 'warning' : job.status === 'queued' ? 'default' : 'processing'}>
-                      {failed
+                    <Tag color={cancelled ? 'default' : failed ? 'error' : waitingManual ? 'warning' : job.status === 'queued' ? 'default' : 'processing'}>
+                      {cancelled
+                        ? '已取消'
+                        : failed
                         ? '注册失败'
                         : waitingManual
                           ? '等待人工处理'
@@ -198,22 +210,30 @@ export function SubaccountList({
                     className="registration-job-progress"
                     percent={job.progress}
                     size="small"
-                    status={failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
+                    status={cancelled ? 'normal' : failed ? 'exception' : job.status === 'succeeded' ? 'success' : 'active'}
                     format={(percent) => `${percent ?? 0}%`}
                   />
-                  {failed && (
+                  {(failed || canCancel) && (
                     <Space wrap>
-                      <Button
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        loading={isBusy(`retry-registration-${job.id}`)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRetryRegistration(job);
-                        }}
-                      >
-                        {job.email ? '重试此邮箱' : '重新开始'}
-                      </Button>
+                      {failed && (
+                        <Button
+                          size="small"
+                          icon={<ReloadOutlined />}
+                          loading={isBusy(`retry-registration-${job.id}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRetryRegistration(job);
+                          }}
+                        >
+                          {job.email ? '重试此邮箱' : '重新开始'}
+                        </Button>
+                      )}
+                      {canCancel && (
+                        <RegistrationTaskCancelButton
+                          loading={isBusy(`cancel-registration-${job.id}`)}
+                          onConfirm={() => onCancelRegistration(job)}
+                        />
+                      )}
                     </Space>
                   )}
                 </Card>

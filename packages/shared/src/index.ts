@@ -609,6 +609,8 @@ export interface OpenTeamSubscriptionRequest {
 
 export interface OpenPro5xRequest {
   autoPay?: boolean;
+  usePromoCode?: boolean;
+  promoCode?: string;
   card: {
     number: string;
     expiryMonth: number;
@@ -1047,6 +1049,7 @@ export interface CodexQuotaSnapshot {
 export interface AccountManagerRuntimeStatus {
   configured: boolean;
   reachable: boolean;
+  pro5xPromoCode?: string;
   error?: string;
 }
 

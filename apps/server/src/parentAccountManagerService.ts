@@ -53,6 +53,7 @@ export class ParentAccountManagerService {
       return {
         configured: health.accountRegistrationConfigured === true,
         reachable: health.status === 'ok',
+        ...(health.pro5xPromoCode ? { pro5xPromoCode: health.pro5xPromoCode } : {}),
         ...(health.accountRegistrationConfigured === true
           ? {}
           : { error: 'GPT Account Manager 注册环境未配置完整' })
@@ -96,6 +97,13 @@ export class ParentAccountManagerService {
     const operation = await this.requireParentRegistration(operationId);
     await this.callAccountManager(() => this.accountManager!.retryRegistration(operation.id));
     return this.callAccountManager(() => this.accountManager!.operation(operation.id));
+  }
+
+  async cancelRegistration(operationId: string): Promise<ParentRegistrationTaskView> {
+    const operation = await this.requireParentRegistration(operationId);
+    return this.reconcileRegistration(
+      await this.callAccountManager(() => this.accountManager!.terminateOperation(operation.id))
+    );
   }
 
   async rotateRegistrationIp(operationId: string): Promise<ParentRegistrationTaskView> {
@@ -168,6 +176,11 @@ export class ParentAccountManagerService {
       let codexOperation = operations.find(isParentCodexOperation);
       let teamOperation = operations.find(isParentTeamOperation);
       let pro5xOperation = operations.find(isParentPro5xOperation);
+      if (pro5xOperation && !['failed', 'interrupted'].includes(pro5xOperation.status)) {
+        await this.refreshManagedWebSessionIfChanged(accountId, email).catch((error) => {
+          console.error('[team-manager] 同步 Pro 5x 登录后的 Web Session 失败', error);
+        });
+      }
       const operationCardLast4 = pro5xOperationCardLast4(pro5xOperation);
       let importedAccounts: AccountSummaryView[] = [];
 
@@ -792,6 +805,17 @@ export class ParentAccountManagerService {
       accountManagerPro5xCardLast4: cardLast4,
       accountManagerSyncedAt: Date.now()
     });
+  }
+
+  private async refreshManagedWebSessionIfChanged(accountId: string, email: string): Promise<void> {
+    const current = this.store.get(accountId);
+    if (!current) return;
+    const session = await this.accountManager!.session(email);
+    if (session.user.email.trim().toLowerCase() !== email.trim().toLowerCase()) {
+      throw new ServiceError(409, 'GAM Session 邮箱与已关联母号不一致');
+    }
+    if (current.accessToken === session.accessToken && current.sessionToken === session.sessionToken) return;
+    await this.teamService.updateLocalProfile(accountId, { session });
   }
 
   private async historicalPro5xCardLast4(email: string): Promise<string | undefined> {

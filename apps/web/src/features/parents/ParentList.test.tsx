@@ -56,6 +56,7 @@ function renderList(overrides: Partial<Parameters<typeof ParentList>[0]> = {}) {
       onOpenRegister={() => undefined}
       onOpenImport={() => undefined}
       onRetryRegistration={() => undefined}
+      onCancelRegistration={() => undefined}
       onSelectRegistration={() => undefined}
       onTerminateOperation={() => undefined}
       onDismissOperation={() => undefined}
@@ -85,7 +86,27 @@ describe('ParentList', () => {
     expect(html).toContain('自动注册');
     expect(html).toContain('录入母号');
     expect(html).toContain('parent@example.com');
+    expect(html).toContain('取消任务');
     expect(html).not.toContain('开通 0.52');
+  });
+
+  test('labels a user-cancelled parent registration and keeps retry available', () => {
+    const html = renderList({
+      registrationTasks: [{
+        ...registeringTask,
+        registration: {
+          ...registeringTask.registration,
+          status: 'interrupted',
+          phase: 'registration_cancelled',
+          message: '注册任务已取消'
+        },
+        stage: 'registration_failed'
+      }]
+    });
+
+    expect(html).toContain('已取消');
+    expect(html).toContain('重试注册');
+    expect(html).not.toContain('取消任务');
   });
 
   test('keeps proxy configuration out of the parent registration status card', () => {

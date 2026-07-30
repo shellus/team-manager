@@ -229,8 +229,11 @@ class FakeAccountManager implements AccountManagerGateway {
     const operation = await this.operation(id);
     this.controls.push(`terminate:${id}`);
     operation.status = 'interrupted';
-    operation.phase = 'operation_terminated';
-    operation.errorCode = 'operation_terminated_by_user';
+    operation.phase = operation.type === 'register' ? 'registration_cancelled' : 'operation_terminated';
+    operation.errorCode = operation.type === 'register'
+      ? 'registration_cancelled_by_user'
+      : 'operation_terminated_by_user';
+    operation.errorMessage = operation.type === 'register' ? '注册任务已取消' : '任务已由用户终止';
     return operation;
   }
 
@@ -435,6 +438,7 @@ class FakeTeamService {
   teamSubscriptionIds = new Set<string>();
   refreshCalls: string[] = [];
   refreshResult?: AccountView;
+  sessionUpdates: Array<{ id: string; session: unknown }> = [];
 
   hasTeamSubscription(id: string): boolean {
     return this.teamSubscriptionIds.has(id);
@@ -444,6 +448,17 @@ class FakeTeamService {
     this.refreshCalls.push(id);
     if (!this.refreshResult) throw new Error('refresh result missing');
     return this.refreshResult;
+  }
+
+  async updateLocalProfile(id: string, input: { session?: any }): Promise<AccountView> {
+    if (input.session) {
+      this.sessionUpdates.push({ id, session: input.session });
+      await this.store.update(id, {
+        accessToken: input.session.accessToken,
+        sessionToken: input.session.sessionToken
+      });
+    }
+    return this.getAccountDetail(id);
   }
 
   async getAccountDetail(id: string): Promise<AccountView> {
@@ -525,6 +540,44 @@ describe('ParentAccountManagerService', () => {
       assert.equal(statistics.totalAttempts, 2);
       assert.equal(statistics.transitions.payment_not_approved_to_succeeded, 1);
       assert.equal(statistics.recentAttempts[0]?.proxyObservation?.ip, '203.0.113.2');
+    });
+  });
+
+  it('writes a refreshed GAM Web Session back while a Pro 5x operation is active', async () => {
+    await withService(async (service, accountManager, teamService, store) => {
+      const parent = await store.add({
+        managedAccountEmail: 'owner@example.com',
+        accountId: 'personal-account',
+        email: 'owner@example.com',
+        accessToken: 'stale-access-token',
+        sessionToken: 'stale-session-token',
+        planType: 'free'
+      });
+      accountManager.accounts.set('owner@example.com', {
+        id: 'owner@example.com',
+        email: 'owner@example.com',
+        hasCodexSpace: false,
+        hasTeamSubscription: false,
+        hasPro5x: false,
+        workspaces: []
+      });
+      accountManager.operations.push({
+        id: 'pro5x-active',
+        accountId: 'owner@example.com',
+        type: 'open_pro_5x',
+        status: 'waiting_manual',
+        phase: 'pro5x_login_session_refreshed',
+        progress: 34,
+        requestSummary: { requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent },
+        createdAt: 1,
+        updatedAt: 2
+      });
+
+      await service.accountStatus(parent.id);
+
+      assert.equal(store.get(parent.id)?.accessToken, 'web-access-token');
+      assert.equal(store.get(parent.id)?.sessionToken, 'session-token');
+      assert.equal(teamService.sessionUpdates.length, 1);
     });
   });
 
@@ -1033,12 +1086,16 @@ describe('ParentAccountManagerService', () => {
 
       const operation = await service.openAccountPro5x(parent.id, {
         autoPay: false,
+        usePromoCode: true,
+        promoCode: 'current-promo',
         card: { number: '4242424242424242', expiryMonth: 7, expiryYear: 2028, cvc: '123' }
       });
       assert.equal(operation.type, 'open_pro_5x');
       assert.equal(accountManager.openedPro5x?.accountId, 'owner@example.com');
       assert.equal(accountManager.openedPro5x?.input.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.parent);
       assert.equal(accountManager.openedPro5x?.input.autoPay, true);
+      assert.equal(accountManager.openedPro5x?.input.usePromoCode, true);
+      assert.equal(accountManager.openedPro5x?.input.promoCode, 'current-promo');
 
       const storedOperation = accountManager.operations.find((item) => item.id === operation.id)!;
       storedOperation.status = 'waiting_manual';
@@ -1154,6 +1211,29 @@ describe('ParentAccountManagerService', () => {
       assert.equal(rotated.registration.phase, 'proxy_rotation_requested');
       assert.equal(rotated.stage, 'waiting_manual');
       assert.deepEqual(accountManager.controls, ['rotate:parent-registration-control']);
+    });
+  });
+
+  it('cancels an active parent registration through Account Manager', async () => {
+    await withService(async (service, accountManager) => {
+      accountManager.operations.push({
+        id: 'parent-registration-cancel',
+        type: 'register',
+        status: 'running',
+        phase: 'email_otp_send',
+        message: '正在等待邮箱验证码',
+        progress: 56,
+        requestSummary: { requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent },
+        createdAt: 1,
+        updatedAt: 1
+      });
+
+      const cancelled = await service.cancelRegistration('parent-registration-cancel');
+
+      assert.equal(cancelled.registration.status, 'interrupted');
+      assert.equal(cancelled.registration.phase, 'registration_cancelled');
+      assert.equal(cancelled.stage, 'registration_failed');
+      assert.deepEqual(accountManager.controls, ['terminate:parent-registration-cancel']);
     });
   });
 

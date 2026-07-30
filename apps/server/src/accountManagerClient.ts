@@ -77,7 +77,11 @@ export interface AccountManagerOperationFilter {
 }
 
 export interface AccountManagerGateway {
-  health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
+  health(): Promise<{
+    status?: string;
+    accountRegistrationConfigured?: boolean;
+    pro5xPromoCode?: string;
+  }>;
   listAccounts?(): Promise<ManagedAccountSummary[]>;
   listOperations(filter?: AccountManagerOperationFilter): Promise<AccountManagerOperationView[]>;
   pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView>;
@@ -124,7 +128,11 @@ export class AccountManagerClient implements AccountManagerGateway {
     private readonly fetchImpl?: typeof fetch
   ) {}
 
-  async health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }> {
+  async health(): Promise<{
+    status?: string;
+    accountRegistrationConfigured?: boolean;
+    pro5xPromoCode?: string;
+  }> {
     const response = await fetchWithRawTrace(
       'account-manager',
       `${this.baseUrl}/health`,
@@ -135,7 +143,10 @@ export class AccountManagerClient implements AccountManagerGateway {
     if (!response.ok) throw new AccountManagerError(response.status, `Account Manager 健康检查失败: ${response.status}`);
     return {
       status: typeof data.status === 'string' ? data.status : undefined,
-      accountRegistrationConfigured: data.accountRegistrationConfigured === true
+      accountRegistrationConfigured: data.accountRegistrationConfigured === true,
+      ...(typeof data.pro5xPromoCode === 'string' && data.pro5xPromoCode.trim()
+        ? { pro5xPromoCode: data.pro5xPromoCode.trim() }
+        : {})
     };
   }
 

@@ -592,6 +592,19 @@ export function ParentRoutes({
     }
   };
 
+  const cancelParentRegistration = async (task: ParentRegistrationTaskView) => {
+    const key = `cancel-parent-registration-${task.registration.id}`;
+    setLocalError('');
+    try {
+      await actionBusy.run(key, async () => {
+        await apiClient.cancelParentRegistration(task.registration.id);
+        await loadRegistrationTasks();
+      });
+    } catch (error) {
+      reportLocalError(error);
+    }
+  };
+
   const openCodexModal = (target: string) => {
     const next = setModalState(searchParams, 'open-codex-space', target);
     setLocalError('');
@@ -895,6 +908,7 @@ export function ParentRoutes({
         onOpenRegister={() => openModal('register-parent')}
         onOpenImport={() => openModal('import-parent')}
         onRetryRegistration={(task) => void retryParentRegistration(task)}
+        onCancelRegistration={(task) => void cancelParentRegistration(task)}
         onTerminateOperation={(account, operation) => void terminateOperation(account, operation)}
         onDismissOperation={(account, operation) => void dismissOperation(account, operation)}
         onSelect={selectAccount}
@@ -914,6 +928,12 @@ export function ParentRoutes({
             email={selectedRegistrationTask.email}
             message={selectedRegistrationTask.registration.message || selectedRegistrationTask.registration.phase}
             progress={selectedRegistrationTask.registration.progress}
+            status={selectedRegistrationTask.registration.status}
+            phase={selectedRegistrationTask.registration.phase}
+            cancelLoading={actionBusy.isBusy(
+              `cancel-parent-registration-${selectedRegistrationTask.registration.id}`
+            )}
+            onCancel={() => void cancelParentRegistration(selectedRegistrationTask)}
             failed={selectedRegistrationTask.stage === 'registration_failed'
               || selectedRegistrationTask.stage === 'import_failed'}
             waitingManual={selectedRegistrationTask.stage === 'waiting_manual'}
@@ -1035,6 +1055,7 @@ export function ParentRoutes({
         open={searchState.modal === 'open-pro-5x'}
         confirmLoading={actionBusy.isBusy('open-pro-5x')}
         error={searchState.modal === 'open-pro-5x' ? localError : ''}
+        defaultPromoCode={runtimeStatus?.pro5xPromoCode}
         mode={accountManagerStatus?.pro5xOperation?.phase === 'pro5x_payment_card_required'
           ? 'resume'
           : 'open'}

@@ -47,6 +47,7 @@ function renderList(
       onOpenImportSession={() => undefined}
       onOpenRegister={() => undefined}
       onRetryRegistration={() => undefined}
+      onCancelRegistration={() => undefined}
       onSelectRegistration={() => undefined}
       onTerminateOperation={() => undefined}
       onDismissOperation={() => undefined}
@@ -159,6 +160,24 @@ describe('SubaccountList', () => {
     }]);
 
     expect(html).toContain('等待人工处理');
+    expect(html).toContain('取消任务');
     expect(html).not.toContain('更换IP');
+  });
+
+  test('labels a user-cancelled child registration and keeps retry available', () => {
+    const html = renderList(baseSubaccount, [{
+      id: 'registration-cancelled',
+      email: 'cancelled@example.com',
+      status: 'interrupted',
+      phase: 'registration_cancelled',
+      message: '注册任务已取消',
+      progress: 56,
+      createdAt: 1,
+      updatedAt: 2
+    }]);
+
+    expect(html).toContain('已取消');
+    expect(html).toContain('重试此邮箱');
+    expect(html).not.toContain('取消任务');
   });
 });

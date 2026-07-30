@@ -119,6 +119,8 @@ export const apiClient = {
     call<AccountManagerOperationView>('POST', '/accounts/registration/start', payload),
   retryParentRegistration: (operationId: string) =>
     call<AccountManagerOperationView>('POST', `/accounts/registration/tasks/${operationId}/retry`),
+  cancelParentRegistration: (operationId: string) =>
+    call<ParentRegistrationTaskView>('POST', `/accounts/registration/tasks/${operationId}/cancel`),
   rotateParentRegistrationIp: (operationId: string) =>
     call<ParentRegistrationTaskView>('POST', `/accounts/registration/tasks/${operationId}/rotate-ip`),
   getParentRegistrationProxy: (operationId: string) =>
@@ -333,6 +335,8 @@ export const apiClient = {
     call<SubaccountRegistrationJobView[]>('GET', '/subaccounts/registration/jobs'),
   retrySubaccountRegistration: (jobId: string) =>
     call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/retry`),
+  cancelSubaccountRegistration: (jobId: string) =>
+    call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/cancel`),
   rotateSubaccountRegistrationIp: (jobId: string) =>
     call<SubaccountRegistrationJobView>('POST', `/subaccounts/registration/jobs/${jobId}/rotate-ip`),
   getSubaccountRegistrationProxy: (jobId: string) =>
