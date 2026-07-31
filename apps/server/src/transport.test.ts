@@ -96,6 +96,7 @@ describe('CurlCffiTransport', () => {
 
     const response = await transport.fetch({
       method: 'PATCH',
+      baseUrl: 'https://auth.openai.com',
       path: '/backend-api/accounts/workspace/settings',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
       body: '{"name":"New Team"}',
@@ -104,6 +105,7 @@ describe('CurlCffiTransport', () => {
 
     assert.deepEqual(received, {
       method: 'PATCH',
+      baseUrl: 'https://auth.openai.com',
       path: '/backend-api/accounts/workspace/settings',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
       body: '{"name":"New Team"}',

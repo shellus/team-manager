@@ -79,7 +79,7 @@ export class SubaccountService {
     private readonly quotaTransport: Transport = createTransport(),
     private readonly webTransport: Transport = createTransport(),
     private readonly accountManager?: AccountManagerGateway,
-    private readonly codexFetch: typeof fetch = fetch
+    private readonly codexFetch?: typeof fetch
   ) {}
 
   list(): SubaccountView[] {
@@ -1285,7 +1285,7 @@ export class SubaccountService {
     sessionId: string,
     callbackUrl: string
   ): Promise<SubaccountView> {
-    this.requireSubaccount(id);
+    const subaccount = this.requireSubaccount(id);
     this.pruneExpiredCodexSessions();
     const entry = this.codexSessions.get(sessionId);
     if (!entry || entry.subaccountId !== id) {
@@ -1296,7 +1296,8 @@ export class SubaccountService {
       const credential = await exchangeCodexCallback({
         callbackUrl,
         session: entry.session,
-        fetchImpl: this.codexFetch
+        fetchImpl: this.codexFetch,
+        proxy: subaccount.proxy
       });
       assertCredentialMatchesTarget(credential, entry.targetChatgptAccountId);
       const updated = await this.store.saveCodexCredential(id, credential);

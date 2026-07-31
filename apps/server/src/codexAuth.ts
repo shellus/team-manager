@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { CodexOAuthCredentialJson } from '@team-manager/shared';
-import { fetchWithRawTrace } from './transport.js';
+import { createTransport, type Transport } from './transport.js';
 
 export const CODEX_AUTH_URL = 'https://auth.openai.com/oauth/authorize';
 export const CODEX_AUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -34,6 +34,8 @@ export interface ExchangeCodexCallbackOptions {
   callbackUrl: string;
   session: CodexAuthSession;
   fetchImpl?: typeof fetch;
+  transport?: Transport;
+  proxy?: string;
   now?: Date;
 }
 
@@ -111,22 +113,30 @@ export async function exchangeCodexCallback(
   if (!parsed.state) throw new Error('回调 URL 缺少 state');
   if (parsed.state !== options.session.state) throw new Error('Codex Auth state 不匹配');
 
-  const response = await fetchWithRawTrace('codex-oauth-token-exchange', CODEX_AUTH_TOKEN_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json'
-    },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: CODEX_AUTH_CLIENT_ID,
-      code: parsed.code,
-      redirect_uri: CODEX_AUTH_REDIRECT_URI,
-      code_verifier: options.session.codeVerifier
-    })
-  }, options.fetchImpl ?? fetch);
-  const text = await response.text();
-  if (!response.ok) {
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: CODEX_AUTH_CLIENT_ID,
+    code: parsed.code,
+    redirect_uri: CODEX_AUTH_REDIRECT_URI,
+    code_verifier: options.session.codeVerifier
+  }).toString();
+  const tokenUrl = new URL(CODEX_AUTH_TOKEN_URL);
+  const response = options.fetchImpl
+    ? await exchangeWithFetch(options.fetchImpl, body)
+    : await (options.transport ?? createTransport()).fetch({
+        method: 'POST',
+        baseUrl: tokenUrl.origin,
+        path: tokenUrl.pathname,
+        upstream: 'codex-oauth-token-exchange',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json'
+        },
+        body,
+        proxy: options.proxy
+      });
+  const text = response.body;
+  if (response.status < 200 || response.status >= 300) {
     throw new Error(`Codex token exchange 失败: HTTP ${response.status} ${trimForError(text)}`);
   }
 
@@ -137,6 +147,21 @@ export async function exchangeCodexCallback(
     throw new Error(`Codex token exchange 返回不是 JSON: ${(error as Error).message}`);
   }
   return codexCredentialFromTokenResponse(token, options.now ?? new Date());
+}
+
+async function exchangeWithFetch(fetchImpl: typeof fetch, body: string) {
+  const response = await fetchImpl(CODEX_AUTH_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json'
+    },
+    body
+  });
+  return {
+    status: response.status,
+    body: await response.text()
+  };
 }
 
 export function codexCredentialFromTokenResponse(

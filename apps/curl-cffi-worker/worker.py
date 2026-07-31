@@ -12,6 +12,8 @@ from curl_cffi.curl import CURLINFO_HEADER_IN, CURLINFO_HEADER_OUT, CURLINFO_TEX
 
 
 BASE_URL = os.environ.get("TEAMMGR_CHATGPT_BASE_URL", "https://chatgpt.com").rstrip("/") + "/"
+CODEX_AUTH_BASE_URL = "https://auth.openai.com/"
+ALLOWED_BASE_URLS = {BASE_URL, CODEX_AUTH_BASE_URL}
 PROXY_URL = os.environ.get("TEAMMGR_CHATGPT_PROXY", "").strip()
 IMPERSONATE = os.environ.get("TEAMMGR_CURL_CFFI_IMPERSONATE", "chrome110").strip() or "chrome110"
 REQUEST_TIMEOUT = float(os.environ.get("TEAMMGR_CURL_CFFI_TIMEOUT", "60"))
@@ -56,7 +58,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
             return
         try:
             request = parse_fetch_payload(self.read_json())
-            self.write_json(HTTPStatus.OK, fetch_chatgpt(request))
+            self.write_json(HTTPStatus.OK, fetch_upstream(request))
         except ValueError as exc:
             self.write_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except UpstreamFetchError as exc:
@@ -101,6 +103,9 @@ def parse_fetch_payload(payload: Any) -> dict[str, Any]:
     path = str(payload.get("path") or "")
     if not path.startswith("/") or path.startswith("//"):
         raise ValueError("path must be an absolute application path")
+    base_url = str(payload.get("baseUrl") or BASE_URL).rstrip("/") + "/"
+    if base_url not in ALLOWED_BASE_URLS:
+        raise ValueError("unsupported upstream base URL")
     headers = payload.get("headers") or {}
     if not isinstance(headers, dict):
         raise ValueError("headers must be an object")
@@ -113,14 +118,15 @@ def parse_fetch_payload(payload: Any) -> dict[str, Any]:
     return {
         "method": method,
         "path": path,
+        "base_url": base_url,
         "headers": {str(key): str(value) for key, value in headers.items() if value is not None},
         "body": body,
         "proxy": proxy.strip() if isinstance(proxy, str) and proxy.strip() else None,
     }
 
 
-def fetch_chatgpt(request: dict[str, Any]) -> dict[str, Any]:
-    url = urljoin(BASE_URL, request["path"].lstrip("/"))
+def fetch_upstream(request: dict[str, Any]) -> dict[str, Any]:
+    url = urljoin(request["base_url"], request["path"].lstrip("/"))
     curl, wire = wire_traced_curl()
     session_kwargs: dict[str, Any] = {
         "curl": curl,

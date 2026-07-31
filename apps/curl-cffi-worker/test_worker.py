@@ -18,7 +18,27 @@ class FetchPayloadTests(unittest.TestCase):
 
         self.assertEqual(parsed["method"], "POST")
         self.assertEqual(parsed["path"], "/backend-api/accounts/workspace/users")
+        self.assertEqual(parsed["base_url"], worker.BASE_URL)
         self.assertEqual(parsed["proxy"], "http://proxy.example:8080")
+
+    def test_accepts_codex_oauth_token_exchange(self):
+        parsed = worker.parse_fetch_payload(
+            {
+                "method": "POST",
+                "baseUrl": "https://auth.openai.com",
+                "path": "/oauth/token",
+                "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+                "body": "grant_type=authorization_code",
+            }
+        )
+
+        self.assertEqual(parsed["base_url"], worker.CODEX_AUTH_BASE_URL)
+
+    def test_rejects_unknown_upstream_base_url(self):
+        with self.assertRaisesRegex(ValueError, "unsupported upstream base URL"):
+            worker.parse_fetch_payload(
+                {"method": "GET", "baseUrl": "https://example.com", "path": "/secret"}
+            )
 
     def test_rejects_external_or_protocol_relative_paths(self):
         with self.assertRaisesRegex(ValueError, "absolute application path"):
@@ -62,10 +82,11 @@ class FetchChatGptTests(unittest.TestCase):
             patch.object(worker, "wire_traced_curl", return_value=(fake_curl, [])),
             patch.object(worker.requests, "Session", return_value=session) as create_session,
         ):
-            result = worker.fetch_chatgpt(
+            result = worker.fetch_upstream(
                 {
                     "method": "GET",
                     "path": "/backend-api/me",
+                    "base_url": worker.BASE_URL,
                     "headers": {"Authorization": "Bearer token"},
                     "body": None,
                     "proxy": "http://proxy.example:8080",
@@ -123,10 +144,11 @@ class FetchChatGptTests(unittest.TestCase):
             patch.object(worker.requests, "Session", return_value=session),
         ):
             with self.assertRaises(worker.UpstreamFetchError) as raised:
-                worker.fetch_chatgpt(
+                worker.fetch_upstream(
                     {
                         "method": "GET",
                         "path": "/backend-api/me",
+                        "base_url": worker.BASE_URL,
                         "headers": {},
                         "body": None,
                         "proxy": "http://proxy.example:8080",

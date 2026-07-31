@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import type { HttpRequest, Transport } from './transport.js';
 import {
   CODEX_AUTH_CLIENT_ID,
   CODEX_AUTH_REDIRECT_URI,
@@ -86,6 +87,49 @@ describe('Codex Auth OAuth helpers', () => {
     assert.equal(body.get('grant_type'), 'authorization_code');
     assert.equal(body.get('client_id'), CODEX_AUTH_CLIENT_ID);
     assert.equal(body.get('code_verifier'), session.codeVerifier);
+  });
+
+  it('routes the production token exchange through the named OpenAI transport', async () => {
+    const session = createCodexAuthSession({ now: 1781748000000 });
+    const idToken = unsignedJwt({
+      email: 'child@example.com',
+      'https://api.openai.com/auth': {
+        chatgpt_account_id: 'workspace-account-id',
+        chatgpt_plan_type: 'team'
+      }
+    });
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(request) {
+        requests.push(request);
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+            id_token: idToken,
+            expires_in: 3600
+          })
+        };
+      }
+    };
+
+    await exchangeCodexCallback({
+      callbackUrl: `${CODEX_AUTH_REDIRECT_URI}?code=auth-code&state=${session.state}`,
+      session,
+      transport,
+      proxy: 'http://account-proxy.example:8080'
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]!.baseUrl, 'https://auth.openai.com');
+    assert.equal(requests[0]!.path, '/oauth/token');
+    assert.equal(requests[0]!.upstream, 'codex-oauth-token-exchange');
+    assert.equal(requests[0]!.proxy, 'http://account-proxy.example:8080');
+    assert.equal(
+      new URLSearchParams(requests[0]!.body).get('grant_type'),
+      'authorization_code'
+    );
   });
 
   it('rejects callbacks with a mismatched state', async () => {

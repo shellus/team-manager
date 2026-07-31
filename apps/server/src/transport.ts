@@ -5,6 +5,8 @@ import { appendPrivateFile, ensurePrivateDirectory } from './privateDataFile.js'
 export interface HttpRequest {
   method: string;
   path: string; // backend-api 相对路径，如 /backend-api/accounts/.../users
+  baseUrl?: string;
+  upstream?: string;
   headers: Record<string, string>;
   body?: string;
   proxy?: string;
@@ -47,7 +49,7 @@ export interface HttpResponse {
   wire?: HttpWireEvent[];
 }
 
-/** 传输后端：负责把请求送达 chatgpt.com 并返回响应 */
+/** 传输后端：负责把请求送达 ChatGPT/OpenAI 上游并返回响应 */
 export interface Transport {
   fetch(req: HttpRequest): Promise<HttpResponse>;
 }
@@ -184,7 +186,8 @@ function isWireTrace(value: unknown): value is HttpWireEvent[] {
  */
 export class DirectTransport implements Transport {
   async fetch(req: HttpRequest): Promise<HttpResponse> {
-    const res = await nativeFetch(BASE_URL + req.path, {
+    const url = requestUrl(req);
+    const res = await nativeFetch(url, {
       method: req.method,
       headers: req.headers,
       body: req.body
@@ -196,7 +199,7 @@ export class DirectTransport implements Transport {
       url: res.url,
       request: {
         method: req.method,
-        url: BASE_URL + req.path,
+        url,
         headers: Object.entries(req.headers),
         ...(req.body === undefined ? {} : { body: req.body })
       }
@@ -226,6 +229,7 @@ export class TracingTransport implements Transport {
       const response = await this.inner.fetch(req);
       await this.writeTrace({
         traceId,
+        upstream: req.upstream ?? null,
         transport: this.transportName,
         startedAt: startedAt.toISOString(),
         finishedAt: new Date().toISOString(),
@@ -246,6 +250,7 @@ export class TracingTransport implements Transport {
     } catch (error) {
       await this.writeTrace({
         traceId,
+        upstream: req.upstream ?? null,
         transport: this.transportName,
         startedAt: startedAt.toISOString(),
         finishedAt: new Date().toISOString(),
@@ -346,11 +351,17 @@ function serializeRequest(req: HttpRequest) {
   return {
     method: req.method,
     path: req.path,
-    url: BASE_URL + req.path,
+    baseUrl: req.baseUrl ?? BASE_URL,
+    url: requestUrl(req),
     headers: req.headers,
     body: req.body ?? null,
     proxy: req.proxy ?? null
   };
+}
+
+function requestUrl(req: HttpRequest): string {
+  const baseUrl = (req.baseUrl ?? BASE_URL).replace(/\/+$/, '');
+  return `${baseUrl}${req.path}`;
 }
 
 function elapsedMilliseconds(startedNs: bigint): number {
