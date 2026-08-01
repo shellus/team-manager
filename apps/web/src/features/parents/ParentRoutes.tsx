@@ -447,10 +447,11 @@ export function ParentRoutes({
     const targetTab = selectedSummary
       ? resolveParentTabForWorkspace(
           canManageParentWorkspace(selectedSummary, accountManagerStatuses[selectedSummary.id]),
-          searchState.tab
+          searchState.tab,
+          (selectedSummary.memberAndInviteCount ?? 0) > 0 || selectedSummary.seatSlotCount > 0
         )
       : searchState.tab;
-    if (!searchParams.get('tab') || searchState.tab !== targetTab) {
+    if (searchParams.get('tab') !== targetTab) {
       nextParams.set('tab', targetTab);
       changed = true;
     }

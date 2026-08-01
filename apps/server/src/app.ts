@@ -706,6 +706,13 @@ export async function buildApp({
     );
   });
 
+  api.delete('/accounts/:id/seat-slots/:seatKey', (c) =>
+    wrap(c, () => service.releaseDisconnectedSeatSlot(
+      c.req.param('id'),
+      c.req.param('seatKey')
+    ))
+  );
+
   api.get('/accounts/:id/invites', (c) => wrap(c, () => service.listCachedPendingInvites(c.req.param('id'))));
 
   api.post('/accounts/:id/invites/refresh', (c) =>

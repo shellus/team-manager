@@ -241,6 +241,8 @@ export const apiClient = {
     id: string,
     payload: { email: string } & AccountSeatSlotProfileInput
   ) => call<AccountView>('PATCH', `/accounts/${id}/seat-slots/profile`, payload),
+  releaseDisconnectedSeatSlot: (id: string, seatKey: string) =>
+    call<AccountView>('DELETE', `/accounts/${id}/seat-slots/${encodeURIComponent(seatKey)}`),
   removeMember: (id: string, userId: string) => call<AccountView>('DELETE', `/accounts/${id}/members/${userId}`),
   setMemberSeat: (id: string, userId: string, seat: SeatType) =>
     call<AccountView>('PATCH', `/accounts/${id}/members/${userId}`, { seat }),

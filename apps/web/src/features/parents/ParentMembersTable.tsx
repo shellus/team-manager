@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import type {
+  AccountSeatSlot,
   AccountSeatSlotProfileInput,
   AccountView,
   EditableMemberRole,
   Member,
+  PendingInvite,
   SeatType
 } from '@team-manager/shared';
 import { DeleteOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -12,22 +14,18 @@ import type { ColumnsType } from 'antd/es/table';
 import { apiClient } from '../../api.js';
 import { ActionPopconfirm } from '../../components/ActionPopconfirm.js';
 import { actionKey } from '../../components/actionBusy.js';
-import { formatRelativeTime } from '../../components/format.js';
-import { SeatTag } from '../../components/StatusTag.js';
+import { formatDateTime, formatRelativeTime } from '../../components/format.js';
+import { SeatSlotStatusTag, SeatTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
-import { SEAT_LABEL } from '../../labels.js';
+import { roleLabel, SEAT_LABEL } from '../../labels.js';
 import {
   SeatSlotProfileModal,
   normalizeSeatSlotEmail,
-  seatSlotForEmail,
   seatSlotProfileSummary
 } from './SeatSlotProfileModal.js';
+import { buildParentMemberRows, type ParentMemberRow } from './parentMemberRows.js';
 import { buildSeatManagementUrl } from './seatSlotUrl.js';
 import { MemberRoleSelect } from './MemberRoleSelect.js';
-
-function memberRoleRank(member: Member): number {
-  return member.role === 'account-owner' ? 0 : 1;
-}
 
 export function ParentMembersTable({
   account,
@@ -40,18 +38,16 @@ export function ParentMembersTable({
   const [editingEmail, setEditingEmail] = useState('');
   const actionBusy = useActionBusy();
   const lastRemoval = account.lastMemberRemoval;
-  const members = useMemo(
-    () => (account.membersCache ?? []).map((member, index) => ({ member, index }))
-      .sort((a, b) => memberRoleRank(a.member) - memberRoleRank(b.member) || a.index - b.index)
-      .map((item) => item.member),
-    [account.membersCache]
-  );
+  const rows = useMemo(() => buildParentMemberRows(account), [account]);
+  const editingRow = rows.find((row) => row.email === normalizeSeatSlotEmail(editingEmail));
+  const disconnectedCount = rows.filter((row) => row.relationStatus === 'unknown').length;
 
-  const refreshMembers = async () => {
+  const refreshRelations = async () => {
     setError('');
     try {
-      await actionBusy.run('members-refresh', async () => {
+      await actionBusy.run('member-relations-refresh', async () => {
         onAccountChanged(await apiClient.refreshMembers(account.id));
+        onAccountChanged(await apiClient.refreshPendingInvites(account.id));
       });
     } catch (refreshError) {
       setError((refreshError as Error).message);
@@ -94,6 +90,28 @@ export function ParentMembersTable({
     }
   };
 
+  const revokeInvite = async (invite: PendingInvite) => {
+    setError('');
+    try {
+      await actionBusy.run(actionKey('invite-revoke', invite.email), async () => {
+        onAccountChanged(await apiClient.revokePendingInvite(account.id, invite.email));
+      });
+    } catch (revokeError) {
+      setError((revokeError as Error).message);
+    }
+  };
+
+  const releaseSlot = async (slot: AccountSeatSlot) => {
+    setError('');
+    try {
+      await actionBusy.run(actionKey('seat-slot-release', slot.seatKey), async () => {
+        onAccountChanged(await apiClient.releaseDisconnectedSeatSlot(account.id, slot.seatKey));
+      });
+    } catch (releaseError) {
+      setError((releaseError as Error).message);
+    }
+  };
+
   const saveSeatSlotProfile = async (email: string, input: AccountSeatSlotProfileInput) => {
     const key = normalizeSeatSlotEmail(email);
     setError('');
@@ -108,91 +126,130 @@ export function ParentMembersTable({
     }
   };
 
-  const columns: ColumnsType<Member> = [
+  const columns: ColumnsType<ParentMemberRow> = [
     {
-      title: '成员',
-      dataIndex: 'email',
-      render: (_, member) => (
+      title: '账号',
+      key: 'account',
+      render: (_, row) => (
         <div className="table-main-cell">
-          <Typography.Text strong>{member.email}</Typography.Text>
-          <Typography.Text type="secondary">{member.remoteName || member.userId}</Typography.Text>
+          <Typography.Text strong>{row.email || '未绑定邮箱'}</Typography.Text>
+          <Typography.Text type="secondary">
+            {row.member?.remoteName || row.member?.userId
+              || (row.invite ? `邀请创建 ${formatDateTime(row.invite.createdTime)}` : '本地客户席位')}
+          </Typography.Text>
         </div>
       )
     },
     {
+      title: '远端状态',
+      dataIndex: 'relationStatus',
+      width: 130,
+      render: (status: ParentMemberRow['relationStatus']) => <SeatSlotStatusTag status={status} />
+    },
+    {
       title: '客户席位资料',
       key: 'profile',
-      render: (_, member) => {
-        const slot = seatSlotForEmail(account, member.email);
-        return (
-          <div className="profile-cell">
-            <Typography.Text>{seatSlotProfileSummary(slot)}</Typography.Text>
-            {slot?.remark && <Typography.Text type="secondary">{slot.remark}</Typography.Text>}
-            {slot?.seatKey && (
-              <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(slot.seatKey) }}>
-                席位管理 URL
-              </Typography.Text>
-            )}
-            <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(member.email)}>
+      render: (_, row) => (
+        <div className="profile-cell">
+          <Typography.Text>{seatSlotProfileSummary(row.slot)}</Typography.Text>
+          {row.slot?.remark && <Typography.Text type="secondary">{row.slot.remark}</Typography.Text>}
+          {row.slot?.seatKey && (
+            <Typography.Text type="secondary" copyable={{ text: buildSeatManagementUrl(row.slot.seatKey) }}>
+              席位管理 URL
+            </Typography.Text>
+          )}
+          {row.email && (
+            <Button size="small" icon={<EditOutlined />} onClick={() => setEditingEmail(row.email!)}>
               编辑席位
             </Button>
-          </div>
-        );
-      }
+          )}
+        </div>
+      )
     },
     {
       title: '角色',
-      dataIndex: 'role',
-      width: 180,
-      render: (_, member) => (
+      key: 'role',
+      width: 170,
+      render: (_, row) => row.member ? (
         <MemberRoleSelect
-          currentRole={member.role}
-          loading={actionBusy.isBusy(actionKey('member-role', member.userId))}
-          onChange={(role) => changeRole(member, role)}
+          currentRole={row.member.role}
+          loading={actionBusy.isBusy(actionKey('member-role', row.member.userId))}
+          onChange={(role) => changeRole(row.member!, role)}
         />
+      ) : (
+        <Typography.Text type={row.role ? undefined : 'secondary'}>
+          {row.role ? roleLabel(row.role) : '—'}
+        </Typography.Text>
       )
     },
     {
       title: '席位',
-      dataIndex: 'seat',
+      key: 'seat',
       width: 190,
-      render: (_, member) => (
+      render: (_, row) => row.member ? (
         <Select<SeatType>
-          value={member.seat}
+          value={row.member.seat}
           options={[
             { value: 'usage_based', label: SEAT_LABEL.usage_based },
             { value: 'default', label: SEAT_LABEL.default }
           ]}
-          loading={actionBusy.isBusy(actionKey('member-seat', member.userId))}
-          disabled={actionBusy.isBusy(actionKey('member-seat', member.userId))}
-          onChange={(seat) => void changeSeat(member, seat)}
+          loading={actionBusy.isBusy(actionKey('member-seat', row.member.userId))}
+          disabled={actionBusy.isBusy(actionKey('member-seat', row.member.userId))}
+          onChange={(seat) => void changeSeat(row.member!, seat)}
         />
-      )
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 120,
-      render: (_, member) => <SeatTag seat={member.seat} />
+      ) : <SeatTag seat={row.seat} />
     },
     {
       title: '操作',
       key: 'actions',
-      width: 110,
-      render: (_, member) => (
-        <ActionPopconfirm
-          title="移除成员"
-          description="成员会立即失去访问权限和相关凭证；标准 ChatGPT 席位仍可能临时计费，随后添加的新成员也可能形成独立付费席位。"
-          okText="移除成员"
-          cancelText="取消"
-          loading={actionBusy.isBusy(actionKey('member-remove', member.userId))}
-          okButtonProps={{ danger: true }}
-          onConfirm={() => removeMember(member)}
-        >
-          <Button danger icon={<DeleteOutlined />} size="small">
-            移除
-          </Button>
-        </ActionPopconfirm>
+      width: 190,
+      render: (_, row) => (
+        <Space size={4} wrap>
+          {row.member && (
+            <ActionPopconfirm
+              title="移除成员"
+              description="成员会立即失去访问权限和相关凭证；标准 ChatGPT 席位仍可能临时计费，随后添加的新成员也可能形成独立付费席位。"
+              okText="移除成员"
+              cancelText="取消"
+              loading={actionBusy.isBusy(actionKey('member-remove', row.member.userId))}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => removeMember(row.member!)}
+            >
+              <Button danger icon={<DeleteOutlined />} size="small">移除</Button>
+            </ActionPopconfirm>
+          )}
+          {row.invite && (
+            <ActionPopconfirm
+              title="撤销邀请"
+              description={`撤销发给 ${row.invite.email} 的邀请。`}
+              okText="撤销邀请"
+              cancelText="取消"
+              loading={actionBusy.isBusy(actionKey('invite-revoke', row.invite.email))}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => revokeInvite(row.invite!)}
+            >
+              <Button danger icon={<DeleteOutlined />} size="small">撤销邀请</Button>
+            </ActionPopconfirm>
+          )}
+          {!row.member && !row.invite && row.slot?.status === 'unknown' && (
+            <ActionPopconfirm
+              title={row.slot.seat === 'default' ? '释放为真正空位' : '结束客户席位'}
+              description={`释放后将删除 ${row.email || '该席位'} 的本地客户资料、到期信息和换号历史。此操作不会调用 ChatGPT。`}
+              okText={row.slot.seat === 'default' ? '释放为空位' : '结束客户席位'}
+              cancelText="取消"
+              loading={actionBusy.isBusy(actionKey('seat-slot-release', row.slot.seatKey))}
+              okButtonProps={{ danger: true }}
+              onConfirm={() => releaseSlot(row.slot!)}
+            >
+              <Button danger icon={<DeleteOutlined />} size="small">
+                {row.slot.seat === 'default' ? '释放为空位' : '结束客户席位'}
+              </Button>
+            </ActionPopconfirm>
+          )}
+          {!row.member && !row.invite && row.slot?.status !== 'unknown' && (
+            <Typography.Text type="secondary">无需处理</Typography.Text>
+          )}
+        </Space>
       )
     }
   ];
@@ -200,12 +257,26 @@ export function ParentMembersTable({
   return (
     <Space direction="vertical" size={12} className="panel-stack">
       <div className="panel-toolbar">
-        <Typography.Text type="secondary">成员缓存 {formatRelativeTime(account.membersCachedAt)}</Typography.Text>
-        <Button icon={<ReloadOutlined />} loading={actionBusy.isBusy('members-refresh')} onClick={() => void refreshMembers()}>
-          刷新成员
+        <Typography.Text type="secondary">
+          成员缓存 {formatRelativeTime(account.membersCachedAt)} · 邀请缓存 {formatRelativeTime(account.pendingInvitesCachedAt)}
+        </Typography.Text>
+        <Button
+          icon={<ReloadOutlined />}
+          loading={actionBusy.isBusy('member-relations-refresh')}
+          onClick={() => void refreshRelations()}
+        >
+          刷新成员与邀请
         </Button>
       </div>
       {error && <Alert type="error" showIcon message={error} />}
+      {disconnectedCount > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`发现 ${disconnectedCount} 个失联客户席位`}
+          description="这些席位保留了客户资料，但成员和邀请中都找不到对应邮箱。确认不再使用后，可手动释放。"
+        />
+      )}
       {lastRemoval && (
         <Alert
           type={(lastRemoval.policyNotice?.billedSeatDelta ?? 0) > 0 || lastRemoval.billingNoticeJson ? 'warning' : 'info'}
@@ -241,17 +312,21 @@ export function ParentMembersTable({
           )}
         />
       )}
-      <Table<Member>
-        rowKey="userId"
+      <Table<ParentMemberRow>
+        rowKey="key"
         columns={columns}
-        dataSource={members}
+        dataSource={rows}
         pagination={{ pageSize: 20, hideOnSinglePage: true }}
-        locale={{ emptyText: '暂无成员缓存，点击刷新成员获取最新列表' }}
+        locale={{ emptyText: '暂无成员、邀请或客户席位' }}
       />
       <SeatSlotProfileModal
         open={Boolean(editingEmail)}
         email={editingEmail}
-        sourceLabel="成员列表"
+        sourceLabel={editingRow?.member
+          ? '成员'
+          : editingRow?.invite
+            ? '邀请待接受'
+            : '客户席位'}
         account={account}
         confirmLoading={actionBusy.isBusy(actionKey('seat-slot-profile', normalizeSeatSlotEmail(editingEmail)))}
         onCancel={() => setEditingEmail('')}

@@ -110,7 +110,7 @@ describe('ParentDetail', () => {
     expect(html).toContain('GPT Account Manager 关联');
     expect(html).toContain('owner@example.com');
     expect(html).toContain('成员');
-    expect(html).toContain('待处理邀请');
+    expect(html).not.toContain('待处理邀请');
     expect(html).toContain('设置');
     expect(html).toContain('账单');
     expect(html).toContain('邀请成员');
@@ -187,7 +187,8 @@ describe('ParentDetail', () => {
     );
 
     expect(html).toContain('成员');
-    expect(html).toContain('待处理邀请');
+    expect(html).toContain('刷新成员与邀请');
+    expect(html).not.toContain('待处理邀请');
     expect(html).toContain('设置');
     expect(html).toContain('账单');
     expect(html).toContain('邀请成员');
@@ -282,5 +283,121 @@ describe('ParentDetail', () => {
     expect(html).toContain('Codex 客户备注');
     expect(html).toContain('编辑席位');
     expect(html).not.toContain('Codex 席位不使用客户席位资料');
+  });
+
+  test('shows disconnected local customer seats in the unified member tab with an explicit release action', () => {
+    const html = renderToStaticMarkup(
+      <ParentDetail
+        {...operationControlProps}
+        account={{
+          ...parent,
+          planType: 'team',
+          hasTeamSubscription: true,
+          canManageWorkspace: true,
+          membersCache: [{
+            userId: 'owner-user',
+            email: 'owner@example.com',
+            role: 'account-owner',
+            seat: 'usage_based'
+          }],
+          pendingInvitesCache: [{
+            inviteId: 'pending-invite',
+            email: 'pending@example.com',
+            role: 'standard-user',
+            status: 1,
+            seat: 'default',
+            createdTime: '2026-08-01T00:00:00Z',
+            isScimManaged: false
+          }],
+          seatSlots: [
+            {
+              seatKey: 'pend1234efgh5678',
+              email: 'pending@example.com',
+              expiresOn: '2026-08-15',
+              seat: 'default',
+              status: 'invited',
+              expireRemove: false,
+              expireReminder: true,
+              updatedAt: 1
+            },
+            {
+              seatKey: 'lost1234efgh5678',
+              email: 'lost@example.com',
+              remark: '历史客户资料',
+              expiresOn: '2026-08-01',
+              seat: 'default',
+              status: 'unknown',
+              expireRemove: false,
+              expireReminder: true,
+              updatedAt: 1
+            }
+          ]
+        }}
+        loading={false}
+        activeTab="members"
+        syncing={false}
+        accountManagerStatus={{
+          configured: true,
+          reachable: true,
+          managed: false,
+          hasCodexSpace: false,
+          hasTeamSubscription: true
+        }}
+        accountManagerLoading={false}
+        onTabChange={() => undefined}
+        onSync={() => undefined}
+        onOpenInvite={() => undefined}
+        onOpenCodexSpace={() => undefined}
+        onOpenTeamSubscription={() => undefined}
+        onOpenLocalProfile={() => undefined}
+        onAccountChanged={() => undefined}
+      />
+    );
+
+    expect(html).toContain('成员');
+    expect(html).toContain('pending@example.com');
+    expect(html).toContain('邀请中');
+    expect(html).toContain('撤销邀请');
+    expect(html).toContain('lost@example.com');
+    expect(html).toContain('历史客户资料');
+    expect(html).toContain('关系失联');
+    expect(html).toContain('释放为空位');
+  });
+
+  test('keeps local customer seats visible when the Workspace is not currently manageable', () => {
+    const html = renderToStaticMarkup(
+      <ParentDetail
+        {...operationControlProps}
+        account={{
+          ...parent,
+          seatSlots: [{
+            seatKey: 'lost1234efgh5678',
+            email: 'lost@example.com',
+            expiresOn: '2026-08-01',
+            seat: 'default',
+            status: 'unknown',
+            expireRemove: false,
+            expireReminder: true,
+            updatedAt: 1
+          }]
+        }}
+        loading={false}
+        activeTab="members"
+        syncing={false}
+        accountManagerStatus={null}
+        accountManagerLoading={false}
+        onTabChange={() => undefined}
+        onSync={() => undefined}
+        onOpenInvite={() => undefined}
+        onOpenCodexSpace={() => undefined}
+        onOpenTeamSubscription={() => undefined}
+        onOpenLocalProfile={() => undefined}
+        onAccountChanged={() => undefined}
+      />
+    );
+
+    expect(html).toContain('成员');
+    expect(html).toContain('lost@example.com');
+    expect(html).toContain('关系失联');
   });
 });

@@ -82,7 +82,7 @@
 | `swapHistory` | 同一席位的免登录换号历史数组，按换号发生时间追加 |
 | `updatedAt` | 本地更新时间 |
 
-成员和邀请缓存只是可分别刷新的远端关系快照，不拥有客户席位资料。刷新任一列表时，如果能按规范化邮箱匹配关系，则更新 slot 的 `status`、远端 id 和 `seat`；邀请被接受后，同一 slot 从 `invited` 迁移为 `member`。如果当前可用快照暂时都找不到该邮箱，则保留完整 slot，将关系状态标记为 `unknown` 并清除已失效的远端 id，不得据此删除备注、到期时间、价格、换号历史或 `seatKey`。母号重新校准到不同 Workspace 时同样只清空远端关系缓存并把已有 slot 标记为 `unknown`，不得静默删除客户资料。只有显式删除客户席位资料的业务操作才可删除 slot。
+成员和邀请缓存只是可分别刷新的远端关系快照，不拥有客户席位资料。刷新任一列表时，如果能按规范化邮箱匹配关系，则更新 slot 的 `status`、远端 id 和 `seat`；邀请被接受后，同一 slot 从 `invited` 迁移为 `member`。如果当前可用快照暂时都找不到该邮箱，则保留完整 slot，将关系状态标记为 `unknown` 并清除已失效的远端 id，不得据此删除备注、到期时间、价格、换号历史或 `seatKey`。母号重新校准到不同 Workspace 时同样只清空远端关系缓存并把已有 slot 标记为 `unknown`，不得静默删除客户资料。只有成员和邀请快照都已存在、slot 状态为 `unknown`，且当前规范化邮箱仍无法匹配任一远端关系时，显式释放操作才可删除 slot。
 
 免登录换号使用 `seatKey` 定位客户席位位置。已接受的 `default` 标准 ChatGPT 成员不得由公开入口自动移除；后端在任何 DELETE 前拒绝，前端同步禁用。空位、待处理邀请和 `usage_based` Codex 成员仍可换号。换号开始时写入一条 `SeatSlotSwapState` 到 `swapHistory`，流程中的同步、确认、移除、撤销、邀请、保存资料和最终状态写入步骤会更新同一条记录。`lastSwap` 保存最近一次，供列表和公开页快速展示当前进度；`swapHistory` 保留该席位的完整换号记录。store 会确保 `lastSwap` 同步存在于 `swapHistory`。
 
@@ -116,6 +116,7 @@
 |---|---|---|
 | 邀请成员 | 只等待远端邀请提交；成功后按请求内容本地 upsert `pendingInvitesCache`，不再阻塞等待远端邀请列表 | 合并返回的母号 view |
 | 编辑席位资料 | 按当前邮箱更新或创建对应 `seatSlots[]`，不调用 ChatGPT 远端 | 合并返回的母号 view |
+| 释放失联客户席位 | `DELETE /api/accounts/:id/seat-slots/:seatKey` 只删除本地 `seatSlots[]` 记录，不调用 ChatGPT；要求成员和邀请快照都已存在，且目标 slot 与当前远端关系均为 `unknown` | 合并返回的母号 view；固定 ChatGPT 席位随后由概览派生为空位 |
 | 免登录席位换号 | 按 `seatKey` 定位客户席位；禁止自动移除已接受的标准 ChatGPT 成员。其他流程在远端写成功后确定性更新本地成员/邀请缓存，不立即回读旧快照，保留 `remark`、`expiresOn`、`price`、`seatKey` 和历史记录 | 公开席位页使用返回的 slot view |
 | 撤销邀请 | 远端撤销成功后从当前 `pendingInvitesCache` 确定性移除目标；没有本地缓存时保持未知，不用立即 GET 猜测结果 | 合并返回的母号 view |
 | 移除成员 | 远端移除成功后从当前 `membersCache` 确定性移除目标，并保存 `lastMemberRemoval`；没有本地缓存时只保存移除结果 | 合并返回的母号 view 并展示计费策略结果 |

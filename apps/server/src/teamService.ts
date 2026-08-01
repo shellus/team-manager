@@ -1241,6 +1241,44 @@ export class TeamService {
     return this.viewFromAccount(updated);
   }
 
+  async releaseDisconnectedSeatSlot(id: string, seatKey: string): Promise<AccountView> {
+    const normalizedSeatKey = seatKey.trim();
+    if (!normalizedSeatKey) throw new ServiceError(400, '缺少席位 Key');
+    if (this.seatSlotLocks.has(normalizedSeatKey)) throw new ServiceError(409, '该席位正在换号，请稍后再试');
+
+    const account = this.store.get(id);
+    if (!account) throw new ServiceError(404, `母号不存在: ${id}`);
+    const slot = account.seatSlots?.find((item) => item.seatKey === normalizedSeatKey);
+    if (!slot) throw new ServiceError(404, '客户席位不存在');
+
+    const hasMembersSnapshot = account.membersCache !== undefined || account.membersCachedAt !== undefined;
+    const hasInvitesSnapshot = account.pendingInvitesCache !== undefined || account.pendingInvitesCachedAt !== undefined;
+    if (!hasMembersSnapshot || !hasInvitesSnapshot) {
+      throw new ServiceError(409, '释放前必须先成功刷新成员和待处理邀请');
+    }
+
+    const relation = this.seatSlotRelation(
+      slot.email,
+      account.membersCache ?? [],
+      account.pendingInvitesCache ?? []
+    );
+    if (slot.status !== 'unknown' || relation.status !== 'unknown') {
+      throw new ServiceError(409, '只能释放当前既不是成员、也不是待处理邀请的失联客户席位');
+    }
+
+    this.seatSlotLocks.add(normalizedSeatKey);
+    try {
+      const updated = await this.store.update(id, {
+        seatSlots: account.seatSlots?.filter((item) => item.seatKey !== normalizedSeatKey),
+        lastError: undefined
+      });
+      if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+      return this.viewFromAccount(updated);
+    } finally {
+      this.seatSlotLocks.delete(normalizedSeatKey);
+    }
+  }
+
   private seatSlotsWithProfile(
     account: Account,
     email: string,

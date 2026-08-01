@@ -17,7 +17,7 @@ describe('routeState', () => {
 
     expect(state).toEqual({
       group: 'A',
-      tab: 'invites',
+      tab: 'members',
       modal: 'invite-member',
       target: 'account-1'
     });
@@ -124,6 +124,11 @@ describe('routeState', () => {
     expect(state.tab).toBe('billing');
   });
 
+  test('normalizes removed customer seat and invite tabs to the unified member tab', () => {
+    expect(parseParentSearchState(new URLSearchParams('group=A&tab=seats')).tab).toBe('members');
+    expect(parseParentSearchState(new URLSearchParams('group=A&tab=invites')).tab).toBe('members');
+  });
+
   test('accepts the parent account manager tab from search params', () => {
     const state = parseParentSearchState(new URLSearchParams('group=A&tab=account-manager'));
 
@@ -132,6 +137,7 @@ describe('routeState', () => {
 
   test('routes a parent without workspace capabilities to account management', () => {
     expect(resolveParentTabForWorkspace(false, 'members')).toBe('account-manager');
+    expect(resolveParentTabForWorkspace(false, 'members', true)).toBe('members');
     expect(resolveParentTabForWorkspace(true, 'members')).toBe('members');
   });
 

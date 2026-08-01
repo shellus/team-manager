@@ -786,6 +786,37 @@ describe('Parent account local-profile API', () => {
   });
 });
 
+describe('Parent customer seat API', () => {
+  it('releases a disconnected customer seat through the authenticated route', async () => {
+    const { app, store, account, authHeaders } = await buildParentApiTestApp();
+    await store.update(account.id, {
+      membersCache: [],
+      pendingInvitesCache: [],
+      seatSlots: [{
+        seatKey: 'lost1234efgh5678',
+        email: 'lost@example.com',
+        expiresOn: '2026-08-01',
+        seat: 'default',
+        status: 'unknown',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 100
+      }]
+    });
+
+    const response = await app.request(`/api/accounts/${account.id}/seat-slots/lost1234efgh5678`, {
+      method: 'DELETE',
+      headers: authHeaders
+    });
+    const json = (await response.json()) as ApiResult<AccountView>;
+
+    assert.equal(response.status, 200);
+    assert.equal(json.ok, true);
+    assert.equal(json.data?.seatSlots?.length ?? 0, 0);
+    assert.equal(store.get(account.id)?.seatSlots?.length ?? 0, 0);
+  });
+});
+
 describe('Parent member role API', () => {
   it('validates the role and forwards a supported role to TeamService', async () => {
     const requests: HttpRequest[] = [];
@@ -3524,6 +3555,75 @@ describe('TeamService customer seat slot profiles', () => {
     assert.equal(slot?.currentUserId, 'user-a');
     assert.equal(slot?.remark, 'Codex 客户');
     assert.equal(store.get(account.id)?.seatSlots?.[0]?.seat, 'usage_based');
+  });
+
+  it('releases a disconnected customer seat after both remote snapshots are available', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      membersCache: [],
+      pendingInvitesCache: [],
+      seatSlots: [{
+        seatKey: 'lost1234efgh5678',
+        email: 'lost@example.com',
+        remark: '已结束客户',
+        expiresOn: '2026-08-01',
+        seat: 'default',
+        status: 'unknown',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 100
+      }]
+    });
+    const service = new TeamService(store);
+
+    const view = await service.releaseDisconnectedSeatSlot(account.id, 'lost1234efgh5678');
+
+    assert.equal(view.seatSlots?.length ?? 0, 0);
+    assert.equal(store.get(account.id)?.seatSlots?.length ?? 0, 0);
+  });
+
+  it('refuses to release a customer seat that still has a remote relation', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id',
+      email: 'owner@example.com',
+      accessToken: 'token',
+      status: 'active',
+      membersCache: [{
+        userId: 'member-user',
+        email: 'member@example.com',
+        role: 'standard-user',
+        seat: 'default'
+      }],
+      pendingInvitesCache: [],
+      seatSlots: [{
+        seatKey: 'live1234efgh5678',
+        email: 'member@example.com',
+        expiresOn: '2026-08-01',
+        seat: 'default',
+        status: 'unknown',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 100
+      }]
+    });
+    const service = new TeamService(store);
+
+    await assert.rejects(
+      () => service.releaseDisconnectedSeatSlot(account.id, 'live1234efgh5678'),
+      (error: unknown) => error instanceof ServiceError
+        && error.status === 409
+        && error.message.includes('失联客户席位')
+    );
+    assert.equal(store.get(account.id)?.seatSlots?.length, 1);
   });
 });
 

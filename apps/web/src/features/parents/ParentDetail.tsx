@@ -24,9 +24,9 @@ import {
   hasPro5xFromLocalState,
   openedPro5xButtonLabel
 } from '../../components/accountManagerLocalState.js';
-import { ParentInvitesTable } from './ParentInvitesTable.js';
 import { ParentBillingPanel } from './ParentBillingPanel.js';
 import { ParentMembersTable } from './ParentMembersTable.js';
+import { buildParentMemberRows } from './parentMemberRows.js';
 import { ParentSettingsPanel } from './ParentSettingsPanel.js';
 import { ParentOrderMaintenancePanel } from './ParentOrderMaintenancePanel.js';
 import { canManageParentWorkspace, hasParentCodexSpace } from './parentWorkspaceCapability.js';
@@ -84,8 +84,7 @@ export function ParentDetail({
     );
   }
 
-  const memberCount = account.membersCache?.length;
-  const inviteCount = account.pendingInvitesCache?.length;
+  const memberRowCount = buildParentMemberRows(account).length;
   const title = account.remark || account.email;
   const workspaceLabel = account.workspaceName || account.accountId;
   const codexOperation = accountManagerStatus?.codexOperation;
@@ -148,6 +147,31 @@ export function ParentDetail({
         ? pro5xOperation?.message || '站内付款等待人工处理，系统会继续监听'
         : accountManagerStatus?.error || '使用新加坡指定 ASN 出口开通 Pro 5x';
   const pro5xFailed = pro5xOperation?.status === 'failed' || pro5xOperation?.status === 'interrupted';
+  const memberTab = {
+    key: 'members',
+    label: <CountedTabLabel label="成员" count={memberRowCount} />,
+    children: (
+      <ParentMembersTable
+        account={account}
+        onAccountChanged={onAccountChanged}
+      />
+    )
+  };
+  const accountManagerTab = {
+    key: 'account-manager',
+    label: '账号管理',
+    children: (
+      <AccountManagerAssociationPanel
+        recordLabel="母号"
+        recordId={account.id}
+        managedAccountEmail={account.managedAccountEmail}
+        status={effectiveAccountManagerStatus}
+        loading={accountManagerLoading}
+        onStatusChanged={onAccountManagerStatusChanged}
+        onProfileChanged={onAccountProfileChanged}
+      />
+    )
+  };
 
   return (
     <Card className="detail-pane">
@@ -313,41 +337,8 @@ export function ParentDetail({
         activeKey={activeTab}
         onChange={(key) => onTabChange(key as ParentTab)}
         items={canManageWorkspace ? [
-          {
-            key: 'members',
-            label: <CountedTabLabel label="成员" count={memberCount} />,
-            children: (
-              <ParentMembersTable
-                account={account}
-                onAccountChanged={onAccountChanged}
-              />
-            )
-          },
-          {
-            key: 'invites',
-            label: <CountedTabLabel label="待处理邀请" count={inviteCount} />,
-            children: (
-              <ParentInvitesTable
-                account={account}
-                onAccountChanged={onAccountChanged}
-              />
-            )
-          },
-          {
-            key: 'account-manager',
-            label: '账号管理',
-            children: (
-              <AccountManagerAssociationPanel
-                recordLabel="母号"
-                recordId={account.id}
-                managedAccountEmail={account.managedAccountEmail}
-                status={effectiveAccountManagerStatus}
-                loading={accountManagerLoading}
-                onStatusChanged={onAccountManagerStatusChanged}
-                onProfileChanged={onAccountProfileChanged}
-              />
-            )
-          },
+          memberTab,
+          accountManagerTab,
           {
             key: 'order-maintenance',
             label: '订单维护',
@@ -369,21 +360,7 @@ export function ParentDetail({
             label: '账单',
             children: <ParentBillingPanel account={account} />
           }
-        ] : [{
-          key: 'account-manager',
-          label: '账号管理',
-          children: (
-            <AccountManagerAssociationPanel
-              recordLabel="母号"
-              recordId={account.id}
-              managedAccountEmail={account.managedAccountEmail}
-              status={effectiveAccountManagerStatus}
-              loading={accountManagerLoading}
-              onStatusChanged={onAccountManagerStatusChanged}
-              onProfileChanged={onAccountProfileChanged}
-            />
-          )
-        }]}
+        ] : memberRowCount > 0 ? [memberTab, accountManagerTab] : [accountManagerTab]}
       />
     </Card>
   );

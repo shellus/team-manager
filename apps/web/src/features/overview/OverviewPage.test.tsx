@@ -94,6 +94,38 @@ describe('OverviewPage role tags', () => {
     expect(html).not.toContain('空位');
     expect(html).toContain('还没有可展示的位置');
   });
+
+  test('labels a retained customer seat without a remote relation as disconnected', () => {
+    const account: AccountOverviewView = {
+      id: 'disconnected-team',
+      accountId: 'workspace-disconnected-team',
+      email: 'owner@example.com',
+      workspaceName: 'Disconnected Team',
+      hasTeamSubscription: true,
+      seatSlots: [{
+        seatKey: 'lost1234efgh5678',
+        email: 'lost@example.com',
+        expiresOn: '2026-08-01',
+        seat: 'default',
+        status: 'unknown',
+        expireRemove: false,
+        expireReminder: true,
+        updatedAt: 1
+      }]
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(
+        StaticRouter,
+        { location: '/' },
+        createElement(OverviewPage, { initialOverview: overviewFromAccounts([account]) })
+      )
+    );
+
+    expect(html).toContain('lost@example.com');
+    expect(html).toContain('关系失联');
+    expect(html).not.toContain('未确认');
+  });
 });
 
 function overviewFromAccounts(accounts: AccountOverviewView[]): AccountOverviewPageView {

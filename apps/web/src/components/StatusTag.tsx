@@ -1,5 +1,6 @@
 import type {
   AccountLimitType,
+  AccountSeatSlotStatus,
   MemberRole,
   SeatType,
   SubaccountStatus
@@ -25,6 +26,20 @@ const MEMBER_ROLE_TAG_COLOR: Record<string, string | undefined> = {
   'standard-user': 'green',
   'account-admin': 'gold',
   'account-owner': 'magenta'
+};
+
+const SEAT_SLOT_STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
+  empty: '空位',
+  invited: '邀请中',
+  member: '成员',
+  unknown: '关系失联'
+};
+
+const SEAT_SLOT_STATUS_COLOR: Record<AccountSeatSlotStatus, string | undefined> = {
+  empty: undefined,
+  invited: 'processing',
+  member: 'success',
+  unknown: 'warning'
 };
 
 export function AccountStatusTag({ status }: { status?: 'active' | 'invalid' | 'unknown' }) {
@@ -63,6 +78,17 @@ export function SeatTag({ seat }: { seat?: SeatType }) {
 export function MemberRoleTag({ role }: { role?: MemberRole }) {
   if (!role) return <Tag>待分配</Tag>;
   return <Tag color={MEMBER_ROLE_TAG_COLOR[role]}>{roleLabel(role)}</Tag>;
+}
+
+export function SeatSlotStatusTag({
+  status,
+  memberLabel = SEAT_SLOT_STATUS_LABEL.member
+}: {
+  status: AccountSeatSlotStatus;
+  memberLabel?: string;
+}) {
+  const label = status === 'member' ? memberLabel : SEAT_SLOT_STATUS_LABEL[status];
+  return <Tag color={SEAT_SLOT_STATUS_COLOR[status]}>{label}</Tag>;
 }
 
 export function DefaultSeatTag({ seat }: { seat?: SeatType }) {

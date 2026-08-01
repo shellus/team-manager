@@ -1,24 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AccountSeatSlotStatus, PublicSeatSlotView, SeatSlotSwapState, SeatSlotSwapStep } from '@team-manager/shared';
+import type { PublicSeatSlotView, SeatSlotSwapState, SeatSlotSwapStep } from '@team-manager/shared';
 import { Alert, Button, Collapse, Descriptions, Form, Input, Result, Space, Spin, Steps, Tag, Typography } from 'antd';
 import { SwapOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
+import { SeatSlotStatusTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
-
-const STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
-  empty: '空位',
-  invited: '邀请中',
-  member: '已绑定',
-  unknown: '待确认'
-};
-
-const STATUS_COLOR: Record<AccountSeatSlotStatus, string> = {
-  empty: 'default',
-  invited: 'processing',
-  member: 'success',
-  unknown: 'warning'
-};
 
 const SWAP_STATUS_LABEL: Record<SeatSlotSwapState['status'], string> = {
   running: '进行中',
@@ -138,7 +125,7 @@ export function PublicSeatPage() {
               <Typography.Title level={1}>Team 客户席位</Typography.Title>
               <Typography.Text type="secondary">席位 Key：{slot.seatKey}</Typography.Text>
             </div>
-            <Tag color={STATUS_COLOR[slot.status]}>{STATUS_LABEL[slot.status]}</Tag>
+            <SeatSlotStatusTag status={slot.status} memberLabel="已绑定" />
           </div>
 
           {error && <Alert type="error" showIcon message={error} />}

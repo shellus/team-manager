@@ -1,4 +1,4 @@
-export type ParentTab = 'members' | 'invites' | 'account-manager' | 'order-maintenance' | 'settings' | 'billing';
+export type ParentTab = 'members' | 'account-manager' | 'order-maintenance' | 'settings' | 'billing';
 
 export type ParentModal =
   | ''
@@ -37,7 +37,7 @@ export interface SubaccountSearchState {
   target: string;
 }
 
-export const parentTabs = ['members', 'invites', 'account-manager', 'order-maintenance', 'settings', 'billing'] as const satisfies readonly ParentTab[];
+export const parentTabs = ['members', 'account-manager', 'order-maintenance', 'settings', 'billing'] as const satisfies readonly ParentTab[];
 export const subaccountTabs = ['teams', 'account-manager', 'settings', 'pat', 'logs'] as const satisfies readonly SubaccountTab[];
 
 const parentTabSet = new Set<ParentTab>(parentTabs);
@@ -72,12 +72,13 @@ function readParam(params: URLSearchParams, key: string): string {
 
 export function parseParentSearchState(params: URLSearchParams): ParentSearchState {
   const rawTab = readParam(params, 'tab');
+  const normalizedTab = rawTab === 'seats' || rawTab === 'invites' ? 'members' : rawTab;
   const rawModal = readParam(params, 'modal');
   const modal = parentModalSet.has(rawModal as ParentModal) ? (rawModal as ParentModal) : '';
 
   return {
     group: readParam(params, 'group'),
-    tab: parentTabSet.has(rawTab as ParentTab) ? (rawTab as ParentTab) : 'members',
+    tab: parentTabSet.has(normalizedTab as ParentTab) ? (normalizedTab as ParentTab) : 'members',
     modal,
     target: modal ? readParam(params, 'target') : ''
   };
@@ -85,9 +86,12 @@ export function parseParentSearchState(params: URLSearchParams): ParentSearchSta
 
 export function resolveParentTabForWorkspace(
   canManageWorkspace: boolean,
-  requestedTab: ParentTab
+  requestedTab: ParentTab,
+  hasLocalMemberRows = false
 ): ParentTab {
-  return canManageWorkspace ? requestedTab : 'account-manager';
+  return canManageWorkspace || (requestedTab === 'members' && hasLocalMemberRows)
+    ? requestedTab
+    : 'account-manager';
 }
 
 export function parseSubaccountSearchState(params: URLSearchParams): SubaccountSearchState {

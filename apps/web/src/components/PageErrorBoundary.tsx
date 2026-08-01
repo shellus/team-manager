@@ -3,6 +3,7 @@ import { Component, type ReactNode } from 'react';
 
 interface PageErrorBoundaryProps {
   children: ReactNode;
+  resetKey?: string;
 }
 
 interface PageErrorBoundaryState {
@@ -14,6 +15,12 @@ export class PageErrorBoundary extends Component<PageErrorBoundaryProps, PageErr
 
   static getDerivedStateFromError(error: Error): PageErrorBoundaryState {
     return { error };
+  }
+
+  componentDidUpdate(previousProps: PageErrorBoundaryProps) {
+    if (shouldResetPageError(previousProps.resetKey, this.props.resetKey, this.state.error)) {
+      this.setState({ error: undefined });
+    }
   }
 
   render() {
@@ -31,4 +38,12 @@ export class PageErrorBoundary extends Component<PageErrorBoundaryProps, PageErr
       />
     );
   }
+}
+
+export function shouldResetPageError(
+  previousResetKey: string | undefined,
+  nextResetKey: string | undefined,
+  error: Error | undefined
+): boolean {
+  return Boolean(error && previousResetKey !== nextResetKey);
 }

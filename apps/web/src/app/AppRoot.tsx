@@ -119,7 +119,7 @@ export function AppRoot() {
 
   if (location.pathname.startsWith('/seat/')) {
     return (
-      <PageErrorBoundary key={`${location.pathname}${location.search}`}>
+      <PageErrorBoundary resetKey={`${location.pathname}${location.search}`}>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/seat/:seatKey" element={<PublicSeatPage />} />
@@ -144,7 +144,7 @@ export function AppRoot() {
   return (
     <AppShell onLogout={logout}>
       {error && <Alert className="global-alert" type="error" showIcon message={error} closable onClose={() => setError('')} />}
-      <PageErrorBoundary key={`${location.pathname}${location.search}`}>
+      <PageErrorBoundary resetKey={`${location.pathname}${location.search}`}>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
           <Route path="/overview" element={<OverviewPage />} />

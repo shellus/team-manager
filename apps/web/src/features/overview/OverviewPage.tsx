@@ -1,31 +1,16 @@
 import { Alert, Card, Empty, Pagination, Space, Switch, Tag, Typography } from 'antd';
 import type {
   AccountOverviewPageView,
-  AccountSeatSlotStatus,
   SeatOverviewItem
 } from '@team-manager/shared';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
-import { MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
+import { MemberRoleTag, SeatSlotStatusTag, SeatTag } from '../../components/StatusTag.js';
 import {
   seatOverviewBadgeTarget,
   seatOverviewCardIdentity
 } from './seatOverview.js';
-
-const POSITION_STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
-  empty: '空位',
-  invited: '邀请中',
-  member: '成员',
-  unknown: '未确认'
-};
-
-const POSITION_STATUS_COLOR: Record<AccountSeatSlotStatus, string | undefined> = {
-  empty: undefined,
-  invited: 'processing',
-  member: 'success',
-  unknown: 'warning'
-};
 
 export function OverviewPage({ initialOverview }: { initialOverview?: AccountOverviewPageView }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -198,13 +183,9 @@ function SeatPositionField({
   );
 }
 
-function PositionStatusTag({ status }: { status: AccountSeatSlotStatus }) {
-  return <Tag color={POSITION_STATUS_COLOR[status]}>{POSITION_STATUS_LABEL[status]}</Tag>;
-}
-
 function PositionOrSeatTag({ item }: { item: SeatOverviewItem }) {
   const target = seatOverviewBadgeTarget(item);
-  return target.kind === 'seat' ? <SeatTag seat={target.seat} /> : <PositionStatusTag status={target.status} />;
+  return target.kind === 'seat' ? <SeatTag seat={target.seat} /> : <SeatSlotStatusTag status={target.status} />;
 }
 
 function defaultRemark(item: SeatOverviewItem): string {
