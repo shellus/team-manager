@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import type {
   AccountBillingSnapshot,
   AccountLocalProfileView,
+  AccountOverviewPageView,
   AccountSummaryView,
   AccountView,
   ApiResult,
@@ -104,6 +105,89 @@ function recordingTransport(): Transport & { requests: HttpRequest[] } {
 }
 
 describe('Parent account local-profile API', () => {
+  it('filters and paginates overview positions before returning them to the browser', async () => {
+    const { app, store, authHeaders } = await buildParentApiTestApp();
+    await store.add({
+      groupName: '双席位',
+      accountId: 'workspace-team',
+      email: 'team-owner@example.com',
+      accessToken: 'team-token',
+      planType: 'team',
+      hasTeamSubscription: true,
+      status: 'active',
+      workspaceName: 'Team Workspace',
+      membersCache: [
+        {
+          userId: 'team-owner',
+          email: 'team-owner@example.com',
+          role: 'account-owner',
+          seat: 'default'
+        },
+        {
+          userId: 'team-member',
+          email: 'team-member@example.com',
+          role: 'standard-user',
+          seat: 'default'
+        }
+      ]
+    });
+    await store.add({
+      groupName: 'Codex',
+      accountId: 'workspace-codex',
+      email: 'codex-owner@example.com',
+      accessToken: 'codex-token',
+      planType: 'self_serve_business_usage_based',
+      hasTeamSubscription: false,
+      status: 'active',
+      workspaceName: 'Codex Workspace',
+      membersCache: [{
+        userId: 'codex-member',
+        email: 'codex-member@example.com',
+        role: 'standard-user',
+        seat: 'usage_based'
+      }]
+    });
+    await store.add({
+      groupName: '封号',
+      accountId: 'workspace-banned',
+      email: 'banned-owner@example.com',
+      accessToken: 'banned-token',
+      planType: 'team',
+      hasTeamSubscription: true,
+      isBanned: true,
+      status: 'active',
+      workspaceName: 'Banned Workspace',
+      membersCache: [{
+        userId: 'banned-member',
+        email: 'banned-member@example.com',
+        role: 'standard-user',
+        seat: 'default'
+      }]
+    });
+
+    const defaultResponse = await app.request('/api/accounts/overview?pageSize=1', { headers: authHeaders });
+    const defaultBody = (await defaultResponse.json()) as ApiResult<AccountOverviewPageView>;
+    assert.equal(defaultResponse.status, 200, JSON.stringify(defaultBody));
+    assert.equal(defaultBody.data!.total, 1);
+    assert.equal(defaultBody.data!.items.length, 1);
+    assert.equal(defaultBody.data!.items[0]!.email, 'team-member@example.com');
+    assert.equal(Object.hasOwn(defaultBody.data!.items[0]!, 'membersCache'), false);
+
+    const expandedResponse = await app.request(
+      '/api/accounts/overview?owners=1&codex=1&pageSize=2&page=2',
+      { headers: authHeaders }
+    );
+    const expandedBody = (await expandedResponse.json()) as ApiResult<AccountOverviewPageView>;
+    assert.equal(expandedResponse.status, 200);
+    assert.equal(expandedBody.data!.total, 3);
+    assert.equal(expandedBody.data!.page, 2);
+    assert.equal(expandedBody.data!.pageSize, 2);
+    assert.equal(expandedBody.data!.items.length, 1);
+    assert.equal(expandedBody.data!.chatGptCount, 2);
+    assert.equal(expandedBody.data!.codexCount, 1);
+    assert.equal(expandedBody.data!.items.some((item) => item.parentIsBanned), false);
+  });
+
   it('refreshes and persists the raw parent billing snapshot', async () => {
     const transport: Transport & { requests: HttpRequest[] } = {
       requests: [],

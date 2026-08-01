@@ -24,6 +24,9 @@ export type {
 /** 席位类型：default=ChatGPT 席位，usage_based=Codex 席位 */
 export type SeatType = 'default' | 'usage_based';
 
+export const ACCOUNT_OVERVIEW_DEFAULT_PAGE_SIZE = 60;
+export const ACCOUNT_OVERVIEW_MAX_PAGE_SIZE = 100;
+
 /** 母号本地额度窗口类型。 */
 export type AccountLimitType = 'unknown' | 'weekly' | 'monthly';
 
@@ -234,6 +237,229 @@ export type AccountOverviewView = Pick<
   | 'pendingInvitesCache'
   | 'seatSlots'
 >;
+
+export type SeatOverviewSource = 'seat-slot' | 'member' | 'invite' | 'placeholder';
+export type SeatOverviewExpirySource = 'slot' | 'team-renewal';
+
+export interface SeatOverviewFilterOptions {
+  showOwners?: boolean;
+  showCodexSeats?: boolean;
+}
+
+export interface AccountOverviewQuery extends SeatOverviewFilterOptions {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SeatOverviewItem {
+  id: string;
+  accountRecordId: string;
+  workspaceAccountId: string;
+  teamName: string;
+  parentEmail: string;
+  parentIsBanned?: boolean;
+  source: SeatOverviewSource;
+  status: AccountSeatSlotStatus;
+  seat: SeatType;
+  role?: MemberRole;
+  email?: string;
+  remark?: string;
+  expiresOn?: string;
+  expiresOnSource?: SeatOverviewExpirySource;
+  price?: string;
+  seatKey?: string;
+}
+
+export interface AccountOverviewPageView {
+  items: SeatOverviewItem[];
+  total: number;
+  chatGptCount: number;
+  codexCount: number;
+  page: number;
+  pageSize: number;
+}
+
+interface SeatOverviewRelation {
+  id: string;
+  email: string;
+  role: MemberRole;
+  seat: SeatType;
+  status: AccountSeatSlotStatus;
+  source: 'member' | 'invite';
+}
+
+const seatOverviewCollator = new Intl.Collator('zh-CN', {
+  numeric: true,
+  sensitivity: 'base'
+});
+
+export function buildSeatOverviewItems(accounts: readonly AccountOverviewView[]): SeatOverviewItem[] {
+  return accounts.flatMap(buildAccountSeatOverviewItems).sort(compareSeatOverviewItems);
+}
+
+export function filterSeatOverviewItems<T extends SeatOverviewItem>(
+  items: readonly T[],
+  options: SeatOverviewFilterOptions = {}
+): T[] {
+  return items.filter((item) => {
+    if (!options.showOwners && item.role === 'account-owner') return false;
+    if (!options.showCodexSeats && item.seat === 'usage_based') return false;
+    return true;
+  });
+}
+
+function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOverviewItem[] {
+  if (account.isBanned) return [];
+  const relations = accountOverviewRelations(account);
+  const relationByEmail = accountOverviewRelationMapByEmail(relations);
+  const slottedEmails = new Set<string>();
+  const items: SeatOverviewItem[] = [];
+
+  for (const slot of account.seatSlots ?? []) {
+    const normalizedEmail = normalizeOverviewEmail(slot.email);
+    if (normalizedEmail) slottedEmails.add(normalizedEmail);
+    const relation = normalizedEmail ? relationByEmail.get(normalizedEmail) : undefined;
+    items.push({
+      ...accountOverviewItemBase(account),
+      id: `${account.id}:slot:${slot.seatKey}`,
+      source: 'seat-slot',
+      status: relation?.status ?? slot.status ?? (slot.email ? 'unknown' : 'empty'),
+      seat: relation?.seat ?? slot.seat,
+      role: relation?.role,
+      email: slot.email,
+      remark: slot.remark,
+      expiresOn: slot.expiresOn,
+      expiresOnSource: 'slot',
+      price: slot.price,
+      seatKey: slot.seatKey
+    });
+  }
+
+  for (const relation of relations) {
+    const normalizedEmail = normalizeOverviewEmail(relation.email);
+    if (normalizedEmail && slottedEmails.has(normalizedEmail)) continue;
+    if (normalizedEmail) slottedEmails.add(normalizedEmail);
+    items.push({
+      ...accountOverviewItemBase(account),
+      id: `${account.id}:${relation.source}:${relation.id}`,
+      source: relation.source,
+      status: relation.status,
+      seat: relation.seat,
+      role: relation.role,
+      email: relation.email,
+      ...accountOverviewRenewalExpiry(account)
+    });
+  }
+
+  if (account.hasTeamSubscription) {
+    const chatGptPositionCount = items.filter((item) => item.seat === 'default').length;
+    for (let index = chatGptPositionCount; index < MAX_CHATGPT_SEATS; index += 1) {
+      items.push({
+        ...accountOverviewItemBase(account),
+        id: `${account.id}:empty:${index + 1}`,
+        source: 'placeholder',
+        status: 'empty',
+        seat: 'default',
+        ...accountOverviewRenewalExpiry(account)
+      });
+    }
+  }
+
+  return items;
+}
+
+function accountOverviewRelations(account: AccountOverviewView): SeatOverviewRelation[] {
+  return [
+    ...(account.membersCache ?? []).map((member): SeatOverviewRelation => ({
+      id: member.userId,
+      email: member.email,
+      role: member.role,
+      seat: member.seat,
+      status: 'member',
+      source: 'member'
+    })),
+    ...(account.pendingInvitesCache ?? []).map((invite): SeatOverviewRelation => ({
+      id: invite.inviteId,
+      email: invite.email,
+      role: invite.role,
+      seat: invite.seat,
+      status: 'invited',
+      source: 'invite'
+    }))
+  ];
+}
+
+function accountOverviewRelationMapByEmail(
+  relations: readonly SeatOverviewRelation[]
+): Map<string, SeatOverviewRelation> {
+  const byEmail = new Map<string, SeatOverviewRelation>();
+  for (const relation of relations) {
+    const email = normalizeOverviewEmail(relation.email);
+    if (email && !byEmail.has(email)) byEmail.set(email, relation);
+  }
+  return byEmail;
+}
+
+function accountOverviewItemBase(account: AccountOverviewView): Pick<
+  SeatOverviewItem,
+  'accountRecordId' | 'workspaceAccountId' | 'teamName' | 'parentEmail' | 'parentIsBanned'
+> {
+  const workspaceAccountId = typeof account.accountId === 'string' ? account.accountId : '';
+  const parentEmail = typeof account.email === 'string' ? account.email : '';
+  const teamName = account.workspaceName?.trim()
+    || account.remark?.trim()
+    || parentEmail
+    || workspaceAccountId
+    || '未命名 Team';
+  return {
+    accountRecordId: account.id,
+    workspaceAccountId,
+    teamName,
+    parentEmail,
+    parentIsBanned: account.isBanned === true
+  };
+}
+
+function accountOverviewRenewalExpiry(
+  account: AccountOverviewView
+): Pick<SeatOverviewItem, 'expiresOn' | 'expiresOnSource'> {
+  return account.nextRenewalOn
+    ? { expiresOn: account.nextRenewalOn, expiresOnSource: 'team-renewal' }
+    : {};
+}
+
+function compareSeatOverviewItems(a: SeatOverviewItem, b: SeatOverviewItem): number {
+  return (
+    Number(Boolean(a.parentIsBanned)) - Number(Boolean(b.parentIsBanned))
+    || overviewDateRank(a.expiresOn) - overviewDateRank(b.expiresOn)
+    || seatOverviewCollator.compare(a.teamName, b.teamName)
+    || overviewSeatRank(a.seat) - overviewSeatRank(b.seat)
+    || overviewSourceRank(a.source) - overviewSourceRank(b.source)
+    || seatOverviewCollator.compare(a.email ?? '', b.email ?? '')
+    || a.id.localeCompare(b.id)
+  );
+}
+
+function overviewDateRank(value: string | undefined): number {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
+}
+
+function overviewSeatRank(seat: SeatType): number {
+  return seat === 'default' ? 0 : 1;
+}
+
+function overviewSourceRank(source: SeatOverviewSource): number {
+  if (source === 'seat-slot') return 0;
+  if (source === 'member') return 1;
+  if (source === 'invite') return 2;
+  return 3;
+}
+
+function normalizeOverviewEmail(email: string | undefined): string {
+  return email?.trim().toLowerCase() ?? '';
+}
 
 /** Team 升级订单的全局配置；母号可逐字段覆盖，空值表示继承全局。 */
 export interface TeamOrderConfig {

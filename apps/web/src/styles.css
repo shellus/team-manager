@@ -347,74 +347,6 @@ body {
   cursor: pointer;
 }
 
-.pro5x-statistics-panel {
-  min-width: 0;
-  border-color: var(--color-border-subtle);
-}
-
-.pro5x-statistics-panel .ant-card-head-title {
-  min-width: 0;
-}
-
-.pro5x-statistics-subtitle {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.pro5x-statistics-alert {
-  margin-bottom: 16px;
-}
-
-.pro5x-statistics-content {
-  width: 100%;
-}
-
-.pro5x-statistics-summary {
-  display: flex;
-  min-width: 0;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.pro5x-transition-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
-}
-
-.pro5x-transition-item {
-  display: flex;
-  min-width: 0;
-  min-height: 64px;
-  padding: 10px 12px;
-  flex-direction: column;
-  justify-content: center;
-  border-right: 1px solid var(--color-border-subtle);
-}
-
-.pro5x-transition-item:last-child {
-  border-right: 0;
-}
-
-.pro5x-transition-item .ant-typography:last-child {
-  font-size: 20px;
-  line-height: 1.2;
-}
-
-.pro5x-attempt-stack {
-  width: 100%;
-  max-width: 100%;
-}
-
-.pro5x-attempt-stack .ant-typography {
-  overflow-wrap: anywhere;
-}
-
 .seat-overview-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -425,6 +357,12 @@ body {
 .seat-position-card {
   min-width: 0;
   border-color: var(--color-border-subtle);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 230px;
+}
+
+.overview-pagination {
+  align-self: center;
 }
 
 .seat-position-card .ant-card-body {
@@ -1196,18 +1134,6 @@ body {
     justify-content: flex-start;
   }
 
-  .pro5x-transition-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .pro5x-transition-item:nth-child(3) {
-    border-right: 0;
-  }
-
-  .pro5x-transition-item:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--color-border-subtle);
-  }
-
   .seat-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1230,22 +1156,6 @@ body {
 
   .seat-overview-grid {
     grid-template-columns: 1fr;
-  }
-
-  .pro5x-transition-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .pro5x-transition-item:nth-child(3) {
-    border-right: 1px solid var(--color-border-subtle);
-  }
-
-  .pro5x-transition-item:nth-child(even) {
-    border-right: 0;
-  }
-
-  .pro5x-transition-item:nth-child(-n + 4) {
-    border-bottom: 1px solid var(--color-border-subtle);
   }
 
   .team-order-stat-grid,

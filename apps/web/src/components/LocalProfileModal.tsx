@@ -233,7 +233,7 @@ export function LocalProfileModal({
               label="封号标记"
               valuePropName="checked"
               extra={mode === 'parent'
-                ? '封号母号的空位不计入概览；其他操作不受限制。'
+                ? '封号母号不计入席位概览；其他操作不受限制。'
                 : '封号子号不能邀请加入 Team；其他操作不受限制。'}
             >
               <Switch checkedChildren="已封号" unCheckedChildren="正常" />

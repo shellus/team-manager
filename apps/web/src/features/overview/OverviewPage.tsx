@@ -1,17 +1,17 @@
-import { Alert, Card, Empty, Space, Switch, Tag, Typography } from 'antd';
-import type { AccountOverviewView, AccountSeatSlotStatus } from '@team-manager/shared';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Alert, Card, Empty, Pagination, Space, Switch, Tag, Typography } from 'antd';
+import type {
+  AccountOverviewPageView,
+  AccountSeatSlotStatus,
+  SeatOverviewItem
+} from '@team-manager/shared';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
-import { BannedStatusTag, MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
+import { MemberRoleTag, SeatTag } from '../../components/StatusTag.js';
 import {
-  buildSeatOverviewItems,
-  filterSeatOverviewItems,
   seatOverviewBadgeTarget,
-  seatOverviewCardIdentity,
-  type SeatOverviewItem
+  seatOverviewCardIdentity
 } from './seatOverview.js';
-import { Pro5xPaymentStatisticsPanel } from './Pro5xPaymentStatisticsPanel.js';
 
 const POSITION_STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
   empty: '空位',
@@ -27,30 +27,35 @@ const POSITION_STATUS_COLOR: Record<AccountSeatSlotStatus, string | undefined> =
   unknown: 'warning'
 };
 
-export function OverviewPage({ initialAccounts }: { initialAccounts?: AccountOverviewView[] }) {
+export function OverviewPage({ initialOverview }: { initialOverview?: AccountOverviewPageView }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [accounts, setAccounts] = useState<AccountOverviewView[]>(initialAccounts ?? []);
-  const [loading, setLoading] = useState(initialAccounts === undefined);
+  const [overview, setOverview] = useState<AccountOverviewPageView | undefined>(initialOverview);
+  const [loading, setLoading] = useState(initialOverview === undefined);
   const [error, setError] = useState('');
   const showOwners = searchParams.get('owners') === '1';
   const showCodexSeats = searchParams.get('codex') === '1';
-  const allItems = useMemo(() => buildSeatOverviewItems(accounts), [accounts]);
-  const items = useMemo(
-    () => filterSeatOverviewItems(allItems, { showOwners, showCodexSeats }),
-    [allItems, showCodexSeats, showOwners]
-  );
-  const chatGptCount = items.filter((item) => item.seat === 'default').length;
-  const codexCount = items.filter((item) => item.seat === 'usage_based').length;
+  const requestedPage = positiveInteger(searchParams.get('page')) ?? 1;
+  const searchParamsKey = searchParams.toString();
+  const items = overview?.items ?? [];
 
   useEffect(() => {
-    if (initialAccounts !== undefined) return undefined;
+    if (initialOverview !== undefined) return undefined;
     let cancelled = false;
     setLoading(true);
-    void apiClient.listAccountOverview()
+    void apiClient.listAccountOverview({
+      showOwners,
+      showCodexSeats,
+      page: requestedPage
+    })
       .then((next) => {
-        if (!cancelled) {
-          setAccounts(next);
-          setError('');
+        if (cancelled) return;
+        setOverview(next);
+        setError('');
+        if (next.page !== requestedPage) {
+          const normalized = new URLSearchParams(searchParamsKey);
+          if (next.page > 1) normalized.set('page', String(next.page));
+          else normalized.delete('page');
+          setSearchParams(normalized, { replace: true });
         }
       })
       .catch((loadError: unknown) => {
@@ -62,12 +67,20 @@ export function OverviewPage({ initialAccounts }: { initialAccounts?: AccountOve
     return () => {
       cancelled = true;
     };
-  }, [initialAccounts]);
+  }, [initialOverview, requestedPage, searchParamsKey, setSearchParams, showCodexSeats, showOwners]);
 
   const setFilter = (key: 'owners' | 'codex', checked: boolean) => {
     const next = new URLSearchParams(searchParams);
     if (checked) next.set(key, '1');
     else next.delete(key);
+    next.delete('page');
+    setSearchParams(next);
+  };
+
+  const setPage = (page: number) => {
+    const next = new URLSearchParams(searchParams);
+    if (page > 1) next.set('page', String(page));
+    else next.delete('page');
     setSearchParams(next);
   };
 
@@ -90,27 +103,39 @@ export function OverviewPage({ initialAccounts }: { initialAccounts?: AccountOve
             </label>
           </Space>
           <Space size={8} wrap>
-            <Tag>位置 {items.length}</Tag>
-            <Tag color="blue">ChatGPT {chatGptCount}</Tag>
-            <Tag color="purple">Codex {codexCount}</Tag>
+            {loading && <Tag color="processing">更新中</Tag>}
+            <Tag>位置 {overview?.total ?? 0}</Tag>
+            <Tag color="blue">ChatGPT {overview?.chatGptCount ?? 0}</Tag>
+            <Tag color="purple">Codex {overview?.codexCount ?? 0}</Tag>
           </Space>
         </div>
       </div>
 
-      <Pro5xPaymentStatisticsPanel />
-
       {error && <Alert type="error" showIcon message={error} />}
 
       {items.length === 0 ? (
-        <Card loading={loading}>
-          <Empty description={loading ? '正在加载母号' : allItems.length > 0 ? '当前筛选没有可展示的位置' : '还没有可展示的位置'} />
+        <Card loading={loading && !overview}>
+          <Empty description={loading && !overview ? '正在加载概览' : '还没有可展示的位置'} />
         </Card>
       ) : (
-        <div className="seat-overview-grid">
-          {items.map((item) => (
-            <SeatOverviewCard key={item.id} item={item} />
-          ))}
-        </div>
+        <>
+          <div className="seat-overview-grid" aria-busy={loading}>
+            {items.map((item) => (
+              <SeatOverviewCard key={item.id} item={item} />
+            ))}
+          </div>
+          {overview && overview.total > overview.pageSize && (
+            <Pagination
+              className="overview-pagination"
+              current={overview.page}
+              pageSize={overview.pageSize}
+              total={overview.total}
+              showSizeChanger={false}
+              showTotal={(total, range) => `${range[0]}-${range[1]} / ${total}`}
+              onChange={setPage}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -125,7 +150,6 @@ function SeatOverviewCard({ item }: { item: SeatOverviewItem }) {
           {identity.primary}
         </Typography.Text>
         <Space size={4}>
-          <BannedStatusTag isBanned={item.parentIsBanned} label="母号封号" />
           <PositionOrSeatTag item={item} />
         </Space>
       </div>
@@ -187,4 +211,10 @@ function defaultRemark(item: SeatOverviewItem): string {
   if (item.source === 'placeholder') return '空 ChatGPT 位置';
   if (item.source === 'member' || item.source === 'invite') return '无本地备注';
   return '无备注';
+}
+
+function positiveInteger(value: string | null): number | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }

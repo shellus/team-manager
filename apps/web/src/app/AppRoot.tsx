@@ -6,6 +6,8 @@ import { apiClient, ApiError, clearToken, getToken, setToken } from '../api.js';
 import { useActionBusy } from '../components/useActionBusy.js';
 import { accountRefreshActionKey, syncingAccountIdsFromBusy } from './accountRefreshBusy.js';
 import { AppShell } from './AppShell.js';
+import { PageErrorBoundary } from '../components/PageErrorBoundary.js';
+import { routeNeedsAccountSummaries } from './accountSummaryRoute.js';
 
 const Login = lazy(async () => ({ default: (await import('../Login.js')).Login }));
 const ParentRoutes = lazy(async () => ({ default: (await import('../features/parents/ParentRoutes.js')).ParentRoutes }));
@@ -23,6 +25,7 @@ export function AppRoot() {
   const location = useLocation();
   const [authed, setAuthed] = useState(() => Boolean(getToken()));
   const [accounts, setAccounts] = useState<AccountSummaryView[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
   const removedAccountIds = useRef(new Set<string>());
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +34,7 @@ export function AppRoot() {
     () => syncingAccountIdsFromBusy(accounts, accountRefreshBusy.busyState),
     [accounts, accountRefreshBusy.busyState]
   );
+  const needsAccountSummaries = routeNeedsAccountSummaries(location.pathname);
 
   const handleError = useCallback((errorValue: unknown) => {
     const message = (errorValue as Error).message;
@@ -67,6 +71,7 @@ export function AppRoot() {
     try {
       const loaded = await apiClient.listAccounts();
       setAccounts(loaded.filter((account) => !removedAccountIds.current.has(account.id)));
+      setAccountsLoaded(true);
     } catch (loadError) {
       handleError(loadError);
     } finally {
@@ -75,8 +80,8 @@ export function AppRoot() {
   }, [handleError]);
 
   useEffect(() => {
-    if (authed) void loadAccounts();
-  }, [authed, loadAccounts]);
+    if (authed && needsAccountSummaries && !accountsLoaded) void loadAccounts();
+  }, [accountsLoaded, authed, loadAccounts, needsAccountSummaries]);
 
   const refreshAccount = useCallback(
     async (account: AccountSummaryView): Promise<AccountView | undefined> => {
@@ -100,6 +105,7 @@ export function AppRoot() {
     clearToken();
     setAuthed(false);
     setAccounts([]);
+    setAccountsLoaded(false);
     navigate('/login', { replace: true });
   };
 
@@ -107,17 +113,20 @@ export function AppRoot() {
     const { token } = await apiClient.login(username, password);
     setToken(token);
     setAuthed(true);
+    setAccountsLoaded(false);
     navigate('/parents', { replace: true });
   };
 
   if (location.pathname.startsWith('/seat/')) {
     return (
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
-          <Route path="/seat/:seatKey" element={<PublicSeatPage />} />
-          <Route path="*" element={<Navigate to={location.pathname} replace />} />
-        </Routes>
-      </Suspense>
+      <PageErrorBoundary key={`${location.pathname}${location.search}`}>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
+            <Route path="/seat/:seatKey" element={<PublicSeatPage />} />
+            <Route path="*" element={<Navigate to={location.pathname} replace />} />
+          </Routes>
+        </Suspense>
+      </PageErrorBoundary>
     );
   }
 
@@ -135,8 +144,9 @@ export function AppRoot() {
   return (
     <AppShell onLogout={logout}>
       {error && <Alert className="global-alert" type="error" showIcon message={error} closable onClose={() => setError('')} />}
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
+      <PageErrorBoundary key={`${location.pathname}${location.search}`}>
+        <Suspense fallback={<RouteFallback />}>
+          <Routes>
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/team-orders" element={<TeamOrdersPage onError={handleError} />} />
           <Route
@@ -181,8 +191,9 @@ export function AppRoot() {
           />
           <Route path="/login" element={<Navigate to="/parents" replace />} />
           <Route path="*" element={<Navigate to="/parents" replace />} />
-        </Routes>
-      </Suspense>
+          </Routes>
+        </Suspense>
+      </PageErrorBoundary>
     </AppShell>
   );
 }

@@ -56,7 +56,9 @@
 
 母号和子号详情是否允许发起 GAM 操作只由本地 `managedAccountEmail` 决定，不以页面当前是否读取到 GAM、GAM 是否刚好可达或是否存在临时状态对象为前提。上游请求失败由本次操作返回错误；不能把“未读取”解释为“未纳管”。
 
-首页席位概览只为 `hasTeamSubscription=true` 且未标记封号的母号补足两个固定 ChatGPT 位置。封号母号仍展示实际存在的成员、邀请和已占用席位，但显式空 slot 与补足空位都不进入概览及其位置统计。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。母号、子号和概览列表都显示统一封号标签，并把封号账号排在未封号账号之后。
+首页席位概览完全排除 `isBanned=true` 的母号；这些母号的成员、邀请、已占用席位、显式空 slot 和补足空位都不进入概览及其位置统计。未封号且 `hasTeamSubscription=true` 的母号补足两个固定 ChatGPT 位置。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。母号和子号列表仍显示统一封号标签，并把封号账号排在未封号账号之后。
+
+`GET /api/accounts/overview` 必须在服务端完成位置构建、所有者/Codex 筛选、排序、计数和分页，只返回当前页的 `SeatOverviewItem[]`，不得把全部母号的 `membersCache`、`pendingInvitesCache` 或 `seatSlots` 交给浏览器再筛选。查询参数 `owners=1` 和 `codex=1` 分别启用所有者与 Codex 位置，`page` 和 `pageSize` 控制分页；默认每页 60 条，最大 100 条。筛选与页码写入 URL，刷新页面后保持一致。
 
 ### Seat slots
 

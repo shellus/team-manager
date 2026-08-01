@@ -22,6 +22,18 @@ function account(input: Partial<AccountView> & Pick<AccountView, 'id'>): Account
 }
 
 describe('buildSeatOverviewItems', () => {
+  test('keeps malformed legacy account labels from crashing the overview sort', () => {
+    const items = buildSeatOverviewItems([{
+      id: 'legacy-empty-label',
+      accountId: '',
+      email: '',
+      hasTeamSubscription: true
+    }]);
+
+    expect(items).toHaveLength(2);
+    expect(items.every((item) => item.teamName === '未命名 Team')).toBe(true);
+  });
+
   test('creates two empty ChatGPT positions when a parent has no tracked members or slots', () => {
     const items = buildSeatOverviewItems([
       account({ id: 'team-a', workspaceName: 'Team A', nextRenewalOn: '2026-08-01' })
@@ -240,7 +252,7 @@ describe('buildSeatOverviewItems', () => {
     expect(items.at(-1)?.expiresOn).toBeUndefined();
   });
 
-  test('excludes empty positions from banned parents and sorts their occupied positions last', () => {
+  test('excludes every position from banned parents', () => {
     const items = buildSeatOverviewItems([
       account({
         id: 'banned',
@@ -295,13 +307,8 @@ describe('buildSeatOverviewItems', () => {
       })
     ]);
 
-    expect(items.map((item) => item.seatKey)).toEqual([
-      'normal-member',
-      'normal-empty',
-      'banned-member'
-    ]);
-    expect(items.at(-1)).toEqual(expect.objectContaining({ parentIsBanned: true }));
-    expect(items.some((item) => item.seatKey === 'banned-empty')).toBe(false);
+    expect(items.map((item) => item.seatKey)).toEqual(['normal-member', 'normal-empty']);
+    expect(items.every((item) => item.parentIsBanned !== true)).toBe(true);
   });
 });
 

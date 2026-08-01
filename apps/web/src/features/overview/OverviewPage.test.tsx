@@ -1,6 +1,11 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { AccountOverviewView } from '@team-manager/shared';
+import {
+  buildSeatOverviewItems,
+  filterSeatOverviewItems,
+  type AccountOverviewPageView,
+  type AccountOverviewView
+} from '@team-manager/shared';
 import { StaticRouter } from 'react-router-dom';
 import { describe, expect, test } from 'vitest';
 import { OverviewPage } from './OverviewPage.js';
@@ -33,7 +38,7 @@ describe('OverviewPage role tags', () => {
       createElement(
         StaticRouter,
         { location: '/' },
-        createElement(OverviewPage, { initialAccounts: [account] })
+        createElement(OverviewPage, { initialOverview: overviewFromAccounts([account]) })
       )
     );
 
@@ -53,7 +58,7 @@ describe('OverviewPage role tags', () => {
       createElement(
         StaticRouter,
         { location: '/' },
-        createElement(OverviewPage, { initialAccounts: [account] })
+        createElement(OverviewPage, { initialOverview: overviewFromAccounts([account]) })
       )
     );
 
@@ -61,7 +66,7 @@ describe('OverviewPage role tags', () => {
     expect(html).toContain('还没有可展示的位置');
   });
 
-  test('marks occupied positions from a banned parent without rendering its empty position', () => {
+  test('does not render any position from a banned parent', () => {
     const account: AccountOverviewView = {
       id: 'banned-team',
       accountId: 'workspace-banned-team',
@@ -81,12 +86,24 @@ describe('OverviewPage role tags', () => {
       createElement(
         StaticRouter,
         { location: '/' },
-        createElement(OverviewPage, { initialAccounts: [account] })
+        createElement(OverviewPage, { initialOverview: overviewFromAccounts([account]) })
       )
     );
 
-    expect(html).toContain('母号封号');
-    expect(html).toContain('member@example.com');
+    expect(html).not.toContain('member@example.com');
     expect(html).not.toContain('空位');
+    expect(html).toContain('还没有可展示的位置');
   });
 });
+
+function overviewFromAccounts(accounts: AccountOverviewView[]): AccountOverviewPageView {
+  const items = filterSeatOverviewItems(buildSeatOverviewItems(accounts));
+  return {
+    items,
+    total: items.length,
+    chatGptCount: items.filter((item) => item.seat === 'default').length,
+    codexCount: items.filter((item) => item.seat === 'usage_based').length,
+    page: 1,
+    pageSize: 60
+  };
+}

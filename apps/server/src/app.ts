@@ -80,6 +80,12 @@ function readTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export async function buildApp({
   config,
   store,
@@ -510,7 +516,12 @@ export async function buildApp({
 
   api.get('/accounts', (c) => wrap(c, () => service.listAccountSummaries()));
 
-  api.get('/accounts/overview', (c) => wrap(c, () => service.listAccountOverview()));
+  api.get('/accounts/overview', (c) => wrap(c, () => service.listAccountOverview({
+    showOwners: c.req.query('owners') === '1',
+    showCodexSeats: c.req.query('codex') === '1',
+    page: parsePositiveInteger(c.req.query('page')),
+    pageSize: parsePositiveInteger(c.req.query('pageSize'))
+  })));
 
   api.get('/accounts/:id', (c) => wrap(c, () => service.getAccountDetail(c.req.param('id'))));
 

@@ -86,7 +86,7 @@
 
 Account Manager 不等待 ChatGPT 首页异步加载优惠弹窗，而是使用个人账号 accessToken 在页面内直接创建 `chatgptprolite` custom Checkout，再跳转到 `chatgpt.com/checkout/openai_llc/...` 站内付款页。该操作不支持站外 Stripe Hosted Checkout。创建订单、填写卡片和等待结果期间，运行 Profile 临时使用部署配置指定的新加坡国家与 ASN，姓名规则沿用双席位，地址使用部署配置的新加坡账单地址；账号长期住宅代理配置不会被改写。卡片和地址填写完成后系统直接点击 Subscribe，并继续监听个人套餐是否变为 `pro` 或 `prolite`。
 
-付款页返回 `Payment was not approved` 或 `Your card has been declined.` 时，第一次拒绝会更换 SID/IP、创建新的 Checkout Session 并重试一次；第二次拒绝结束任务。概览页的 Pro 5x 付款统计展示全局结果、PNA/硬拒转化和逐次提交明细，包含完整 SID/IP、Checkout Session、账单姓名与地址，便于后续分析风控因素。
+付款页返回 `Payment was not approved` 或 `Your card has been declined.` 时，第一次拒绝会更换 SID/IP、创建新的 Checkout Session 并重试一次；第二次拒绝结束任务。
 
 开通成功后母号列表和详情显示 `Pro` 标签；Pro 状态与 0.52、双席位和 Workspace 能力互不替代。
 

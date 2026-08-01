@@ -5,7 +5,8 @@ import type {
   AccountManagerRuntimeStatus,
   AccountLimitType,
   AccountLocalProfileView,
-  AccountOverviewView,
+  AccountOverviewPageView,
+  AccountOverviewQuery,
   AccountSeatSlotProfileInput,
   AccountSummaryView,
   AccountView,
@@ -17,7 +18,6 @@ import type {
   OpenPro5xRequest,
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
-  Pro5xPaymentStatisticsView,
   Pro5xRenewalCancellationResult,
   Pro5xSubscriptionView,
   ResidentialProxyConfig,
@@ -45,6 +45,7 @@ import type {
 } from '@team-manager/shared';
 
 const TOKEN_KEY = 'teammgr_token';
+const pendingGetCalls = new Map<string, Promise<unknown>>();
 
 export class ApiError extends Error {
   constructor(
@@ -87,6 +88,16 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return json.data as T;
 }
 
+function getWhilePending<T>(path: string): Promise<T> {
+  const existing = pendingGetCalls.get(path) as Promise<T> | undefined;
+  if (existing) return existing;
+  const request = call<T>('GET', path).finally(() => {
+    if (pendingGetCalls.get(path) === request) pendingGetCalls.delete(path);
+  });
+  pendingGetCalls.set(path, request);
+  return request;
+}
+
 async function publicCall<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -112,8 +123,16 @@ export const apiClient = {
     call<RrwebRecordingUploadView>('POST', '/devtools/rrweb-recordings', recording),
   getRrwebRecording: (uuid: string) =>
     call<unknown>('GET', `/devtools/rrweb-recordings/${encodeURIComponent(uuid)}`),
-  listAccounts: () => call<AccountSummaryView[]>('GET', '/accounts'),
-  listAccountOverview: () => call<AccountOverviewView[]>('GET', '/accounts/overview'),
+  listAccounts: () => getWhilePending<AccountSummaryView[]>('/accounts'),
+  listAccountOverview: (options: AccountOverviewQuery = {}) => {
+    const query = new URLSearchParams();
+    if (options.showOwners) query.set('owners', '1');
+    if (options.showCodexSeats) query.set('codex', '1');
+    if (options.page && options.page > 1) query.set('page', String(options.page));
+    if (options.pageSize) query.set('pageSize', String(options.pageSize));
+    const suffix = query.size ? `?${query.toString()}` : '';
+    return getWhilePending<AccountOverviewPageView>(`/accounts/overview${suffix}`);
+  },
   getAccount: (id: string) => call<AccountView>('GET', `/accounts/${id}`),
   getAccountLocalProfile: (id: string) =>
     call<AccountLocalProfileView>('GET', `/accounts/${id}/local-profile`),
@@ -137,8 +156,6 @@ export const apiClient = {
     call<ParentAccountManagerStatus>('GET', `/accounts/${id}/account-manager/status`),
   getParentAccountManagerStatuses: () =>
     call<Record<string, ParentAccountManagerStatus>>('GET', '/accounts/account-manager/statuses'),
-  getPro5xPaymentStatistics: () =>
-    call<Pro5xPaymentStatisticsView>('GET', '/account-manager/pro5x/payment-statistics'),
   manageParentAccount: (id: string) =>
     call<ParentAccountManagerStatus>('POST', `/accounts/${id}/account-manager/manage`),
   getParentAccountProfile: (id: string) =>

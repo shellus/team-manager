@@ -4,6 +4,8 @@ import type {
   AccountFingerprint,
   AccountLimitType,
   AccountLocalProfileView,
+  AccountOverviewPageView,
+  AccountOverviewQuery,
   AccountOverviewView,
   AccountSeatSlot,
   AccountSeatSlotProfileInput,
@@ -22,7 +24,13 @@ import type {
   SeatSlotSwapStep,
   SeatSlotSwapStepKey
 } from '@team-manager/shared';
-import { accountSummaryFromView } from '@team-manager/shared';
+import {
+  ACCOUNT_OVERVIEW_DEFAULT_PAGE_SIZE,
+  ACCOUNT_OVERVIEW_MAX_PAGE_SIZE,
+  accountSummaryFromView,
+  buildSeatOverviewItems,
+  filterSeatOverviewItems
+} from '@team-manager/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AccountStore } from './accountStore.js';
 import { AccountBillingStore } from './accountBillingStore.js';
@@ -48,6 +56,17 @@ const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'mon
 const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const STANDARD_SEAT_PUBLIC_SWAP_BLOCKED =
   '标准 ChatGPT 席位移除后可能继续临时计费，新成员也可能形成独立付费席位；公共换号不能自动移除已接受成员，请联系管理员处理';
+
+function normalizeOverviewPage(value: number | undefined): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function normalizeOverviewPageSize(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    return ACCOUNT_OVERVIEW_DEFAULT_PAGE_SIZE;
+  }
+  return Math.min(value, ACCOUNT_OVERVIEW_MAX_PAGE_SIZE);
+}
 
 function jsonString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -388,8 +407,24 @@ export class TeamService {
     return this.localProfileFromAccount(account);
   }
 
-  async listAccountOverview(): Promise<AccountOverviewView[]> {
-    return this.store.list().map((account) => this.overviewFromAccount(account));
+  async listAccountOverview(input: AccountOverviewQuery = {}): Promise<AccountOverviewPageView> {
+    const pageSize = normalizeOverviewPageSize(input.pageSize);
+    const items = filterSeatOverviewItems(
+      buildSeatOverviewItems(this.store.list().map((account) => this.overviewFromAccount(account))),
+      input
+    );
+    const total = items.length;
+    const lastPage = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(normalizeOverviewPage(input.page), lastPage);
+    const offset = (page - 1) * pageSize;
+    return {
+      items: items.slice(offset, offset + pageSize),
+      total,
+      chatGptCount: items.filter((item) => item.seat === 'default').length,
+      codexCount: items.filter((item) => item.seat === 'usage_based').length,
+      page,
+      pageSize
+    };
   }
 
   async getPublicSeatSlot(seatKey: string): Promise<PublicSeatSlotView> {
