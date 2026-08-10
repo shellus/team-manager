@@ -3,6 +3,7 @@ import { Button, Layout, Menu, Space, Switch, Typography } from 'antd';
 import {
   AppstoreOutlined,
   BellOutlined,
+  DashboardOutlined,
   LogoutOutlined,
   MoonOutlined,
   ShoppingCartOutlined,
@@ -26,8 +27,10 @@ export function AppShell({
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { mode, toggleMode } = useThemeMode();
-  const selectedKey = location.pathname.startsWith('/overview')
-    ? 'overview'
+  const selectedKey = location.pathname.startsWith('/parent-overview')
+    ? 'parent-overview'
+    : location.pathname.startsWith('/overview')
+      ? 'overview'
     : location.pathname.startsWith('/team-orders')
       ? 'team-orders'
     : location.pathname.startsWith('/subaccounts')
@@ -60,11 +63,13 @@ export function AppShell({
           selectedKeys={[selectedKey]}
           onClick={(event) => {
             if (event.key === 'overview') navigate('/overview');
+            else if (event.key === 'parent-overview') navigate('/parent-overview');
             else if (event.key === 'team-orders') navigate('/team-orders');
             else navigate(event.key === 'subaccounts' ? '/subaccounts' : '/parents');
           }}
           items={[
-            { key: 'overview', icon: <AppstoreOutlined />, label: '概览' },
+            { key: 'overview', icon: <AppstoreOutlined />, label: '席位概览' },
+            { key: 'parent-overview', icon: <DashboardOutlined />, label: '母号概览' },
             { key: 'parents', icon: <TeamOutlined />, label: '母号' },
             { key: 'subaccounts', icon: <UserSwitchOutlined />, label: '子号' },
             { key: 'team-orders', icon: <ShoppingCartOutlined />, label: '订单维护' }

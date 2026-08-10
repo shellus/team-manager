@@ -12,12 +12,16 @@ describe('seatSlotProfileFromInviteValues', () => {
     expect(seatSlotProfileFromInviteValues({
       email: 'codex@example.com',
       seat: 'usage_based',
+      contact: '微信[客户]',
       remark: 'Codex 客户',
+      price: '120元',
       expiresOn: '2026-09-01',
       expireRemove: false,
       expireReminder: true
     })).toEqual({
+      contact: '微信[客户]',
       remark: 'Codex 客户',
+      price: '120元',
       expiresOn: '2026-09-01',
       expireRemove: false,
       expireReminder: true

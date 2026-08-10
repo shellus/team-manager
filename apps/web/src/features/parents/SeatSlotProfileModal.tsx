@@ -4,7 +4,9 @@ import { Form, Input, Modal, Switch, Typography } from 'antd';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 
 interface SeatSlotProfileValues {
+  contact?: string;
   remark?: string;
+  price?: string;
   expiresOn: string;
   expireRemove: boolean;
   expireReminder: boolean;
@@ -38,7 +40,9 @@ export function seatSlotProfileSummary(slot: AccountSeatSlot | undefined): strin
 function initialValues(account: AccountView, email: string): SeatSlotProfileValues {
   const slot = seatSlotForEmail(account, email);
   return {
+    contact: slot?.contact ?? '',
     remark: slot?.remark ?? '',
+    price: slot?.price ?? '',
     expiresOn: slot?.expiresOn ?? defaultSeatSlotExpiresOn(),
     expireRemove: slot?.expireRemove ?? false,
     expireReminder: slot?.expireReminder ?? true
@@ -48,8 +52,16 @@ function initialValues(account: AccountView, email: string): SeatSlotProfileValu
 export function SeatSlotProfileFields() {
   return (
     <>
+      <div className="form-grid two">
+        <Form.Item name="contact" label="联系方式">
+          <Input placeholder="例如微信[昵称]、闲鱼[用户名]" />
+        </Form.Item>
+        <Form.Item name="price" label="价格">
+          <Input placeholder="例如 120元" />
+        </Form.Item>
+      </div>
       <Form.Item name="remark" label="席位备注">
-        <Input placeholder="例如客户名、用途或订单备注" />
+        <Input placeholder="只填写联系方式和价格之外的补充信息" />
       </Form.Item>
       <Form.Item name="expiresOn" label="席位到期日期" rules={[{ required: true, message: '请选择席位到期日期' }]}>
         <Input type="date" />
@@ -102,7 +114,9 @@ export function SeatSlotProfileModal({
     const values = await form.validateFields();
     try {
       await onSubmit(email, {
+        contact: values.contact?.trim() ?? '',
         remark: values.remark?.trim() ?? '',
+        price: values.price?.trim() ?? '',
         expiresOn: values.expiresOn,
         expireRemove: values.expireRemove,
         expireReminder: values.expireReminder

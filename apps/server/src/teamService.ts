@@ -7,6 +7,9 @@ import type {
   AccountOverviewPageView,
   AccountOverviewQuery,
   AccountOverviewView,
+  ParentOverviewPageView,
+  ParentOverviewQuery,
+  ParentOverviewItem,
   AccountSeatSlot,
   AccountSeatSlotProfileInput,
   AccountSeatSlotStatus,
@@ -28,12 +31,18 @@ import {
   ACCOUNT_OVERVIEW_DEFAULT_PAGE_SIZE,
   ACCOUNT_OVERVIEW_MAX_PAGE_SIZE,
   accountSummaryFromView,
+  buildParentOverviewItems,
   buildSeatOverviewItems,
   filterSeatOverviewItems
 } from '@team-manager/shared';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AccountStore } from './accountStore.js';
 import { AccountBillingStore } from './accountBillingStore.js';
+import {
+  FrankfurterExchangeRateService,
+  type ExchangeRateGateway,
+  type ExchangeRateQuote
+} from './exchangeRateService.js';
 import {
   ChatGptApi,
   ChatGptApiError,
@@ -49,9 +58,14 @@ import {
 } from './chatgptWebSession.js';
 import { createTransport, type Transport } from './transport.js';
 import { workspaceSettingsFromCache, workspaceSettingsPatchFromResponse } from './workspaceSettings.js';
-import { upcomingInvoiceHasTeamSubscription } from './teamSubscription.js';
+import {
+  upcomingInvoiceHasTeamSubscription,
+  upcomingInvoiceNextPaymentAt,
+  upcomingInvoiceRenewalAmount
+} from './teamSubscription.js';
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const STANDARD_SEAT_PUBLIC_SWAP_BLOCKED =
@@ -66,6 +80,19 @@ function normalizeOverviewPageSize(value: number | undefined): number {
     return ACCOUNT_OVERVIEW_DEFAULT_PAGE_SIZE;
   }
   return Math.min(value, ACCOUNT_OVERVIEW_MAX_PAGE_SIZE);
+}
+
+function preferRenewalTime(current: string | undefined, discovered: string | undefined): string | undefined {
+  if (!discovered) return current;
+  if (
+    current
+    && DATE_TIME_PATTERN.test(current)
+    && DATE_ONLY_PATTERN.test(discovered)
+    && current.slice(0, 10) === discovered
+  ) {
+    return current;
+  }
+  return discovered;
 }
 
 function jsonString(value: unknown): string | undefined {
@@ -169,7 +196,8 @@ export class TeamService {
     private readonly store: AccountStore,
     private readonly transport: Transport = createTransport(),
     private readonly billingStore?: AccountBillingStore,
-    private readonly inviteEmailGuard?: (email: string) => void
+    private readonly inviteEmailGuard?: (email: string) => void,
+    private readonly exchangeRateGateway: ExchangeRateGateway = new FrankfurterExchangeRateService()
   ) {}
 
   /** 取母号；个人态记录先从保存的 Session 发现可管理 Workspace，再处理 token 刷新。 */
@@ -230,7 +258,7 @@ export class TeamService {
       planType: resolved.workspace.planType,
       role: resolved.workspace.role,
       workspaceName: resolved.workspace.workspaceName,
-      nextRenewalOn: resolved.workspace.nextRenewalOn ?? account.nextRenewalOn,
+      nextRenewalOn: preferRenewalTime(account.nextRenewalOn, resolved.workspace.nextRenewalOn),
       status: 'unknown',
       lastError: undefined,
       ...(workspaceChanged ? {
@@ -377,6 +405,7 @@ export class TeamService {
       remark: view.remark,
       isBanned: view.isBanned,
       workspaceName: view.workspaceName,
+      limitType: view.limitType,
       nextRenewalOn: view.nextRenewalOn,
       hasTeamSubscription: view.hasTeamSubscription,
       membersCache: view.membersCache,
@@ -429,6 +458,54 @@ export class TeamService {
       page,
       pageSize
     };
+  }
+
+  async listParentOverview(input: ParentOverviewQuery = {}): Promise<ParentOverviewPageView> {
+    const pageSize = normalizeOverviewPageSize(input.pageSize);
+    const items = buildParentOverviewItems(
+      this.store.list().map((account) => this.overviewFromAccount(account))
+    );
+    const total = items.length;
+    const lastPage = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(normalizeOverviewPage(input.page), lastPage);
+    const offset = (page - 1) * pageSize;
+    const pageItems = items.slice(offset, offset + pageSize);
+    return {
+      items: await this.withParentOverviewBilling(pageItems),
+      total,
+      page,
+      pageSize
+    };
+  }
+
+  private async withParentOverviewBilling(items: ParentOverviewItem[]): Promise<ParentOverviewItem[]> {
+    if (!this.billingStore || items.length === 0) return items;
+    const renewals = new Map(items.flatMap((item) => {
+      const snapshot = this.billingStore!.get(item.id);
+      const renewal = upcomingInvoiceRenewalAmount(snapshot?.raw.upcomingInvoice);
+      return renewal ? [[item.id, renewal] as const] : [];
+    }));
+    const currencies = [...new Set([...renewals.values()].map((renewal) => renewal.currency))];
+    const quotes = new Map<string, ExchangeRateQuote | undefined>(await Promise.all(
+      currencies.map(async (currency) => [currency, await this.exchangeRateGateway.getCnyRate(currency)] as const)
+    ));
+
+    return items.map((item) => {
+      const renewal = renewals.get(item.id);
+      if (!renewal) return item;
+      const quote = quotes.get(renewal.currency);
+      return {
+        ...item,
+        renewalBilling: {
+          ...renewal,
+          ...(quote ? {
+            cnyAmount: Math.round(renewal.amount * quote.rate),
+            exchangeRate: quote.rate,
+            exchangeRateDate: quote.date
+          } : {})
+        }
+      };
+    });
   }
 
   async getPublicSeatSlot(seatKey: string): Promise<PublicSeatSlotView> {
@@ -580,6 +657,7 @@ export class TeamService {
     return {
       seatKey: slot.seatKey,
       ...(slot.email ? { email: slot.email } : {}),
+      ...(slot.contact ? { contact: slot.contact } : {}),
       ...(slot.remark ? { remark: slot.remark } : {}),
       expiresOn: slot.expiresOn,
       ...(slot.price ? { price: slot.price } : {}),
@@ -887,7 +965,7 @@ export class TeamService {
         hasTeamSubscription: detectedTeamSubscription ?? activeAccount.hasTeamSubscription,
         role: check.role ?? activeAccount.role,
         workspaceName: check.workspaceName ?? activeAccount.workspaceName,
-        nextRenewalOn: check.nextRenewalOn ?? activeAccount.nextRenewalOn,
+        nextRenewalOn: preferRenewalTime(activeAccount.nextRenewalOn, check.nextRenewalOn),
         membersCache: members,
         membersCachedAt: now,
         pendingInvitesCache: pendingInvites,
@@ -1319,14 +1397,17 @@ export class TeamService {
     relation: { status: AccountSeatSlotStatus; seat?: SeatType; currentUserId?: string; currentInviteId?: string },
     usedKeys: Set<string>
   ): AccountSeatSlot {
+    const contact = typeof input.contact === 'string' ? input.contact.trim() : existing?.contact;
     const remark = typeof input.remark === 'string' ? input.remark.trim() : existing?.remark;
+    const price = typeof input.price === 'string' ? input.price.trim() : existing?.price;
     const expiresOn = this.normalizeProfileDate(input.expiresOn, existing?.expiresOn);
     return {
       seatKey: existing?.seatKey ?? this.generateSeatKey(usedKeys),
       email,
+      ...(contact ? { contact } : {}),
       ...(remark ? { remark } : {}),
       expiresOn,
-      ...(existing?.price ? { price: existing.price } : {}),
+      ...(price ? { price } : {}),
       seat: relation.seat ?? existing?.seat ?? 'default',
       status: relation.status,
       ...(relation.currentUserId ? { currentUserId: relation.currentUserId } : {}),
@@ -1363,10 +1444,11 @@ export class TeamService {
   }
 
   private normalizeOptionalDate(value: unknown, label: string): string | undefined {
-    if (typeof value !== 'string') throw new ServiceError(400, `${label}格式应为 yyyy-mm-dd`);
+    if (typeof value !== 'string') throw new ServiceError(400, `${label}格式应为 yyyy-mm-dd HH:mm:ss`);
     const trimmed = value.trim();
     if (!trimmed) return undefined;
-    if (!DATE_ONLY_PATTERN.test(trimmed)) throw new ServiceError(400, `${label}格式应为 yyyy-mm-dd`);
+    if (DATE_ONLY_PATTERN.test(trimmed)) return `${trimmed} 00:00:00`;
+    if (!DATE_TIME_PATTERN.test(trimmed)) throw new ServiceError(400, `${label}格式应为 yyyy-mm-dd HH:mm:ss`);
     return trimmed;
   }
 
@@ -1645,7 +1727,7 @@ export class TeamService {
         planType: check.planType ?? account.planType,
         role: check.role ?? account.role,
         workspaceName: check.workspaceName ?? account.workspaceName,
-        nextRenewalOn: check.nextRenewalOn ?? account.nextRenewalOn
+        nextRenewalOn: preferRenewalTime(account.nextRenewalOn, check.nextRenewalOn)
       };
     } catch {
       accountPatch = {};
@@ -1684,9 +1766,11 @@ export class TeamService {
       refreshedAt: Date.now(),
       raw
     });
+    const nextRenewalOn = upcomingInvoiceNextPaymentAt(raw.upcomingInvoice);
     await this.store.update(id, {
       hasTeamSubscription: account.planType === 'team'
-        || upcomingInvoiceHasTeamSubscription(raw.upcomingInvoice)
+        || upcomingInvoiceHasTeamSubscription(raw.upcomingInvoice),
+      ...(nextRenewalOn ? { nextRenewalOn } : {})
     });
     return snapshot;
   }

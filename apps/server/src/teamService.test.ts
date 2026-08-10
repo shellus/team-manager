@@ -11,6 +11,7 @@ import type {
   AccountView,
   ApiResult,
   NotificationSettings,
+  ParentOverviewPageView,
   PublicSeatSlotView,
   TaskFormPreferences
 } from '@team-manager/shared';
@@ -19,6 +20,7 @@ import { buildApp } from './app.js';
 import type { AppConfig } from './config.js';
 import { SubaccountStore } from './subaccountStore.js';
 import { ServiceError, TeamService } from './teamService.js';
+import type { ExchangeRateGateway } from './exchangeRateService.js';
 import type { HttpRequest, Transport } from './transport.js';
 
 let tempDir: string | undefined;
@@ -62,7 +64,10 @@ afterEach(async () => {
   tempDir = undefined;
 });
 
-async function buildParentApiTestApp(transport: Transport = recordingTransport()) {
+async function buildParentApiTestApp(
+  transport: Transport = recordingTransport(),
+  exchangeRateGateway?: ExchangeRateGateway
+) {
   tempDir = await mkdtemp(join(tmpdir(), 'team-manager-parent-api-'));
   const config: AppConfig = {
     port: 0,
@@ -88,7 +93,7 @@ async function buildParentApiTestApp(transport: Transport = recordingTransport()
     workspaceName: 'Remote Team',
     lastError: '旧 token 失效'
   });
-  const app = await buildApp({ config, store, subaccountStore, teamTransport: transport });
+  const app = await buildApp({ config, store, subaccountStore, teamTransport: transport, exchangeRateGateway });
   const authHeaders = { Authorization: 'Bearer test-api-token', 'Content-Type': 'application/json' };
   return { app, store, account, authHeaders };
 }
@@ -186,9 +191,21 @@ describe('Parent account local-profile API', () => {
     assert.equal(expandedBody.data!.chatGptCount, 2);
     assert.equal(expandedBody.data!.codexCount, 1);
     assert.equal(expandedBody.data!.items.some((item) => item.parentIsBanned), false);
+
+    const parentOverviewResponse = await app.request('/api/accounts/parent-overview', { headers: authHeaders });
+    const parentOverviewBody = (await parentOverviewResponse.json()) as ApiResult<ParentOverviewPageView>;
+    assert.equal(parentOverviewResponse.status, 200);
+    assert.equal(parentOverviewBody.data!.total, 1);
+    assert.equal(parentOverviewBody.data!.items[0]!.teamName, 'Team Workspace');
   });
 
   it('refreshes and persists the raw parent billing snapshot', async () => {
+    const exchangeRateGateway: ExchangeRateGateway = {
+      async getCnyRate(currency) {
+        assert.equal(currency, 'GBP');
+        return { base: 'GBP', quote: 'CNY', rate: 9.0778, date: '2026-08-10' };
+      }
+    };
     const transport: Transport & { requests: HttpRequest[] } = {
       requests: [],
       async fetch(req) {
@@ -261,7 +278,7 @@ describe('Parent account local-profile API', () => {
         return { status: 404, body: `{"error":"unexpected ${req.path}"}` };
       }
     };
-    const { app, account, authHeaders } = await buildParentApiTestApp(transport);
+    const { app, store, account, authHeaders } = await buildParentApiTestApp(transport, exchangeRateGateway);
 
     const refreshResponse = await app.request(`/api/accounts/${account.id}/billing/refresh`, {
       method: 'POST',
@@ -304,6 +321,7 @@ describe('Parent account local-profile API', () => {
       address: { country: 'GB' }
     });
     assert.deepEqual((storedFile[account.id] as Record<string, unknown>).raw, refreshJson.data!.raw);
+    assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-23 13:20:00');
     assert.deepEqual(transport.requests.map((request) => request.path), [
       '/backend-api/invoices?limit=10&account_id=workspace-old',
       '/backend-api/invoices/upcoming?account_id=workspace-old',
@@ -320,6 +338,19 @@ describe('Parent account local-profile API', () => {
 
     assert.equal(getResponse.status, 200);
     assert.deepEqual(getJson.data, refreshJson.data);
+
+    await store.update(account.id, { hasTeamSubscription: true, limitType: 'weekly' });
+    const overviewResponse = await app.request('/api/accounts/parent-overview', { headers: authHeaders });
+    const overviewJson = (await overviewResponse.json()) as ApiResult<ParentOverviewPageView>;
+    assert.equal(overviewResponse.status, 200);
+    assert.equal(overviewJson.data!.items[0]!.limitType, 'weekly');
+    assert.deepEqual(overviewJson.data!.items[0]!.renewalBilling, {
+      amount: 1100,
+      currency: 'GBP',
+      cnyAmount: 9986,
+      exchangeRate: 9.0778,
+      exchangeRateDate: '2026-08-10'
+    });
   });
 
   it('keeps the billing snapshot when no upcoming invoice exists', async () => {
@@ -381,13 +412,13 @@ describe('Parent account local-profile API', () => {
     assert.equal(json.data!.groupName, '已租车位');
     assert.equal(json.data!.limitType, 'monthly');
     assert.equal(json.data!.isBanned, true);
-    assert.equal(json.data!.nextRenewalOn, '2026-07-16');
+    assert.equal(json.data!.nextRenewalOn, '2026-07-16 00:00:00');
     assert.equal(json.data!.email, 'owner-old@example.com');
     assert.equal(stored?.remark, '新备注');
     assert.equal(stored?.groupName, '已租车位');
     assert.equal(stored?.limitType, 'monthly');
     assert.equal(stored?.isBanned, true);
-    assert.equal(stored?.nextRenewalOn, '2026-07-16');
+    assert.equal(stored?.nextRenewalOn, '2026-07-16 00:00:00');
     assert.equal(stored?.accountId, 'workspace-old');
     assert.equal(stored?.accessToken, 'old-token');
     assert.equal(stored?.workspaceName, 'Remote Team');
@@ -494,14 +525,14 @@ describe('Parent account local-profile API', () => {
     assert.equal(json.data!.remark, '新母号备注');
     assert.equal(json.data!.groupName, '已租车位');
     assert.equal(json.data!.limitType, 'weekly');
-    assert.equal(json.data!.nextRenewalOn, '2026-07-16');
+    assert.equal(json.data!.nextRenewalOn, '2026-07-16 00:00:00');
     assert.equal(json.data!.proxy, 'http://parent-proxy.example:8080');
     assert.equal(json.data!.email, 'owner-new@example.com');
     assert.equal(json.data!.accountId, 'workspace-new');
     assert.equal(stored?.remark, '新母号备注');
     assert.equal(stored?.groupName, '已租车位');
     assert.equal(stored?.limitType, 'weekly');
-    assert.equal(stored?.nextRenewalOn, '2026-07-16');
+    assert.equal(stored?.nextRenewalOn, '2026-07-16 00:00:00');
     assert.equal(stored?.proxy, 'http://parent-proxy.example:8080');
     assert.equal(stored?.sessionToken, 'parent-session-json-token');
     assert.equal(transport.requests[0]?.proxy, 'http://parent-proxy.example:8080');
@@ -1300,7 +1331,8 @@ describe('TeamService account listing', () => {
     const account = await store.add({
       accountId: 'workspace-id',
       email: 'owner@example.com',
-      accessToken: 'token'
+      accessToken: 'token',
+      nextRenewalOn: '2026-07-16 12:34:56'
     });
     const service = new TeamService(store, transport);
 
@@ -1308,8 +1340,8 @@ describe('TeamService account listing', () => {
 
     assert.equal(view.workspaceName, 'Workspace');
     assert.equal(view.hasTeamSubscription, true);
-    assert.equal(view.nextRenewalOn, '2026-07-16');
-    assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-16');
+    assert.equal(view.nextRenewalOn, '2026-07-16 12:34:56');
+    assert.equal(store.get(account.id)?.nextRenewalOn, '2026-07-16 12:34:56');
     assert.deepEqual(view.pendingInvitesCache, []);
     assert.equal(requests.length, 3);
   });
@@ -2561,7 +2593,7 @@ describe('TeamService settings cache', () => {
     assert.equal(requests[2].method, 'GET');
     assert.equal(requests[2].path.startsWith('/backend-api/accounts/check/'), true);
     assert.equal(view.defaultSeat, 'default');
-    assert.equal(view.nextRenewalOn, '2026-07-17');
+    assert.equal(view.nextRenewalOn, '2026-07-17 00:00:00');
     assert.equal(view.workspaceReferralsEnabled, false);
     assert.equal(view.workspaceReferralsEnabledVisible, true);
     assert.equal(view.autoAcceptRequests, true);
@@ -2571,7 +2603,7 @@ describe('TeamService settings cache', () => {
     assert.equal(view.codexRemoteControlEnabled, false);
     assert.equal(view.automaticReloadEnabled, true);
     assert.equal(stored?.defaultSeat, 'default');
-    assert.equal(stored?.nextRenewalOn, '2026-07-17');
+    assert.equal(stored?.nextRenewalOn, '2026-07-17 00:00:00');
     assert.equal(stored?.workspaceReferralsEnabled, false);
     assert.equal(stored?.workspaceReferralsEnabledVisible, true);
     assert.equal(stored?.autoAcceptRequests, true);
@@ -3535,7 +3567,9 @@ describe('TeamService customer seat slot profiles', () => {
     const service = new TeamService(store, transport);
 
     const view = await service.updateSeatSlotProfile(account.id, ' Child@Example.com ', {
+      contact: '微信[客户]',
       remark: '新备注',
+      price: '120元',
       expiresOn: '2026-08-01',
       expireRemove: true,
       expireReminder: false
@@ -3545,7 +3579,9 @@ describe('TeamService customer seat slot profiles', () => {
     const slot = view.seatSlots?.find((item) => item.email === 'child@example.com');
     assert.equal(slot?.seatKey, 'abcd1234efgh5678');
     assert.equal(slot?.seat, 'usage_based');
+    assert.equal(slot?.contact, '微信[客户]');
     assert.equal(slot?.remark, '新备注');
+    assert.equal(slot?.price, '120元');
     assert.equal(slot?.expiresOn, '2026-08-01');
     assert.equal(slot?.expireRemove, true);
     assert.equal(slot?.expireReminder, false);

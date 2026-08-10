@@ -78,7 +78,7 @@ export function LocalProfileModal({
       groupName: initialValues.groupName || '默认分组',
       limitType: initialValues.limitType ?? 'unknown',
       isBanned: initialValues.isBanned ?? false,
-      nextRenewalOn: initialValues.nextRenewalOn ?? '',
+      nextRenewalOn: toDateTimeLocalValue(initialValues.nextRenewalOn),
       proxy: initialValues.proxy ?? '',
       manageWithAccountManager: initialValues.manageWithAccountManager ?? false,
       rawSession: initialSessionJson
@@ -151,7 +151,7 @@ export function LocalProfileModal({
           : {}),
         ...(mode === 'parent' ? {
           limitType: values.limitType ?? 'unknown',
-          nextRenewalOn: values.nextRenewalOn?.trim() ?? ''
+          nextRenewalOn: fromDateTimeLocalValue(values.nextRenewalOn)
         } : {}),
         ...(session ? { session } : {})
       });
@@ -218,12 +218,12 @@ export function LocalProfileModal({
                     label="下次续费时间"
                     rules={[
                       {
-                        pattern: /^$|^\d{4}-\d{2}-\d{2}$/,
-                        message: '请使用 yyyy-mm-dd'
+                        pattern: /^$|^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/,
+                        message: '请使用 yyyy-mm-dd HH:mm:ss'
                       }
                     ]}
                   >
-                    <Input type="date" />
+                    <Input type="datetime-local" step={1} />
                   </Form.Item>
                 </>
               )}
@@ -275,4 +275,15 @@ export function LocalProfileModal({
       )}
     </Modal>
   );
+}
+
+function toDateTimeLocalValue(value?: string): string {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value}T00:00:00`;
+  return value.replace(' ', 'T');
+}
+
+function fromDateTimeLocalValue(value?: string): string {
+  const trimmed = value?.trim() ?? '';
+  return trimmed ? trimmed.replace('T', ' ') : '';
 }

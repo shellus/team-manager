@@ -75,7 +75,9 @@ import {
 interface InviteValues {
   email: string;
   seat: SeatType;
+  contact?: string;
   remark?: string;
+  price?: string;
   expiresOn: string;
   expireRemove: boolean;
   expireReminder: boolean;
@@ -155,7 +157,9 @@ function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
   return {
     email: '',
     seat: defaultSeat ?? 'usage_based',
+    contact: '',
     remark: '',
+    price: '',
     expiresOn: defaultSeatSlotExpiresOn(),
     expireRemove: false,
     expireReminder: true
@@ -164,7 +168,9 @@ function defaultInviteValues(defaultSeat?: SeatType): InviteValues {
 
 export function seatSlotProfileFromInviteValues(values: InviteValues): AccountSeatSlotProfileInput {
   return {
+    contact: values.contact?.trim() ?? '',
     remark: values.remark?.trim() ?? '',
+    price: values.price?.trim() ?? '',
     expiresOn: values.expiresOn,
     expireRemove: values.expireRemove,
     expireReminder: values.expireReminder

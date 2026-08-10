@@ -34,7 +34,7 @@
 | `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token；只通过 `AccountLocalProfileView.session` 按需回填 |
 | `proxy` | 本地输入或 Account Manager 关联 | 母号独立代理地址，用于该母号 ChatGPT Web 请求和 workspace token 换取；关联 GAM 时自动保存其稳定本地 SID 代理 URL |
 | `workspaceName` | accounts/check 或远端改名结果 | 远端 Team workspace 名称 |
-| `nextRenewalOn` | accounts/check 自动识别或本地输入 | Team 下次续费日期，格式为 `yyyy-mm-dd` |
+| `nextRenewalOn` | 下一张账单、本地输入或 accounts/check | Team 下次预计扣款时间，格式为 `yyyy-mm-dd HH:mm:ss`；刷新账单时优先由 upcoming invoice 的 `next_payment_attempt` 同步 |
 | `planType` / `role` / `status` / `lastError` | refresh 结果 | 远端状态与错误摘要 |
 | `hasTeamSubscription` | Workspace 同步或账单刷新 | 当前 Workspace 是否存在有效双席位 Team 月付订阅的缓存；有效 recurring upcoming invoice 为主信号，`planType="team"` 为兼容信号 |
 | `membersCache` / `membersCachedAt` | 成员刷新或成员写操作 | 成员列表本地缓存 |
@@ -56,21 +56,28 @@
 
 母号和子号详情是否允许发起 GAM 操作只由本地 `managedAccountEmail` 决定，不以页面当前是否读取到 GAM、GAM 是否刚好可达或是否存在临时状态对象为前提。上游请求失败由本次操作返回错误；不能把“未读取”解释为“未纳管”。
 
-首页席位概览完全排除 `isBanned=true` 的母号；这些母号的成员、邀请、已占用席位、显式空 slot 和补足空位都不进入概览及其位置统计。未封号且 `hasTeamSubscription=true` 的母号补足两个固定 ChatGPT 位置。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。母号和子号列表仍显示统一封号标签，并把封号账号排在未封号账号之后。
+席位概览完全排除 `isBanned=true` 的母号；这些母号的成员、邀请、已占用席位、显式空 slot 和补足空位都不进入概览及其位置统计。未封号且 `hasTeamSubscription=true` 的母号补足两个固定 ChatGPT 位置。usage-based Workspace 只展示实际存在的成员或邀请，不生成固定席位空位；`canManageWorkspace=true` 本身不代表存在席位容量。母号和子号列表仍显示统一封号标签，并把封号账号排在未封号账号之后。
 
 `GET /api/accounts/overview` 必须在服务端完成位置构建、所有者/Codex 筛选、排序、计数和分页，只返回当前页的 `SeatOverviewItem[]`，不得把全部母号的 `membersCache`、`pendingInvitesCache` 或 `seatSlots` 交给浏览器再筛选。查询参数 `owners=1` 和 `codex=1` 分别启用所有者与 Codex 位置，`page` 和 `pageSize` 控制分页；默认每页 60 条，最大 100 条。筛选与页码写入 URL，刷新页面后保持一致。
+
+`GET /api/accounts/parent-overview` 只返回 `isBanned!=true && hasTeamSubscription=true` 的母号，按 `nextRenewalOn` 升序排列，缺少预计扣款时间的记录排在最后，并在服务端分页。每个 `ParentOverviewItem` 包含母号 `limitType` 和两个本地客户席位的邮箱、状态、备注、租金；桌面端固定按每行 5 个 Team 卡片展示。
+
+母号概览从该母号最新 `AccountBillingSnapshot.raw.upcomingInvoice` 派生 `renewalBilling`：原币金额优先读取 `amount_due`，缺失时回退 `total`，币种使用账单 `currency`。服务端按原币调用 [Frankfurter](https://frankfurter.dev/) `GET /v2/rate/{currency}/CNY` 获取人民币参考汇率，同币种在进程内缓存 12 小时，并返回折算后的人民币最小货币单位、汇率及汇率日期。参考汇率不写入运行数据；汇率服务不可用时仍返回原币金额，母号概览不得因此失败。
+
+席位概览和母号概览都使用 `masked=1` 保存脱敏开关；默认不脱敏，开启后前端模糊显示邮箱、联系方式和备注，不改变服务端数据。租金和账单金额不属于当前脱敏范围。
 
 ### Seat slots
 
 `membersCache[]` 中的成员显示名来自 ChatGPT 远端 `users[].name` 时，只能落到 `remoteName`。本地账号名称仍以 `email` 为准，不能把远端显示名复制成账号 `name`。
 
-`seatSlots` 保存母号下已运营的本地客户席位位置，可关联 `default` 或 `usage_based` 远端席位。该资料的维度是“母号内部 id × 席位位置”，不是邮箱、invite id 或 user id。邮箱只是当前位置的占用者；邀请转成员、修改席位类型或换号后，`remark`、`expiresOn`、`price` 和 `seatKey` 继续属于同一个 slot。
+`seatSlots` 保存母号下已运营的本地客户席位位置，可关联 `default` 或 `usage_based` 远端席位。该资料的维度是“母号内部 id × 席位位置”，不是邮箱、invite id 或 user id。邮箱只是当前位置的占用者；邀请转成员、修改席位类型或换号后，`contact`、`remark`、`expiresOn`、`price` 和 `seatKey` 继续属于同一个 slot。
 
 | 字段 | 说明 |
 |---|---|
 | `seatKey` | 16 位随机字符，用于免登录席位页鉴权 |
 | `email` | 当前绑定邮箱，可为空 |
-| `remark` | 席位备注文本，可为空 |
+| `contact` | 客户联系方式文本，可为空 |
+| `remark` | 联系方式和价格之外的补充备注，可为空 |
 | `expiresOn` | 到期日期，格式为 `yyyy-mm-dd` |
 | `price` | 本地价格文本，可为空 |
 | `seat` | 最近一次确认的远端席位类型：`default` 或 `usage_based` |
@@ -282,7 +289,7 @@ Content-Type: application/json
   "remark": "本地备注",
   "groupName": "自用",
   "limitType": "monthly",
-  "nextRenewalOn": "2026-07-16",
+  "nextRenewalOn": "2026-07-16 18:30:00",
   "proxy": "<proxy-url>",
   "session": {
     "user": { "email": "owner@example.com" },
@@ -318,7 +325,7 @@ Content-Type: application/json
 }
 ```
 
-PATCH 请求中的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。编辑弹窗先读取对应 GET 接口，用返回的分组、`session` 和 `proxy` 回填表单。
+PATCH 请求中的 `session`、`proxy` 都可省略。母号与子号各自的顶层 `groupName` 为空时归入 `默认分组`；子号 `codexCredentials[].groupName` 仍表示 CPA 号池，缺省为 `默认号池`。`remark` 可为空，`limitType` 只能是 `unknown`、`weekly` 或 `monthly`，`nextRenewalOn` 为空或格式为 `yyyy-mm-dd HH:mm:ss`；兼容的旧日期输入会补成当天 `00:00:00`。母号和子号接口都不接受 `label` 或 `note` 字段；GPT 账号显示名称统一来自 `email`，本地备注统一来自 `remark`。编辑弹窗先读取对应 GET 接口，用返回的分组、`session` 和 `proxy` 回填表单。
 
 Codex 凭证支持 OAuth authorization-code + PKCE 和 PAT。两种凭证都按目标 Team workspace 保存，同一 workspace 后保存的凭证覆盖前一份。
 

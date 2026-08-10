@@ -19,6 +19,7 @@ type StoredAccount = Account & Record<string, unknown>;
 
 const DEFAULT_ACCOUNT_GROUP = '默认分组';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const SEAT_KEY_PATTERN = /^[A-Za-z0-9]{16}$/;
 const ACCOUNT_LIMIT_TYPES = new Set<AccountLimitType>(['unknown', 'weekly', 'monthly']);
 const SEAT_SLOT_STATUSES = new Set<AccountSeatSlotStatus>(['empty', 'invited', 'member', 'unknown']);
@@ -50,6 +51,13 @@ function normalizeLimitType(value: unknown): AccountLimitType {
 
 function normalizeDateOnly(value: unknown): string | undefined {
   return typeof value === 'string' && DATE_ONLY_PATTERN.test(value.trim()) ? value.trim() : undefined;
+}
+
+function normalizeDateTime(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (DATE_TIME_PATTERN.test(trimmed)) return trimmed;
+  return DATE_ONLY_PATTERN.test(trimmed) ? `${trimmed} 00:00:00` : undefined;
 }
 
 function normalizeMembersCache(input: Account['membersCache']): Account['membersCache'] | undefined {
@@ -96,6 +104,7 @@ function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] |
     if (!expiresOn) continue;
 
     const email = normalizeEmail(slot.email);
+    const contact = readTrimmedString(slot.contact);
     const remark = readTrimmedString(slot.remark);
     const price = readTrimmedString(slot.price);
     const statusValue = readTrimmedString(slot.status);
@@ -114,6 +123,7 @@ function normalizeSeatSlots(input: Account['seatSlots']): Account['seatSlots'] |
     slots.push({
       seatKey,
       ...(email ? { email } : {}),
+      ...(contact ? { contact } : {}),
       ...(remark ? { remark } : {}),
       expiresOn,
       ...(price ? { price } : {}),
@@ -293,7 +303,7 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
       : {}),
     role: input.role,
     ...(readTrimmedString(input.workspaceName) ? { workspaceName: readTrimmedString(input.workspaceName) } : {}),
-    ...(normalizeDateOnly(input.nextRenewalOn) ? { nextRenewalOn: normalizeDateOnly(input.nextRenewalOn) } : {}),
+    ...(normalizeDateTime(input.nextRenewalOn) ? { nextRenewalOn: normalizeDateTime(input.nextRenewalOn) } : {}),
     status: input.status,
     membersCache,
     membersCachedAt: input.membersCachedAt,

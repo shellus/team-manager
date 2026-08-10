@@ -102,7 +102,7 @@ export interface Account {
   hasTeamSubscription?: boolean; // 当前 Workspace 是否存在有效的双席位 Team 订阅缓存
   role?: MemberRole;
   workspaceName?: string;
-  nextRenewalOn?: string;     // 下次续费日期，yyyy-mm-dd
+  nextRenewalOn?: string;     // 下次续费时间，yyyy-mm-dd HH:mm:ss
   status?: 'active' | 'invalid' | 'unknown';
   membersCache?: Member[];    // 成员列表缓存，供前端先显示再后台刷新
   membersCachedAt?: number;
@@ -240,7 +240,7 @@ export type AccountOverviewView = Pick<
   | 'membersCache'
   | 'pendingInvitesCache'
   | 'seatSlots'
->;
+> & { limitType?: AccountLimitType };
 
 export type SeatOverviewSource = 'seat-slot' | 'member' | 'invite' | 'placeholder';
 export type SeatOverviewExpirySource = 'slot' | 'team-renewal';
@@ -267,11 +267,52 @@ export interface SeatOverviewItem {
   seat: SeatType;
   role?: MemberRole;
   email?: string;
+  contact?: string;
   remark?: string;
   expiresOn?: string;
   expiresOnSource?: SeatOverviewExpirySource;
   price?: string;
   seatKey?: string;
+}
+
+export interface ParentOverviewSeatItem {
+  seatKey: string;
+  email?: string;
+  contact?: string;
+  remark?: string;
+  expiresOn: string;
+  price?: string;
+  status: AccountSeatSlotStatus;
+}
+
+export interface ParentOverviewItem {
+  id: string;
+  workspaceAccountId: string;
+  teamName: string;
+  parentEmail: string;
+  remark?: string;
+  limitType: AccountLimitType;
+  nextRenewalOn?: string;
+  renewalBilling?: {
+    amount: number;
+    currency: string;
+    cnyAmount?: number;
+    exchangeRate?: number;
+    exchangeRateDate?: string;
+  };
+  seats: ParentOverviewSeatItem[];
+}
+
+export interface ParentOverviewQuery {
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ParentOverviewPageView {
+  items: ParentOverviewItem[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface AccountOverviewPageView {
@@ -331,6 +372,7 @@ function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOvervi
       seat: relation?.seat ?? slot.seat,
       role: relation?.role,
       email: slot.email,
+      contact: slot.contact,
       remark: slot.remark,
       expiresOn: slot.expiresOn,
       expiresOnSource: 'slot',
@@ -370,6 +412,36 @@ function buildAccountSeatOverviewItems(account: AccountOverviewView): SeatOvervi
   }
 
   return items;
+}
+
+export function buildParentOverviewItems(accounts: readonly AccountOverviewView[]): ParentOverviewItem[] {
+  return accounts
+    .filter((account) => !account.isBanned && account.hasTeamSubscription)
+    .map((account) => ({
+      id: account.id,
+      workspaceAccountId: account.accountId,
+      teamName: account.workspaceName?.trim() || account.accountId || '未命名 Team',
+      parentEmail: account.email,
+      ...(account.remark?.trim() ? { remark: account.remark.trim() } : {}),
+      limitType: account.limitType ?? 'unknown',
+      ...(account.nextRenewalOn ? { nextRenewalOn: account.nextRenewalOn } : {}),
+      seats: (account.seatSlots ?? [])
+        .filter((slot) => slot.seat === 'default')
+        .map((slot) => ({
+          seatKey: slot.seatKey,
+          ...(slot.email ? { email: slot.email } : {}),
+          ...(slot.contact ? { contact: slot.contact } : {}),
+          ...(slot.remark ? { remark: slot.remark } : {}),
+          expiresOn: slot.expiresOn,
+          ...(slot.price ? { price: slot.price } : {}),
+          status: slot.status ?? (slot.email ? 'unknown' : 'empty')
+        }))
+    }))
+    .sort((a, b) => (
+      overviewDateRank(a.nextRenewalOn) - overviewDateRank(b.nextRenewalOn)
+      || seatOverviewCollator.compare(a.teamName, b.teamName)
+      || a.id.localeCompare(b.id)
+    ));
 }
 
 function accountOverviewRelations(account: AccountOverviewView): SeatOverviewRelation[] {
@@ -446,7 +518,10 @@ function compareSeatOverviewItems(a: SeatOverviewItem, b: SeatOverviewItem): num
 
 function overviewDateRank(value: string | undefined): number {
   if (!value) return Number.POSITIVE_INFINITY;
-  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00Z`
+    : `${value.replace(' ', 'T')}Z`;
+  const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY;
 }
 
@@ -556,6 +631,7 @@ export function accountSummaryFromView(account: AccountView): AccountSummaryView
     ...(invites ?? []).flatMap((invite) => [invite.email, invite.role]),
     ...(account.seatSlots ?? []).flatMap((slot) => [
       slot.email,
+      slot.contact,
       slot.remark,
       slot.expiresOn,
       slot.price,
@@ -614,7 +690,9 @@ export interface PendingInvite {
 
 /** 客户席位的本地运营资料。 */
 export interface AccountSeatSlotProfileInput {
+  contact?: string;
   remark?: string;
+  price?: string;
   expiresOn?: string;
   expireRemove?: boolean;
   expireReminder?: boolean;
@@ -657,6 +735,7 @@ export interface SeatSlotSwapState {
 export interface AccountSeatSlot {
   seatKey: string;
   email?: string;
+  contact?: string;
   remark?: string;
   expiresOn: string;
   price?: string;
@@ -674,6 +753,7 @@ export interface AccountSeatSlot {
 export interface PublicSeatSlotView {
   seatKey: string;
   email?: string;
+  contact?: string;
   remark?: string;
   expiresOn: string;
   price?: string;

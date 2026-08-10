@@ -177,12 +177,14 @@ Account Manager 不等待 ChatGPT 首页异步加载优惠弹窗，而是使用�
 
 邀请任一席位类型时都可填写客户席位资料：
 
-- 席位备注。
+- 联系方式。
+- 价格。
+- 联系方式和价格之外的补充备注。
 - 席位到期日期，默认当前日期加 30 天。
 - 到期提醒，默认开启。
 - 到期移除标记，默认关闭。
 
-这些资料保存到母号的客户席位位置，与 ChatGPT/Codex 远端席位类型相互独立。邮箱只是席位当前占用者；邀请被接受、修改席位类型或客户换号后，备注、到期日期、价格和席位管理地址继续属于原席位位置。
+这些资料保存到母号的客户席位位置，与 ChatGPT/Codex 远端席位类型相互独立。邮箱只是席位当前占用者；邀请被接受、修改席位类型或客户换号后，联系方式、备注、到期日期、价格和席位管理地址继续属于原席位位置。
 
 ## 统一成员列表
 
@@ -220,7 +222,15 @@ ChatGPT 和 Codex 席位成员都支持编辑客户席位资料。`到期移除`
 
 Team 改名修改远端 workspace 名称。GPT 账号显示名统一来自 `email`，备注使用 `remark`，两者都不修改 ChatGPT 远端 Team 名称。
 
-编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn` 和独立代理地址 `proxy`，也可同时替换 session。替换 session 只支持 chatgpt.com session JSON；session JSON 中的 `sessionToken` 会被保存，用于后续换取 workspace Web access token。系统会优先保留当前母号绑定的 Workspace：新 session 仍可访问该空间时，只更新该空间的 Web access token；否则按可管理 Workspace 规则重新识别目标。系统会用新 session 的 `user.email` 更新 `email`。本地资料弹窗会回填已保存的 session JSON 和代理地址。
+编辑母号本地资料可修改备注 `remark`、母号分组 `groupName`、限额类型 `limitType`、下次续费时间 `nextRenewalOn` 和独立代理地址 `proxy`，也可同时替换 session。`nextRenewalOn` 使用 `yyyy-mm-dd HH:mm:ss`；刷新账单时，系统会从下一张账单的预计扣款时间同步该字段。替换 session 只支持 chatgpt.com session JSON；session JSON 中的 `sessionToken` 会被保存，用于后续换取 workspace Web access token。系统会优先保留当前母号绑定的 Workspace：新 session 仍可访问该空间时，只更新该空间的 Web access token；否则按可管理 Workspace 规则重新识别目标。系统会用新 session 的 `user.email` 更新 `email`。本地资料弹窗会回填已保存的 session JSON 和代理地址。
+
+## 概览页面
+
+“席位概览”展示客户席位和可选的所有者、Codex 位置；“母号概览”只展示未封号且已确认双席位订阅的 Team，并按预计扣款时间升序排列，缺少时间的 Team 排在最后。母号概览桌面端每行显示 5 个 Team 卡片；卡片展示限额类型、账单原币续费金额、人民币参考折算金额，并在两个席位下分别展示邮箱、状态、备注和租金。
+
+续费金额来自最近一次“刷新账单”保存的 upcoming invoice，优先使用 `amount_due`，缺失时使用 `total`。人民币金额使用 Frankfurter 提供的每日参考汇率在服务端折算；同币种汇率缓存 12 小时。汇率暂时不可用时页面仍显示账单原币金额，并标记人民币汇率暂缺，不影响其他母号数据加载。
+
+两页的“脱敏”开关默认关闭，状态写入 URL；开启后模糊显示邮箱、联系方式和备注。租金和账单金额保持可见。
 
 分组用于区分自用、已出租车位等运营集合。分组只是本地展示和筛选字段，不影响远端 Team workspace。
 

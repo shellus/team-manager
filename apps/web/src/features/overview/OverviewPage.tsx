@@ -11,6 +11,7 @@ import {
   seatOverviewBadgeTarget,
   seatOverviewCardIdentity
 } from './seatOverview.js';
+import { SensitiveText } from './SensitiveText.js';
 
 export function OverviewPage({ initialOverview }: { initialOverview?: AccountOverviewPageView }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -19,6 +20,7 @@ export function OverviewPage({ initialOverview }: { initialOverview?: AccountOve
   const [error, setError] = useState('');
   const showOwners = searchParams.get('owners') === '1';
   const showCodexSeats = searchParams.get('codex') === '1';
+  const masked = searchParams.get('masked') === '1';
   const requestedPage = positiveInteger(searchParams.get('page')) ?? 1;
   const searchParamsKey = searchParams.toString();
   const items = overview?.items ?? [];
@@ -54,7 +56,7 @@ export function OverviewPage({ initialOverview }: { initialOverview?: AccountOve
     };
   }, [initialOverview, requestedPage, searchParamsKey, setSearchParams, showCodexSeats, showOwners]);
 
-  const setFilter = (key: 'owners' | 'codex', checked: boolean) => {
+  const setFilter = (key: 'owners' | 'codex' | 'masked', checked: boolean) => {
     const next = new URLSearchParams(searchParams);
     if (checked) next.set(key, '1');
     else next.delete(key);
@@ -73,7 +75,7 @@ export function OverviewPage({ initialOverview }: { initialOverview?: AccountOve
     <div className="overview-page">
       <div className="overview-header">
         <div>
-          <Typography.Title level={2}>概览</Typography.Title>
+          <Typography.Title level={2}>席位概览</Typography.Title>
           <Typography.Text type="secondary">按到期时间升序列出固定 ChatGPT 席位和 Codex 成员位置</Typography.Text>
         </div>
         <div className="overview-header-side">
@@ -81,6 +83,10 @@ export function OverviewPage({ initialOverview }: { initialOverview?: AccountOve
             <label className="overview-switch">
               <Switch checked={showOwners} onChange={(checked) => setFilter('owners', checked)} />
               <Typography.Text>显示所有者</Typography.Text>
+            </label>
+            <label className="overview-switch">
+              <Switch checked={masked} onChange={(checked) => setFilter('masked', checked)} />
+              <Typography.Text>脱敏</Typography.Text>
             </label>
             <label className="overview-switch">
               <Switch checked={showCodexSeats} onChange={(checked) => setFilter('codex', checked)} />
@@ -106,7 +112,7 @@ export function OverviewPage({ initialOverview }: { initialOverview?: AccountOve
         <>
           <div className="seat-overview-grid" aria-busy={loading}>
             {items.map((item) => (
-              <SeatOverviewCard key={item.id} item={item} />
+              <SeatOverviewCard key={item.id} item={item} masked={masked} />
             ))}
           </div>
           {overview && overview.total > overview.pageSize && (
@@ -126,13 +132,13 @@ export function OverviewPage({ initialOverview }: { initialOverview?: AccountOve
   );
 }
 
-function SeatOverviewCard({ item }: { item: SeatOverviewItem }) {
+function SeatOverviewCard({ item, masked }: { item: SeatOverviewItem; masked: boolean }) {
   const identity = seatOverviewCardIdentity(item);
   return (
     <Card className="seat-position-card" size="small">
       <div className="seat-position-head">
-        <Typography.Text strong ellipsis={{ tooltip: identity.primary }}>
-          {identity.primary}
+        <Typography.Text strong ellipsis={masked ? true : { tooltip: identity.primary }}>
+          <SensitiveText masked={masked && Boolean(item.email)}>{identity.primary}</SensitiveText>
         </Typography.Text>
         <Space size={4}>
           <PositionOrSeatTag item={item} />
@@ -145,10 +151,17 @@ function SeatOverviewCard({ item }: { item: SeatOverviewItem }) {
         <Typography.Text ellipsis={{ tooltip: identity.secondary }}>{identity.secondary}</Typography.Text>
       </SeatPositionField>
       <SeatPositionField label="备注">
-        <Typography.Text className="seat-position-remark" title={item.remark || defaultRemark(item)}>
-          {item.remark || defaultRemark(item)}
+        <Typography.Text className="seat-position-remark" title={masked ? undefined : (item.remark || defaultRemark(item))}>
+          <SensitiveText masked={masked && Boolean(item.remark)}>{item.remark || defaultRemark(item)}</SensitiveText>
         </Typography.Text>
       </SeatPositionField>
+      {item.contact && (
+        <SeatPositionField label="联系">
+          <Typography.Text ellipsis={masked ? true : { tooltip: item.contact }}>
+            <SensitiveText masked={masked}>{item.contact}</SensitiveText>
+          </Typography.Text>
+        </SeatPositionField>
+      )}
       <SeatPositionField label="到期">
         <Typography.Text>
           {item.expiresOn ? `${item.expiresOn}${item.expiresOnSource === 'team-renewal' ? ' · Team续费' : ''}` : '暂无'}

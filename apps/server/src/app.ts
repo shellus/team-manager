@@ -9,6 +9,7 @@ import { signJwt, verifyJwt } from './auth/jwt.js';
 import { hashPassword, verifyPasswordHash } from './auth/password.js';
 import { AccountStore } from './accountStore.js';
 import { AccountBillingStore } from './accountBillingStore.js';
+import { FrankfurterExchangeRateService, type ExchangeRateGateway } from './exchangeRateService.js';
 import { AppSettingsStore } from './appSettingsStore.js';
 import { RrwebRecordingStore, RrwebRecordingStoreError } from './rrwebRecordingStore.js';
 import { TeamService, ServiceError } from './teamService.js';
@@ -47,6 +48,7 @@ export interface BuildAppDeps {
   teamTransport?: Transport;
   settingsStore?: AppSettingsStore;
   billingStore?: AccountBillingStore;
+  exchangeRateGateway?: ExchangeRateGateway;
   teamCodeGateway?: TeamCodeGateway;
   rrwebRecordingStore?: RrwebRecordingStore;
   startTeamOrderScheduler?: boolean;
@@ -97,6 +99,7 @@ export async function buildApp({
   teamTransport,
   settingsStore,
   billingStore,
+  exchangeRateGateway,
   teamCodeGateway,
   rrwebRecordingStore,
   startTeamOrderScheduler = false
@@ -108,7 +111,13 @@ export async function buildApp({
     const subaccount = subaccountStore.getByEmail(email.trim());
     if (subaccount?.isBanned) throw new ServiceError(409, '封号子号不能邀请加入 Team');
   };
-  const service = new TeamService(store, teamTransport, accountBillingStore, assertSubaccountCanBeInvited);
+  const service = new TeamService(
+    store,
+    teamTransport,
+    accountBillingStore,
+    assertSubaccountCanBeInvited,
+    exchangeRateGateway ?? new FrankfurterExchangeRateService()
+  );
   const appSettingsStore = settingsStore ?? new AppSettingsStore(config.dataDir);
   await appSettingsStore.init();
   const debugRecordingStore = rrwebRecordingStore ?? new RrwebRecordingStore(config.dataDir);
@@ -524,6 +533,11 @@ export async function buildApp({
     pageSize: parsePositiveInteger(c.req.query('pageSize'))
   })));
 
+  api.get('/accounts/parent-overview', (c) => wrap(c, () => service.listParentOverview({
+    page: parsePositiveInteger(c.req.query('page')),
+    pageSize: parsePositiveInteger(c.req.query('pageSize'))
+  })));
+
   api.get('/accounts/:id', (c) => wrap(c, () => service.getAccountDetail(c.req.param('id'))));
 
   api.post('/accounts', async (c) => {
@@ -706,7 +720,9 @@ export async function buildApp({
   api.patch('/accounts/:id/seat-slots/profile', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       email?: string;
+      contact?: string;
       remark?: string;
+      price?: string;
       expiresOn?: string;
       expireRemove?: boolean;
       expireReminder?: boolean;
@@ -714,7 +730,9 @@ export async function buildApp({
     if (!body.email?.trim()) return c.json({ ok: false, error: '缺少 email' }, 400);
     return wrap(c, () =>
       service.updateSeatSlotProfile(c.req.param('id'), body.email!, {
+        contact: body.contact,
         remark: body.remark,
+        price: body.price,
         expiresOn: body.expiresOn,
         expireRemove: body.expireRemove,
         expireReminder: body.expireReminder

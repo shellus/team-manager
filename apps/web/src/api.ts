@@ -8,6 +8,8 @@ import type {
   AccountLocalProfileView,
   AccountOverviewPageView,
   AccountOverviewQuery,
+  ParentOverviewPageView,
+  ParentOverviewQuery,
   AccountSeatSlotProfileInput,
   AccountSummaryView,
   AccountView,
@@ -134,6 +136,13 @@ export const apiClient = {
     if (options.pageSize) query.set('pageSize', String(options.pageSize));
     const suffix = query.size ? `?${query.toString()}` : '';
     return getWhilePending<AccountOverviewPageView>(`/accounts/overview${suffix}`);
+  },
+  listParentOverview: (options: ParentOverviewQuery = {}) => {
+    const query = new URLSearchParams();
+    if (options.page && options.page > 1) query.set('page', String(options.page));
+    if (options.pageSize) query.set('pageSize', String(options.pageSize));
+    const suffix = query.size ? `?${query.toString()}` : '';
+    return getWhilePending<ParentOverviewPageView>(`/accounts/parent-overview${suffix}`);
   },
   getAccount: (id: string) => call<AccountView>('GET', `/accounts/${id}`),
   getAccountLocalProfile: (id: string) =>
