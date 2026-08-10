@@ -3,9 +3,11 @@ import type {
   AccountManagerOperationView,
   AccountManagerProfileView,
   ChatGptSessionInput,
+  AddPersonalPaymentMethodRequest,
   OpenCodexSpaceRequest,
   OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
+  PersonalPaymentMethodDefaults,
   Pro5xPaymentStatisticsView,
   ResidentialProxyConfig,
   SubaccountRegistrationJobStatus,
@@ -50,6 +52,8 @@ export interface ManagedAccountSummary {
   hasCodexSpace: boolean;
   hasTeamSubscription: boolean;
   hasPro5x?: boolean;
+  paymentMethods?: import('@team-manager/shared').PersonalPaymentMethodView[];
+  paymentMethodsUpdatedAt?: number;
   workspaces: ManagedAccountWorkspace[];
 }
 
@@ -107,6 +111,7 @@ export interface AccountManagerGateway {
   startAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
   stopAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
   accountProxyConfig(accountId: string): Promise<ResidentialProxyConfig>;
+  accountHttpProxy?(accountId: string): Promise<string>;
   configureAccountProxy(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   session(accountId: string): Promise<ChatGptSessionInput>;
   openCodexSpace(
@@ -121,6 +126,11 @@ export interface AccountManagerGateway {
     accountId: string,
     input: OpenPro5xRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
+  addPersonalPaymentMethod(
+    accountId: string,
+    input: AddPersonalPaymentMethodRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
+  personalPaymentMethodDefaults(accountId: string): Promise<PersonalPaymentMethodDefaults>;
 }
 
 export class AccountManagerClient implements AccountManagerGateway {
@@ -282,6 +292,16 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`);
   }
 
+  async accountHttpProxy(accountId: string): Promise<string> {
+    const result = await this.request<{ proxy: string }>(
+      'GET',
+      `/v1/accounts/${encodeURIComponent(accountId)}/http-proxy`
+    );
+    const proxy = result.proxy?.trim();
+    if (!proxy) throw new AccountManagerError(502, 'Account Manager 返回的账号 HTTP 代理为空');
+    return proxy;
+  }
+
   configureAccountProxy(
     accountId: string,
     input: ResidentialProxyConfig
@@ -326,7 +346,26 @@ export class AccountManagerClient implements AccountManagerGateway {
     ));
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async addPersonalPaymentMethod(
+    accountId: string,
+    input: AddPersonalPaymentMethodRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-personal-payment-method`,
+      input,
+      true
+    ));
+  }
+
+  personalPaymentMethodDefaults(accountId: string): Promise<PersonalPaymentMethodDefaults> {
+    return this.request(
+      'GET',
+      `/v1/accounts/${encodeURIComponent(accountId)}/personal-payment-method-defaults`
+    );
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown, sensitiveBody = false): Promise<T> {
     const response = await fetchWithRawTrace(
       'account-manager',
       `${this.baseUrl}${path}`,
@@ -339,7 +378,8 @@ export class AccountManagerClient implements AccountManagerGateway {
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) })
       },
-      this.fetchImpl
+      this.fetchImpl,
+      sensitiveBody ? { requestBody: '[REDACTED SENSITIVE PAYMENT INPUT]' } : {}
     );
     const text = await response.text();
     let parsed: { ok?: boolean; data?: T; error?: string };

@@ -302,6 +302,8 @@ function sanitizeAccount(input: StoredAccount): { account: Account; changed: boo
     workspaceReferralsEnabled: input.workspaceReferralsEnabled,
     workspaceReferralsEnabledVisible: input.workspaceReferralsEnabledVisible,
     workspaceReferralsEnabledCachedAt: input.workspaceReferralsEnabledCachedAt,
+    autoAcceptRequests: input.autoAcceptRequests,
+    autoAcceptRequestsCachedAt: input.autoAcceptRequestsCachedAt,
     personalAccessTokensEnabled: input.personalAccessTokensEnabled,
     personalAccessTokensCachedAt: input.personalAccessTokensCachedAt,
     codexLocalAccessEnabled: input.codexLocalAccessEnabled,

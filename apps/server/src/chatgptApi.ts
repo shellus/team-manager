@@ -368,6 +368,11 @@ export class ChatGptApi {
     return this.request('POST', path, { value: enabled });
   }
 
+  async setAutoAcceptRequests(enabled: boolean): Promise<Record<string, unknown>> {
+    const path = `/backend-api/accounts/${this.account.accountId}/settings/auto_accept_requests`;
+    return this.request('POST', path, { value: enabled });
+  }
+
   async getBillingSnapshotRaw(): Promise<AccountBillingSnapshot['raw']> {
     const workspaceAccountId = encodeURIComponent(this.account.accountId);
     const invoices = await this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${workspaceAccountId}`);

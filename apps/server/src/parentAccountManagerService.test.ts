@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import type {
   AccountManagerOperationView,
+  AddPersonalPaymentMethodRequest,
   AccountManagerProfileView,
   AccountView,
   OpenCodexSpaceRequest,
@@ -81,6 +82,7 @@ class FakeAccountManager implements AccountManagerGateway {
   opened?: { accountId: string; input: OpenCodexSpaceRequest & { requestTag?: string } };
   openedTeam?: { accountId: string; input: OpenTeamSubscriptionRequest & { requestTag?: string } };
   openedPro5x?: { accountId: string; input: OpenPro5xRequest & { requestTag?: string } };
+  addedPaymentMethod?: { accountId: string; input: AddPersonalPaymentMethodRequest & { requestTag?: string } };
   providedCards: Array<{ operationId: string; input: OpenPro5xRequest }> = [];
   controls: string[] = [];
   syncCalls: string[] = [];
@@ -306,6 +308,10 @@ class FakeAccountManager implements AccountManagerGateway {
     };
   }
 
+  async accountHttpProxy() {
+    return 'http://managed-session:gateway-password@mihomo.example:3012';
+  }
+
   async configureAccountProxy(accountId: string, input: ResidentialProxyConfig) {
     this.proxyConfigs.set(accountId, input);
     return input;
@@ -369,6 +375,30 @@ class FakeAccountManager implements AccountManagerGateway {
     };
     this.operations.push(operation);
     return operation;
+  }
+
+  async addPersonalPaymentMethod(
+    accountId: string,
+    input: AddPersonalPaymentMethodRequest & { requestTag?: string }
+  ) {
+    this.addedPaymentMethod = { accountId, input };
+    const operation: AccountManagerOperationView = {
+      id: `payment-method-${this.operations.length}`,
+      accountId,
+      type: 'add_personal_payment_method',
+      status: 'queued',
+      phase: 'payment_method_queued',
+      progress: 0,
+      requestSummary: { requestTag: input.requestTag, cardLast4: input.card.number.slice(-4) },
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    this.operations.push(operation);
+    return operation;
+  }
+
+  async personalPaymentMethodDefaults() {
+    return { holderName: 'Taylor Anderson', postalCode: '97210', region: 'US-OR' };
   }
 
   completeRegistration(email: string) {
@@ -665,6 +695,7 @@ describe('ParentAccountManagerService', () => {
       assert.equal(statuses[parent.id]?.managed, true);
       assert.equal(statuses[parent.id]?.importedAccounts?.[0]?.id, parent.id);
       assert.equal(store.get(parent.id)?.managedAccountEmail, 'owner@example.com');
+      assert.equal(store.get(parent.id)?.proxy, 'http://managed-session:gateway-password@mihomo.example:3012');
       assert.equal(store.get(parent.id)?.accountId, 'team-workspace');
       assert.equal(store.get(parent.id)?.accessToken, 'existing-workspace-token');
       assert.equal(store.get(parent.id)?.remark, '客户备注');
@@ -693,6 +724,7 @@ describe('ParentAccountManagerService', () => {
       assert.equal(status.managed, true);
       assert.equal(status.importedAccounts?.[0]?.id, parent.id);
       assert.equal(store.get(parent.id)?.managedAccountEmail, 'owner@example.com');
+      assert.equal(store.get(parent.id)?.proxy, 'http://managed-session:gateway-password@mihomo.example:3012');
       assert.equal(accountManager.operations.filter((operation) => operation.type === 'import').length, 0);
     });
   });
@@ -1131,6 +1163,28 @@ describe('ParentAccountManagerService', () => {
       assert.equal(store.get(parent.id)?.accountManagerHasPro5x, true);
       assert.equal(store.get(parent.id)?.accountManagerPro5xCardLast4, '4444');
       assert.equal(typeof store.get(parent.id)?.accountManagerSyncedAt, 'number');
+    });
+  });
+
+  it('binds a parent personal payment method through the isolated GAM operation', async () => {
+    await withService(async (service, accountManager, _teamService, store) => {
+      const parent = await store.add({
+        managedAccountEmail: 'owner@example.com', accountId: 'personal-account',
+        email: 'owner@example.com', accessToken: 'web-access-token'
+      });
+      const operation = await service.addAccountPersonalPaymentMethod(parent.id, {
+        holderName: 'Taylor Anderson', postalCode: '97210',
+        card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' }
+      });
+      assert.equal(operation.type, 'add_personal_payment_method');
+      assert.equal(accountManager.addedPaymentMethod?.accountId, 'owner@example.com');
+      assert.equal(accountManager.addedPaymentMethod?.input.requestTag, ACCOUNT_MANAGER_REQUEST_TAGS.parent);
+      assert.equal(operation.requestSummary?.cardLast4, '4242');
+      assert.equal(JSON.stringify(operation).includes('4242424242424242'), false);
+      assert.equal((await service.personalPaymentMethodOperation(parent.id, operation.id)).id, operation.id);
+      assert.deepEqual(await service.accountPersonalPaymentMethodDefaults(parent.id), {
+        holderName: 'Taylor Anderson', postalCode: '97210', region: 'US-OR'
+      });
     });
   });
 

@@ -274,7 +274,8 @@ export async function fetchWithRawTrace(
   upstream: string,
   input: RequestInfo | URL,
   init: RequestInit = {},
-  fetchImpl: typeof fetch = nativeFetch
+  fetchImpl: typeof fetch = nativeFetch,
+  traceOptions: { requestBody?: string } = {}
 ): Promise<Response> {
   const traceFile = resolveTraceFile();
   const effectiveFetch = catchAllFetchSources.get(fetchImpl) ?? fetchImpl;
@@ -288,7 +289,7 @@ export async function fetchWithRawTrace(
     method: preparedRequest.method,
     url: preparedRequest.url,
     headers: fetchHeaderList(preparedRequest.headers),
-    body: await requestBodyText(preparedRequest)
+    body: traceOptions.requestBody ?? await requestBodyText(preparedRequest)
   };
 
   try {

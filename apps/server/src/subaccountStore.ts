@@ -251,6 +251,7 @@ export class SubaccountStore {
     managedAccountEmail: string;
     email: string;
     groupName?: string;
+    proxy?: string;
     session: ChatGptSessionInput;
     status?: Subaccount['status'];
     lastError?: string;
@@ -278,12 +279,12 @@ export class SubaccountStore {
         : normalizeSubaccountGroupName(input.groupName),
       chatgptAccountId: input.session.account.id,
       webAccessToken: input.session.accessToken,
+      proxy: input.proxy?.trim() || existing?.proxy,
       sessionToken: input.session.sessionToken,
       sessionTokenStatus: 'unknown',
       sessionTokenCheckedAt: undefined,
       webAccessTokenStatus: 'unknown',
       webAccessTokenCheckedAt: undefined,
-      proxy: existing?.proxy,
       managedAccountEmail,
       codexCredentials: existing?.codexCredentials,
       teamLinks: existing?.teamLinks,

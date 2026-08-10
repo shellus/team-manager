@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   subaccountSummaryFromView,
+  type AddPersonalPaymentMethodRequest,
   type AccountSummaryView,
   type CodexAuthStart,
   type CodexQuotaSnapshot,
@@ -17,7 +18,7 @@ import {
   type SubaccountSummaryView,
   type SubaccountView
 } from '@team-manager/shared';
-import { Alert, Button, Form, Input, Modal, Select, Space, Typography } from 'antd';
+import { Alert, App, Button, Form, Input, Modal, Select, Space, Typography } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
 import {
@@ -34,6 +35,8 @@ import { registrationStatusNeedsPolling } from '../../components/registrationPol
 import { LocalProfileModal } from '../../components/LocalProfileModal.js';
 import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { OpenPro5xModal } from '../../components/OpenPro5xModal.js';
+import { AddPersonalPaymentMethodModal } from '../../components/AddPersonalPaymentMethodModal.js';
+import { waitForAccountManagerOperation } from '../../components/waitForAccountManagerOperation.js';
 import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
 import { RegistrationStartModal } from '../../components/RegistrationStartModal.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
@@ -162,6 +165,7 @@ export function SubaccountRoutes({
   accounts: AccountSummaryView[];
   onError: (error: unknown) => void;
 }) {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const { subaccountId, registrationJobId } = useParams();
@@ -762,6 +766,22 @@ export function SubaccountRoutes({
     }
   };
 
+  const submitPersonalPaymentMethod = async (payload: AddPersonalPaymentMethodRequest) => {
+    const target = searchState.target;
+    if (!target) return;
+    setLocalError('');
+    try {
+      await actionBusy.run('add-personal-payment-method', async () => {
+        const operation = await apiClient.addSubaccountPersonalPaymentMethod(target, payload);
+        await waitForAccountManagerOperation(() =>
+          apiClient.getSubaccountPersonalPaymentMethodOperation(target, operation.id)
+        );
+        void message.success('个人支付方式已绑定并设为默认');
+        closeModal();
+      });
+    } catch (error) { reportLocalError(error); }
+  };
+
   const terminatePro5x = async (subaccountId: string, operationId: string) => {
     const key = `terminate-pro5x-${operationId}`;
     setLocalError('');
@@ -1066,6 +1086,7 @@ export function SubaccountRoutes({
             onOpenEdit={() => selectedSummary && openModal('edit-subaccount-profile', selectedSummary.id)}
             onOpenDelete={() => selectedSummary && openModal('delete-subaccount', selectedSummary.id)}
             onOpenPro5x={() => selectedSummary && openModal('open-pro-5x', selectedSummary.id)}
+            onAddPersonalPaymentMethod={() => selectedSummary && openModal('add-personal-payment-method', selectedSummary.id)}
             onRetryPro5x={(operationId) => {
               if (selectedSummary) void retryPro5x(selectedSummary.id, operationId);
             }}
@@ -1153,6 +1174,18 @@ export function SubaccountRoutes({
           : 'open'}
         onCancel={closeModal}
         onSubmit={submitPro5x}
+      />
+
+      <AddPersonalPaymentMethodModal
+        open={searchState.modal === 'add-personal-payment-method'}
+        accountLabel={selectedSummary?.remark || selectedSummary?.email || '当前子号'}
+        confirmLoading={actionBusy.isBusy('add-personal-payment-method')}
+        error={searchState.modal === 'add-personal-payment-method' ? localError : ''}
+        loadDefaults={() => selectedSummary
+          ? apiClient.getSubaccountPersonalPaymentMethodDefaults(selectedSummary.id)
+          : Promise.reject(new Error('未选择子号'))}
+        onCancel={closeModal}
+        onSubmit={submitPersonalPaymentMethod}
       />
 
       <Modal

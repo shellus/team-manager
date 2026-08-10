@@ -11,6 +11,7 @@ import { isActionBusy, type ActionBusyState } from '../../components/actionBusy.
 import { Alert, Button, Card, Empty, Popconfirm, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import {
   CloseOutlined,
+  CreditCardOutlined,
   CrownOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -55,6 +56,7 @@ export function SubaccountDetail({
   onOpenEdit,
   onOpenDelete,
   onOpenPro5x,
+  onAddPersonalPaymentMethod,
   onRetryPro5x,
   onRotatePro5x,
   onTerminatePro5x,
@@ -88,6 +90,7 @@ export function SubaccountDetail({
   onOpenEdit: () => void;
   onOpenDelete: () => void;
   onOpenPro5x: () => void;
+  onAddPersonalPaymentMethod?: () => void;
   onRetryPro5x: (operationId: string) => void;
   onRotatePro5x: (operationId: string) => void;
   onTerminatePro5x: (operationId: string) => void;
@@ -201,6 +204,15 @@ export function SubaccountDetail({
                       : pro5xFailed
                         ? '重新开通 Pro 5x'
                         : '开通 Pro 5x'}
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={subaccount.managedAccountEmail ? '为个人账号绑定或更新默认信用卡' : '请先关联 GAM 账号'}>
+            <span>
+              <Button icon={<CreditCardOutlined />}
+                disabled={!subaccount.managedAccountEmail || accountManagerLoading}
+                onClick={onAddPersonalPaymentMethod}>
+                绑定个人支付方式
               </Button>
             </span>
           </Tooltip>

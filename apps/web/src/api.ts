@@ -1,5 +1,6 @@
 import type {
   AccountBillingSnapshot,
+  AddPersonalPaymentMethodRequest,
   AccountManagerOperationView,
   AccountManagerProfileView,
   AccountManagerRuntimeStatus,
@@ -19,6 +20,7 @@ import type {
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
   Pro5xRenewalCancellationResult,
+  PersonalPaymentMethodDefaults,
   Pro5xSubscriptionView,
   ResidentialProxyConfig,
   RrwebRecordingUploadView,
@@ -184,6 +186,15 @@ export const apiClient = {
       `/accounts/${id}/account-manager/open-pro-5x`,
       payload
     ),
+  addParentPersonalPaymentMethod: (id: string, payload: AddPersonalPaymentMethodRequest) =>
+    call<AccountManagerOperationView>('POST', `/accounts/${id}/account-manager/personal-payment-methods`, payload),
+  getParentPersonalPaymentMethodDefaults: (id: string) =>
+    call<PersonalPaymentMethodDefaults>('GET', `/accounts/${id}/account-manager/personal-payment-method-defaults`),
+  getParentPersonalPaymentMethodOperation: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'GET',
+      `/accounts/${id}/account-manager/personal-payment-method-operations/${operationId}`
+    ),
   rotateParentOperationIp: (id: string, operationId: string) =>
     call<AccountManagerOperationView>(
       'POST',
@@ -263,6 +274,8 @@ export const apiClient = {
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { defaultSeat }),
   setWorkspaceReferralsEnabled: (id: string, workspaceReferralsEnabled: boolean) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { workspaceReferralsEnabled }),
+  setAutoAcceptRequests: (id: string, autoAcceptRequests: boolean) =>
+    call<AccountView>('PATCH', `/accounts/${id}/settings`, { autoAcceptRequests }),
   setPersonalAccessTokensEnabled: (id: string, personalAccessTokensEnabled: boolean) =>
     call<AccountView>('PATCH', `/accounts/${id}/settings`, { personalAccessTokensEnabled }),
   setCodexDeviceCodeAuthEnabled: (id: string, codexDeviceCodeAuthEnabled: boolean) =>
@@ -326,6 +339,15 @@ export const apiClient = {
       'POST',
       `/subaccounts/${id}/account-manager/open-pro-5x`,
       payload
+    ),
+  addSubaccountPersonalPaymentMethod: (id: string, payload: AddPersonalPaymentMethodRequest) =>
+    call<AccountManagerOperationView>('POST', `/subaccounts/${id}/account-manager/personal-payment-methods`, payload),
+  getSubaccountPersonalPaymentMethodDefaults: (id: string) =>
+    call<PersonalPaymentMethodDefaults>('GET', `/subaccounts/${id}/account-manager/personal-payment-method-defaults`),
+  getSubaccountPersonalPaymentMethodOperation: (id: string, operationId: string) =>
+    call<AccountManagerOperationView>(
+      'GET',
+      `/subaccounts/${id}/account-manager/personal-payment-method-operations/${operationId}`
     ),
   rotateSubaccountOperationIp: (id: string, operationId: string) =>
     call<AccountManagerOperationView>(

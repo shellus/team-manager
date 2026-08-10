@@ -61,6 +61,14 @@ _Avoid_: Team 套餐、Workspace 类型、付款任务状态
 旧任务缺少加密付款资料时，通过母号或子号详情的快捷输入把 PAN/CVC 重新交给原任务。正常未完成任务的付款资料由 GPT Account Manager 加密持久化，服务热重载后自动恢复；Team Manager 不保存完整卡片。
 _Avoid_: 新建 Pro 5x 任务、从 last4 还原卡片、人工提交开关
 
+**个人支付方式绑定**:
+带有受管账号引用的母号或子号，把信用卡交给 GPT Account Manager，为该 GPT 账号的 Personal Account 创建 SetupIntent、确认卡片并设为默认支付方式的独立账号操作。Team Manager 只转发一次性输入和展示操作状态；GAM 只持久化品牌、尾号、有效期和默认状态等安全摘要，PAN/CVC 不进入 Team Manager 数据。
+_Avoid_: Workspace 账单卡、Pro 5x 开通、保存完整卡片、Team Manager 支付方式
+
+**自动批准加入申请**:
+Workspace 设置 `auto_accept_requests`。开启后，新的加入申请由上游自动批准，不需要母号执行独立“接受”动作。它与 `workspace_referrals_enabled`（允许成员发送 Codex 邀请）是两个互不替代的开关。
+_Avoid_: 允许成员发送邀请、批量邀请、接受申请操作
+
 **双席位订阅状态**:
 Workspace 当前是否存在有效的 Team 月付订阅。该状态独立于 Workspace 种类和当前成员数量，以当前有效的月付关系为准。
 _Avoid_: Workspace 类型、两个默认席位成员、0.52 状态

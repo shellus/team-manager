@@ -245,6 +245,8 @@ export class TeamService {
         workspaceReferralsEnabled: undefined,
         workspaceReferralsEnabledVisible: undefined,
         workspaceReferralsEnabledCachedAt: undefined,
+        autoAcceptRequests: undefined,
+        autoAcceptRequestsCachedAt: undefined,
         personalAccessTokensEnabled: undefined,
         personalAccessTokensCachedAt: undefined,
         codexLocalAccessEnabled: undefined,
@@ -322,6 +324,8 @@ export class TeamService {
       workspaceReferralsEnabled: account.workspaceReferralsEnabled,
       workspaceReferralsEnabledVisible: account.workspaceReferralsEnabledVisible,
       workspaceReferralsEnabledCachedAt: account.workspaceReferralsEnabledCachedAt,
+      autoAcceptRequests: account.autoAcceptRequests,
+      autoAcceptRequestsCachedAt: account.autoAcceptRequestsCachedAt,
       personalAccessTokensEnabled: account.personalAccessTokensEnabled,
       personalAccessTokensCachedAt: account.personalAccessTokensCachedAt,
       codexLocalAccessEnabled: account.codexLocalAccessEnabled,
@@ -1708,6 +1712,18 @@ export class TeamService {
     const updated = await this.store.update(
       id,
       workspaceSettingsPatchFromResponse(settings, now, { workspaceReferralsEnabled: enabled })
+    );
+    if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
+    return this.viewFromAccount(updated);
+  }
+
+  async setAutoAcceptRequests(id: string, enabled: boolean): Promise<AccountView> {
+    const { api } = await this.clientFor(id);
+    const settings = await api.setAutoAcceptRequests(enabled);
+    const now = Date.now();
+    const updated = await this.store.update(
+      id,
+      workspaceSettingsPatchFromResponse(settings, now, { autoAcceptRequests: enabled })
     );
     if (!updated) throw new ServiceError(404, `母号不存在: ${id}`);
     return this.viewFromAccount(updated);

@@ -6,6 +6,8 @@ export interface WorkspaceSettingsCache {
   workspaceReferralsEnabled?: boolean;
   workspaceReferralsEnabledVisible?: boolean;
   workspaceReferralsEnabledCachedAt?: number;
+  autoAcceptRequests?: boolean;
+  autoAcceptRequestsCachedAt?: number;
   personalAccessTokensEnabled?: boolean;
   personalAccessTokensCachedAt?: number;
   codexLocalAccessEnabled?: boolean;
@@ -23,6 +25,7 @@ export interface WorkspaceSettingsCache {
 export interface WorkspaceSettingsFallback {
   defaultSeat?: SeatType;
   workspaceReferralsEnabled?: boolean;
+  autoAcceptRequests?: boolean;
   personalAccessTokensEnabled?: boolean;
   codexDeviceCodeAuthEnabled?: boolean;
   codexRemoteControlEnabled?: boolean;
@@ -37,6 +40,9 @@ export function workspaceSettingsFromCache(account: WorkspaceSettingsCache): Rec
   }
   if (typeof account.workspaceReferralsEnabledVisible === 'boolean') {
     settings.workspace_referrals_enabled_visible = account.workspaceReferralsEnabledVisible;
+  }
+  if (typeof account.autoAcceptRequests === 'boolean') {
+    settings.auto_accept_requests = account.autoAcceptRequests;
   }
   if (typeof account.personalAccessTokensEnabled === 'boolean') {
     settings.personal_access_tokens = account.personalAccessTokensEnabled;
@@ -82,6 +88,12 @@ export function workspaceSettingsPatchFromResponse(
   const workspaceReferralsEnabledVisible = settings.workspace_referrals_enabled_visible;
   if (typeof workspaceReferralsEnabledVisible === 'boolean') {
     patch.workspaceReferralsEnabledVisible = workspaceReferralsEnabledVisible;
+  }
+
+  const autoAcceptRequests = settings.auto_accept_requests ?? fallback.autoAcceptRequests;
+  if (typeof autoAcceptRequests === 'boolean') {
+    patch.autoAcceptRequests = autoAcceptRequests;
+    patch.autoAcceptRequestsCachedAt = now;
   }
 
   const permissions = recordValue(settings.permissions);

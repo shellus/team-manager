@@ -9,7 +9,7 @@
 - 计数、标签、状态徽标等能从已有数组或关联对象派生的信息，不作为独立字段持久化。
 - 运行时 JSON 文件是持久化介质，不是业务 API。不要通过手工编辑 JSON 执行管理动作。
 - 运行数据目录固定使用 `0700`；包含 Web Session、Codex 凭证、账单、通知密钥或操作日志的文件固定使用 `0600`。
-- curl_cffi worker 是通用 ChatGPT 请求转发能力。注册密码、GongXi-Mail、CloakBrowser、Mihomo、家宽代理和支付状态属于 GPT Account Manager，不是 Team Manager 账号业务模型字段。
+- curl_cffi worker 是通用 ChatGPT 请求转发能力。注册密码、GongXi-Mail、CloakBrowser、Mihomo、上游住宅代理配置和支付状态属于 GPT Account Manager，不是 Team Manager 账号业务模型字段；Team Manager 只复用既有 `proxy` 字段保存受管账号的本地网关 URL。
 - store 只接受并持久化当前 schema；不属于当前 schema 的输入字段不会写入事实源。
 - GPT 账号基础字段统一为 `email` 和 `remark`。`email` 是账号名称和唯一可读身份；`remark` 是本系统本地备注。母号、子号和席位资料不得再使用 `label`、`note`、`displayName` 或 `name` 表示本地账号名称/备注。
 
@@ -32,7 +32,7 @@
 | `email` | session JSON | 母号 owner 邮箱 |
 | `accessToken` / `refreshToken` | session JSON | 后端调用 ChatGPT Web backend-api 使用；`accessToken` 只通过 `AccountLocalProfileView.session` 按需回填，`refreshToken` 不下发 |
 | `sessionToken` | session JSON | 用于后续按 workspace 通过 `/api/auth/session` 换取 Web access token；只通过 `AccountLocalProfileView.session` 按需回填 |
-| `proxy` | 本地输入 | 母号独立代理地址，用于该母号 ChatGPT Web 请求和 workspace token 换取 |
+| `proxy` | 本地输入或 Account Manager 关联 | 母号独立代理地址，用于该母号 ChatGPT Web 请求和 workspace token 换取；关联 GAM 时自动保存其稳定本地 SID 代理 URL |
 | `workspaceName` | accounts/check 或远端改名结果 | 远端 Team workspace 名称 |
 | `nextRenewalOn` | accounts/check 自动识别或本地输入 | Team 下次续费日期，格式为 `yyyy-mm-dd` |
 | `planType` / `role` / `status` / `lastError` | refresh 结果 | 远端状态与错误摘要 |
@@ -195,7 +195,7 @@
 | `chatgptAccountId` | session JSON | 子号自身 ChatGPT account id |
 | `webAccessToken` | session JSON | 子号 ChatGPT Web access token；只通过 `SubaccountLocalProfileView.session` 按需回填 |
 | `sessionToken` | session JSON | 用于按目标 workspace 通过 `/api/auth/session` 换取 Web access token；只通过 `SubaccountLocalProfileView.session` 按需回填 |
-| `proxy` | 本地输入 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT 创建和额度请求 |
+| `proxy` | 本地输入或 Account Manager 关联 | 子号独立代理地址，用于该子号 ChatGPT Web、PAT 创建和额度请求；关联 GAM 时自动保存其稳定本地 SID 代理 URL |
 | `sessionTokenStatus` / `sessionTokenCheckedAt` | Web 账号同步 | Session Cookie 最近一次通过 `/api/auth/session` 验证的结果和时间 |
 | `webAccessTokenStatus` / `webAccessTokenCheckedAt` | Web 账号同步 | Web access token 最近一次通过 backend-api 验证的结果和时间 |
 | `chatgptUserId`、`remoteUsername`、`remoteDisplayName`、`remotePictureUrl` | `/backend-api/me` 与 Calpico profile | 子号个人资料缓存 |

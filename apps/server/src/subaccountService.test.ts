@@ -704,6 +704,10 @@ class FakeAccountManager implements AccountManagerGateway {
     };
   }
 
+  async accountHttpProxy() {
+    return 'http://managed-session:gateway-password@mihomo.example:3012';
+  }
+
   async configureAccountProxy(accountId: string, input: ResidentialProxyConfig) {
     this.proxyConfigs.set(accountId, input);
     return input;
@@ -1145,6 +1149,10 @@ describe('Subaccount API', () => {
       assert.equal(completedStatus.accountEmail, 'unmanaged-child@example.com');
       assert.equal(completedStatus.enrollmentOperation, undefined);
       assert.equal(subaccountStore.get(subaccount.id)?.managedAccountEmail, 'unmanaged-child@example.com');
+      assert.equal(
+        subaccountStore.get(subaccount.id)?.proxy,
+        'http://managed-session:gateway-password@mihomo.example:3012'
+      );
       assert.equal((await accountManager.listOperations({ type: 'import' })).length, 0);
 
       const profile = await app.request(`/api/subaccounts/${subaccount.id}/local-profile`, {
@@ -2076,6 +2084,10 @@ describe('Subaccount API', () => {
       assert.equal(registered.hasWebSession, true);
       assert.equal(Object.hasOwn(registered, 'session'), false);
       assert.equal(registered.managedAccountEmail, 'registered-child@example.com');
+      assert.equal(
+        subaccountStore.get(registered.id)?.proxy,
+        'http://managed-session:gateway-password@mihomo.example:3012'
+      );
       assert.equal(registered.groupName, '子号池');
       assert.equal(registered.codexCredentials.length, 0);
       assert.equal(accountManager.requests[0]!.mailGroup, 'clean-outlook');

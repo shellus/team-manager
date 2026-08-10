@@ -1,5 +1,6 @@
 import type {
   AccountManagerOperationView,
+  AddPersonalPaymentMethodRequest,
   AccountManagerProfileView,
   AccountManagerRuntimeStatus,
   AccountSummaryView,
@@ -10,6 +11,7 @@ import type {
   ParentAccountManagerStatus,
   ParentRegistrationTaskView,
   Pro5xPaymentStatisticsView,
+  PersonalPaymentMethodDefaults,
   ResidentialProxyConfig
 } from '@team-manager/shared';
 import { accountSummaryFromView } from '@team-manager/shared';
@@ -518,7 +520,13 @@ export class ParentAccountManagerService {
   }
 
   private async linkLocalAccount(accountId: string, email: string): Promise<AccountSummaryView> {
-    const updated = await this.store.update(accountId, { managedAccountEmail: email });
+    const proxy = this.accountManager?.accountHttpProxy
+      ? await this.callAccountManager(() => this.accountManager!.accountHttpProxy!(email))
+      : undefined;
+    const updated = await this.store.update(accountId, {
+      managedAccountEmail: email,
+      ...(proxy ? { proxy } : {})
+    });
     if (!updated) throw new ServiceError(404, `母号不存在: ${accountId}`);
     return accountSummaryFromView(await this.teamService.getAccountDetail(accountId));
   }
@@ -625,6 +633,36 @@ export class ParentAccountManagerService {
       autoPay: true,
       requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent
     }));
+  }
+
+  async addAccountPersonalPaymentMethod(
+    accountId: string,
+    input: AddPersonalPaymentMethodRequest
+  ): Promise<AccountManagerOperationView> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.addPersonalPaymentMethod(email, {
+      ...input,
+      requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.parent
+    }));
+  }
+
+  async accountPersonalPaymentMethodDefaults(accountId: string): Promise<PersonalPaymentMethodDefaults> {
+    const email = this.requireManagedAccountEmail(accountId);
+    return this.callAccountManager(() => this.accountManager!.personalPaymentMethodDefaults(email));
+  }
+
+  async personalPaymentMethodOperation(
+    accountId: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    const email = this.requireManagedAccountEmail(accountId);
+    const operation = await this.callAccountManager(() => this.accountManager!.operation(operationId));
+    if (
+      operation.accountId?.toLowerCase() !== email.toLowerCase()
+      || operation.type !== 'add_personal_payment_method'
+      || operation.requestSummary?.requestTag !== ACCOUNT_MANAGER_REQUEST_TAGS.parent
+    ) throw new ServiceError(404, `母号个人支付方式操作不存在: ${operationId}`);
+    return operation;
   }
 
   async rotateAccountOperationIp(

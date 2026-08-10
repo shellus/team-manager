@@ -49,6 +49,12 @@ Cloudflare 中间挑战页会先在自动阶段等待自行通过。持续存在
 
 PNA 或硬拒首次出现时，子号任务同样会自动更换 SID/IP、重新创建 Checkout 并仅重试一次。
 
+## 绑定个人支付方式
+
+有 GAM 关联的子号可直接为 Personal Account 添加信用卡并设为默认方式。表单默认复用 GAM 注册姓名生成器，并填写 Oregon 免税地区邮编（默认 `97210`）；姓名和邮编都允许手动修改。该动作与 Pro 5x、Team 关联和 Codex 凭证相互独立；完整卡片只进入本次 GAM 操作，Team Manager 不保存卡号或 CVC。
+
+如果该子号的 GAM Profile 已经由操作员启动，绑定操作直接复用当前 Profile，不另开实例；操作完成或失败后只断开本次自动化连接，Profile 与原页面继续保持开启。没有已启动 Profile 时，GAM 才为本次绑定创建并在结束后清理临时实例。
+
 ## Team 关联
 
 邀请子号加入 Team 后，在“Team 关联”页刷新。系统只使用子号自己的 Web Session 请求一次可见 workspace 列表，不使用母号凭证，也不逐 Workspace 查询成员。已有关联保留原席位类型，新发现的 Workspace 默认按 Codex 席位展示。

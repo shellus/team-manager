@@ -164,6 +164,25 @@ export function ParentSettingsPanel({
 
           <div className="setting-row">
             <div>
+              <Typography.Text strong>自动批准加入申请</Typography.Text>
+              <Typography.Paragraph type="secondary">
+                新的 Workspace 加入申请无需母号再次确认 · 上次刷新 {formatRelativeTime(account.autoAcceptRequestsCachedAt)}
+              </Typography.Paragraph>
+            </div>
+            <Switch
+              checked={Boolean(account.autoAcceptRequests)}
+              checkedChildren="自动批准"
+              unCheckedChildren="手动批准"
+              disabled={actionBusy.isBusy('auto-accept-requests')}
+              loading={actionBusy.isBusy('auto-accept-requests')}
+              onChange={(checked) =>
+                void run('auto-accept-requests', () => apiClient.setAutoAcceptRequests(account.id, checked))
+              }
+            />
+          </div>
+
+          <div className="setting-row">
+            <div>
               <Typography.Text strong>允许成员发送 Codex 邀请</Typography.Text>
               <Typography.Paragraph type="secondary">
                 上次刷新 {formatRelativeTime(account.workspaceReferralsEnabledCachedAt)}

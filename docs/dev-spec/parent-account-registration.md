@@ -10,7 +10,7 @@ Team Manager 不直接执行 GPT 账号注册或支付。母号页面通过 GPT 
 
 1. `POST /api/accounts/registration/start` 接收两位国家代码和母号分组。Team Manager 先把本次值保存到 `taskFormPreferences.parentRegistration`，再创建用途标记为 `team-manager:parent` 的注册操作；国家在任务入队前写入 GAM 住宅代理配置，分组作为 Account Manager 的调用方关联值持久化。
 2. `GET /api/accounts/registration/tasks` 返回注册、人工验证、失败或导入状态。
-3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session，按规范化邮箱幂等保存 GAM 母号，并写入发起任务时提交的母号分组。
+3. 注册成功后，Team Manager 读取 Account Manager 交付的 Web Session 与账号本地 SID 代理 URL，按规范化邮箱幂等保存 GAM 母号，并写入发起任务时提交的母号分组。
 4. 新母号在尚无 Team workspace 时保存个人账号上下文，并立即从注册任务切换为正常母号列表项。
 5. 完成导入后清理注册操作；0.52 和双席位按钮在母号详情中独立提供。
 
@@ -22,7 +22,7 @@ Account Manager 已完成注册、Session 校验和账号同步，因此导入�
 
 手工录入且尚无 `managedAccountEmail` 的母号可调用 `POST /api/accounts/:id/account-manager/manage` 纳入 GAM。Team Manager 优先把已有 `sessionToken`、当前 Workspace Web access token 和账号上下文交给 Account Manager；Account Manager 在自己的隔离 Profile 中写入 Session Cookie、校验 ChatGPT Session、保存浏览器身份归档并同步可见 Workspace。该流程不要求在 Team Manager 再次输入或持久化密码，也不得覆盖母号现有 `remark`、`groupName`、Workspace `accountId`、席位资料或成员邀请缓存。
 
-纳管操作类型为 `import`，以规范化邮箱幂等绑定。页面刷新后从 Account Manager 操作列表恢复进度；成功后只给原母号补写 `managedAccountEmail`，不创建第二条本地母号。同步 Workspace 失败但浏览器身份和 Session 已成功接收时，Account Manager 保留受管账号并记录 `lifecycleStatus=error` 与同步错误，便于后续重新授权；不得把它退回成“未纳管”。同一邮箱重试前清理所有失败、终止和已完成的历史导入操作，运行中的操作不得重复创建。
+纳管操作类型为 `import`，以规范化邮箱幂等绑定。页面刷新后从 Account Manager 操作列表恢复进度；成功后给原母号补写 `managedAccountEmail`，并把 GAM 返回的本地 SID 代理 URL 保存到既有 `proxy` 字段，不创建第二条本地母号。同步 Workspace 失败但浏览器身份和 Session 已成功接收时，Account Manager 保留受管账号并记录 `lifecycleStatus=error` 与同步错误，便于后续重新授权；不得把它退回成“未纳管”。同一邮箱重试前清理所有失败、终止和已完成的历史导入操作，运行中的操作不得重复创建。
 
 没有 `sessionToken` 时才回退到 Account Manager 的交互式登录导入。Cloudflare、密码或验证码页面必须停留在该账号自己的 GAM Profile，不得借用默认浏览器或其他账号 Profile。
 
@@ -85,4 +85,4 @@ Account Manager 执行以下顺序：
 - 完整卡号和 CVC 不写入 Team Manager 运行数据或日志；Account Manager 使用账号管理密钥加密保存未完成任务的付款请求，并在任务终态或删除时清除。
 - 已开通的 0.52 或双席位操作返回幂等成功，不重复生成订单或扣款。
 - `waiting_manual` 是活跃状态。服务热重载后恢复任务、加密付款请求和页面监听，并按当前页面状态继续自动化。
-- 账号住宅代理配置由 GPT Account Manager 持久化，Team Manager 只按需读取和提交，不复制到母号数据文件。
+- 账号住宅定位、上游凭据和 SID 配置由 GPT Account Manager 持久化，Team Manager 只按需读取和提交；母号数据文件仅在既有 `proxy` 字段保存 GAM 本地网关 URL，使服务端 HTTP 请求与 CloakBrowser 复用同一本地 SID。

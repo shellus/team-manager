@@ -1,11 +1,13 @@
 import type {
   AccountManagerOperationView,
+  AddPersonalPaymentMethodRequest,
   CodexAuthStart,
   CodexCredentialJson,
   CodexPersonalAccessTokenCredentialJson,
   CodexQuotaSnapshot,
   OpenPro5xRequest,
   Pro5xRenewalCancellationResult,
+  PersonalPaymentMethodDefaults,
   Pro5xSubscriptionView,
   Subaccount,
   SubaccountAccountManagerStatus,
@@ -248,10 +250,12 @@ export class SubaccountService {
         continue;
       }
       const session = await this.callAccountManager(() => this.accountManager!.session(job.email!));
+      const proxy = await this.managedAccountHttpProxy(job.email!);
       const registered = await this.store.saveManagedSubaccount({
         managedAccountEmail: job.email,
         email: job.email,
         groupName: job.groupName,
+        ...(proxy ? { proxy } : {}),
         session,
         status: 'session_ready'
       });
@@ -668,8 +672,12 @@ export class SubaccountService {
 
   private async linkExistingManagedSubaccount(id: string, email: string): Promise<SubaccountView> {
     const existing = this.requireSubaccount(id);
-    if (existing.managedAccountEmail?.trim().toLowerCase() === email) return this.detail(id);
-    const updated = await this.store.update(id, { managedAccountEmail: email });
+    if (existing.managedAccountEmail?.trim().toLowerCase() === email && existing.proxy) return this.detail(id);
+    const proxy = await this.managedAccountHttpProxy(email);
+    const updated = await this.store.update(id, {
+      managedAccountEmail: email,
+      ...(proxy ? { proxy } : {})
+    });
     if (!updated) throw new ServiceError(404, `子号不存在: ${id}`);
     await this.store.appendLog(id, {
       phase: 'account_manager_link',
@@ -689,11 +697,13 @@ export class SubaccountService {
     if (existing.email.trim().toLowerCase() !== email) {
       throw new ServiceError(409, 'GAM 导入邮箱与子号邮箱不一致');
     }
-    if (existing.managedAccountEmail?.trim().toLowerCase() === email) return this.detail(id);
+    if (existing.managedAccountEmail?.trim().toLowerCase() === email && existing.proxy) return this.detail(id);
     const session = await this.callAccountManager(() => this.accountManager!.session(email));
+    const proxy = await this.managedAccountHttpProxy(email);
     const linked = await this.store.saveManagedSubaccount({
       managedAccountEmail: email,
       email: existing.email,
+      ...(proxy ? { proxy } : {}),
       session,
       status: existing.status
     });
@@ -704,6 +714,11 @@ export class SubaccountService {
       data: { managedAccountEmail: email, operationId }
     });
     return linked;
+  }
+
+  private async managedAccountHttpProxy(email: string): Promise<string | undefined> {
+    if (!this.accountManager?.accountHttpProxy) return undefined;
+    return this.callAccountManager(() => this.accountManager!.accountHttpProxy!(email));
   }
 
   private async removeTerminalEnrollmentOperations(email: string): Promise<void> {
@@ -730,6 +745,36 @@ export class SubaccountService {
       autoPay: true,
       requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
     }));
+  }
+
+  async addAccountPersonalPaymentMethod(
+    id: string,
+    input: AddPersonalPaymentMethodRequest
+  ): Promise<AccountManagerOperationView> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.addPersonalPaymentMethod(email, {
+      ...input,
+      requestTag: ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
+    }));
+  }
+
+  async accountPersonalPaymentMethodDefaults(id: string): Promise<PersonalPaymentMethodDefaults> {
+    const email = this.requireManagedAccountEmail(id);
+    return this.callAccountManager(() => this.accountManager!.personalPaymentMethodDefaults(email));
+  }
+
+  async personalPaymentMethodOperation(
+    id: string,
+    operationId: string
+  ): Promise<AccountManagerOperationView> {
+    const email = this.requireManagedAccountEmail(id);
+    const operation = await this.callAccountManager(() => this.accountManager!.operation(operationId));
+    if (
+      operation.accountId?.toLowerCase() !== email.toLowerCase()
+      || operation.type !== 'add_personal_payment_method'
+      || operation.requestSummary?.requestTag !== ACCOUNT_MANAGER_REQUEST_TAGS.subaccount
+    ) throw new ServiceError(404, `子号个人支付方式操作不存在: ${operationId}`);
+    return operation;
   }
 
   async rotateAccountOperationIp(

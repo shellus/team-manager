@@ -27,6 +27,7 @@ import type { Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
   InviteRequest,
+  AddPersonalPaymentMethodRequest,
   OpenTeamSubscriptionRequest,
   OpenPro5xRequest,
   PublicSeatSwapRequest,
@@ -626,6 +627,21 @@ export async function buildApp({
     });
   });
 
+  api.post('/accounts/:id/account-manager/personal-payment-methods', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as AddPersonalPaymentMethodRequest;
+    return wrap(c, () => parentAccountManagerService.addAccountPersonalPaymentMethod(c.req.param('id'), body));
+  });
+  api.get('/accounts/:id/account-manager/personal-payment-method-defaults', (c) =>
+    wrap(c, () => parentAccountManagerService.accountPersonalPaymentMethodDefaults(c.req.param('id')))
+  );
+
+  api.get('/accounts/:id/account-manager/personal-payment-method-operations/:operationId', (c) =>
+    wrap(c, () => parentAccountManagerService.personalPaymentMethodOperation(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
+
   api.post('/accounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
     wrap(c, () => parentAccountManagerService.rotateAccountOperationIp(
       c.req.param('id'),
@@ -768,6 +784,7 @@ export async function buildApp({
     const body = (await c.req.json().catch(() => ({}))) as {
       defaultSeat?: SeatType;
       workspaceReferralsEnabled?: boolean;
+      autoAcceptRequests?: boolean;
       personalAccessTokensEnabled?: boolean;
       codexDeviceCodeAuthEnabled?: boolean;
       codexRemoteControlEnabled?: boolean;
@@ -778,6 +795,9 @@ export async function buildApp({
       return wrap(c, () =>
         service.setWorkspaceReferralsEnabled(c.req.param('id'), body.workspaceReferralsEnabled!)
       );
+    }
+    if (typeof body.autoAcceptRequests === 'boolean') {
+      return wrap(c, () => service.setAutoAcceptRequests(c.req.param('id'), body.autoAcceptRequests!));
     }
     if (typeof body.personalAccessTokensEnabled === 'boolean') {
       return wrap(c, () =>
@@ -802,7 +822,7 @@ export async function buildApp({
     return c.json({
       ok: false,
       error:
-        '缺少 defaultSeat、workspaceReferralsEnabled、personalAccessTokensEnabled、codexDeviceCodeAuthEnabled、codexRemoteControlEnabled 或 automaticReloadEnabled'
+        '缺少 defaultSeat、workspaceReferralsEnabled、autoAcceptRequests、personalAccessTokensEnabled、codexDeviceCodeAuthEnabled、codexRemoteControlEnabled 或 automaticReloadEnabled'
     }, 400);
   });
 
@@ -945,6 +965,21 @@ export async function buildApp({
       });
     });
   });
+
+  api.post('/subaccounts/:id/account-manager/personal-payment-methods', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as AddPersonalPaymentMethodRequest;
+    return wrap(c, () => subaccountService.addAccountPersonalPaymentMethod(c.req.param('id'), body));
+  });
+  api.get('/subaccounts/:id/account-manager/personal-payment-method-defaults', (c) =>
+    wrap(c, () => subaccountService.accountPersonalPaymentMethodDefaults(c.req.param('id')))
+  );
+
+  api.get('/subaccounts/:id/account-manager/personal-payment-method-operations/:operationId', (c) =>
+    wrap(c, () => subaccountService.personalPaymentMethodOperation(
+      c.req.param('id'),
+      c.req.param('operationId')
+    ))
+  );
 
   api.post('/subaccounts/:id/account-manager/operations/:operationId/rotate-ip', (c) =>
     wrap(c, () => subaccountService.rotateAccountOperationIp(

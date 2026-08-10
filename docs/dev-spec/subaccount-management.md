@@ -2,7 +2,7 @@
 
 Team Manager 负责保存子号 Web Session、Team 关联和 Codex OAuth/PAT 凭证，不负责执行 GPT 账号注册。账号注册由独立的 GPT Account Manager 完成，Team Manager 只创建账号操作、查询进度并取得最终 Web Session。
 
-已保存 `managedAccountEmail` 的子号可通过账号管理页启动或关闭 Account Manager 运行 Profile，并编辑国家、ASN、州/省、城市和上游 SID。ASN 有值时州/省与城市清空并禁用。Team Manager 只转发控制请求并展示状态，不保存 Profile ID 或住宅代理配置、不提供浏览器查看能力，也不绕过 Account Manager 调用 CloakBrowser。
+已保存 `managedAccountEmail` 的子号可通过账号管理页启动或关闭 Account Manager 运行 Profile，并编辑国家、ASN、州/省、城市和上游 SID。ASN 有值时州/省与城市清空并禁用。Team Manager 只转发控制请求并展示状态，不保存 Profile ID 或上游住宅代理配置、不提供浏览器查看能力，也不绕过 Account Manager 调用 CloakBrowser；关联时只在既有 `proxy` 字段保存 GAM 返回的本地网关 URL，供服务端 HTTP 请求复用同一本地 SID。
 
 子号列表通过 Account Manager 批量状态派生“Profile 已启动”标签。只有 `running` 状态置顶，未启动记录保持原备注/邮箱自然排序；Profile 状态不进入子号持久化模型。详情页启动、关闭或轮询到状态变化后立即更新列表派生状态。
 
@@ -33,9 +33,9 @@ Team Manager 对外保持稳定的注册任务 API：
 - `DELETE /api/subaccounts/registration/jobs/:jobId`
 - `GET /api/subaccounts/registration/status`
 
-注册操作成功后，Team Manager 按邮箱账号引用从 Account Manager 显式取得 ChatGPT Web Session，写入 `managedAccountEmail` 后清理已完成操作。密码、Cloak profile 和完整浏览器事件不会进入 Team Manager 数据或日志。
+注册操作成功后，Team Manager 按邮箱账号引用从 Account Manager 显式取得 ChatGPT Web Session 和该账号本地 SID 代理 URL，写入 `managedAccountEmail` 与既有 `proxy` 字段后清理已完成操作。密码、Cloak profile、上游代理凭据和完整浏览器事件不会进入 Team Manager 数据或日志。
 
-注册进行中、失败和等待人工处理都由 Account Manager 持久化，因此刷新 Team Manager 页面不会丢失任务。Team Manager 不保存注册密码、CloakBrowser、GongXi-Mail、Mihomo、家宽代理或支付状态。
+注册进行中、失败和等待人工处理都由 Account Manager 持久化，因此刷新 Team Manager 页面不会丢失任务。Team Manager 不保存注册密码、CloakBrowser、GongXi-Mail、Mihomo、上游住宅代理配置或支付状态；账号 `proxy` 只保存 GAM 的本地网关访问 URL。
 
 注册任务卡在成功前都可选中，并使用 `/subaccounts/registrations/:jobId?tab=account-manager` 保持页面状态。临时详情只显示账号管理 Tab，允许在 profile 创建前保存住宅代理配置；运行中保存时由 Account Manager 断开旧连接并刷新当前注册页面。注册成功并导入正式子号后，页面自动切换到 `/subaccounts/:id?tab=account-manager`。正式子号通过 `GET/PUT /api/subaccounts/:id/account-manager/proxy` 使用同一配置面板。
 
@@ -51,6 +51,7 @@ Team Manager 对外保持稳定的注册任务 API：
 ## Team 关联
 
 - `POST /api/subaccounts/:id/team-invites` 使用子号邮箱邀请加入本地母号对应的 Team。
+- `POST /api/subaccounts/:id/account-manager/personal-payment-methods` 创建个人支付方式绑定操作；后续通过对应 operation 路径轮询终态。Team Manager 不保存 PAN/CVC。
 - `POST /api/subaccounts/:id/team-links/sync` 只使用子号 Web Session 的一次 `accounts/check` 读取当前可见 workspace。同步保留已有 link 的席位类型，新 link 使用 `usage_based`，最终一次写入完整关联列表。
 - `DELETE /api/subaccounts/:id/team-links/:accountId` 使用子号 Web Session 退出目标 Team。
 - `teamLinks` 是本地缓存，不是远端唯一事实源。
@@ -78,7 +79,7 @@ Team Manager 的 curl_cffi sidecar 只提供通用 ChatGPT 请求转发：
 - `GET /health`
 - `POST /fetch`
 
-它不执行注册、邮箱操作、短信验证或凭证创建。每账号代理仍由请求中的 `proxy` 字段传入，未配置时使用 worker 全局代理。
+它不执行注册、邮箱操作、短信验证或凭证创建。每账号代理仍由请求中的 `proxy` 字段传入；GAM 受管子号的该字段自动指向同一账号的本地 SID，未配置时才使用 worker 全局代理。
 
 ## 日志
 

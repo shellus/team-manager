@@ -45,9 +45,10 @@ corepack pnpm docs:build
 - **成员管理**：列成员、移除成员、调整单个成员席位。
 - **邀请管理**：发送 Team 邀请、列 pending invite、撤销邀请。
 - **席位位置**：用 `seatSlots` 记录母号下售出的本地客户席位位置，可关联 ChatGPT 或 Codex 席位；`seatKey` 可打开免登录页面查看备注、到期时间、价格、当前邮箱和换号历史。公开换号不会自动移除已接受的标准 ChatGPT 成员，避免临时计费和 Workspace 风险。
-- **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、允许用户创建个人访问令牌等开关。
+- **Team 设置**：读取与修改新成员默认席位类型、允许成员发送 Codex 邀请、自动批准加入申请、允许用户创建个人访问令牌等开关。
 - **Team 改名**：调用远端接口修改 ChatGPT workspace 名称。
 - **子号池**：录入子号 Session，或通过独立 GPT Account Manager 自动注册并取得业务所需 Web Session；注册成功前可从任务卡进入账号管理页配置国家、ASN 或州/省与城市及 SID，成功后自动切换到正式子号的同一 Tab。有 GAM 关联的子号可继续修改代理配置、启动或关闭账号运行 Profile，并使用与母号相同的新加坡指定 ASN、站内 custom Checkout 和信用卡快捷输入开通个人账号 Pro 5x。开通过程展示实时任务状态，人工付款阶段保留对应 Profile。运行中的手动 Profile 同样显示列表标签并优先排列。
+- **个人支付方式绑定**：有 GAM 关联的母号和子号可为 Personal Account 添加信用卡并设为默认方式。Team Manager 不保存卡号或 CVC；GAM 在操作终态只保存并返回品牌、尾号、有效期和默认状态摘要。
 - **Pro 5x 续跑**：Team Manager 不保存母号或子号的完整卡片；GPT Account Manager 使用账号管理密钥加密持久化未完成任务的付款资料，服务热重载后自动恢复排队、运行中和等待人工的任务。PNA 或硬拒首次出现时自动更换 SID/IP、重新创建 Checkout 并仅重试一次，第二次拒绝结束任务。等待人工状态仍提供“重试当前步骤”和“更换 IP 并重试”：前者保留 Profile、SID 与 IP 并重置当前自动化步骤，后者轮换住宅出口后继续；旧任务缺少密文时仍可使用“补充卡片并继续”，不需要终止或新建任务。
 - **Codex 凭证与额度**：按子号和 Team workspace 通过 OAuth 授权或 Web Session 创建 PAT，查询并缓存对应 workspace 的 Codex 额度。
 - **子号加入母号**：用子号邮箱邀请加入指定 Team，并同步本地 Team 关系状态。
@@ -120,7 +121,7 @@ corepack pnpm docs:build
 
 多 workspace GPT 账号只需录入一次带 `sessionToken` 的 session JSON，不需要为每个 workspace 分别录入 session。若当前 ChatGPT session 可见多个可管理 Workspace 且无法从当前/已有 workspace 判断目标，系统会拒绝自动选择，避免把母号绑定到错误空间。
 
-GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType`、`nextRenewalOn` 和人工维护的 `isBanned`，子号也使用独立的顶层 `groupName` 与 `isBanned`。母号和子号都可保存 `proxy`，ChatGPT Web 请求、workspace token 换取、子号 PAT 创建和额度刷新会优先使用对应账号的代理；未配置账号代理时才使用运行环境全局代理。本地资料弹窗会回填已保存的分组、封号标记、session JSON 和代理地址。
+GPT 账号邮箱只写入 `email`；本地备注写入 `remark`。母号 Team 运营字段包括 `groupName`、`limitType`、`nextRenewalOn` 和人工维护的 `isBanned`，子号也使用独立的顶层 `groupName` 与 `isBanned`。母号和子号都可保存 `proxy`，ChatGPT Web 请求、workspace token 换取、子号 PAT 创建和额度刷新会优先使用对应账号的代理；未配置账号代理时才使用运行环境全局代理。通过 GAM 注册、导入或关联账号时，Team Manager 自动取得并保存该账号稳定本地 SID 对应的代理 URL，使 curl_cffi 与 CloakBrowser 复用同一分流和上游会话；上游 SID 轮换不要求改写本地 URL。本地资料弹窗会回填已保存的分组、封号标记、session JSON 和代理地址。
 
 通过 GPT Account Manager 创建的子号额外保存 `managedAccountEmail`，其值是规范化邮箱账号引用。Team Manager 不保存注册密码、CloakBrowser profile、浏览器追踪或支付状态。Codex 凭证支持 OAuth authorization-code + PKCE 和 PAT 两种来源，都按当前子号与目标 workspace 独立保存。
 

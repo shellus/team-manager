@@ -285,6 +285,24 @@ describe('fetchWithRawTrace', () => {
     assert.equal(record.response.body, 'raw-response');
   });
 
+  it('allows sensitive payment input to be redacted while preserving the upstream trace', async () => {
+    tempDirectory = await mkdtemp(join(tmpdir(), 'team-manager-sensitive-trace-'));
+    const traceFile = join(tempDirectory, 'all-upstreams.jsonl');
+    process.env.TEAMMGR_UPSTREAM_TRACE_FILE = traceFile;
+    const fetchImpl = (async () => new Response('{"ok":true}')) as typeof fetch;
+    await fetchWithRawTrace(
+      'account-manager',
+      'https://account-manager.example.test/payment-method',
+      { method: 'POST', body: '{"number":"4242424242424242","cvc":"123"}' },
+      fetchImpl,
+      { requestBody: '[REDACTED SENSITIVE PAYMENT INPUT]' }
+    );
+    const record = JSON.parse((await readFile(traceFile, 'utf8')).trim());
+    assert.equal(record.request.body, '[REDACTED SENSITIVE PAYMENT INPUT]');
+    assert.equal(JSON.stringify(record).includes('4242424242424242'), false);
+    assert.equal(record.response.body, '{"ok":true}');
+  });
+
   it('keeps explicitly named upstream calls single-recorded when global fetch is the catch-all wrapper', async () => {
     tempDirectory = await mkdtemp(join(tmpdir(), 'team-manager-named-upstream-trace-'));
     const traceFile = join(tempDirectory, 'all-upstreams.jsonl');

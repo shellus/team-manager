@@ -111,6 +111,8 @@ export interface Account {
   workspaceReferralsEnabled?: boolean; // 允许成员发送 Codex 邀请
   workspaceReferralsEnabledVisible?: boolean;
   workspaceReferralsEnabledCachedAt?: number;
+  autoAcceptRequests?: boolean; // 自动批准加入 Workspace 的请求
+  autoAcceptRequestsCachedAt?: number;
   personalAccessTokensEnabled?: boolean; // 允许用户创建个人访问令牌
   personalAccessTokensCachedAt?: number;
   codexLocalAccessEnabled?: boolean; // 允许成员使用 Codex Local
@@ -162,6 +164,8 @@ export interface AccountView {
   workspaceReferralsEnabled?: boolean;
   workspaceReferralsEnabledVisible?: boolean;
   workspaceReferralsEnabledCachedAt?: number;
+  autoAcceptRequests?: boolean;
+  autoAcceptRequestsCachedAt?: number;
   personalAccessTokensEnabled?: boolean;
   personalAccessTokensCachedAt?: number;
   codexLocalAccessEnabled?: boolean;
@@ -866,6 +870,28 @@ export interface OpenPro5xRequest {
     expiryYear: number;
     cvc: string;
   };
+}
+
+export interface AddPersonalPaymentMethodRequest {
+  holderName: string;
+  postalCode: string;
+  card: OpenPro5xRequest['card'];
+}
+
+export interface PersonalPaymentMethodDefaults {
+  holderName: string;
+  postalCode: string;
+  region: string;
+}
+
+export interface PersonalPaymentMethodView {
+  id: string;
+  type: string;
+  brand?: string;
+  last4: string;
+  expMonth?: number;
+  expYear?: number;
+  isDefault: boolean;
 }
 
 export type PaymentAttemptOutcome =

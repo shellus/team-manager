@@ -90,6 +90,14 @@ Account Manager 不等待 ChatGPT 首页异步加载优惠弹窗，而是使用�
 
 开通成功后母号列表和详情显示 `Pro` 标签；Pro 状态与 0.52、双席位和 Workspace 能力互不替代。
 
+## 绑定个人支付方式
+
+有 GPT Account Manager 关联的母号可点击“绑定个人支付方式”，为 Personal Account 添加信用卡并设为默认方式。该动作不创建 Pro 5x、不修改 Workspace Billing，也不依赖母号已经拥有 Workspace。
+
+表单打开时由 GAM 复用账号注册姓名生成器填写一个英文持卡人姓名，并使用部署账单配置中的 Oregon 免税地区邮编（默认 `97210`）。姓名和邮编都是普通可编辑字段，提交前可手动修改。完整卡片只用于本次 GAM 浏览器操作；Team Manager 不持久化完整卡片，操作完成后仅由 GAM 保存品牌、尾号、有效期和默认状态摘要。
+
+如果该母号的 GAM Profile 已经由操作员启动，绑定操作直接复用当前 Profile，不另开实例；操作完成或失败后只断开本次自动化连接，Profile 与原页面继续保持开启。没有已启动 Profile 时，GAM 才为本次绑定创建并在结束后清理临时实例。
+
 母号列表显示 `GAM` / `非 GAM` 和已经开通的能力状态。0.52 与双席位仍是独立能力；未开通的能力不显示负面标签，但仍保留各自的开通操作入口。周限、月限和未知限额只在已经开通双席位时显示。
 
 `双席位` 状态以当前有效 Team 月付订阅为准，并兼容 `planType="team"`。既有 usage-based Workspace 升级 Team 后，`accounts/check` 可能仍保留 usage-based `planType`；系统会通过 recurring upcoming invoice 识别实际订阅。历史母号不需要补建 GAM profile。
@@ -126,6 +134,12 @@ Account Manager 不等待 ChatGPT 首页异步加载优惠弹窗，而是使用�
 母号详情页右上角菜单进入“Codex 邀请权限”。该设置对应 ChatGPT Web 的 `workspace_referrals_enabled`，页面名称为“允许成员发送 Codex 邀请”。
 
 该设置不替代默认席位。为降低普通成员误邀造成固定席位超额的风险，仍应把新成员默认席位设为 Codex 席位。
+
+## 自动批准加入申请
+
+母号“设置”页的“自动批准加入申请”对应 ChatGPT Web `auto_accept_requests`。开启后，上游自动批准新的 Workspace 加入申请，因此 Team Manager 不提供单独的“接受申请”操作。
+
+该设置不等同于“允许成员发送 Codex 邀请”；后者对应 `workspace_referrals_enabled`，两者分别保存和切换。
 
 ## 设置个人访问令牌权限
 

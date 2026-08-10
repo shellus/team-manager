@@ -2452,6 +2452,8 @@ describe('TeamService settings cache', () => {
       workspaceReferralsEnabled: false,
       workspaceReferralsEnabledVisible: true,
       workspaceReferralsEnabledCachedAt: 123,
+      autoAcceptRequests: true,
+      autoAcceptRequestsCachedAt: 123,
       personalAccessTokensEnabled: true,
       personalAccessTokensCachedAt: 123,
       codexLocalAccessEnabled: true,
@@ -2471,6 +2473,7 @@ describe('TeamService settings cache', () => {
       default_seat_type: 'usage_based',
       workspace_referrals_enabled: false,
       workspace_referrals_enabled_visible: true,
+      auto_accept_requests: true,
       personal_access_tokens: true,
       wham_local_access: true,
       codex_device_code_auth: false,
@@ -2520,6 +2523,7 @@ describe('TeamService settings cache', () => {
             default_seat_type: 'default',
             workspace_referrals_enabled: false,
             workspace_referrals_enabled_visible: true,
+            auto_accept_requests: true,
             beta_settings: {
               wham_local_access: true,
               codex_device_code_auth: true,
@@ -2560,6 +2564,7 @@ describe('TeamService settings cache', () => {
     assert.equal(view.nextRenewalOn, '2026-07-17');
     assert.equal(view.workspaceReferralsEnabled, false);
     assert.equal(view.workspaceReferralsEnabledVisible, true);
+    assert.equal(view.autoAcceptRequests, true);
     assert.equal(view.personalAccessTokensEnabled, true);
     assert.equal(view.codexLocalAccessEnabled, true);
     assert.equal(view.codexDeviceCodeAuthEnabled, true);
@@ -2569,6 +2574,7 @@ describe('TeamService settings cache', () => {
     assert.equal(stored?.nextRenewalOn, '2026-07-17');
     assert.equal(stored?.workspaceReferralsEnabled, false);
     assert.equal(stored?.workspaceReferralsEnabledVisible, true);
+    assert.equal(stored?.autoAcceptRequests, true);
     assert.equal(stored?.personalAccessTokensEnabled, true);
     assert.equal(stored?.codexLocalAccessEnabled, true);
     assert.equal(stored?.codexDeviceCodeAuthEnabled, true);
@@ -2576,6 +2582,7 @@ describe('TeamService settings cache', () => {
     assert.equal(stored?.automaticReloadEnabled, true);
     assert.equal(typeof stored?.defaultSeatCachedAt, 'number');
     assert.equal(typeof stored?.workspaceReferralsEnabledCachedAt, 'number');
+    assert.equal(typeof stored?.autoAcceptRequestsCachedAt, 'number');
     assert.equal(typeof stored?.personalAccessTokensCachedAt, 'number');
     assert.equal(typeof stored?.codexLocalAccessCachedAt, 'number');
     assert.equal(typeof stored?.codexDeviceCodeAuthCachedAt, 'number');
@@ -3151,6 +3158,30 @@ describe('TeamService Codex invite setting changes', () => {
     assert.equal(view.workspaceReferralsEnabled, false);
     assert.equal(view.workspaceReferralsEnabledVisible, true);
     assert.equal(store.get(account.id)?.workspaceReferralsEnabled, false);
+  });
+});
+
+describe('TeamService automatic request approval setting changes', () => {
+  it('posts the auto-accept toggle to its dedicated ChatGPT Web settings endpoint', async () => {
+    const requests: HttpRequest[] = [];
+    const transport: Transport = {
+      async fetch(req) {
+        requests.push(req);
+        return { status: 200, body: JSON.stringify({ auto_accept_requests: true }) };
+      }
+    };
+    tempDir = await mkdtemp(join(tmpdir(), 'team-manager-store-'));
+    const store = new AccountStore(tempDir);
+    await store.init();
+    const account = await store.add({
+      accountId: 'workspace-id', email: 'owner@example.com', accessToken: 'token', status: 'active'
+    });
+    const view = await new TeamService(store, transport).setAutoAcceptRequests(account.id, true);
+    assert.equal(requests[0]?.method, 'POST');
+    assert.equal(requests[0]?.path, '/backend-api/accounts/workspace-id/settings/auto_accept_requests');
+    assert.deepEqual(JSON.parse(requests[0]?.body ?? '{}'), { value: true });
+    assert.equal(view.autoAcceptRequests, true);
+    assert.equal(store.get(account.id)?.autoAcceptRequests, true);
   });
 });
 

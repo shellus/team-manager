@@ -7,6 +7,7 @@ export type ParentModal =
   | 'open-codex-space'
   | 'open-team-subscription'
   | 'open-pro-5x'
+  | 'add-personal-payment-method'
   | 'edit-parent-profile'
   | 'delete-parent'
   | 'invite-member';
@@ -18,6 +19,7 @@ export type SubaccountModal =
   | 'import-session'
   | 'register-subaccount'
   | 'open-pro-5x'
+  | 'add-personal-payment-method'
   | 'edit-subaccount-profile'
   | 'delete-subaccount'
   | 'invite-to-team'
@@ -48,6 +50,7 @@ const parentModalSet = new Set<ParentModal>([
   'open-codex-space',
   'open-team-subscription',
   'open-pro-5x',
+  'add-personal-payment-method',
   'edit-parent-profile',
   'delete-parent',
   'invite-member'
@@ -59,6 +62,7 @@ const subaccountModalSet = new Set<SubaccountModal>([
   'import-session',
   'register-subaccount',
   'open-pro-5x',
+  'add-personal-payment-method',
   'edit-subaccount-profile',
   'delete-subaccount',
   'invite-to-team',

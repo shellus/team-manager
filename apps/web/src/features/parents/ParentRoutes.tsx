@@ -7,6 +7,7 @@ import type {
   AccountSeatSlotProfileInput,
   AccountSummaryView,
   AccountView,
+  AddPersonalPaymentMethodRequest,
   OpenCodexSpaceRequest,
   OpenPro5xRequest,
   OpenTeamSubscriptionRequest,
@@ -15,7 +16,7 @@ import type {
   RegistrationFormPreference,
   SeatType
 } from '@team-manager/shared';
-import { Alert, Form, Input, Modal, Select, Space } from 'antd';
+import { Alert, App, Form, Input, Modal, Select, Space } from 'antd';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../../api.js';
 import {
@@ -34,6 +35,8 @@ import { ModalErrorAlert } from '../../components/ModalErrorAlert.js';
 import { OpenCodexSpaceModal } from '../../components/OpenCodexSpaceModal.js';
 import { OpenTeamSubscriptionModal } from '../../components/OpenTeamSubscriptionModal.js';
 import { OpenPro5xModal } from '../../components/OpenPro5xModal.js';
+import { AddPersonalPaymentMethodModal } from '../../components/AddPersonalPaymentMethodModal.js';
+import { waitForAccountManagerOperation } from '../../components/waitForAccountManagerOperation.js';
 import { compareRecordSortName } from '../../components/recordSort.js';
 import { PendingRegistrationAccountManagerDetail } from '../../components/PendingRegistrationAccountManagerDetail.js';
 import { RegistrationStartModal } from '../../components/RegistrationStartModal.js';
@@ -189,6 +192,7 @@ export function ParentRoutes({
   onRefreshAccount: (account: AccountSummaryView) => Promise<AccountView | undefined>;
   onError: (error: unknown) => void;
 }) {
+  const { message } = App.useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const { accountId, registrationOperationId } = useParams();
@@ -673,6 +677,22 @@ export function ParentRoutes({
     }
   };
 
+  const submitPersonalPaymentMethod = async (payload: AddPersonalPaymentMethodRequest) => {
+    const target = searchState.target;
+    if (!target) return;
+    setLocalError('');
+    try {
+      await actionBusy.run('add-personal-payment-method', async () => {
+        const operation = await apiClient.addParentPersonalPaymentMethod(target, payload);
+        await waitForAccountManagerOperation(() =>
+          apiClient.getParentPersonalPaymentMethodOperation(target, operation.id)
+        );
+        void message.success('个人支付方式已绑定并设为默认');
+        closeModal();
+      });
+    } catch (error) { reportLocalError(error); }
+  };
+
   const terminateOperation = async (
     account: AccountSummaryView,
     operation: ParentAccountManagerStatus['codexOperation']
@@ -965,6 +985,7 @@ export function ParentRoutes({
             onOpenCodexSpace={() => selectedSummary && openCodexModal(selectedSummary.id)}
             onOpenTeamSubscription={() => selectedSummary && openModal('open-team-subscription', selectedSummary.id)}
             onOpenPro5x={() => selectedSummary && openModal('open-pro-5x', selectedSummary.id)}
+            onAddPersonalPaymentMethod={() => selectedSummary && openModal('add-personal-payment-method', selectedSummary.id)}
             onRetryPro5x={(operationId) => {
               if (selectedSummary) void retryPro5x(selectedSummary.id, operationId);
             }}
@@ -1067,6 +1088,18 @@ export function ParentRoutes({
           : 'open'}
         onCancel={closeModal}
         onSubmit={submitPro5x}
+      />
+
+      <AddPersonalPaymentMethodModal
+        open={searchState.modal === 'add-personal-payment-method'}
+        accountLabel={selectedSummary?.remark || selectedSummary?.email || '当前母号'}
+        confirmLoading={actionBusy.isBusy('add-personal-payment-method')}
+        error={searchState.modal === 'add-personal-payment-method' ? localError : ''}
+        loadDefaults={() => selectedSummary
+          ? apiClient.getParentPersonalPaymentMethodDefaults(selectedSummary.id)
+          : Promise.reject(new Error('未选择母号'))}
+        onCancel={closeModal}
+        onSubmit={submitPersonalPaymentMethod}
       />
 
       <Modal
