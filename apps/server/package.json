@@ -7,16 +7,22 @@
     "dev": "tsx watch src/index.ts",
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "test": "tsx --test src/*.test.ts",
+    "test:db": "tsx --test src/database/*.test.ts",
+    "db:migrate": "tsx src/database/cli.ts migrate",
+    "db:status": "tsx src/database/cli.ts status",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "@team-manager/shared": "workspace:*",
     "hono": "^4.6.0",
+    "kysely": "0.28.3",
+    "pg": "8.16.3",
     "playwright-core": "^1.53.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@types/pg": "8.15.5",
     "tsx": "latest"
   }
 }

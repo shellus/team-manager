@@ -8,6 +8,10 @@ function nonEmptyEnv(name: string): string | undefined {
 export interface AppConfig {
   port: number;
   dataDir: string;
+  artifactDir: string;
+  databaseUrl: string;
+  dataEncryptionKey: string;
+  dataEncryptionKeyVersion: string;
   jwtSecret: string;
   jwtIssuer: string;
   adminUsername: string;
@@ -26,6 +30,10 @@ export function loadConfig(): AppConfig {
   return {
     port: Number(nonEmptyEnv('PORT') ?? '3000'),
     dataDir,
+    artifactDir: resolve(nonEmptyEnv('TEAMMGR_ARTIFACT_DIR') ?? dataDir),
+    databaseUrl: requiredEnv('TEAMMGR_DATABASE_URL'),
+    dataEncryptionKey: requiredEnv('TEAMMGR_DATA_ENCRYPTION_KEY'),
+    dataEncryptionKeyVersion: nonEmptyEnv('TEAMMGR_DATA_ENCRYPTION_KEY_VERSION') ?? 'v1',
     jwtSecret,
     jwtIssuer: 'team-manager',
     adminUsername: nonEmptyEnv('TEAMMGR_ADMIN_USER') ?? 'admin',
@@ -37,6 +45,12 @@ export function loadConfig(): AppConfig {
     teamCodeBaseUrl: nonEmptyEnv('TEAMMGR_TEAMCODE_BASE_URL'),
     teamCodePasscode: nonEmptyEnv('TEAMMGR_TEAMCODE_PASSCODE')
   };
+}
+
+function requiredEnv(name: string): string {
+  const value = nonEmptyEnv(name);
+  if (!value) throw new Error(`缺少必需环境变量 ${name}`);
+  return value;
 }
 
 export function parseAllowedOrigins(raw: string | undefined): string[] {

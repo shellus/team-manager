@@ -6,10 +6,15 @@ import { SubaccountStore } from './subaccountStore.js';
 import { buildApp } from './app.js';
 import { startNotificationScheduler } from './notificationService.js';
 import { installCatchAllFetchTracing } from './transport.js';
+import { createDatabase, databaseHealth } from './database/connection.js';
+import { assertMigrationsCurrent } from './database/migrator.js';
 
 async function main() {
   installCatchAllFetchTracing();
   const config = loadConfig();
+  const database = createDatabase({ connectionString: config.databaseUrl });
+  await databaseHealth(database);
+  await assertMigrationsCurrent(database);
   const store = new AccountStore(config.dataDir);
   await store.init();
   const subaccountStore = new SubaccountStore(config.dataDir);
@@ -31,6 +36,13 @@ async function main() {
       console.warn('[team-manager] 警告: 使用默认 JWT secret，生产请设 TEAMMGR_JWT_SECRET');
     }
   });
+
+  const shutdown = async () => {
+    await database.destroy();
+    process.exit(0);
+  };
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 }
 
 main().catch((e) => {

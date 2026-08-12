@@ -60,6 +60,7 @@ function assertValidConfig(config: TeamOrderConfig): void {
 export class TeamOrderService {
   private activeJobs = 0;
   private readonly activeAccounts = new Set<string>();
+  private readonly activeTasks = new Set<Promise<void>>();
   private timer?: NodeJS.Timeout;
 
   constructor(
@@ -85,6 +86,12 @@ export class TeamOrderService {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+  }
+
+  async waitForIdle(): Promise<void> {
+    while (this.activeTasks.size > 0) {
+      await Promise.allSettled([...this.activeTasks]);
+    }
   }
 
   async dashboard(): Promise<TeamOrderDashboardView> {
@@ -284,11 +291,13 @@ export class TeamOrderService {
       if (this.activeAccounts.has(order.accountId)) continue;
       this.activeJobs += 1;
       this.activeAccounts.add(order.accountId);
-      void this.runOrder(order).finally(() => {
+      const task = this.runOrder(order).finally(async () => {
         this.activeJobs -= 1;
         this.activeAccounts.delete(order.accountId);
-        void this.tick();
+        await this.tick();
       });
+      this.activeTasks.add(task);
+      void task.finally(() => this.activeTasks.delete(task));
     }
   }
 

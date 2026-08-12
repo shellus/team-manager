@@ -167,6 +167,7 @@ describe('TeamOrderService', () => {
     await eventually(() => orders.listOrders(account.id).every((order) => (
       order.status !== 'queued' && order.status !== 'running'
     )));
+    await service.waitForIdle();
   });
 
   it('keeps a paused record paused while editing config and cancels its queued work', async () => {
