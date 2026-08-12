@@ -2,7 +2,11 @@ import type { ColumnType, Generated, Insertable, JSONColumnType, Selectable, Upd
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 export type NullableTimestamp = ColumnType<Date | null, Date | string | null, Date | string | null>;
-export type JsonObject = JSONColumnType<Record<string, unknown>>;
+export type JsonObject = JSONColumnType<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  Record<string, unknown>
+>;
 
 interface AuditedTable {
   id: Generated<string>;
@@ -26,6 +30,7 @@ export interface AccountTable extends AuditedTable {
   remote_user_id: string | null;
   display_name: string | null;
   last_error: string | null;
+  current_session_revision_id: string | null;
 }
 
 export interface AccountOperationalProfileTable extends AuditedTable {
@@ -142,6 +147,7 @@ export interface WorkspaceCredentialTable extends AuditedTable {
 export interface SeatSlotTable extends AuditedTable {
   workspace_id: string;
   seat_key: string;
+  remote_user_id: string | null;
   current_email: string | null;
   normalized_current_email: string | null;
   contact: string | null;
@@ -149,15 +155,40 @@ export interface SeatSlotTable extends AuditedTable {
   price: string | null;
   expires_on: ColumnType<string | null, string | null, string | null>;
   expire_reminder: Generated<boolean>;
+  expire_remove: Generated<boolean>;
   seat_type: string;
   status: string;
 }
 
-export interface SnapshotTable {
+export interface SeatSlotIdentityHistoryTable {
   id: Generated<string>;
-  account_id: string | null;
-  personal_space_id: string | null;
-  workspace_id: string | null;
+  seat_slot_id: string;
+  previous_email: string | null;
+  next_email: string | null;
+  changed_at: Timestamp;
+  reason: string;
+  created_at: Generated<Timestamp>;
+}
+
+export interface SeatSlotSwapOperationTable extends AuditedTable {
+  seat_slot_id: string;
+  idempotency_key: string;
+  status: string;
+  requested_email: string;
+  error_message: string | null;
+}
+
+export interface PersonalSnapshotTable {
+  id: Generated<string>;
+  personal_space_id: string;
+  payload: JsonObject;
+  observed_at: Timestamp;
+  created_at: Generated<Timestamp>;
+}
+
+export interface WorkspaceSnapshotTable {
+  id: Generated<string>;
+  workspace_id: string;
   payload: JsonObject;
   observed_at: Timestamp;
   created_at: Generated<Timestamp>;
@@ -192,6 +223,107 @@ export interface ArtifactIndexTable {
   updated_at: Generated<Timestamp>;
 }
 
+export interface PersonalSubscriptionSnapshotTable {
+  id: Generated<string>;
+  personal_space_id: string;
+  normalized_plan: string;
+  raw_plan_code: string | null;
+  status: string;
+  will_renew: boolean | null;
+  effective_at: NullableTimestamp;
+  ends_at: NullableTimestamp;
+  payload: JsonObject;
+  observed_at: Timestamp;
+  created_at: Generated<Timestamp>;
+}
+
+export interface WorkspaceSubscriptionSnapshotTable {
+  id: Generated<string>;
+  workspace_id: string;
+  normalized_plan: string;
+  raw_plan_code: string | null;
+  status: string;
+  will_renew: boolean | null;
+  effective_at: NullableTimestamp;
+  ends_at: NullableTimestamp;
+  payload: JsonObject;
+  observed_at: Timestamp;
+  created_at: Generated<Timestamp>;
+}
+
+export interface CredentialQuotaSnapshotTable {
+  id: Generated<string>;
+  credential_id: string;
+  payload: JsonObject;
+  observed_at: Timestamp;
+  created_at: Generated<Timestamp>;
+}
+
+export interface BillingSnapshotTable {
+  id: Generated<string>;
+  personal_space_id: string | null;
+  workspace_id: string | null;
+  payload: JsonObject;
+  observed_at: Timestamp;
+  created_at: Generated<Timestamp>;
+}
+
+export interface SystemSettingTable {
+  key: string;
+  value: JsonObject;
+  is_secret: Generated<boolean>;
+  ciphertext: string | null;
+  nonce: string | null;
+  auth_tag: string | null;
+  key_version: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface NotificationPolicyTable extends AuditedTable {
+  kind: string;
+  enabled: Generated<boolean>;
+  configuration: JsonObject;
+}
+
+export interface TeamOrderConfigurationTable extends AuditedTable {
+  workspace_id: string | null;
+  promo_code: string | null;
+  country: string | null;
+  currency: string | null;
+}
+
+export interface TeamOrderMaintenanceTable extends AuditedTable {
+  workspace_id: string;
+  executor_account_id: string;
+  enabled: Generated<boolean>;
+  last_run_at: NullableTimestamp;
+  promo_code: string | null;
+  country: string | null;
+  currency: string | null;
+  next_run_at: NullableTimestamp;
+  pause_reason: string | null;
+  last_success_at: NullableTimestamp;
+  last_error: string | null;
+}
+
+export interface TeamUpgradeOrderTable extends AuditedTable {
+  workspace_id: string;
+  executor_account_id: string;
+  external_order_id: string | null;
+  checkout_url: string | null;
+  expires_at: NullableTimestamp;
+  status: string;
+  configuration_snapshot: JsonObject;
+  source: Generated<string>;
+  scheduled_for: NullableTimestamp;
+  task_id: string | null;
+  stripe_created_at: NullableTimestamp;
+  retry_at: NullableTimestamp;
+  attempt_count: Generated<number>;
+  error_message: string | null;
+  completed_at: NullableTimestamp;
+}
+
 export interface Database {
   account_groups: AccountGroupTable;
   accounts: AccountTable;
@@ -206,13 +338,20 @@ export interface Database {
   credential_pool_groups: CredentialPoolGroupTable;
   workspace_credentials: WorkspaceCredentialTable;
   seat_slots: SeatSlotTable;
-  personal_subscription_snapshots: SnapshotTable;
-  personal_setting_snapshots: SnapshotTable;
-  personal_quota_snapshots: SnapshotTable;
-  workspace_subscription_snapshots: SnapshotTable;
-  workspace_setting_snapshots: SnapshotTable;
-  credential_quota_snapshots: SnapshotTable;
-  billing_snapshots: SnapshotTable;
+  seat_slot_identity_history: SeatSlotIdentityHistoryTable;
+  seat_slot_swap_operations: SeatSlotSwapOperationTable;
+  personal_subscription_snapshots: PersonalSubscriptionSnapshotTable;
+  personal_setting_snapshots: PersonalSnapshotTable;
+  personal_quota_snapshots: PersonalSnapshotTable;
+  workspace_subscription_snapshots: WorkspaceSubscriptionSnapshotTable;
+  workspace_setting_snapshots: WorkspaceSnapshotTable;
+  credential_quota_snapshots: CredentialQuotaSnapshotTable;
+  billing_snapshots: BillingSnapshotTable;
+  system_settings: SystemSettingTable;
+  notification_policies: NotificationPolicyTable;
+  team_order_configurations: TeamOrderConfigurationTable;
+  team_order_maintenances: TeamOrderMaintenanceTable;
+  team_upgrade_orders: TeamUpgradeOrderTable;
   automation_operations: AutomationOperationTable;
   upstream_trace_segments: ArtifactIndexTable;
   rrweb_recordings: ArtifactIndexTable;

@@ -1,0 +1,158 @@
+import { sql, type Kysely, type Transaction } from 'kysely';
+import { DEFAULT_ACCOUNT_GROUP_NAME, normalizeEmail, normalizeGroupName, requireEmail, requireGroupName } from '../domain/identity.js';
+import type { AccountGroupRow, AccountRow, Database, PersonalSpaceRow } from '../database/schema.js';
+
+export interface AccountListFilters {
+  groupId?: string;
+  hasManageableWorkspace?: boolean;
+  personalPlan?: string;
+  isBanned?: boolean;
+  query?: string;
+}
+
+export interface AccountListItem extends AccountRow {
+  group_name: string;
+  has_manageable_workspace: boolean;
+  personal_plan: string;
+  workspace_count: number;
+  credential_count: number;
+}
+
+export interface CreateAccountInput {
+  email: string;
+  groupId?: string;
+  remark?: string | null;
+  isBanned?: boolean;
+  remoteUserId?: string | null;
+  displayName?: string | null;
+  remotePersonalAccountId?: string | null;
+}
+
+export class AccountRepository {
+  constructor(private readonly db: Kysely<Database>) {}
+
+  listGroups(): Promise<AccountGroupRow[]> {
+    return this.db.selectFrom('account_groups').selectAll().orderBy('sort_order').orderBy('name').execute();
+  }
+
+  async createGroup(nameInput: string, sortOrder = 0): Promise<AccountGroupRow> {
+    const name = requireGroupName(nameInput);
+    return this.db.insertInto('account_groups').values({
+      name,
+      normalized_name: normalizeGroupName(name),
+      sort_order: sortOrder
+    }).returningAll().executeTakeFirstOrThrow();
+  }
+
+  async renameGroup(id: string, nameInput: string): Promise<AccountGroupRow> {
+    const name = requireGroupName(nameInput);
+    const updated = await this.db.updateTable('account_groups').set({
+      name,
+      normalized_name: normalizeGroupName(name)
+    }).where('id', '=', id).returningAll().executeTakeFirst();
+    if (!updated) throw new Error('账号分组不存在');
+    return updated;
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    const group = await this.db.selectFrom('account_groups').select(['is_default']).where('id', '=', id).executeTakeFirst();
+    if (!group) throw new Error('账号分组不存在');
+    if (group.is_default) throw new Error('默认分组不能删除');
+    const count = await this.db.selectFrom('accounts').select(({ fn }) => fn.countAll<number>().as('count')).where('group_id', '=', id).executeTakeFirstOrThrow();
+    if (Number(count.count) > 0) throw new Error('非空账号分组不能删除，请先移动账号');
+    await this.db.deleteFrom('account_groups').where('id', '=', id).execute();
+  }
+
+  async defaultGroup(): Promise<AccountGroupRow> {
+    return this.db.selectFrom('account_groups').selectAll().where('is_default', '=', true).executeTakeFirstOrThrow();
+  }
+
+  async create(input: CreateAccountInput): Promise<{ account: AccountRow; personalSpace: PersonalSpaceRow }> {
+    const email = requireEmail(input.email);
+    return this.db.transaction().execute(async (trx) => {
+      const groupId = input.groupId ?? (await trx.selectFrom('account_groups').select('id').where('is_default', '=', true).executeTakeFirstOrThrow()).id;
+      const account = await trx.insertInto('accounts').values({
+        group_id: groupId,
+        email,
+        normalized_email: normalizeEmail(email),
+        remark: input.remark?.trim() || null,
+        is_banned: input.isBanned ?? false,
+        remote_user_id: input.remoteUserId ?? null,
+        display_name: input.displayName ?? null,
+        last_error: null,
+        current_session_revision_id: null
+      }).returningAll().executeTakeFirstOrThrow();
+      const personalSpace = await trx.insertInto('personal_spaces').values({
+        account_id: account.id,
+        remote_account_id: input.remotePersonalAccountId ?? null
+      }).returningAll().executeTakeFirstOrThrow();
+      await trx.insertInto('account_operational_profiles').values({
+        account_id: account.id,
+        limit_type: 'unknown',
+        proxy_url_ciphertext: null,
+        proxy_url_nonce: null,
+        proxy_url_auth_tag: null,
+        proxy_url_key_version: null,
+        account_manager_plan_code: null,
+        account_manager_synced_at: null
+      }).execute();
+      return { account, personalSpace };
+    });
+  }
+
+  findByEmail(email: string): Promise<AccountRow | undefined> {
+    return this.db.selectFrom('accounts').selectAll().where('normalized_email', '=', normalizeEmail(email)).executeTakeFirst();
+  }
+
+  async moveToGroup(accountId: string, groupId: string): Promise<AccountRow> {
+    const updated = await this.db.updateTable('accounts').set({ group_id: groupId }).where('id', '=', accountId).returningAll().executeTakeFirst();
+    if (!updated) throw new Error('账号不存在');
+    return updated;
+  }
+
+  async list(filters: AccountListFilters = {}): Promise<AccountListItem[]> {
+    let query = this.db.selectFrom('accounts as a')
+      .innerJoin('account_groups as g', 'g.id', 'a.group_id')
+      .selectAll('a')
+      .select([
+        'g.name as group_name',
+        sql<boolean>`exists (
+          select 1 from workspace_memberships wm
+          join workspaces w on w.id = wm.workspace_id
+          where wm.account_id = a.id and wm.status = 'active'
+            and wm.normalized_role in ('owner', 'admin') and w.status = 'active'
+        )`.as('has_manageable_workspace'),
+        sql<string>`coalesce((
+          select pss.normalized_plan from personal_subscription_snapshots pss
+          join personal_spaces ps on ps.id = pss.personal_space_id
+          where ps.account_id = a.id order by pss.observed_at desc limit 1
+        ), 'free')`.as('personal_plan'),
+        sql<number>`(select count(distinct wm.workspace_id)::int from workspace_memberships wm where wm.account_id = a.id and wm.status = 'active')`.as('workspace_count'),
+        sql<number>`(select count(*)::int from workspace_credentials wc where wc.account_id = a.id and wc.status = 'active')`.as('credential_count')
+      ]);
+    if (filters.groupId) query = query.where('a.group_id', '=', filters.groupId);
+    if (filters.isBanned !== undefined) query = query.where('a.is_banned', '=', filters.isBanned);
+    if (filters.query?.trim()) {
+      const pattern = `%${filters.query.trim()}%`;
+      query = query.where((eb) => eb.or([eb('a.email', 'ilike', pattern), eb('a.remark', 'ilike', pattern)]));
+    }
+    if (filters.hasManageableWorkspace !== undefined) {
+      query = query.where(sql<boolean>`exists (
+        select 1 from workspace_memberships wm
+        join workspaces w on w.id = wm.workspace_id
+        where wm.account_id = a.id and wm.status = 'active'
+          and wm.normalized_role in ('owner', 'admin') and w.status = 'active'
+      )`, '=', filters.hasManageableWorkspace);
+    }
+    const rows = await query.orderBy('a.updated_at', 'desc').execute() as AccountListItem[];
+    return filters.personalPlan ? rows.filter((row) => row.personal_plan === filters.personalPlan) : rows;
+  }
+
+  static async ensureGroup(trx: Transaction<Database>, nameInput?: string | null): Promise<string> {
+    const name = nameInput?.trim() || DEFAULT_ACCOUNT_GROUP_NAME;
+    const normalized = normalizeGroupName(name);
+    const existing = await trx.selectFrom('account_groups').select('id').where('normalized_name', '=', normalized).executeTakeFirst();
+    if (existing) return existing.id;
+    return trx.insertInto('account_groups').values({ name, normalized_name: normalized }).returning('id').executeTakeFirstOrThrow().then((row) => row.id);
+  }
+}
