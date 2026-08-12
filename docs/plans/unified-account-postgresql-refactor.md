@@ -24,12 +24,12 @@
 
 Team Manager 删除“母号/子号”双模型，将所有受管 ChatGPT 登录身份统一为账号。个人套餐、个人支付和个人设置属于账号的一对一个人空间；Team/Business 设置、订阅、账单、成员和席位属于 Workspace；账号通过 Membership 与一个或多个 Workspace 建立关系。
 
-PostgreSQL 成为运行时数据的唯一事实源。旧 JSON、JSONL 和凭证目录只允许作为一次性迁移输入，完成生产迁移后退出运行路径。旧页面、旧 API、旧领域类型和旧 Store 直接删除，不提供兼容接口、重定向、双写或运行时回退。
+PostgreSQL 成为结构化业务数据的事实源。完整上游 HTTP trace、rrweb 压缩录制和 Codex JSON 凭证属于文件制品，继续存放在受控运行目录；数据库只保存需要查询和关联的元数据、哈希与相对存储键。旧业务 JSON/JSONL Store 只允许作为一次性迁移输入，完成生产迁移后退出运行路径。旧页面、旧 API、旧领域类型和旧 Store 直接删除，不提供兼容接口、重定向、双写或运行时回退。
 
 ## 已确认产品决策
 
 1. 所有历史母号和子号统一为 `Account`，不保存账号类型。
-2. 一个账号只能属于一个账号分组。
+2. 一个账号只能属于一个 `AccountGroup`；分组是可创建、重命名和删除的数据实体，不再是账号上的自由字符串。
 3. “拥有可管理空间”是查询时派生的能力，不是账号字段：账号在至少一个活动 Workspace 中存在活动的 owner/admin Membership 时为真。
 4. 一个账号可以管理多个 Workspace，也可以同时作为普通成员加入其他 Workspace。
 5. Workspace 不永久属于某个账号。需要上游执行身份的操作显式选择具备当前权限的账号；后台策略单独保存执行账号。
@@ -38,6 +38,7 @@ PostgreSQL 成为运行时数据的唯一事实源。旧 JSON、JSONL 和凭证�
 8. Team/Business 支持创建新 Workspace 和升级当前账号可管理的既有 Workspace。
 9. 不保留 `/parents`、`/subaccounts` 及其 API、类型、组件或旧行为兼容。
 10. 重构必须保留真实业务连续性标识，例如 Workspace 外部 ID、GAM 账号引用、上游订阅 ID、凭证绑定和公开席位访问键；删除旧架构不等于重新生成这些标识。
+11. HTTP trace、rrweb 和 Codex JSON 凭证使用文件存储，不把正文写入 PostgreSQL。
 
 ## 不做的事情
 
@@ -66,34 +67,43 @@ PostgreSQL 成为运行时数据的唯一事实源。旧 JSON、JSONL 和凭证�
 ### 配置与秘密
 
 - 数据库连接只从运行环境读取，例如 `TEAMMGR_DATABASE_URL`。
-- Session、Cookie、Access Token、OAuth/PAT 凭证及敏感设置在应用层加密后写入数据库。
+- Session、Cookie、Access Token 及敏感设置在应用层加密后写入数据库。
 - 加密密钥和版本只存在于运行环境，不进入 Git；表中保存算法、密钥版本、nonce、认证标签和密文。
+- OAuth/PAT 凭证正文只存在于权限为 `0600` 的 JSON 文件，数据库不得保存凭证正文或可还原正文的副本。
 - 完整支付卡数据只在当前请求内转交 GAM，不写 Team Manager 数据库、普通日志或任务摘要。
-- 数据库备份必须与对应加密密钥共同备份和恢复验证。
+- PostgreSQL、对应加密密钥和文件制品目录必须按同一恢复点备份并完成联合恢复验证。
 
-### 数据库成为唯一运行事实源
+### 数据库与文件制品的边界
 
-以下内容全部进入 PostgreSQL：
+以下结构化内容进入 PostgreSQL：
 
 - 账号、分组、个人空间和个人订阅；
 - Session 修订、空间上下文 Access Token 和会话校验状态；
 - Workspace、成员、邀请、设置、订阅、账单和席位；
-- OAuth/PAT 凭证、额度快照和凭证号池分组；
+- OAuth/PAT 凭证元数据、文件引用、额度快照和凭证号池分组；
 - GAM 绑定、账号自动化操作和安全的付款结果摘要；
 - Team 升级订单、维护策略、通知配置和表单偏好；
 - 账号操作日志；
-- 完整上游 HTTP 请求响应证据；
-- rrweb 录制的压缩内容和元数据。
+- HTTP trace 文件段、rrweb 文件和凭证文件的索引元数据。
 
-运行目录只保留 PostgreSQL 数据目录、数据库备份和迁移输入备份，不再保存应用可读写的业务 JSON、JSONL 或凭证文件。
+以下正文保持文件存储：
 
-`upstream_http_exchanges` 和 `rrweb_recordings` 是高容量证据表，不能作为无上限普通表使用：
+- 按容量轮转的完整上游 HTTP trace JSONL；
+- rrweb `json.gz` 压缩录制；
+- OAuth/PAT 规范 JSON 凭证。
 
-- 元数据与压缩正文分列，列表和检索不得默认读取正文；
-- 按采集时间建立可裁剪的分区或等价的受控存储结构；
-- 由数据库维护任务执行保留周期、容量上限和批量删除，不由 Web 请求同步清理；
-- rrweb 延续现有保留周期；HTTP trace 初始容量策略不得低于当前轮转文件能够保留的证据量；
-- 删除任务、备份恢复和逐字节哈希校验必须进入专项测试与运行监控。
+文件制品统一位于环境配置的制品根目录。数据库只保存相对于该根目录的不可变 `storageKey`，禁止保存绝对路径或接受客户端传入路径。不同类别使用独立子目录，目录权限为 `0700`、文件权限为 `0600`，所有读取都必须经过服务端路径校验。
+
+制品与数据库采用以下一致性协议：
+
+1. 正文先写同目录临时文件，完成 `fsync`、哈希和格式校验后原子重命名为不可变目标文件；
+2. 再在数据库事务中写入 `storageKey`、SHA-256、字节数、格式版本和状态；
+3. 数据库提交失败产生的孤儿文件由定时扫描按宽限期清理；
+4. 替换凭证或录制时生成新文件并原子切换数据库引用，不原地覆盖旧文件；
+5. 删除时先在数据库标记待删除，再移动到隔离目录，宽限期后物理删除；
+6. PostgreSQL 与制品目录必须作为同一恢复点备份，并通过数据库引用与文件哈希双向核对。
+
+HTTP trace 继续按容量轮转并保留压缩历史段；数据库仅在需要按时间、请求来源或操作 ID 检索时记录 trace 段索引，不为每个请求复制正文。rrweb 延续既有保留周期，凭证文件不因业务记录停用而立即物理删除。
 
 ## 领域模型
 
@@ -104,6 +114,8 @@ PostgreSQL 成为运行时数据的唯一事实源。旧 JSON、JSONL 和凭证�
 规则：
 
 - `Account.groupId` 必填且只能指向一个分组。
+- 分组拥有稳定 ID；创建、重命名、排序和删除均通过 AccountGroup 服务完成。
+- 重命名不改变分组 ID 或账号外键，名称去除首尾空白后按不区分大小写规则唯一。
 - 删除非空分组前必须把账号移动到其他分组。
 - 注册任务在创建时记录目标分组；账号导入成功后进入该分组。
 - 账号分组与凭证号池分组是两个对象，不得复用同一字段或表。
@@ -189,7 +201,7 @@ Workspace 邀请与 Membership 分表。邀请可选关联已录入账号，但�
 
 ### WorkspaceCredential
 
-直接绑定账号与 Workspace 的 OAuth 或 PAT 凭证，不以 Membership 作为父记录。凭证秘密加密入库，元数据与额度快照分开保存。
+直接绑定账号与 Workspace 的 OAuth 或 PAT 凭证，不以 Membership 作为父记录。规范 JSON 凭证正文保存为文件；数据库保存相对存储键、内容哈希、格式版本、来源、状态和额度快照。
 
 新建凭证时，服务层必须证明账号在该 Workspace 中存在活动 Membership，或存在邮箱匹配的待接受邀请；后者用于已观测到的“接受邀请前生成 PAT”流程。凭证记录保存创建时的关系依据。邀请转为正式成员、成员离开或邀请失效时更新凭证状态，但不通过删除记录伪装上游撤销。
 
@@ -248,16 +260,16 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 | Session | `account_session_revisions`、`account_access_contexts` |
 | 个人空间 | `personal_spaces`、`personal_subscription_snapshots`、`personal_setting_snapshots`、`personal_quota_snapshots` |
 | Workspace | `workspaces`、`workspace_memberships`、`workspace_invitations`、`workspace_subscription_snapshots`、`workspace_setting_snapshots` |
-| 凭证 | `credential_pool_groups`、`workspace_credentials`、`credential_quota_snapshots` |
+| 凭证 | `credential_pool_groups`、`workspace_credentials`、`credential_quota_snapshots`；凭证正文为文件制品 |
 | 席位 | `seat_slots`、`seat_slot_identity_history`、`seat_slot_swap_operations` |
 | 财务 | `billing_snapshots`、`billing_invoices`、`payment_method_summaries` |
 | 自动化 | `automation_operations`、`automation_operation_events`、`payment_attempt_summaries` |
 | Team 订单 | `team_order_configurations`、`team_order_maintenances`、`team_upgrade_orders` |
 | 设置通知 | `system_settings`、`notification_policies`、`notification_deliveries` |
-| 证据 | `upstream_http_exchanges`、`rrweb_recordings`、`account_activity_logs` |
+| 证据 | `upstream_trace_segments`、`rrweb_recordings`、`account_activity_logs`；trace/rrweb 正文为文件制品 |
 | 迁移 | `schema_migrations`；一次性迁移映射和报告不得成为运行时领域表 |
 
-低频且结构易变的完整上游响应可使用 `jsonb` 或 `bytea` 保存原文，但稳定的查询字段必须拆成有约束的列，不能把全部新模型重新塞回一个 JSONB 大对象。
+低频且结构易变的业务快照可使用 `jsonb` 保存原文，但稳定的查询字段必须拆成有约束的列，不能把全部新模型重新塞回一个 JSONB 大对象。HTTP trace、rrweb 和凭证正文不得借 `jsonb` 或 `bytea` 绕过文件存储边界。
 
 ## “拥有可管理空间”筛选
 
@@ -437,11 +449,12 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 
 ### 单分组裁决
 
-- 同名母号/子号分组合并为一个 AccountGroup。
+- 所有历史非空 `groupName` 先按规范化名称去重并创建 `AccountGroup`，账号迁移后只保存 `account_group_id` 外键，不再保存名称副本。
+- `AccountGroup` 至少包含稳定 ID、唯一规范化名称、显示名称、排序、创建时间和更新时间；重命名只修改分组记录，不批量改写账号。
 - 空分组进入默认分组。
 - 同一账号只有一个非空来源分组时直接采用。
-- 同一账号同时存在历史母号和子号分组时，优先采用具有可管理 Workspace 记录的来源分组。
-- 多个可管理 Workspace 来源的分组互相冲突时停止迁移并要求人工裁决。
+- 当前旧数据中存在一个已知冲突：同一规范化邮箱同时出现在母号表和子号表，两边 `groupName` 均非空但名称不同。统一后只能选择一个 AccountGroup，这就是“分组冲突”；它不代表 Workspace 权限冲突。
+- 对所有此类冲突，迁移演练生成脱敏裁决清单并停止该账号导入，不根据“母号/子号”来源或是否可管理 Workspace 自动覆盖。正式迁移前由操作员在清单中选择目标分组或新建分组，裁决文件作为迁移输入并记录哈希。
 - 被舍弃的旧分组只进入私有迁移报告，不进入账号标签或兼容字段。
 
 账号分组与凭证 `groupName` 分别迁移到 AccountGroup 和 CredentialPoolGroup，不得互相覆盖。
@@ -457,7 +470,7 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 
 ### 凭证与席位
 
-- 每份凭证解密或解析后校验账号身份、Workspace ID 和文件哈希，再加密写入数据库。
+- 每份凭证解析后校验账号身份、Workspace ID 和文件哈希，再原子写入新版文件制品目录；数据库只写入相对存储键与元数据。
 - 无法映射 Workspace 的凭证作为阻塞冲突，不删除、不挂到猜测空间。
 - SeatSlot 的公开访问键必须原值迁移并做唯一性校验。
 - SeatSlot 当前邮箱、客户资料、状态、换号历史和活动换号操作全部迁移到目标 Workspace。
@@ -467,9 +480,11 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 - 账单快照以 Workspace 或 PersonalSpace 上下文导入，无法判断上下文时阻塞迁移。
 - Team 订单维护从旧账号 ID 重绑到 Workspace，并保存执行账号。
 - 通知渠道秘密加密导入；表单偏好进入系统设置。
-- JSONL 按完整行边界导入，保存源文件 SHA-256、行号和原始字节 SHA-256，重复运行不得重复写入。
-- rrweb 文件按 UUID、压缩字节哈希和时间导入 `bytea`，导入后继续执行既有保留周期。
-- HTTP trace 和 rrweb 在迁移演练中验证分区、容量/保留策略和清理任务，避免切换后数据库无限增长。
+- 旧账号操作日志 JSONL 按完整行边界导入数据库，保存源文件 SHA-256、行号和原始字节 SHA-256，重复运行不得重复写入。
+- 现有凭证 JSON 校验账号、Workspace、格式和 SHA-256 后迁移到新版不可变制品目录，数据库写入相对存储键与元数据，不导入正文。
+- rrweb 文件按 UUID、压缩字节哈希和时间迁移到新版制品目录，数据库只导入索引，迁移后继续执行既有保留周期。
+- HTTP trace 保持 JSONL 文件格式并纳入新版轮转与压缩策略；数据库只导入或重建文件段索引。
+- 迁移演练必须执行数据库引用到文件、文件到数据库引用的双向核对；未被引用的文件不得静默删除。
 
 ### 迁移幂等与报告
 
@@ -489,12 +504,13 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 
 - `AccountStore` 与 `SubaccountStore` 文件持久化实现；
 - `AccountBillingStore`、`TeamOrderStore`、`AppSettingsStore` 的文件实现；
-- `privateDataFile` 业务写入 helper；
+- `privateDataFile` 中服务于旧业务 JSON Store 的 helper；保留或重写文件制品所需的权限、原子写入和路径校验能力；
 - `ParentAccountManagerService` 和 `SubaccountService` 的角色专用分支；
 - `Parent*`、`Subaccount*` 类型与前端目录；
 - `OpenPro5x*`、`Pro5xSubscription*`、Pro5x 专用支付统计命名；
 - 旧账号/子号注册 API 和旧页面路由；
-- 运行时读取旧 JSON、JSONL 和凭证目录的代码；
+- 运行时读取旧账号、设置、账单、订单等业务 JSON/JSONL Store 的代码；
+- 旧凭证目录布局及其对 `Subaccount` ID 的依赖；凭证文件读取迁移到统一 Account × Workspace 制品服务；
 - 完成生产迁移后的一次性旧格式导入工具。
 
 保留的功能必须迁移到统一模块，不能通过删除旧文件丢失能力。
@@ -522,7 +538,7 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 
 - 建立本文列出的核心表和数据库约束。
 - 建立 Account、PersonalSpace、Workspace、Membership、Credential、SeatSlot Repository。
-- 建立数据库版设置、账单、订单、通知、trace 和 rrweb Store。
+- 建立数据库版设置、账单、订单和通知 Store，以及带数据库索引的凭证、trace、rrweb 文件制品 Store。
 
 完成条件：所有新 Repository 有数据库集成测试，业务代码尚不需要读取旧文件。
 
@@ -571,7 +587,7 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 - 启动新版并完成 UI、API、后台任务和外部依赖验证。
 - 删除最终源码中的一次性旧格式导入工具。
 
-完成条件：新版只依赖 PostgreSQL，旧业务文件不再打开，Team Manager 与 GAM 健康且关键真实操作通过。
+完成条件：新版结构化业务数据只依赖 PostgreSQL，运行时只打开本文允许的 trace、rrweb 和凭证文件制品，不再打开旧业务 Store，Team Manager 与 GAM 健康且关键真实操作通过。
 
 ### 阶段 8：文档与清理
 
@@ -592,7 +608,7 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 6. `feat: 合并账号和 Workspace 管理页面`
 7. `feat: 泛化 GAM 个人套餐操作`
 8. `feat: 接入四档个人套餐和 Business 开通模式`
-9. `refactor: 删除母号子号和文件存储旧实现`
+9. `refactor: 删除母号子号和旧业务文件 Store`
 10. `docs: 更新新版使用与部署文档`
 
 GAM 的合同和状态机变更在 GAM 仓库使用独立提交，不与 Team Manager 源码提交混合。
@@ -625,8 +641,9 @@ corepack pnpm docs:build
 - 未录入账号的远端成员能够保存和显示；
 - 公开 SeatSlot 访问键迁移后原链接仍可使用；
 - 旧页面与旧 API 不存在；
-- 应用运行期间不打开旧业务 JSON、JSONL 或凭证目录；
-- 数据库备份恢复后秘密可解密、公开访问键稳定、后台任务可继续。
+- 应用运行期间不打开旧业务 JSON/JSONL Store 或旧凭证目录，只访问数据库引用的新版文件制品；
+- 数据库与制品目录在同一恢复点恢复后，秘密可解密、文件哈希一致、公开访问键稳定、后台任务可继续；
+- 数据库引用的制品全部存在且哈希一致，制品目录中的孤儿文件均处于允许的临时或隔离状态；
 
 生产验证至少覆盖：
 
@@ -637,7 +654,7 @@ corepack pnpm docs:build
 - 一个不产生扣款的个人套餐只读刷新；
 - Team 订单维护状态恢复；
 - 通知测试；
-- 上游 HTTP 原始证据和 rrweb 录制写入、读取与保留策略。
+- 上游 HTTP 原始证据和 rrweb 录制的文件写入、数据库索引、读取与保留策略。
 
 会产生资金、成员移除或真实套餐变化的验证只使用用户指定样本。
 
@@ -663,8 +680,8 @@ corepack pnpm docs:build
 
 ## 最终验收标准
 
-- PostgreSQL 是唯一运行时事实源。
-- 最终源码不读取旧业务 JSON、JSONL 或凭证目录。
+- PostgreSQL 是结构化业务数据的事实源；HTTP trace、rrweb 和凭证正文是明确允许的文件制品。
+- 最终源码不读取旧业务 JSON/JSONL Store 或旧凭证目录，只通过统一制品服务访问数据库引用的文件。
 - 账号只属于一个账号分组。
 - 账号能力不由历史母号/子号来源驱动。
 - “拥有可管理空间”完全由活动 Workspace Membership 派生。
@@ -676,11 +693,15 @@ corepack pnpm docs:build
 - 所有业务数据、公开访问键和上游绑定经迁移校验，没有静默丢失。
 - 文档、测试、构建、数据库备份恢复和生产验证全部通过。
 
-## 待用户最终确认
+## 本轮确认与剩余确认
 
-正式启动前只需确认以下两项：
+已确认调整：
 
-1. **分组冲突规则**：同一账号的历史母号分组与子号分组不同时，采用“具有可管理 Workspace 的来源分组优先”；多个可管理来源仍冲突则阻塞迁移并人工选择。
-2. **证据数据入库范围**：完整上游 HTTP trace 与 rrweb 压缩录制也进入 PostgreSQL，运行目录不再保留这两类活动数据文件。
+1. **文件制品边界**：HTTP trace、rrweb 压缩录制和 Codex JSON 凭证正文保持文件存储；PostgreSQL 只保存索引、状态、哈希、大小、格式版本和相对存储键。
+2. **账号分组结构化**：历史 `groupName` 迁移为独立 `AccountGroup` 表与 `Account.group_id` 外键，支持创建、重命名、排序和安全删除。
+
+正式启动前剩余确认：
+
+1. **历史分组冲突裁决**：同一账号在旧母号表和子号表拥有不同非空分组时，不按旧身份或 Workspace 能力自动选边；迁移演练输出裁决项，正式迁移前人工指定唯一目标分组。本次复核快照发现一个此类账号，正式迁移前必须重新扫描。
 
 确认后，实施必须从阶段 0 开始并按本文逐项推进；任何新增范围或模型变更先回写本文。
