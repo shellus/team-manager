@@ -9,6 +9,8 @@ import type {
   OpenTeamSubscriptionRequest,
   PersonalPaymentMethodDefaults,
   Pro5xPaymentStatisticsView,
+  ChangePersonalSubscriptionRequest,
+  OpenBusinessSubscriptionRequest,
   ResidentialProxyConfig,
   SubaccountRegistrationJobStatus,
   SubaccountRegistrationJobView
@@ -125,6 +127,18 @@ export interface AccountManagerGateway {
   openPro5x(
     accountId: string,
     input: OpenPro5xRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
+  changePersonalSubscription(
+    accountId: string,
+    input: ChangePersonalSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
+  cancelPersonalSubscriptionRenewal(
+    accountId: string,
+    input?: { requestTag?: string }
+  ): Promise<AccountManagerOperationView>;
+  openBusinessSubscription(
+    accountId: string,
+    input: OpenBusinessSubscriptionRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
   addPersonalPaymentMethod(
     accountId: string,
@@ -343,6 +357,41 @@ export class AccountManagerClient implements AccountManagerGateway {
       'POST',
       `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-pro-5x`,
       input
+    ));
+  }
+
+  async changePersonalSubscription(
+    accountId: string,
+    input: ChangePersonalSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/change-personal-subscription`,
+      input,
+      Boolean(input.card)
+    ));
+  }
+
+  async cancelPersonalSubscriptionRenewal(
+    accountId: string,
+    input: { requestTag?: string } = {}
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/cancel-personal-subscription-renewal`,
+      input
+    ));
+  }
+
+  async openBusinessSubscription(
+    accountId: string,
+    input: OpenBusinessSubscriptionRequest & { requestTag?: string }
+  ): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST',
+      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`,
+      input,
+      Boolean(input.card)
     ));
   }
 

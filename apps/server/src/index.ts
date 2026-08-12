@@ -1,13 +1,9 @@
 import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
-import { AccountStore } from './accountStore.js';
-import { AppSettingsStore } from './appSettingsStore.js';
-import { SubaccountStore } from './subaccountStore.js';
-import { buildApp } from './app.js';
-import { startNotificationScheduler } from './notificationService.js';
 import { installCatchAllFetchTracing } from './transport.js';
 import { createDatabase, databaseHealth } from './database/connection.js';
 import { assertMigrationsCurrent } from './database/migrator.js';
+import { buildUnifiedApp } from './unifiedApp.js';
 
 async function main() {
   installCatchAllFetchTracing();
@@ -15,23 +11,10 @@ async function main() {
   const database = createDatabase({ connectionString: config.databaseUrl });
   await databaseHealth(database);
   await assertMigrationsCurrent(database);
-  const store = new AccountStore(config.dataDir);
-  await store.init();
-  const subaccountStore = new SubaccountStore(config.dataDir);
-  await subaccountStore.init();
-  const settingsStore = new AppSettingsStore(config.dataDir);
-  await settingsStore.init();
-  const app = await buildApp({
-    config,
-    store,
-    subaccountStore,
-    settingsStore,
-    startTeamOrderScheduler: true
-  });
-  startNotificationScheduler(settingsStore, store);
+  const app = await buildUnifiedApp({ config, database });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
-    console.log(`[team-manager] listening on :${info.port} (data=${config.dataDir})`);
+    console.log(`[team-manager] listening on :${info.port} (mode=unified-account-postgresql)`);
     if (config.jwtSecret === 'dev-insecure-secret-change-me') {
       console.warn('[team-manager] 警告: 使用默认 JWT secret，生产请设 TEAMMGR_JWT_SECRET');
     }

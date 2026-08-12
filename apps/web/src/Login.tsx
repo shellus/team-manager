@@ -26,7 +26,7 @@ export function Login({ onLogin }: { onLogin: (username: string, password: strin
     <div className="login-page">
       <Card className="login-panel">
         <Typography.Title level={1}>Team 管理</Typography.Title>
-        <Typography.Paragraph type="secondary">登录后管理母号、子号和 Codex 凭证。</Typography.Paragraph>
+        <Typography.Paragraph type="secondary">登录后统一管理账号、Workspace、套餐与凭证。</Typography.Paragraph>
         <Form<LoginValues>
           layout="vertical"
           initialValues={{ username: 'admin', password: '' }}

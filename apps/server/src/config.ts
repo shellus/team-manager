@@ -22,6 +22,8 @@ export interface AppConfig {
   webDistDir: string;
   teamCodeBaseUrl?: string;
   teamCodePasscode?: string;
+  accountManagerBaseUrl?: string;
+  accountManagerToken?: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -43,7 +45,9 @@ export function loadConfig(): AppConfig {
     allowedOrigins: parseAllowedOrigins(nonEmptyEnv('TEAMMGR_ALLOWED_ORIGINS')),
     webDistDir: resolve(nonEmptyEnv('TEAMMGR_WEB_DIST_DIR') ?? '../web/dist'),
     teamCodeBaseUrl: nonEmptyEnv('TEAMMGR_TEAMCODE_BASE_URL'),
-    teamCodePasscode: nonEmptyEnv('TEAMMGR_TEAMCODE_PASSCODE')
+    teamCodePasscode: nonEmptyEnv('TEAMMGR_TEAMCODE_PASSCODE'),
+    accountManagerBaseUrl: nonEmptyEnv('TEAMMGR_ACCOUNT_MANAGER_BASE_URL'),
+    accountManagerToken: nonEmptyEnv('TEAMMGR_ACCOUNT_MANAGER_TOKEN')
   };
 }
 

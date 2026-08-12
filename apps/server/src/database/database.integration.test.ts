@@ -239,6 +239,7 @@ async function verifyRepositories(db: ReturnType<typeof createDatabase>): Promis
 
 async function verifyUnifiedApi(db: ReturnType<typeof createDatabase>): Promise<void> {
   const upstreamRequests: Array<{ path: string; accountHeader?: string }> = [];
+  let businessTargetWorkspaceId = '';
   const app = await buildUnifiedApp({
     database: db,
     config: {
@@ -254,7 +255,26 @@ async function verifyUnifiedApi(db: ReturnType<typeof createDatabase>): Promise<
         if (request.path.includes('/users?')) return { status: 200, body: JSON.stringify({ items: [] }) };
         throw new Error(`unexpected upstream ${request.path}`);
       }
-    }
+    },
+    accountManager: {
+      changePersonalSubscription: async (_accountId: string, input: any) => ({
+        id: 'gam-personal-operation', type: 'change_personal_subscription', status: 'queued',
+        phase: 'personal_subscription_queued', progress: 0,
+        requestSummary: { targetPlan: input.targetPlan, cardLast4: input.card?.number.slice(-4) },
+        createdAt: 1, updatedAt: 1
+      }),
+      cancelPersonalSubscriptionRenewal: async () => ({
+        id: 'gam-cancel-operation', type: 'cancel_personal_subscription_renewal', status: 'queued',
+        phase: 'queued', progress: 0, createdAt: 1, updatedAt: 1
+      }),
+      openBusinessSubscription: async (_accountId: string, input: any) => {
+        businessTargetWorkspaceId = input.workspaceId;
+        return ({
+        id: 'gam-business-operation', type: 'open_business_subscription', status: 'queued',
+        phase: 'queued', progress: 0, requestSummary: { workspaceId: input.workspaceId },
+        createdAt: 1, updatedAt: 1
+      }); }
+    } as any
   });
   const auth = { Authorization: 'Bearer integration-token', 'Content-Type': 'application/json' };
   const groupsResponse = await app.request('/api/account-groups', { headers: auth });
@@ -274,11 +294,34 @@ async function verifyUnifiedApi(db: ReturnType<typeof createDatabase>): Promise<
   assert.equal(created.email, 'unified-api@example.com');
   assert.equal(created.hasSession, true);
   assert.equal(created.personalSpace.remoteAccountId, 'personal-unified');
+  await db.insertInto('gam_bindings').values({
+    account_id: created.id,
+    external_account_ref: 'unified-api@example.com',
+    normalized_external_account_ref: 'unified-api@example.com'
+  }).execute();
 
   const listResponse = await app.request('/api/accounts?hasSession=true&hasManageableWorkspace=false', { headers: auth });
   assert.equal(listResponse.status, 200);
   const listed = (await listResponse.json() as any).data;
   assert.equal(listed.some((item: any) => item.id === created.id), true);
+
+  const personal = await app.request(`/api/accounts/${created.id}/personal-subscription`, {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ targetPlan: 'plus', mode: 'start_new', country: 'US', currency: 'USD', autoPay: true,
+      card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' } })
+  });
+  assert.equal(personal.status, 200);
+  const storedPersonal = await db.selectFrom('automation_operations').selectAll()
+    .where('external_operation_id', '=', 'gam-personal-operation').executeTakeFirstOrThrow();
+  assert.equal(JSON.stringify(storedPersonal).includes('4242424242424242'), false);
+  assert.equal(JSON.stringify(storedPersonal).includes('"cvc"'), false);
+  assert.equal((storedPersonal.safe_request_summary as any).cardLast4, '4242');
+
+  const blockedChange = await app.request(`/api/accounts/${created.id}/personal-subscription`, {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ targetPlan: 'pro_20x', mode: 'change_existing', country: 'US', currency: 'USD', autoPay: false })
+  });
+  assert.equal(blockedChange.status, 409);
 
   const workspace = await db.selectFrom('workspaces').selectAll().where('external_id', '=', 'managed-workspace').executeTakeFirstOrThrow();
   const denied = await app.request(`/api/workspaces/${workspace.id}/members/refresh`, {
@@ -288,6 +331,11 @@ async function verifyUnifiedApi(db: ReturnType<typeof createDatabase>): Promise<
   assert.equal(upstreamRequests.length, 0);
 
   const executor = await db.selectFrom('accounts').select('id').where('normalized_email', '=', 'manager@example.com').executeTakeFirstOrThrow();
+  await db.insertInto('gam_bindings').values({
+    account_id: executor.id,
+    external_account_ref: 'manager@example.com',
+    normalized_external_account_ref: 'manager@example.com'
+  }).execute();
   const workspaceContext = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
   await workspaceContext.saveAccessToken(executor.id, { kind: 'workspace', workspaceId: workspace.id }, 'workspace-api-token');
   const refreshed = await app.request(`/api/workspaces/${workspace.id}/members/refresh`, {
@@ -296,6 +344,17 @@ async function verifyUnifiedApi(db: ReturnType<typeof createDatabase>): Promise<
   assert.equal(refreshed.status, 200);
   assert.equal(upstreamRequests.length, 1);
   assert.equal(upstreamRequests[0]?.accountHeader, 'managed-workspace');
+  await new WorkspaceRepository(db).upsertMembership({
+    workspaceId: workspace.id, accountId: executor.id, email: 'manager@example.com',
+    normalizedRole: 'owner', seatType: 'default', observedAt: new Date(), source: 'integration-test'
+  });
+
+  const business = await app.request(`/api/accounts/${executor.id}/business-subscription`, {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, country: 'US', currency: 'USD', autoPay: false })
+  });
+  assert.equal(business.status, 200, JSON.stringify(await business.clone().json().catch(() => ({}))));
+  assert.equal(businessTargetWorkspaceId, workspace.external_id);
 
   assert.equal((await app.request('/api/subaccounts', { headers: auth })).status, 404);
   assert.equal((await app.request(`/api/accounts/${created.id}/members`, { headers: auth })).status, 404);

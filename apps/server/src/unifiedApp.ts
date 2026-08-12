@@ -1,6 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { serveStatic } from '@hono/node-server/serve-static';
+import { existsSync } from 'node:fs';
+import { relative } from 'node:path';
 import type { Kysely } from 'kysely';
 import type { AppConfig } from './config.js';
 import type { Database } from './database/schema.js';
@@ -18,15 +21,20 @@ import { ServiceError } from './serviceError.js';
 import type { AccountListFilters } from './repositories/accountRepository.js';
 import { createTransport, type Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
+import type { ChangePersonalSubscriptionRequest, OpenBusinessSubscriptionRequest } from '@team-manager/shared';
+import { AccountManagerClient, type AccountManagerGateway } from './accountManagerClient.js';
+import { SubscriptionService } from './services/subscriptionService.js';
+import { PublicSeatService } from './services/publicSeatService.js';
 
 export interface UnifiedAppDeps {
   config: AppConfig;
   database: Kysely<Database>;
   artifactStore?: ArtifactStore;
   transport?: Transport;
+  accountManager?: AccountManagerGateway;
 }
 
-export async function buildUnifiedApp({ config, database, transport = createTransport() }: UnifiedAppDeps): Promise<Hono> {
+export async function buildUnifiedApp({ config, database, transport = createTransport(), accountManager: providedAccountManager }: UnifiedAppDeps): Promise<Hono> {
   const app = new Hono();
   const cipher = new SecretCipher(config.dataEncryptionKey, config.dataEncryptionKeyVersion);
   const sessions = new SessionRepository(database, cipher);
@@ -38,6 +46,11 @@ export async function buildUnifiedApp({ config, database, transport = createTran
   const workspaceOperations = new WorkspaceOperationService(
     database, workspaces, sessions, new AccountOperationalRepository(database, cipher), transport
   );
+  const accountManager = providedAccountManager ?? (config.accountManagerBaseUrl && config.accountManagerToken
+    ? new AccountManagerClient(config.accountManagerBaseUrl, config.accountManagerToken)
+    : undefined);
+  const subscriptions = new SubscriptionService(database, accountManager);
+  const publicSeats = new PublicSeatService(database, workspaceOperations);
   let adminHash = config.adminPasswordHash;
   if (!adminHash && config.adminPassword) adminHash = await hashPassword(config.adminPassword);
 
@@ -49,6 +62,12 @@ export async function buildUnifiedApp({ config, database, transport = createTran
     }));
   }
   app.get('/health', (c) => c.json({ ok: true, mode: 'unified-account-postgresql' }));
+  app.get('/public/seat-slots/:seatKey', (c) => wrapPublic(c, () => publicSeats.get(c.req.param('seatKey'))));
+  app.post('/public/seat-slots/:seatKey/swap', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { email?: string };
+    if (!body.email) return c.json({ ok: false, error: '缺少邮箱' }, 400);
+    return wrapPublic(c, () => publicSeats.swap(c.req.param('seatKey'), body.email!));
+  });
   app.post('/api/auth/login', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { username?: string; password?: string };
     if (!body.username || !body.password) return c.json({ ok: false, error: '缺少用户名或密码' }, 400);
@@ -101,6 +120,17 @@ export async function buildUnifiedApp({ config, database, transport = createTran
     return wrap(c, () => accounts.update(c.req.param('id'), body));
   });
   api.delete('/accounts/:id', (c) => wrap(c, () => accounts.remove(c.req.param('id'))));
+  api.post('/accounts/:id/personal-subscription', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as ChangePersonalSubscriptionRequest;
+    return wrap(c, () => subscriptions.changePersonalSubscription(c.req.param('id'), body));
+  });
+  api.post('/accounts/:id/personal-subscription/cancel-renewal', (c) =>
+    wrap(c, () => subscriptions.cancelPersonalRenewal(c.req.param('id')))
+  );
+  api.post('/accounts/:id/business-subscription', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as OpenBusinessSubscriptionRequest;
+    return wrap(c, () => subscriptions.openBusiness(c.req.param('id'), body));
+  });
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
   api.get('/workspaces/:id', (c) => wrap(c, () => workspaces.detail(c.req.param('id'))));
@@ -152,12 +182,25 @@ export async function buildUnifiedApp({ config, database, transport = createTran
   api.post('/workspaces/:id/billing/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshBilling(c.req.param('id'), accountId)));
 
   app.route('/api', api);
+  if (existsSync(config.webDistDir)) {
+    const root = relative(process.cwd(), config.webDistDir) || '.';
+    app.use('/*', serveStatic({ root }));
+    app.get('/*', serveStatic({ path: `${root}/index.html` }));
+  }
   return app;
 
   async function withExecutor(c: any, fn: (accountId: string) => Promise<unknown>) {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
     return wrap(c, () => fn(body.executorAccountId!));
+  }
+}
+
+async function wrapPublic(c: any, fn: () => Promise<unknown>) {
+  try { return c.json({ ok: true, data: await fn() }); }
+  catch (error) {
+    const status = error instanceof ServiceError ? error.status : 500;
+    return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, status as any);
   }
 }
 
