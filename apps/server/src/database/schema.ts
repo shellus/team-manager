@@ -223,6 +223,19 @@ export interface ArtifactIndexTable {
   updated_at: Generated<Timestamp>;
 }
 
+export interface QuarantinedArtifactTable {
+  id: Generated<string>;
+  kind: string;
+  storage_key: string;
+  content_sha256: string;
+  byte_size: number;
+  reason_code: string;
+  status: Generated<string>;
+  metadata: JsonObject;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface PersonalSubscriptionSnapshotTable {
   id: Generated<string>;
   personal_space_id: string;
@@ -355,6 +368,7 @@ export interface Database {
   automation_operations: AutomationOperationTable;
   upstream_trace_segments: ArtifactIndexTable;
   rrweb_recordings: ArtifactIndexTable;
+  quarantined_artifacts: QuarantinedArtifactTable;
 }
 
 export type AccountGroupRow = Selectable<AccountGroupTable>;

@@ -34,7 +34,8 @@ test('PostgreSQL migrations and unified model constraints', { skip: !adminUrl, t
       const [firstResult, secondResult] = await Promise.all([migrateToLatest(first), migrateToLatest(second)]);
       assert.deepEqual([...firstResult, ...secondResult].sort(), [
         '001_initial_unified_model',
-        '002_complete_operational_fields'
+        '002_complete_operational_fields',
+        '003_add_quarantined_artifacts'
       ]);
       assert.deepEqual(await pendingMigrations(first), []);
       assert.deepEqual(await migrateToLatest(first), []);
@@ -184,6 +185,11 @@ async function verifyRepositories(db: ReturnType<typeof createDatabase>): Promis
       fileName: 'recording.json.gz', content: Buffer.from('compressed-recording'), recordedAt: new Date()
     });
     assert.equal((await indexes.read('rrweb', rrwebId)).toString(), 'compressed-recording');
+    await indexes.quarantineCredential({
+      fileName: 'unassigned.json', content: Buffer.from('{"credential":"unassigned"}'),
+      reasonCode: 'ACCOUNT_NOT_FOUND', metadata: { workspaceEvidence: true }
+    });
+    assert.equal(Number((await db.selectFrom('quarantined_artifacts').select(({ fn }) => fn.countAll<number>().as('count')).executeTakeFirstOrThrow()).count), 1);
   } finally {
     await rm(artifactDirectory, { recursive: true, force: true });
   }

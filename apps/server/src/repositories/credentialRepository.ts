@@ -11,6 +11,7 @@ export interface SaveCredentialInput {
   externalId?: string | null;
   poolGroupId?: string | null;
   eligibilitySource?: 'membership' | 'invitation' | 'migration';
+  status?: 'active' | 'disabled' | 'revoked' | 'unknown';
 }
 
 export class CredentialRepository {
@@ -32,12 +33,13 @@ export class CredentialRepository {
       content_sha256: artifact.contentSha256,
       byte_size: artifact.byteSize,
       format_version: 1,
-      eligibility_source: eligibilitySource
+      eligibility_source: eligibilitySource,
+      status: input.status ?? 'active'
     }).onConflict((oc) => oc.column('content_sha256').doUpdateSet({
       account_id: input.accountId,
       workspace_id: input.workspaceId,
       pool_group_id: input.poolGroupId ?? null,
-      status: 'active'
+      status: input.status ?? 'active'
     })).returningAll().executeTakeFirstOrThrow();
   }
 

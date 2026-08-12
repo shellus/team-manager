@@ -69,7 +69,7 @@ export class AccountRepository {
 
   async create(input: CreateAccountInput): Promise<{ account: AccountRow; personalSpace: PersonalSpaceRow }> {
     const email = requireEmail(input.email);
-    return this.db.transaction().execute(async (trx) => {
+    const execute = async (trx: Kysely<Database>) => {
       const groupId = input.groupId ?? (await trx.selectFrom('account_groups').select('id').where('is_default', '=', true).executeTakeFirstOrThrow()).id;
       const account = await trx.insertInto('accounts').values({
         group_id: groupId,
@@ -97,7 +97,8 @@ export class AccountRepository {
         account_manager_synced_at: null
       }).execute();
       return { account, personalSpace };
-    });
+    };
+    return this.db.isTransaction ? execute(this.db) : this.db.transaction().execute(execute);
   }
 
   findByEmail(email: string): Promise<AccountRow | undefined> {

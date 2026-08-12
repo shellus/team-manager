@@ -9,9 +9,9 @@
 | 阶段 | 状态 | 完成提交 | 验证记录 |
 |---|---|---|---|
 | 阶段 0：计划确认与上游协议观测 | 进行中 | `9156c23` | 用户已批准正式实施；分组冲突采用历史母号侧分组；现有 Free 测试 Profile 的旧代理不可达，套餐切换矩阵继续观测 |
-| 阶段 1：数据库基础设施 | 已完成 | 待提交 | PostgreSQL 18.4 固定摘要；空库/重复/并发 migration、失败回滚、隔离约束、pg_dump 恢复、加密和文件制品测试通过 |
-| 阶段 2：统一领域 Schema 与 Repository | 未开始 | — | — |
-| 阶段 3：一次性迁移器与迁移演练 | 未开始 | — | — |
+| 阶段 1：数据库基础设施 | 已完成 | `b1b28c4`、部署仓库 `a55c0b2` | PostgreSQL 18.4 固定摘要；空库/重复/并发 migration、失败回滚、隔离约束、pg_dump 恢复、加密和文件制品测试通过 |
+| 阶段 2：统一领域 Schema 与 Repository | 已完成 | `293e3fe` | Account/Group/Session/Workspace/Membership/Credential/SeatSlot/设置/通知/账单/订单/文件索引 Repository 的真实 PostgreSQL 集成测试通过 |
+| 阶段 3：一次性迁移器与迁移演练 | 已完成 | 待提交 | 160 账号、69 Workspace、113 Membership、10 活动凭证、12 隔离凭证、25 席位、52 账单、923 日志、1 trace、3 rrweb；空库重复结果一致；26/26 制品双向哈希通过；pg_dump 恢复后秘密可解密、席位键稳定；阻塞 0 |
 | 阶段 4：统一后端服务与 API | 未开始 | — | — |
 | 阶段 5：统一前端 | 未开始 | — | — |
 | 阶段 6：个人套餐与 Business 套餐 | 未开始 | — | — |
@@ -454,7 +454,7 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 - 空分组进入默认分组。
 - 同一账号只有一个非空来源分组时直接采用。
 - 当前旧数据中存在一个已知冲突：同一规范化邮箱同时出现在母号表和子号表，两边 `groupName` 均非空但名称不同。统一后只能选择一个 AccountGroup，这就是“分组冲突”；它不代表 Workspace 权限冲突。
-- 对所有此类冲突，迁移演练生成脱敏裁决清单并停止该账号导入，不根据“母号/子号”来源或是否可管理 Workspace 自动覆盖。正式迁移前由操作员在清单中选择目标分组或新建分组，裁决文件作为迁移输入并记录哈希。
+- 对所有此类冲突，按本次已确认规则采用历史母号侧首个非空分组，并在脱敏迁移报告中记录 `ACCOUNT_GROUP_CONFLICT_PARENT_SELECTED`；没有母号非空分组时采用子号分组。
 - 被舍弃的旧分组只进入私有迁移报告，不进入账号标签或兼容字段。
 
 账号分组与凭证 `groupName` 分别迁移到 AccountGroup 和 CredentialPoolGroup，不得互相覆盖。
@@ -472,6 +472,8 @@ Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密�
 
 - 每份凭证解析后校验账号身份、Workspace ID 和文件哈希，再原子写入新版文件制品目录；数据库只写入相对存储键与元数据。
 - 无法映射 Workspace 的凭证作为阻塞冲突，不删除、不挂到猜测空间。
+- 凭证或账单正文携带唯一明确的远端 Workspace ID、但旧 Workspace 列表缺失时，创建 `status=unknown` 的 Workspace 证据占位；不得据此创建或推断 owner/member Membership。
+- 未被当前凭证元数据引用、且凭证邮箱无法归并到本地账号的合法 JSON 文件迁入新版 `credential-quarantine` 制品区；数据库保存脱敏身份哈希、Workspace 证据、内容哈希、大小和隔离原因，默认不可用且不伪造账号。
 - SeatSlot 的公开访问键必须原值迁移并做唯一性校验。
 - SeatSlot 当前邮箱、客户资料、状态、换号历史和活动换号操作全部迁移到目标 Workspace。
 

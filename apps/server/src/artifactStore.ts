@@ -3,7 +3,7 @@ import { mkdir, open, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, resolve, sep } from 'node:path';
 import { sha256 } from './secretCipher.js';
 
-export type ArtifactKind = 'credentials' | 'rrweb' | 'traces';
+export type ArtifactKind = 'credentials' | 'credential-quarantine' | 'rrweb' | 'traces';
 
 export interface StoredArtifact {
   storageKey: string;
@@ -63,7 +63,7 @@ export class ArtifactStore {
   }
 
   resolveStorageKey(storageKey: string): string {
-    if (!/^(credentials|rrweb|traces)\/[a-z0-9][a-z0-9._/-]*$/i.test(storageKey)) {
+    if (!/^(credentials|credential-quarantine|rrweb|traces)\/[a-z0-9][a-z0-9._/-]*$/i.test(storageKey)) {
       throw new Error('非法文件制品存储键');
     }
     const target = resolve(this.#root, storageKey);

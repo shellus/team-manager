@@ -10,6 +10,7 @@
     "test:db": "tsx --test src/database/*.test.ts",
     "db:migrate": "tsx src/database/cli.ts migrate",
     "db:status": "tsx src/database/cli.ts status",
+    "db:import-legacy": "tsx src/migration/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -25,7 +25,7 @@ export class SessionRepository {
   async saveRevision(input: SaveSessionRevisionInput): Promise<string> {
     const plaintext = stableJson(input.session);
     const digest = sha256(plaintext);
-    return this.db.transaction().execute(async (trx) => {
+    const execute = async (trx: Kysely<Database>) => {
       const existing = await trx.selectFrom('account_session_revisions')
         .select('id').where('account_id', '=', input.accountId).where('plaintext_sha256', '=', digest).executeTakeFirst();
       const id = existing?.id ?? await this.insertRevision(trx as Kysely<Database>, input, plaintext, digest);
@@ -33,7 +33,8 @@ export class SessionRepository {
         await trx.updateTable('accounts').set({ current_session_revision_id: id }).where('id', '=', input.accountId).executeTakeFirstOrThrow();
       }
       return id;
-    });
+    };
+    return this.db.isTransaction ? execute(this.db) : this.db.transaction().execute(execute);
   }
 
   async currentSession(accountId: string): Promise<unknown | undefined> {

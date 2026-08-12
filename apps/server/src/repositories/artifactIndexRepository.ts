@@ -30,4 +30,23 @@ export class ArtifactIndexRepository {
     if (!row) throw new Error('文件制品索引不存在');
     return this.artifacts.read(row.storage_key, row.content_sha256);
   }
+
+  async quarantineCredential(input: {
+    fileName: string;
+    content: Uint8Array;
+    reasonCode: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<string> {
+    const artifact = await this.artifacts.writeImmutable('credential-quarantine', input.fileName, input.content);
+    const row = await this.db.insertInto('quarantined_artifacts').values({
+      kind: 'credential',
+      storage_key: artifact.storageKey,
+      content_sha256: artifact.contentSha256,
+      byte_size: artifact.byteSize,
+      reason_code: input.reasonCode,
+      metadata: input.metadata ?? {}
+    }).onConflict((oc) => oc.column('content_sha256').doUpdateSet({ status: 'quarantined' }))
+      .returning('id').executeTakeFirstOrThrow();
+    return row.id;
+  }
 }
