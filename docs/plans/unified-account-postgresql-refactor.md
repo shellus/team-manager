@@ -1,6 +1,6 @@
 # 统一账号与 PostgreSQL 重构实施计划
 
-状态：已实施完成，等待写入最终提交号。
+状态：已实施完成，并通过正式迁移、生产只读验收和全量门禁。
 
 本文是本次重构的单一实施依据。实施期间如果代码现状、上游行为或用户决策与本文冲突，必须先更新本文并重新确认，不得在代码中静默改变领域模型或迁移规则。
 
@@ -12,11 +12,11 @@
 | 阶段 1：数据库基础设施 | 已完成 | `b1b28c4`、部署仓库 `a55c0b2` | PostgreSQL 18.4 固定摘要；空库/重复/并发 migration、失败回滚、隔离约束、pg_dump 恢复、加密和文件制品测试通过 |
 | 阶段 2：统一领域 Schema 与 Repository | 已完成 | `293e3fe` | Account/Group/Session/Workspace/Membership/Credential/SeatSlot/设置/通知/账单/订单/文件索引 Repository 的真实 PostgreSQL 集成测试通过 |
 | 阶段 3：一次性迁移器与迁移演练 | 已完成 | `e58a626` | 160 账号、69 Workspace、113 Membership、10 活动凭证、12 隔离凭证、25 席位、52 账单、923 日志、1 trace、3 rrweb；空库重复结果一致；26/26 制品双向哈希通过；pg_dump 恢复后秘密可解密、席位键稳定；阻塞 0 |
-| 阶段 4：统一后端服务与 API | 已完成 | `19f6ef4`、待最终清理提交 | Account/Group/Workspace/GAM/套餐/订单/设置 API 只读 PostgreSQL；旧 API/Store 已删除；真实 PostgreSQL 集成测试通过 |
-| 阶段 5：统一前端 | 已完成 | `146c393`、待最终清理提交 | `/accounts`、`/workspaces`、`/team-orders`、`/settings` 与公开席位已实现；筛选、Tab、弹窗由 URL 恢复；旧页面目录删除 |
-| 阶段 6：个人套餐与 Business 套餐 | 已完成 | GAM `baf7aed`、待最终清理提交 | Go/Plus/Pro 5x/Pro 20x 首次开通与 Business 创建/升级合同完成；未验证付费互切禁用；卡片不落 Team Manager |
-| 阶段 7：正式迁移与运行切换 | 已完成 | 部署仓库待最终提交 | 正式迁移 160 账号、14 分组、69 Workspace、113 Membership、10 活动凭证、12 隔离凭证、25 席位、52 账单、923 日志、3 rrweb、26 制品索引；阻塞 0；迁移器已从最终源码删除 |
-| 阶段 8：文档与清理 | 已完成 | 待最终清理提交 | README、领域模型、数据模型与手册只描述统一账号；旧角色专用源码、类型、页面、依赖和 follow-up 文档删除 |
+| 阶段 4：统一后端服务与 API | 已完成 | `19f6ef4`、`70bb80e` | Account/Group/Workspace/GAM/套餐/订单/设置 API 只读 PostgreSQL；旧 API/Store 已删除；真实 PostgreSQL 集成测试通过 |
+| 阶段 5：统一前端 | 已完成 | `146c393`、`70bb80e` | `/accounts`、`/workspaces`、`/team-orders`、`/settings` 与公开席位已实现；筛选、Tab、弹窗由 URL 恢复；旧页面目录删除 |
+| 阶段 6：个人套餐与 Business 套餐 | 已完成 | Team Manager `146c393`、`70bb80e`；GAM `baf7aed` | Go/Plus/Pro 5x/Pro 20x 首次开通与 Business 创建/升级合同完成；未验证付费互切禁用；卡片不落 Team Manager |
+| 阶段 7：正式迁移与运行切换 | 已完成 | 部署仓库 `a55c0b2`、`e7ee17a`、`12c732b` | 正式迁移 160 账号、14 分组、69 Workspace、113 Membership、10 活动凭证、12 隔离凭证、25 席位、52 账单、923 日志、3 rrweb、26 初始制品索引；阻塞 0；迁移器已从最终源码删除 |
+| 阶段 8：文档与清理 | 已完成 | `70bb80e`；部署仓库 `12c732b` | README、领域模型、数据模型与手册只描述统一账号；旧角色专用源码、类型、页面、依赖和 follow-up 文档删除 |
 
 实施期间每完成一个可独立验证的提交，必须在本表或对应阶段记录提交、验证结果和剩余阻塞。任何阶段如果发生范围、领域模型、迁移裁决或验收标准变化，必须先修改本文，再继续改代码。
 
@@ -702,6 +702,10 @@ corepack pnpm docs:build
 生产迁移使用停止写入后的旧数据快照执行。私有备份目录保存旧运行数据压缩包、迁移前/后 PostgreSQL dump、迁移报告和 SHA-256 清单；最终源码不再包含一次性导入器。
 
 正式导入结果：160 个账号、14 个账号分组、69 个 Workspace、113 个 Membership、10 份活动凭证、12 份隔离凭证、25 个客户席位、52 份账单快照、4 个通知策略、923 条活动日志、3 份 rrweb 索引和 26 个文件制品引用。15 项可裁决冲突全部按本文规则记录，阻塞冲突为 0。
+
+切换后的生产只读验收确认：160 个账号均存在有效分组引用；64 个账号由 65 条活动 owner/admin Membership 派生出“拥有可管理空间”；不存在孤儿运行配置。运行时新增 4 份不可变 HTTP trace 后，10 份活动凭证、12 份隔离凭证、5 份 trace 和 3 份 rrweb 共 30/30 个数据库引用均与文件路径、大小和 SHA-256 一致，制品目录不存在孤儿文件。统一 API 与 Web 路由可访问，旧 `/api/parents`、`/api/subaccounts` 返回 404。
+
+最终门禁通过 Team Manager TypeScript 类型检查、3 个服务单元测试、1 个真实 PostgreSQL 集成测试、4 个 Web 测试、前后端构建和 VitePress 文档构建；GAM 通过 TypeScript 类型检查、207 个测试和构建。Vite 对 659 KB 主依赖块给出非阻塞性能警告，后续可独立拆包，不影响本次领域模型、数据完整性或运行切换验收。
 
 实现后的安全门禁：
 
