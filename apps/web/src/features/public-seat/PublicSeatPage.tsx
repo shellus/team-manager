@@ -82,7 +82,7 @@ export function PublicSeatPage() {
             toEmail: email.trim(),
             startedAt: Date.now(),
             updatedAt: Date.now(),
-            steps: [{ key: 'refreshing_parent', label: '正在提交换号请求', status: 'running', at: Date.now() }]
+            steps: [{ key: 'refreshing_workspace', label: '正在提交换号请求', status: 'running', at: Date.now() }]
           }
         });
         const updated = await apiClient.swapPublicSeatSlotEmail(seatKey, email);

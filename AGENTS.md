@@ -3,8 +3,8 @@
 ## General Rules
 
 - 新会话先阅读 `README.md` 和本文件，并明确说明已理解的主要内容。
-- 任务涉及母号、子号、Team workspace、席位类型、Codex 凭证、额度或 Team 关联时，必须先阅读 [`docs/core/seat-and-credential-model.md`](docs/core/seat-and-credential-model.md)。
-- 任务涉及用新子号填充 CPA/Codex 凭证号池、批量加入多个 Team、PAT 凭证生成或清理无用 Codex 席位成员时，必须先阅读 [`docs/guide/fill-credential-pool.md`](docs/guide/fill-credential-pool.md)。
+- 任务涉及账号、Workspace、席位类型、Codex 凭证、额度或成员关系时，必须先阅读 [`docs/core/seat-and-credential-model.md`](docs/core/seat-and-credential-model.md)。
+- 任务涉及用新账号填充 CPA/Codex 凭证号池、批量加入多个 Workspace、PAT 凭证生成或清理无用 Codex 席位成员时，必须先阅读 [`docs/guide/fill-credential-pool.md`](docs/guide/fill-credential-pool.md)。
 - 如果 `README.local.md` 存在，也要阅读它获取本机私有运行说明。`README.local.md` 应由本机 git ignore 规则忽略，不要提交。
 
 ## Git Rules
@@ -21,7 +21,7 @@
 
 - 当前任务是为项目整体服务的，不只处理用户指出的单点；实现前先查看同类代码，遵循已有风格，复用已有 helper 和数据模型。
 - DRY 是硬约束。新增字段、缓存或派生数据前，先检查是否会造成重复、冗余或断链。
-- Team Manager 只在业务模型中保存母号/子号所需的 ChatGPT Web Session 和可选 `managedAccountEmail` 引用；注册密码、CloakBrowser profile 与支付状态属于 GPT Account Manager，不得复制到业务模型。完整上游原始追踪按实际 HTTP 请求保存，可能包含调用 Account Manager 时发送的密码或其他敏感值，只能留在私有运行数据目录。
+- Team Manager 只保存业务所需的 ChatGPT Web Session 和可选 GAM 账号引用；注册密码、CloakBrowser profile 与支付状态属于 GPT Account Manager，不得复制到业务模型。完整上游原始追踪属于文件制品，数据库只保存索引。
 - Team Manager 可通过 Account Manager gateway 转发受管账号的 Profile 启动、状态和关闭请求，但不得直接调用 CloakBrowser、保存运行 Profile ID 或提供 VNC/浏览器查看能力。
 - 后端所有外部 HTTP 请求必须通过 `apps/server/src/transport.ts` 的 `Transport` 或 `fetchWithRawTrace` 发出，并写入完整、未脱敏、未截断的私有上游追踪。不得在其他生产代码中直接调用 `fetch`，也不得引入 `axios`、`node:http/https`、`undici`、`child_process curl` 等旁路；新增上游必须使用可识别的 `upstream` 名称。进程级 `catch-all-fetch` 只作为遗漏兜底，不能替代具名接入。
 - 已由运行环境提供 watch/dev 进程时，源码、前端 Vite 配置、后端 tsx watch 能自动加载的变更默认只做验证，不手动重启运行进程。只有进程级环境变量、端口/监听方式、依赖安装、进程崩溃卡死，或离线迁移运行时数据需要停写入方时，才允许重启对应进程。

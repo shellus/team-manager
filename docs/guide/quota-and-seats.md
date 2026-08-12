@@ -14,7 +14,7 @@ Codex 凭证绑定到“ChatGPT 账号 × Team workspace”。同一个账号在
 
 ## 席位与额度关系
 
-| 子号在 Team 中的席位 | 凭证可用性 | 额度表现 |
+| 账号在 Workspace 中的席位 | 凭证可用性 | 额度表现 |
 |---|---|---|
 | ChatGPT 席位 | 可使用 Team 额度 | `wham/usage` 返回额度窗口 |
 | Codex 席位 | 没有 ChatGPT Team 席位额度 | 无 Codex 余额时会表现为余额或积分不足 |
@@ -25,7 +25,7 @@ ChatGPT 席位额度窗口可能存在不同灰度策略。系统不写死固定
 
 常规腾位流程：
 
-1. 在母号页刷新成员列表。
+1. 在 Workspace 详情刷新成员列表。
 2. 查看 ChatGPT 席位已用数量。
 3. 将暂时不用 ChatGPT 额度的成员切到 Codex 席位。
 4. 邀请或切换新的成员到 ChatGPT 席位。
@@ -33,7 +33,7 @@ ChatGPT 席位额度窗口可能存在不同灰度策略。系统不写死固定
 
 仅为腾出 ChatGPT 席位时，不应移除成员。移除会破坏该账号与该 Team 的 membership，可能导致该 Team 下凭证不可用；对应标准席位在部分情况下仍会临时计费，新成员也可能形成独立付费席位。
 
-成员移除成功后，母号成员页会显示最近一次 `billing_notice` 和 `policy_notice`。这些字段只是上游风险信号，不能替代 Billing，也不能把 `vacancy_ordinal`、临时阈值或释放时间解释成稳定免费规则。公开换号不会自动移除已接受的标准 ChatGPT 成员。
+成员移除结果中的 `billing_notice` 和 `policy_notice` 只是上游风险信号，不能替代 Billing，也不能把临时阈值或释放时间解释成稳定免费规则。公开换号不会自动移除已接受的标准 ChatGPT 成员。
 
 ## 额度恢复后的复用
 

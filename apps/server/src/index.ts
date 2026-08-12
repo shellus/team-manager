@@ -1,17 +1,30 @@
 import { serve } from '@hono/node-server';
 import { loadConfig } from './config.js';
-import { installCatchAllFetchTracing } from './transport.js';
+import { configureTraceArtifactSink, installCatchAllFetchTracing } from './transport.js';
 import { createDatabase, databaseHealth } from './database/connection.js';
 import { assertMigrationsCurrent } from './database/migrator.js';
 import { buildUnifiedApp } from './unifiedApp.js';
+import { ArtifactStore } from './artifactStore.js';
+import { ArtifactIndexRepository } from './repositories/artifactIndexRepository.js';
 
 async function main() {
-  installCatchAllFetchTracing();
   const config = loadConfig();
   const database = createDatabase({ connectionString: config.databaseUrl });
   await databaseHealth(database);
   await assertMigrationsCurrent(database);
-  const app = await buildUnifiedApp({ config, database });
+  const artifactStore = new ArtifactStore(config.artifactDir);
+  const artifactIndexes = new ArtifactIndexRepository(database, artifactStore);
+  configureTraceArtifactSink(async (record) => {
+    const recordedAt = new Date();
+    await artifactIndexes.save('traces', {
+      fileName: `${recordedAt.toISOString().replaceAll(':', '-')}.json`,
+      content: Buffer.from(JSON.stringify(record)),
+      recordedAt,
+      metadata: { source: 'runtime' }
+    });
+  });
+  installCatchAllFetchTracing();
+  const app = await buildUnifiedApp({ config, database, artifactStore });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`[team-manager] listening on :${info.port} (mode=unified-account-postgresql)`);

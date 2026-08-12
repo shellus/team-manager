@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress';
 export default defineConfig({
   lang: 'zh-CN',
   title: 'team-manager',
-  description: 'ChatGPT Team 母号、子号、席位和 Codex 凭证管理手册',
+  description: 'ChatGPT 账号、Workspace、席位和 Codex 凭证管理手册',
   cleanUrls: true,
   lastUpdated: true,
   themeConfig: {
@@ -17,9 +17,8 @@ export default defineConfig({
         text: '使用手册',
         items: [
           { text: '业务流程总览', link: '/guide/' },
-          { text: '母号与 Team 管理', link: '/guide/mother-accounts' },
+          { text: '账号与 Workspace', link: '/guide/' },
           { text: 'Team 升级订单维护', link: '/guide/team-order-maintenance' },
-          { text: '子号与 Codex 凭证', link: '/guide/subaccounts' },
           { text: '额度与席位轮转', link: '/guide/quota-and-seats' },
           { text: '新号填充凭证号池', link: '/guide/fill-credential-pool' },
           { text: '状态与排错', link: '/guide/status-and-errors' }
@@ -37,8 +36,6 @@ export default defineConfig({
           { text: '数据模型', link: '/dev-spec/data-model' },
           { text: 'AT 凭证与账单提取', link: '/dev-spec/at-credential-billing' },
           { text: 'Team 升级订单维护', link: '/dev-spec/team-order-maintenance' },
-          { text: '子号管理实现边界', link: '/dev-spec/subaccount-management' },
-          { text: '子号注册与授权 SOP', link: '/dev-spec/subaccount-registration-sop' },
           { text: '凭证 workspace 绑定实验', link: '/dev-spec/codex-workspace-credential-experiment' },
           { text: 'Codex Auth HTTP 抓包', link: '/dev-spec/codex-auth-direct-http-capture' },
           { text: 'ChatGPT backend-api 样本', link: '/dev-spec/chatgpt-backend-api/' }

@@ -281,6 +281,19 @@ export interface BillingSnapshotTable {
   created_at: Generated<Timestamp>;
 }
 
+export interface PaymentMethodSummaryTable {
+  id: Generated<string>;
+  personal_space_id: string | null;
+  workspace_id: string | null;
+  brand: string | null;
+  last4: string | null;
+  expiry_month: number | null;
+  expiry_year: number | null;
+  is_default: Generated<boolean>;
+  observed_at: Timestamp;
+  created_at: Generated<Timestamp>;
+}
+
 export interface SystemSettingTable {
   key: string;
   value: JsonObject;
@@ -360,6 +373,7 @@ export interface Database {
   workspace_setting_snapshots: WorkspaceSnapshotTable;
   credential_quota_snapshots: CredentialQuotaSnapshotTable;
   billing_snapshots: BillingSnapshotTable;
+  payment_method_summaries: PaymentMethodSummaryTable;
   system_settings: SystemSettingTable;
   notification_policies: NotificationPolicyTable;
   team_order_configurations: TeamOrderConfigurationTable;

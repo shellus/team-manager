@@ -21,10 +21,20 @@ import { ServiceError } from './serviceError.js';
 import type { AccountListFilters } from './repositories/accountRepository.js';
 import { createTransport, type Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
-import type { ChangePersonalSubscriptionRequest, OpenBusinessSubscriptionRequest } from '@team-manager/shared';
+import type {
+  AddPersonalPaymentMethodRequest,
+  ChangePersonalSubscriptionRequest,
+  OpenBusinessSubscriptionRequest,
+  RegisterAccountRequest,
+  ResidentialProxyConfig
+} from '@team-manager/shared';
 import { AccountManagerClient, type AccountManagerGateway } from './accountManagerClient.js';
 import { SubscriptionService } from './services/subscriptionService.js';
 import { PublicSeatService } from './services/publicSeatService.js';
+import { AccountManagerService } from './services/accountManagerService.js';
+import { ArtifactIndexRepository } from './repositories/artifactIndexRepository.js';
+import { SystemService } from './services/systemService.js';
+import { CredentialService } from './services/credentialService.js';
 
 export interface UnifiedAppDeps {
   config: AppConfig;
@@ -34,7 +44,7 @@ export interface UnifiedAppDeps {
   accountManager?: AccountManagerGateway;
 }
 
-export async function buildUnifiedApp({ config, database, transport = createTransport(), accountManager: providedAccountManager }: UnifiedAppDeps): Promise<Hono> {
+export async function buildUnifiedApp({ config, database, artifactStore, transport = createTransport(), accountManager: providedAccountManager }: UnifiedAppDeps): Promise<Hono> {
   const app = new Hono();
   const cipher = new SecretCipher(config.dataEncryptionKey, config.dataEncryptionKeyVersion);
   const sessions = new SessionRepository(database, cipher);
@@ -50,7 +60,17 @@ export async function buildUnifiedApp({ config, database, transport = createTran
     ? new AccountManagerClient(config.accountManagerBaseUrl, config.accountManagerToken)
     : undefined);
   const subscriptions = new SubscriptionService(database, accountManager);
+  const accountManagement = new AccountManagerService(database, sessions, accountManager);
   const publicSeats = new PublicSeatService(database, workspaceOperations);
+  const artifactIndexes = new ArtifactIndexRepository(database, artifactStore ?? new ArtifactStore(config.artifactDir));
+  const system = new SystemService(database);
+  const credentials = new CredentialService(
+    database,
+    artifactStore ?? new ArtifactStore(config.artifactDir),
+    sessions,
+    new AccountOperationalRepository(database, cipher),
+    transport
+  );
   let adminHash = config.adminPasswordHash;
   if (!adminHash && config.adminPassword) adminHash = await hashPassword(config.adminPassword);
 
@@ -131,6 +151,55 @@ export async function buildUnifiedApp({ config, database, transport = createTran
     const body = await c.req.json().catch(() => ({})) as OpenBusinessSubscriptionRequest;
     return wrap(c, () => subscriptions.openBusiness(c.req.param('id'), body));
   });
+  api.get('/accounts/:id/account-manager', (c) => wrap(c, () => accountManagement.state(c.req.param('id'))));
+  api.post('/accounts/:id/account-manager/sync', (c) => wrap(c, () => accountManagement.sync(c.req.param('id'))));
+  api.post('/accounts/:id/account-manager/profile/start', (c) => wrap(c, () => accountManagement.startProfile(c.req.param('id'))));
+  api.post('/accounts/:id/account-manager/profile/stop', (c) => wrap(c, () => accountManagement.stopProfile(c.req.param('id'))));
+  api.put('/accounts/:id/account-manager/proxy', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as ResidentialProxyConfig;
+    return wrap(c, () => accountManagement.setProxy(c.req.param('id'), body));
+  });
+  api.post('/accounts/:id/account-manager/session/import', (c) => wrap(c, () => accountManagement.importSession(c.req.param('id'))));
+  api.post('/accounts/:id/personal-payment-methods', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as AddPersonalPaymentMethodRequest;
+    return wrap(c, () => accountManagement.addPaymentMethod(c.req.param('id'), body));
+  });
+  api.post('/operations/registrations', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as RegisterAccountRequest;
+    if (!body.groupId) return c.json({ ok: false, error: '缺少目标分组' }, 400);
+    return wrap(c, () => accountManagement.register(body));
+  });
+  api.get('/operations/registrations/:operationId', (c) => wrap(c, () => accountManagement.registration(c.req.param('operationId'))));
+  api.post('/artifacts/rrweb', async (c) => {
+    const content = new Uint8Array(await c.req.arrayBuffer());
+    if (content.byteLength === 0) return c.json({ ok: false, error: 'rrweb 文件为空' }, 400);
+    return wrap(c, () => artifactIndexes.save('rrweb', {
+      fileName: c.req.header('x-artifact-file-name') || `${Date.now()}.json.gz`,
+      content,
+      recordedAt: c.req.header('x-recorded-at') || new Date(),
+      metadata: { source: 'runtime-upload', contentType: c.req.header('content-type') || 'application/gzip' }
+    }));
+  });
+  api.post('/accounts/:accountId/workspaces/:workspaceId/credentials/pat', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { name?: string; ttl?: number; poolGroup?: string };
+    return wrap(c, () => credentials.createPat(c.req.param('accountId'), c.req.param('workspaceId'), body));
+  });
+  api.post('/credentials/:credentialId/quota/refresh', (c) => wrap(c, () => credentials.refreshQuota(c.req.param('credentialId'))));
+  api.get('/team-orders', (c) => wrap(c, () => system.teamOrders()));
+  api.put('/team-orders/configuration', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as any;
+    return wrap(c, () => system.saveTeamOrderConfiguration(body));
+  });
+  api.put('/team-orders/maintenances/:workspaceId', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as any;
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少执行账号' }, 400);
+    return wrap(c, () => system.saveMaintenance({ ...body, workspaceId: c.req.param('workspaceId') }));
+  });
+  api.get('/settings/notification-policies', (c) => wrap(c, () => system.notificationPolicies()));
+  api.put('/settings/notification-policies/:kind', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as any;
+    return wrap(c, () => system.saveNotificationPolicy(c.req.param('kind'), body));
+  });
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
   api.get('/workspaces/:id', (c) => wrap(c, () => workspaces.detail(c.req.param('id'))));
@@ -182,6 +251,7 @@ export async function buildUnifiedApp({ config, database, transport = createTran
   api.post('/workspaces/:id/billing/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshBilling(c.req.param('id'), accountId)));
 
   app.route('/api', api);
+  app.all('/api/*', (c) => c.json({ ok: false, error: 'API 不存在' }, 404));
   if (existsSync(config.webDistDir)) {
     const root = relative(process.cwd(), config.webDistDir) || '.';
     app.use('/*', serveStatic({ root }));

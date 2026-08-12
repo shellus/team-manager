@@ -9,6 +9,7 @@ import type {
 import type { Database } from '../database/schema.js';
 import { AccountRepository, type AccountListFilters } from './accountRepository.js';
 import { SessionRepository } from './sessionRepository.js';
+import { AutomationOperationRepository } from './automationOperationRepository.js';
 
 export class UnifiedProjectionRepository {
   constructor(
@@ -89,6 +90,9 @@ export class UnifiedProjectionRepository {
         from workspace_memberships wm join workspaces w on w.id=wm.workspace_id
         where wm.account_id=${id}::uuid order by w.name nulls last,w.external_id`.execute(this.db);
     const credentials = await credentialViews(this.db, sql`wc.account_id=${id}::uuid`);
+    const paymentMethods = await this.db.selectFrom('payment_method_summaries').selectAll()
+      .where('personal_space_id', '=', base.personal_space_id).orderBy('observed_at', 'desc').execute();
+    const operations = await new AutomationOperationRepository(this.db).listForAccount(id);
     return {
       ...summary,
       ...(base.remote_user_id ? { remoteUserId: base.remote_user_id } : {}),
@@ -118,7 +122,16 @@ export class UnifiedProjectionRepository {
         membershipStatus: row.membership_status,
         manageable: row.membership_status === 'active' && ['owner', 'admin'].includes(row.normalized_role)
       })),
-      credentials
+      credentials,
+      paymentMethods: paymentMethods.map((row) => ({
+        id: row.id,
+        ...(row.brand ? { brand: row.brand } : {}),
+        ...(row.last4 ? { last4: row.last4 } : {}),
+        ...(row.expiry_month ? { expMonth: row.expiry_month } : {}),
+        ...(row.expiry_year ? { expYear: row.expiry_year } : {}),
+        isDefault: row.is_default
+      })),
+      operations
     };
   }
 
@@ -182,13 +195,17 @@ export class UnifiedProjectionRepository {
 }
 
 async function credentialViews(db: Kysely<Database>, predicate: ReturnType<typeof sql>) {
-  const result = await sql<any>`select wc.*,a.email account_email,cpg.id pool_id,cpg.name pool_name
+  const result = await sql<any>`select wc.*,a.email account_email,cpg.id pool_id,cpg.name pool_name,
+    cqs.payload latest_quota,cqs.observed_at quota_observed_at
     from workspace_credentials wc join accounts a on a.id=wc.account_id
-    left join credential_pool_groups cpg on cpg.id=wc.pool_group_id where ${predicate} order by wc.created_at desc`.execute(db);
+    left join credential_pool_groups cpg on cpg.id=wc.pool_group_id
+    left join lateral (select payload,observed_at from credential_quota_snapshots where credential_id=wc.id order by observed_at desc limit 1) cqs on true
+    where ${predicate} order by wc.created_at desc`.execute(db);
   return result.rows.map((row: any) => ({
     id: row.id, accountId: row.account_id, accountEmail: row.account_email, workspaceId: row.workspace_id,
     kind: row.kind as 'oauth' | 'pat', ...(row.pool_id ? { poolGroup: { id: row.pool_id, name: row.pool_name } } : {}),
-    status: row.status, contentSha256: row.content_sha256, byteSize: Number(row.byte_size), createdAt: iso(row.created_at)
+    status: row.status, contentSha256: row.content_sha256, byteSize: Number(row.byte_size), createdAt: iso(row.created_at),
+    ...(row.latest_quota ? { latestQuota: row.latest_quota, quotaObservedAt: iso(row.quota_observed_at) } : {})
   }));
 }
 

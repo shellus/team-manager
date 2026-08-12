@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Input, Select, Space, Switch, Table, Tag, Typography, type TableColumnsType } from 'antd';
+import { Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, type TableColumnsType } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { AccountGroupView, UnifiedAccountSummaryView } from '@team-manager/shared';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -11,6 +11,7 @@ export function AccountsPage() {
   const [groups, setGroups] = useState<AccountGroupView[]>([]);
   const [accounts, setAccounts] = useState<UnifiedAccountSummaryView[]>([]);
   const [loading, setLoading] = useState(false);
+  const modal = params.get('modal');
   const load = async () => {
     setLoading(true);
     try { const [nextGroups, nextAccounts] = await Promise.all([unifiedApi.groups(), unifiedApi.accounts(params)]); setGroups(nextGroups); setAccounts(nextAccounts); }
@@ -29,7 +30,7 @@ export function AccountsPage() {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
         <div><Typography.Title level={2} style={{ margin: 0 }}>账号</Typography.Title><Typography.Text type="secondary">个人能力与 Workspace 关系统一从账号进入</Typography.Text></div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/new')}>添加账号</Button>
+        <Space><Button onClick={() => set('modal', 'groups')}>管理分组</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/accounts/new')}>添加账号</Button></Space>
       </Space>
       <Space wrap>
         <Input.Search placeholder="邮箱、备注、名称" allowClear defaultValue={params.get('query') ?? ''} onSearch={(v) => set('query', v)} style={{ width: 260 }} />
@@ -40,5 +41,9 @@ export function AccountsPage() {
       </Space>
       <Table<UnifiedAccountSummaryView> rowKey="id" loading={loading} dataSource={accounts} onRow={(row) => ({ onClick: () => navigate(`/accounts/${row.id}`), style: { cursor: 'pointer' } })} columns={columns} />
     </Space>
+    <Modal title="账号分组" open={modal === 'groups'} onCancel={() => set('modal')} footer={null}><Space direction="vertical" style={{ width: '100%' }}>
+      {groups.map((group) => <Form key={group.id} layout="inline" initialValues={{ name: group.name }} onFinish={async (value) => { await unifiedApi.renameGroup(group.id, value.name); await load(); }}><Form.Item name="name" rules={[{ required: true }]}><Input disabled={group.isDefault} /></Form.Item><Form.Item><Button htmlType="submit" disabled={group.isDefault}>重命名</Button></Form.Item><Button danger disabled={group.isDefault || group.accountCount > 0} onClick={async () => { await unifiedApi.deleteGroup(group.id); await load(); }}>删除</Button><Typography.Text type="secondary">{group.accountCount} 个账号</Typography.Text></Form>)}
+      <Form layout="inline" onFinish={async (value) => { await unifiedApi.createGroup(value.name); await load(); }}><Form.Item name="name" rules={[{ required: true }]}><Input placeholder="新分组名称" /></Form.Item><Button htmlType="submit" type="primary">创建</Button></Form>
+    </Space></Modal>
   </Card>;
 }

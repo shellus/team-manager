@@ -10,7 +10,6 @@
     "test:db": "tsx --test src/database/*.test.ts",
     "db:migrate": "tsx src/database/cli.ts migrate",
     "db:status": "tsx src/database/cli.ts status",
-    "db:import-legacy": "tsx src/migration/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -18,9 +17,7 @@
     "@team-manager/shared": "workspace:*",
     "hono": "^4.6.0",
     "kysely": "0.28.3",
-    "pg": "8.16.3",
-    "playwright-core": "^1.53.0",
-    "yaml": "^2.9.0"
+    "pg": "8.16.3"
   },
   "devDependencies": {
     "@types/pg": "8.15.5",

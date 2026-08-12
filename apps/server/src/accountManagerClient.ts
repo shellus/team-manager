@@ -2,25 +2,23 @@ import type {
   AccountManagerOperationStatus,
   AccountManagerOperationView,
   AccountManagerProfileView,
-  ChatGptSessionInput,
   AddPersonalPaymentMethodRequest,
-  OpenCodexSpaceRequest,
-  OpenPro5xRequest,
-  OpenTeamSubscriptionRequest,
-  PersonalPaymentMethodDefaults,
-  Pro5xPaymentStatisticsView,
   ChangePersonalSubscriptionRequest,
+  ChatGptSessionInput,
   OpenBusinessSubscriptionRequest,
-  ResidentialProxyConfig,
-  SubaccountRegistrationJobStatus,
-  SubaccountRegistrationJobView
+  PersonalPaymentMethodDefaults,
+  PersonalPaymentMethodView,
+  ResidentialProxyConfig
 } from '@team-manager/shared';
 import { fetchWithRawTrace } from './transport.js';
 
-export const ACCOUNT_MANAGER_REQUEST_TAGS = {
-  parent: 'team-manager:parent',
-  subaccount: 'team-manager:subaccount'
-} as const;
+export interface ManagedAccountSummary {
+  id: string;
+  email: string;
+  personalPlan?: string;
+  paymentMethods?: PersonalPaymentMethodView[];
+  workspaces?: Array<{ id: string; name?: string; planType?: string; visible?: boolean }>;
+}
 
 export interface AccountRegistrationRequest {
   mailGroup?: string;
@@ -32,119 +30,42 @@ export interface AccountRegistrationRequest {
   clientReference?: string;
 }
 
-export interface AccountImportRequest {
-  email: string;
-  authMethod: 'email_otp' | 'password' | 'existing_session';
-  password?: string;
-  session?: ChatGptSessionInput;
-}
-
-export interface ManagedAccountWorkspace {
-  id: string;
-  name?: string;
-  structure: string;
-  planType: string;
-  isDeactivated?: boolean;
-  visible: boolean;
-}
-
-export interface ManagedAccountSummary {
-  id: string;
-  email: string;
-  hasCodexSpace: boolean;
-  hasTeamSubscription: boolean;
-  hasPro5x?: boolean;
-  paymentMethods?: import('@team-manager/shared').PersonalPaymentMethodView[];
-  paymentMethodsUpdatedAt?: number;
-  workspaces: ManagedAccountWorkspace[];
-}
-
-interface RawAccountOperationResponse {
-  id: string;
-  accountId?: string;
-  type: string;
-  status: string;
-  phase: string;
-  message?: string;
-  email?: string;
-  progress: number;
-  control?: AccountManagerOperationView['control'];
-  requestSummary?: unknown;
-  result?: unknown;
-  errorCode?: string;
-  errorMessage?: string;
-  createdAt: number;
-  updatedAt: number;
-  completedAt?: number;
-}
-
-export interface AccountManagerOperationFilter {
-  type?: string;
-  status?: AccountManagerOperationStatus;
-  requestTag?: string;
-}
-
 export interface AccountManagerGateway {
-  health(): Promise<{
-    status?: string;
-    accountRegistrationConfigured?: boolean;
-    pro5xPromoCode?: string;
-  }>;
-  listAccounts?(): Promise<ManagedAccountSummary[]>;
-  listOperations(filter?: AccountManagerOperationFilter): Promise<AccountManagerOperationView[]>;
-  pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView>;
-  operation(id: string): Promise<AccountManagerOperationView>;
-  listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]>;
-  listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]>;
-  startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView>;
-  startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView>;
-  retryRegistration(id: string): Promise<SubaccountRegistrationJobView>;
-  retryOperationCurrentStep(id: string): Promise<AccountManagerOperationView>;
-  rotateOperationIp(id: string): Promise<AccountManagerOperationView>;
-  operationProxyConfig(id: string): Promise<ResidentialProxyConfig>;
-  configureOperationProxy(id: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
-  terminateOperation(id: string): Promise<AccountManagerOperationView>;
-  provideOperationPaymentCard(id: string, input: OpenPro5xRequest): Promise<AccountManagerOperationView>;
-  removeOperation(id: string): Promise<boolean>;
-  account(accountId: string): Promise<ManagedAccountSummary>;
-  syncAccount(accountId: string): Promise<ManagedAccountSummary>;
-  listAccountProfiles?(): Promise<Record<string, AccountManagerProfileView>>;
-  accountProfile(accountId: string): Promise<AccountManagerProfileView>;
-  startAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
-  stopAccountProfile(accountId: string): Promise<AccountManagerProfileView>;
-  accountProxyConfig(accountId: string): Promise<ResidentialProxyConfig>;
-  accountHttpProxy?(accountId: string): Promise<string>;
-  configureAccountProxy(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
-  session(accountId: string): Promise<ChatGptSessionInput>;
-  openCodexSpace(
-    accountId: string,
-    input: OpenCodexSpaceRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView>;
-  openTeamSubscription(
-    accountId: string,
-    input: OpenTeamSubscriptionRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView>;
-  openPro5x(
-    accountId: string,
-    input: OpenPro5xRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView>;
-  changePersonalSubscription(
+  health?(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
+  startRegistration?(input: AccountRegistrationRequest): Promise<AccountManagerOperationView>;
+  operation?(operationId: string): Promise<AccountManagerOperationView>;
+  account?(accountId: string): Promise<ManagedAccountSummary>;
+  syncAccount?(accountId: string): Promise<ManagedAccountSummary>;
+  listAccountOperations?(accountId: string): Promise<AccountManagerOperationView[]>;
+  accountProfile?(accountId: string): Promise<AccountManagerProfileView>;
+  startAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
+  stopAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
+  accountProxyConfig?(accountId: string): Promise<ResidentialProxyConfig>;
+  configureAccountProxy?(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
+  session?(accountId: string): Promise<ChatGptSessionInput>;
+  changePersonalSubscription?(
     accountId: string,
     input: ChangePersonalSubscriptionRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  cancelPersonalSubscriptionRenewal(
+  cancelPersonalSubscriptionRenewal?(
     accountId: string,
     input?: { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  openBusinessSubscription(
+  openBusinessSubscription?(
     accountId: string,
     input: OpenBusinessSubscriptionRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  addPersonalPaymentMethod(
+  addPersonalPaymentMethod?(
     accountId: string,
     input: AddPersonalPaymentMethodRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  personalPaymentMethodDefaults(accountId: string): Promise<PersonalPaymentMethodDefaults>;
+  personalPaymentMethodDefaults?(accountId: string): Promise<PersonalPaymentMethodDefaults>;
+}
+
+interface RawOperation extends Omit<AccountManagerOperationView, 'status' | 'requestSummary' | 'result'> {
+  status: string;
+  requestSummary?: unknown;
+  result?: unknown;
 }
 
 export class AccountManagerClient implements AccountManagerGateway {
@@ -154,128 +75,16 @@ export class AccountManagerClient implements AccountManagerGateway {
     private readonly fetchImpl?: typeof fetch
   ) {}
 
-  async health(): Promise<{
-    status?: string;
-    accountRegistrationConfigured?: boolean;
-    pro5xPromoCode?: string;
-  }> {
-    const response = await fetchWithRawTrace(
-      'account-manager',
-      `${this.baseUrl}/health`,
-      {},
-      this.fetchImpl
-    );
-    const data = await response.json().catch(() => ({})) as Record<string, unknown>;
-    if (!response.ok) throw new AccountManagerError(response.status, `Account Manager 健康检查失败: ${response.status}`);
-    return {
-      status: typeof data.status === 'string' ? data.status : undefined,
-      accountRegistrationConfigured: data.accountRegistrationConfigured === true,
-      ...(typeof data.pro5xPromoCode === 'string' && data.pro5xPromoCode.trim()
-        ? { pro5xPromoCode: data.pro5xPromoCode.trim() }
-        : {})
-    };
+  health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }> {
+    return this.request('GET', '/health');
   }
 
-  listAccounts(): Promise<ManagedAccountSummary[]> {
-    return this.request('GET', '/v1/accounts');
+  async startRegistration(input: AccountRegistrationRequest): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request('POST', '/v1/accounts/register', input));
   }
 
-  async listOperations(filter: AccountManagerOperationFilter = {}): Promise<AccountManagerOperationView[]> {
-    const params = new URLSearchParams();
-    if (filter.type) params.set('type', filter.type);
-    if (filter.status) params.set('status', filter.status);
-    const suffix = params.size ? `?${params.toString()}` : '';
-    const operations = (await this.request<RawAccountOperationResponse[]>('GET', `/v1/operations${suffix}`))
-      .map(toOperation);
-    return filter.requestTag
-      ? operations.filter((operation) => operation.requestSummary?.requestTag === filter.requestTag)
-      : operations;
-  }
-
-  pro5xPaymentStatistics(): Promise<Pro5xPaymentStatisticsView> {
-    return this.request('GET', '/v1/payment-attempts/statistics');
-  }
-
-  async operation(id: string): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request('GET', `/v1/operations/${encodeURIComponent(id)}`));
-  }
-
-  async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
-    return (await this.request<RawAccountOperationResponse[]>(
-      'GET',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations`
-    )).map(toOperation);
-  }
-
-  async listRegistrations(requestTag?: string): Promise<SubaccountRegistrationJobView[]> {
-    const operations = await this.listOperations({ type: 'register', requestTag });
-    return operations.map(registrationJobFromOperation);
-  }
-
-  async startRegistration(input: AccountRegistrationRequest): Promise<SubaccountRegistrationJobView> {
-    return registrationJobFromOperation(toOperation(await this.request('POST', '/v1/accounts/register', input)));
-  }
-
-  async startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request('POST', '/v1/accounts/imports', input));
-  }
-
-  async retryRegistration(id: string): Promise<SubaccountRegistrationJobView> {
-    return registrationJobFromOperation(toOperation(await this.request(
-      'POST',
-      `/v1/operations/${encodeURIComponent(id)}/retry`,
-      {}
-    )));
-  }
-
-  async rotateOperationIp(id: string): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/operations/${encodeURIComponent(id)}/controls/rotate-ip`,
-      {}
-    ));
-  }
-
-  async retryOperationCurrentStep(id: string): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/operations/${encodeURIComponent(id)}/controls/retry`,
-      {}
-    ));
-  }
-
-  operationProxyConfig(id: string): Promise<ResidentialProxyConfig> {
-    return this.request('GET', `/v1/operations/${encodeURIComponent(id)}/proxy`);
-  }
-
-  configureOperationProxy(
-    id: string,
-    input: ResidentialProxyConfig
-  ): Promise<ResidentialProxyConfig> {
-    return this.request('PUT', `/v1/operations/${encodeURIComponent(id)}/proxy`, input);
-  }
-
-  async terminateOperation(id: string): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/operations/${encodeURIComponent(id)}/controls/terminate`,
-      {}
-    ));
-  }
-
-  async provideOperationPaymentCard(
-    id: string,
-    input: OpenPro5xRequest
-  ): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/operations/${encodeURIComponent(id)}/payment-card`,
-      input
-    ));
-  }
-
-  removeOperation(id: string): Promise<boolean> {
-    return this.request('DELETE', `/v1/operations/${encodeURIComponent(id)}`);
+  async operation(operationId: string): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request('GET', `/v1/operations/${encodeURIComponent(operationId)}`));
   }
 
   account(accountId: string): Promise<ManagedAccountSummary> {
@@ -286,8 +95,9 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
   }
 
-  listAccountProfiles(): Promise<Record<string, AccountManagerProfileView>> {
-    return this.request('GET', '/v1/accounts/profiles');
+  async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
+    const items = await this.request<RawOperation[]>('GET', `/v1/accounts/${encodeURIComponent(accountId)}/operations`);
+    return items.map(toOperation);
   }
 
   accountProfile(accountId: string): Promise<AccountManagerProfileView> {
@@ -306,20 +116,7 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`);
   }
 
-  async accountHttpProxy(accountId: string): Promise<string> {
-    const result = await this.request<{ proxy: string }>(
-      'GET',
-      `/v1/accounts/${encodeURIComponent(accountId)}/http-proxy`
-    );
-    const proxy = result.proxy?.trim();
-    if (!proxy) throw new AccountManagerError(502, 'Account Manager 返回的账号 HTTP 代理为空');
-    return proxy;
-  }
-
-  configureAccountProxy(
-    accountId: string,
-    input: ResidentialProxyConfig
-  ): Promise<ResidentialProxyConfig> {
+  configureAccountProxy(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig> {
     return this.request('PUT', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`, input);
   }
 
@@ -327,197 +124,73 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/session`);
   }
 
-  async openCodexSpace(
-    accountId: string,
-    input: OpenCodexSpaceRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView> {
+  async changePersonalSubscription(accountId: string, input: ChangePersonalSubscriptionRequest & { requestTag?: string }) {
     return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-codex-space`,
-      input
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/change-personal-subscription`, input, Boolean(input.card)
     ));
   }
 
-  async openTeamSubscription(
-    accountId: string,
-    input: OpenTeamSubscriptionRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView> {
+  async cancelPersonalSubscriptionRenewal(accountId: string, input: { requestTag?: string } = {}) {
     return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-team-subscription`,
-      input
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/cancel-personal-subscription-renewal`, input
     ));
   }
 
-  async openPro5x(
-    accountId: string,
-    input: OpenPro5xRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView> {
+  async openBusinessSubscription(accountId: string, input: OpenBusinessSubscriptionRequest & { requestTag?: string }) {
     return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-pro-5x`,
-      input
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`, input, Boolean(input.card)
     ));
   }
 
-  async changePersonalSubscription(
-    accountId: string,
-    input: ChangePersonalSubscriptionRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView> {
+  async addPersonalPaymentMethod(accountId: string, input: AddPersonalPaymentMethodRequest & { requestTag?: string }) {
     return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/change-personal-subscription`,
-      input,
-      Boolean(input.card)
-    ));
-  }
-
-  async cancelPersonalSubscriptionRenewal(
-    accountId: string,
-    input: { requestTag?: string } = {}
-  ): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/cancel-personal-subscription-renewal`,
-      input
-    ));
-  }
-
-  async openBusinessSubscription(
-    accountId: string,
-    input: OpenBusinessSubscriptionRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`,
-      input,
-      Boolean(input.card)
-    ));
-  }
-
-  async addPersonalPaymentMethod(
-    accountId: string,
-    input: AddPersonalPaymentMethodRequest & { requestTag?: string }
-  ): Promise<AccountManagerOperationView> {
-    return toOperation(await this.request(
-      'POST',
-      `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-personal-payment-method`,
-      input,
-      true
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-personal-payment-method`, input, true
     ));
   }
 
   personalPaymentMethodDefaults(accountId: string): Promise<PersonalPaymentMethodDefaults> {
-    return this.request(
-      'GET',
-      `/v1/accounts/${encodeURIComponent(accountId)}/personal-payment-method-defaults`
-    );
+    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/personal-payment-method-defaults`);
   }
 
   private async request<T>(method: string, path: string, body?: unknown, sensitiveBody = false): Promise<T> {
-    const response = await fetchWithRawTrace(
-      'account-manager',
-      `${this.baseUrl}${path}`,
-      {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          Accept: 'application/json',
-          ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    const response = await fetchWithRawTrace('account-manager', `${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        Accept: 'application/json',
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
       },
-      this.fetchImpl,
-      sensitiveBody ? { requestBody: '[REDACTED SENSITIVE PAYMENT INPUT]' } : {}
-    );
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    }, this.fetchImpl, sensitiveBody ? { requestBody: '[REDACTED SENSITIVE PAYMENT INPUT]' } : {});
     const text = await response.text();
     let parsed: { ok?: boolean; data?: T; error?: string };
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      throw new AccountManagerError(response.status, `Account Manager 返回非 JSON 响应: ${text}`);
-    }
+    try { parsed = JSON.parse(text) as typeof parsed; }
+    catch { throw new AccountManagerError(response.status, `GAM 返回非 JSON 响应: ${text.slice(0, 200)}`); }
     if (!response.ok || parsed.ok !== true || parsed.data === undefined) {
-      throw new AccountManagerError(response.status, parsed.error || `Account Manager 请求失败: ${response.status}`);
+      throw new AccountManagerError(response.status, parsed.error || `GAM 请求失败: ${response.status}`);
     }
     return parsed.data;
   }
 }
 
 export class AccountManagerError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
-    this.name = 'AccountManagerError';
-  }
+  constructor(readonly status: number, message: string) { super(message); this.name = 'AccountManagerError'; }
 }
 
-export function createAccountManagerClient(): AccountManagerClient | undefined {
-  const baseUrl = process.env.TEAMMGR_ACCOUNT_MANAGER_BASE_URL?.trim().replace(/\/+$/, '');
-  const token = process.env.TEAMMGR_ACCOUNT_MANAGER_TOKEN?.trim();
-  return baseUrl && token ? new AccountManagerClient(baseUrl, token) : undefined;
-}
-
-function toOperation(operation: RawAccountOperationResponse): AccountManagerOperationView {
+function toOperation(operation: RawOperation): AccountManagerOperationView {
+  const { requestSummary: _requestSummary, result: _result, ...base } = operation;
   return {
-    id: operation.id,
-    ...(operation.accountId ? { accountId: operation.accountId } : {}),
-    type: operation.type,
+    ...base,
     status: normalizeOperationStatus(operation.status),
-    phase: operation.phase,
-    ...(operation.message ? { message: operation.message } : {}),
-    ...(operation.email ? { email: operation.email } : {}),
-    progress: operation.progress,
-    ...(operation.control ? { control: operation.control } : {}),
     ...(isRecord(operation.requestSummary) ? { requestSummary: operation.requestSummary } : {}),
-    ...(isRecord(operation.result) ? { result: operation.result } : {}),
-    ...(operation.errorCode ? { errorCode: operation.errorCode } : {}),
-    ...(operation.errorMessage ? { errorMessage: operation.errorMessage } : {}),
-    createdAt: operation.createdAt,
-    updatedAt: operation.updatedAt,
-    ...(operation.completedAt ? { completedAt: operation.completedAt } : {})
-  };
-}
-
-export function registrationJobFromOperation(
-  operation: AccountManagerOperationView
-): SubaccountRegistrationJobView {
-  const status = normalizeRegistrationStatus(operation.status);
-  const country = typeof operation.requestSummary?.country === 'string'
-    ? operation.requestSummary.country.trim().toUpperCase()
-    : '';
-  const groupName = typeof operation.requestSummary?.clientReference === 'string'
-    ? operation.requestSummary.clientReference.trim()
-    : '';
-  return {
-    id: operation.id,
-    status,
-    phase: operation.phase,
-    message: operation.message || operation.errorMessage || operation.phase,
-    progress: operation.progress,
-    ...(operation.email || operation.accountId ? { email: operation.email || operation.accountId } : {}),
-    ...(country ? { country } : {}),
-    ...(groupName ? { groupName } : {}),
-    createdAt: operation.createdAt,
-    updatedAt: operation.updatedAt,
-    ...(operation.completedAt ? { completedAt: operation.completedAt } : {}),
-    ...(operation.errorMessage ? { error: operation.errorMessage } : {})
+    ...(isRecord(operation.result) ? { result: operation.result } : {})
   };
 }
 
 function normalizeOperationStatus(status: string): AccountManagerOperationStatus {
-  if (
-    status === 'queued' || status === 'running' || status === 'waiting_for_otp' ||
-    status === 'waiting_manual' || status === 'succeeded' || status === 'failed' || status === 'interrupted'
-  ) return status;
-  return 'running';
-}
-
-function normalizeRegistrationStatus(status: AccountManagerOperationStatus): SubaccountRegistrationJobStatus {
-  if (
-    status === 'queued' || status === 'running' || status === 'waiting_manual' ||
-    status === 'succeeded' || status === 'failed' || status === 'interrupted'
-  ) return status;
-  return 'running';
+  return ['queued', 'running', 'waiting_for_otp', 'waiting_manual', 'succeeded', 'failed', 'interrupted'].includes(status)
+    ? status as AccountManagerOperationStatus
+    : 'running';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

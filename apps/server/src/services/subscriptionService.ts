@@ -32,6 +32,9 @@ export class SubscriptionService {
   ): Promise<AccountManagerOperationView> {
     try {
       const accountRef = await this.accountRef(accountId);
+      if (!['go', 'plus', 'pro_5x', 'pro_20x'].includes(input.targetPlan)) throw new ServiceError(400, '无效的目标个人套餐');
+      if (!['start_new', 'change_existing'].includes(input.mode)) throw new ServiceError(400, '无效的个人套餐操作模式');
+      validateCheckout(input);
       if (input.mode === 'change_existing') {
         throw new ServiceError(409, '现有付费套餐切换协议尚未验证，当前不能执行');
       }
@@ -74,6 +77,8 @@ export class SubscriptionService {
   ): Promise<AccountManagerOperationView> {
     try {
       const accountRef = await this.accountRef(accountId);
+      if (!['create_workspace', 'upgrade_existing_workspace'].includes(input.mode)) throw new ServiceError(400, '无效的 Business 操作模式');
+      validateCheckout(input);
       let workspaceId: string | undefined;
       let externalWorkspaceId: string | undefined;
       if (input.mode === 'upgrade_existing_workspace') {
@@ -129,4 +134,14 @@ function safeSubscriptionRequest(input: ChangePersonalSubscriptionRequest | Open
     ...(input.promoCode ? { hasPromoCode: true } : {}),
     ...(input.card ? { paymentMethod: 'card_input', cardLast4: input.card.number.slice(-4) } : { paymentMethod: 'saved' })
   };
+}
+
+function validateCheckout(input: ChangePersonalSubscriptionRequest | OpenBusinessSubscriptionRequest) {
+  if (!/^[A-Z]{2}$/.test(input.country?.trim().toUpperCase() ?? '')) throw new ServiceError(400, 'country 应为两位国家代码');
+  if (!/^[A-Z]{3}$/.test(input.currency?.trim().toUpperCase() ?? '')) throw new ServiceError(400, 'currency 应为三位货币代码');
+  if (input.card) {
+    if (!/^\d{12,19}$/.test(input.card.number.replaceAll(' ', ''))) throw new ServiceError(400, '卡号格式无效');
+    if (input.card.expiryMonth < 1 || input.card.expiryMonth > 12 || input.card.expiryYear < new Date().getUTCFullYear()) throw new ServiceError(400, '卡片有效期无效');
+    if (!/^\d{3,4}$/.test(input.card.cvc)) throw new ServiceError(400, 'CVC 格式无效');
+  }
 }

@@ -61,6 +61,7 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 let traceWriteChain = Promise.resolve();
 let catchAllFetchInstalled = false;
 const catchAllFetchSources = new WeakMap<typeof fetch, typeof fetch>();
+let traceArtifactSink: ((record: unknown) => Promise<void>) | undefined;
 
 interface SerializedError {
   name: string;
@@ -341,6 +342,11 @@ export function installCatchAllFetchTracing(): void {
   catchAllFetchInstalled = true;
 }
 
+/** 生产运行时把完整 trace 写入不可变文件制品，并由 PostgreSQL 保存索引。 */
+export function configureTraceArtifactSink(sink: (record: unknown) => Promise<void>): void {
+  traceArtifactSink = sink;
+}
+
 export function createCatchAllTracingFetch(fetchImpl: typeof fetch = nativeFetch): typeof fetch {
   const tracedFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
     fetchWithRawTrace('catch-all-fetch', input, init, fetchImpl)) as typeof fetch;
@@ -413,6 +419,10 @@ async function appendTraceLine(traceFile: string, line: string): Promise<void> {
 
 async function writeTraceSafely(traceFile: string, record: unknown): Promise<void> {
   try {
+    if (traceArtifactSink) {
+      await traceArtifactSink(record);
+      return;
+    }
     await enqueueTraceWrite(traceFile, `${JSON.stringify(record)}\n`);
   } catch (error) {
     console.error(`[team-manager] 上游原始追踪写入失败 (${traceFile}):`, error);

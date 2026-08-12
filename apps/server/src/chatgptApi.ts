@@ -1,16 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  Account,
-  AccountBillingSnapshot,
-  AccountFingerprint,
-  EditableMemberRole,
-  Member,
-  PendingInvite,
-  SeatType,
-  MemberRole
-} from '@team-manager/shared';
+import type { EditableMemberRole, Member, PendingInvite, SeatType, MemberRole } from '@team-manager/shared';
 import { fetchWithRawTrace, type Transport } from './transport.js';
-import { upcomingInvoiceHasTeamSubscription } from './teamSubscription.js';
+
+interface AccountFingerprint { deviceId?: string; sessionId?: string; userAgent?: string }
+interface BillingRaw extends Record<string, unknown> { invoices: unknown; upcomingInvoice: unknown; paymentMethods: unknown; billingInfo: unknown; seatTypeCounts: unknown }
 
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OAUTH_CLIENT_ID = 'app_2SKx67EdpoN0G6j64rFvigXD';
@@ -92,7 +85,7 @@ export interface AutomaticReloadSettingsResponse extends Record<string, unknown>
   immediate_top_up_message?: string | null;
 }
 
-export interface ChatGptPro5xSubscriptionResponse extends Record<string, unknown> {
+export interface ChatGptPersonalSubscriptionResponse extends Record<string, unknown> {
   id?: string;
   plan_type?: string;
   active_start?: string;
@@ -229,7 +222,7 @@ export class ChatGptApi {
     return this.request<ChatGptRateLimitResetCreditsResponse>('GET', '/backend-api/wham/rate-limit-reset-credits');
   }
 
-  /** 母号状态：从 accounts/check 取本 workspace 那条 */
+  /** 当前执行账号从 accounts/check 观察到的 Workspace 状态。 */
   async checkAccount(): Promise<{ planType?: string; role?: MemberRole; workspaceName?: string; nextRenewalOn?: string }> {
     const entry = (await this.checkAccounts()).find((item) => item.accountId === this.account.accountId);
     if (!entry) return {};
@@ -241,14 +234,14 @@ export class ChatGptApi {
     };
   }
 
-  async getPro5xSubscription(): Promise<ChatGptPro5xSubscriptionResponse> {
-    return this.request<ChatGptPro5xSubscriptionResponse>(
+  async getPersonalSubscription(): Promise<ChatGptPersonalSubscriptionResponse> {
+    return this.request<ChatGptPersonalSubscriptionResponse>(
       'GET',
       `/backend-api/subscriptions?account_id=${encodeURIComponent(this.account.accountId)}`
     );
   }
 
-  async cancelPro5xRenewal(): Promise<Record<string, unknown>> {
+  async cancelPersonalSubscriptionRenewal(): Promise<Record<string, unknown>> {
     return this.request<Record<string, unknown>>('POST', '/backend-api/subscriptions/cancel', {
       account_id: this.account.accountId
     });
@@ -338,7 +331,7 @@ export class ChatGptApi {
     return this.request<ChatGptMemberRemovalResponse>('DELETE', path);
   }
 
-  /** 改子号席位类型（字段为 seat_type：default=ChatGPT，usage_based=Codex） */
+  /** 修改成员席位类型（字段为 seat_type：default=ChatGPT，usage_based=Codex）。 */
   async setMemberSeat(userId: string, seat: SeatType): Promise<unknown> {
     const path = `/backend-api/accounts/${this.account.accountId}/users/${userId}`;
     return this.request('PATCH', path, { seat_type: seat });
@@ -373,7 +366,7 @@ export class ChatGptApi {
     return this.request('POST', path, { value: enabled });
   }
 
-  async getBillingSnapshotRaw(): Promise<AccountBillingSnapshot['raw']> {
+  async getBillingSnapshotRaw(): Promise<BillingRaw> {
     const workspaceAccountId = encodeURIComponent(this.account.accountId);
     const invoices = await this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${workspaceAccountId}`);
     const upcomingInvoice = await this.getUpcomingInvoiceOrNull(workspaceAccountId);
@@ -394,7 +387,10 @@ export class ChatGptApi {
 
   async hasTeamSubscription(): Promise<boolean> {
     const workspaceAccountId = encodeURIComponent(this.account.accountId);
-    return upcomingInvoiceHasTeamSubscription(await this.getUpcomingInvoiceOrNull(workspaceAccountId));
+    const upcoming = await this.getUpcomingInvoiceOrNull(workspaceAccountId);
+    const source = upcoming && typeof upcoming === 'object' ? upcoming as Record<string, unknown> : {};
+    const text = JSON.stringify(source).toLowerCase();
+    return text.includes('team') || text.includes('business');
   }
 
   async getAutomaticReloadSettings(): Promise<AutomaticReloadSettingsResponse> {

@@ -1,4 +1,4 @@
-import type { AccountManagerOperationView, AccountManagerProfileView, ResidentialProxyConfig, SeatType } from './index.js';
+import type { AccountManagerOperationView, AccountManagerProfileView, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatType } from './index.js';
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export type PersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
@@ -69,6 +69,8 @@ export interface WorkspaceCredentialView {
   contentSha256: string;
   byteSize: number;
   createdAt: string;
+  latestQuota?: CodexQuotaSnapshot;
+  quotaObservedAt?: string;
 }
 
 export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
@@ -85,11 +87,39 @@ export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
   };
   workspaces: AccountWorkspaceLinkView[];
   credentials: WorkspaceCredentialView[];
+  paymentMethods: PersonalPaymentMethodView[];
+  operations: AccountManagerOperationView[];
   accountManager?: {
     profile?: AccountManagerProfileView;
     operations: AccountManagerOperationView[];
     proxy?: ResidentialProxyConfig;
   };
+}
+
+export interface AccountManagerStateView {
+  account?: {
+    id: string;
+    email: string;
+    personalPlan?: string;
+    paymentMethods?: PersonalPaymentMethodView[];
+  };
+  profile?: AccountManagerProfileView;
+  proxy?: ResidentialProxyConfig;
+  operations: AccountManagerOperationView[];
+}
+
+export interface RegisterAccountRequest {
+  groupId: string;
+  email?: string;
+  country?: string;
+  mailGroup?: string;
+  resumeExisting?: boolean;
+}
+
+export interface AddPersonalPaymentMethodRequest {
+  country: string;
+  currency: string;
+  card: PaymentCardInput;
 }
 
 export interface WorkspaceSummaryView {

@@ -11,6 +11,9 @@ const NewAccountPage=lazy(async()=>({default:(await import('../features/unified/
 const WorkspacesPage=lazy(async()=>({default:(await import('../features/unified/WorkspacesPage.js')).WorkspacesPage}));
 const WorkspaceDetailPage=lazy(async()=>({default:(await import('../features/unified/WorkspaceDetailPage.js')).WorkspaceDetailPage}));
 const PublicSeatPage=lazy(async()=>({default:(await import('../features/public-seat/PublicSeatPage.js')).PublicSeatPage}));
+const TeamOrdersPage=lazy(async()=>({default:(await import('../features/unified/TeamOrdersPage.js')).TeamOrdersPage}));
+const SettingsPage=lazy(async()=>({default:(await import('../features/unified/SettingsPage.js')).SettingsPage}));
+const RegistrationOperationPage=lazy(async()=>({default:(await import('../features/unified/RegistrationOperationPage.js')).RegistrationOperationPage}));
 
 export function AppRoot(){
   const navigate=useNavigate(); const location=useLocation(); const [authed,setAuthed]=useState(()=>Boolean(getToken())); const [error,setError]=useState('');
@@ -18,7 +21,7 @@ export function AppRoot(){
   if(location.pathname.startsWith('/seat/'))return <Suspense fallback={<Skeleton active/>}><Routes><Route path="/seat/:seatKey" element={<PublicSeatPage/>}/><Route path="*" element={<Navigate to="/404" replace/>}/></Routes></Suspense>;
   if(!authed)return <Suspense fallback={<Skeleton active/>}><Routes><Route path="/login" element={<Login onLogin={login}/>}/><Route path="*" element={<Navigate to="/login" replace/>}/></Routes></Suspense>;
   return <AppShell onLogout={()=>{clearToken();setAuthed(false);navigate('/login',{replace:true});}}>{error&&<Alert type="error" showIcon closable message={error} onClose={()=>setError('')}/>}<Suspense fallback={<Skeleton active paragraph={{rows:8}}/>}><Routes>
-    <Route path="/accounts" element={<AccountsPage/>}/><Route path="/accounts/new" element={<NewAccountPage/>}/><Route path="/accounts/:accountId" element={<AccountDetailPage/>}/><Route path="/workspaces" element={<WorkspacesPage/>}/><Route path="/workspaces/:workspaceId" element={<WorkspaceDetailPage/>}/><Route path="/login" element={<Navigate to="/accounts" replace/>}/><Route path="/" element={<Navigate to="/accounts" replace/>}/><Route path="*" element={<Card404/>}/>
+    <Route path="/accounts" element={<AccountsPage/>}/><Route path="/accounts/new" element={<NewAccountPage/>}/><Route path="/accounts/:accountId" element={<AccountDetailPage/>}/><Route path="/operations/registrations/:operationId" element={<RegistrationOperationPage/>}/><Route path="/workspaces" element={<WorkspacesPage/>}/><Route path="/workspaces/:workspaceId" element={<WorkspaceDetailPage/>}/><Route path="/team-orders" element={<TeamOrdersPage/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="/login" element={<Navigate to="/accounts" replace/>}/><Route path="/" element={<Navigate to="/accounts" replace/>}/><Route path="*" element={<Card404/>}/>
   </Routes></Suspense></AppShell>;
 }
 function Card404(){return <Alert type="warning" showIcon message="页面不存在" description="旧母号/子号路由已删除，请从账号或 Workspace 进入。"/>;}
