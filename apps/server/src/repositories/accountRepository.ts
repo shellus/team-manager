@@ -5,6 +5,10 @@ import type { AccountGroupRow, AccountRow, Database, PersonalSpaceRow } from '..
 export interface AccountListFilters {
   groupId?: string;
   hasManageableWorkspace?: boolean;
+  isWorkspaceMember?: boolean;
+  hasWorkspaceCredential?: boolean;
+  hasGamBinding?: boolean;
+  hasSession?: boolean;
   personalPlan?: string;
   isBanned?: boolean;
   query?: string;
@@ -105,6 +109,51 @@ export class AccountRepository {
     return this.db.selectFrom('accounts').selectAll().where('normalized_email', '=', normalizeEmail(email)).executeTakeFirst();
   }
 
+  findById(id: string): Promise<AccountRow | undefined> {
+    return this.db.selectFrom('accounts').selectAll().where('id', '=', id).executeTakeFirst();
+  }
+
+  async update(id: string, input: {
+    groupId?: string;
+    remark?: string | null;
+    isBanned?: boolean;
+    displayName?: string | null;
+    lastError?: string | null;
+  }): Promise<AccountRow> {
+    const patch: Record<string, unknown> = {};
+    if (input.groupId !== undefined) patch.group_id = input.groupId;
+    if (input.remark !== undefined) patch.remark = input.remark?.trim() || null;
+    if (input.isBanned !== undefined) patch.is_banned = input.isBanned;
+    if (input.displayName !== undefined) patch.display_name = input.displayName?.trim() || null;
+    if (input.lastError !== undefined) patch.last_error = input.lastError?.trim() || null;
+    if (Object.keys(patch).length === 0) {
+      const existing = await this.findById(id);
+      if (!existing) throw new Error('账号不存在');
+      return existing;
+    }
+    const row = await this.db.updateTable('accounts').set(patch).where('id', '=', id).returningAll().executeTakeFirst();
+    if (!row) throw new Error('账号不存在');
+    return row;
+  }
+
+  async bindGamAccount(accountId: string, externalAccountRef: string): Promise<void> {
+    const normalized = normalizeEmail(externalAccountRef);
+    if (!normalized) throw new Error('GAM 账号引用不能为空');
+    await this.db.insertInto('gam_bindings').values({
+      account_id: accountId,
+      external_account_ref: externalAccountRef.trim(),
+      normalized_external_account_ref: normalized
+    }).onConflict((oc) => oc.column('account_id').doUpdateSet({
+      external_account_ref: externalAccountRef.trim(),
+      normalized_external_account_ref: normalized
+    })).execute();
+  }
+
+  async remove(id: string): Promise<void> {
+    const result = await this.db.deleteFrom('accounts').where('id', '=', id).executeTakeFirst();
+    if (Number(result.numDeletedRows) === 0) throw new Error('账号不存在');
+  }
+
   async moveToGroup(accountId: string, groupId: string): Promise<AccountRow> {
     const updated = await this.db.updateTable('accounts').set({ group_id: groupId }).where('id', '=', accountId).returningAll().executeTakeFirst();
     if (!updated) throw new Error('账号不存在');
@@ -144,6 +193,26 @@ export class AccountRepository {
         where wm.account_id = a.id and wm.status = 'active'
           and wm.normalized_role in ('owner', 'admin') and w.status = 'active'
       )`, '=', filters.hasManageableWorkspace);
+    }
+    if (filters.isWorkspaceMember !== undefined) {
+      query = query.where(sql<boolean>`exists (
+        select 1 from workspace_memberships wm
+        where wm.account_id = a.id and wm.status = 'active'
+          and wm.normalized_role not in ('owner', 'admin')
+      )`, '=', filters.isWorkspaceMember);
+    }
+    if (filters.hasWorkspaceCredential !== undefined) {
+      query = query.where(sql<boolean>`exists (
+        select 1 from workspace_credentials wc where wc.account_id = a.id and wc.status = 'active'
+      )`, '=', filters.hasWorkspaceCredential);
+    }
+    if (filters.hasGamBinding !== undefined) {
+      query = query.where(sql<boolean>`exists (
+        select 1 from gam_bindings gb where gb.account_id = a.id
+      )`, '=', filters.hasGamBinding);
+    }
+    if (filters.hasSession !== undefined) {
+      query = query.where('a.current_session_revision_id', filters.hasSession ? 'is not' : 'is', null);
     }
     const rows = await query.orderBy('a.updated_at', 'desc').execute() as AccountListItem[];
     return filters.personalPlan ? rows.filter((row) => row.personal_plan === filters.personalPlan) : rows;

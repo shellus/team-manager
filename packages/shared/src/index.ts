@@ -2,6 +2,8 @@
 
 import type { ChatGptSessionInput } from './sessionInput.js';
 
+export * from './unified.js';
+
 export {
   billingCurrencyForCountry,
   CHECKOUT_COUNTRY_CODES,

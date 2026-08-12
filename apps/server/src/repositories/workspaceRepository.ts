@@ -83,4 +83,25 @@ export class WorkspaceRepository {
       .orderBy(sql`case when wm.normalized_role in ('owner', 'admin') then 0 else 1 end`).orderBy('w.name')
       .execute();
   }
+
+  async requireManageableBy(workspaceId: string, accountId: string): Promise<void> {
+    const row = await this.db.selectFrom('workspace_memberships as wm')
+      .innerJoin('workspaces as w', 'w.id', 'wm.workspace_id')
+      .select('wm.id')
+      .where('wm.workspace_id', '=', workspaceId)
+      .where('wm.account_id', '=', accountId)
+      .where('wm.status', '=', 'active')
+      .where('wm.normalized_role', 'in', ['owner', 'admin'])
+      .where('w.status', '=', 'active')
+      .executeTakeFirst();
+    if (!row) throw new Error('所选账号没有管理该 Workspace 的权限');
+  }
+
+  findById(id: string): Promise<WorkspaceRow | undefined> {
+    return this.db.selectFrom('workspaces').selectAll().where('id', '=', id).executeTakeFirst();
+  }
+
+  findByExternalId(externalId: string): Promise<WorkspaceRow | undefined> {
+    return this.db.selectFrom('workspaces').selectAll().where('external_id', '=', externalId.trim()).executeTakeFirst();
+  }
 }

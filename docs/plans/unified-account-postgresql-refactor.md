@@ -11,8 +11,8 @@
 | 阶段 0：计划确认与上游协议观测 | 进行中 | `9156c23` | 用户已批准正式实施；分组冲突采用历史母号侧分组；现有 Free 测试 Profile 的旧代理不可达，套餐切换矩阵继续观测 |
 | 阶段 1：数据库基础设施 | 已完成 | `b1b28c4`、部署仓库 `a55c0b2` | PostgreSQL 18.4 固定摘要；空库/重复/并发 migration、失败回滚、隔离约束、pg_dump 恢复、加密和文件制品测试通过 |
 | 阶段 2：统一领域 Schema 与 Repository | 已完成 | `293e3fe` | Account/Group/Session/Workspace/Membership/Credential/SeatSlot/设置/通知/账单/订单/文件索引 Repository 的真实 PostgreSQL 集成测试通过 |
-| 阶段 3：一次性迁移器与迁移演练 | 已完成 | 待提交 | 160 账号、69 Workspace、113 Membership、10 活动凭证、12 隔离凭证、25 席位、52 账单、923 日志、1 trace、3 rrweb；空库重复结果一致；26/26 制品双向哈希通过；pg_dump 恢复后秘密可解密、席位键稳定；阻塞 0 |
-| 阶段 4：统一后端服务与 API | 未开始 | — | — |
+| 阶段 3：一次性迁移器与迁移演练 | 已完成 | `e58a626` | 160 账号、69 Workspace、113 Membership、10 活动凭证、12 隔离凭证、25 席位、52 账单、923 日志、1 trace、3 rrweb；空库重复结果一致；26/26 制品双向哈希通过；pg_dump 恢复后秘密可解密、席位键稳定；阻塞 0 |
+| 阶段 4：统一后端服务与 API | 进行中 | 待提交 | 新版 Account/AccountGroup/Workspace 查询与命令 API 已通过真实 PostgreSQL 集成测试；旧入口尚未从运行应用删除 |
 | 阶段 5：统一前端 | 未开始 | — | — |
 | 阶段 6：个人套餐与 Business 套餐 | 未开始 | — | — |
 | 阶段 7：正式迁移与运行切换 | 未开始 | — | — |

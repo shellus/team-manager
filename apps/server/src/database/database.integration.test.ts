@@ -19,6 +19,7 @@ import { ArtifactStore } from '../artifactStore.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildUnifiedApp } from '../unifiedApp.js';
 
 const adminUrl = process.env.TEAMMGR_TEST_ADMIN_DATABASE_URL;
 
@@ -109,6 +110,7 @@ test('PostgreSQL migrations and unified model constraints', { skip: !adminUrl, t
 
       await verifyFailedMigrationRollsBack(databaseUrl);
       await verifyRepositories(first);
+      await verifyUnifiedApi(first);
     } finally {
       await Promise.all([first.destroy(), second.destroy()]);
     }
@@ -233,6 +235,70 @@ async function verifyRepositories(db: ReturnType<typeof createDatabase>): Promis
   await assert.rejects(accounts.deleteGroup(group.id), /非空/);
   await accounts.moveToGroup(created.account.id, (await accounts.defaultGroup()).id);
   await accounts.deleteGroup(group.id);
+}
+
+async function verifyUnifiedApi(db: ReturnType<typeof createDatabase>): Promise<void> {
+  const upstreamRequests: Array<{ path: string; accountHeader?: string }> = [];
+  const app = await buildUnifiedApp({
+    database: db,
+    config: {
+      port: 0, dataDir: '/tmp', artifactDir: '/tmp', databaseUrl: 'unused',
+      dataEncryptionKey: '0'.repeat(64), dataEncryptionKeyVersion: 'test-v1',
+      jwtSecret: 'integration-test-secret', jwtIssuer: 'team-manager',
+      adminUsername: 'admin', adminPassword: 'password', apiToken: 'integration-token',
+      allowedOrigins: [], webDistDir: '/tmp'
+    },
+    transport: {
+      async fetch(request) {
+        upstreamRequests.push({ path: request.path, accountHeader: request.headers['chatgpt-account-id'] });
+        if (request.path.includes('/users?')) return { status: 200, body: JSON.stringify({ items: [] }) };
+        throw new Error(`unexpected upstream ${request.path}`);
+      }
+    }
+  });
+  const auth = { Authorization: 'Bearer integration-token', 'Content-Type': 'application/json' };
+  const groupsResponse = await app.request('/api/account-groups', { headers: auth });
+  assert.equal(groupsResponse.status, 200);
+  const groups = (await groupsResponse.json() as any).data;
+  assert.equal(groups.some((group: any) => group.name === '默认分组'), true);
+
+  const createdResponse = await app.request('/api/accounts', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({
+      email: 'unified-api@example.com', remark: '统一账号',
+      session: { user: { email: 'unified-api@example.com' }, account: { id: 'personal-unified' }, accessToken: 'secret-web-token' }
+    })
+  });
+  assert.equal(createdResponse.status, 200);
+  const created = (await createdResponse.json() as any).data;
+  assert.equal(created.email, 'unified-api@example.com');
+  assert.equal(created.hasSession, true);
+  assert.equal(created.personalSpace.remoteAccountId, 'personal-unified');
+
+  const listResponse = await app.request('/api/accounts?hasSession=true&hasManageableWorkspace=false', { headers: auth });
+  assert.equal(listResponse.status, 200);
+  const listed = (await listResponse.json() as any).data;
+  assert.equal(listed.some((item: any) => item.id === created.id), true);
+
+  const workspace = await db.selectFrom('workspaces').selectAll().where('external_id', '=', 'managed-workspace').executeTakeFirstOrThrow();
+  const denied = await app.request(`/api/workspaces/${workspace.id}/members/refresh`, {
+    method: 'POST', headers: auth, body: JSON.stringify({ executorAccountId: created.id })
+  });
+  assert.equal(denied.status, 409);
+  assert.equal(upstreamRequests.length, 0);
+
+  const executor = await db.selectFrom('accounts').select('id').where('normalized_email', '=', 'manager@example.com').executeTakeFirstOrThrow();
+  const workspaceContext = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
+  await workspaceContext.saveAccessToken(executor.id, { kind: 'workspace', workspaceId: workspace.id }, 'workspace-api-token');
+  const refreshed = await app.request(`/api/workspaces/${workspace.id}/members/refresh`, {
+    method: 'POST', headers: auth, body: JSON.stringify({ executorAccountId: executor.id })
+  });
+  assert.equal(refreshed.status, 200);
+  assert.equal(upstreamRequests.length, 1);
+  assert.equal(upstreamRequests[0]?.accountHeader, 'managed-workspace');
+
+  assert.equal((await app.request('/api/subaccounts', { headers: auth })).status, 404);
+  assert.equal((await app.request(`/api/accounts/${created.id}/members`, { headers: auth })).status, 404);
 }
 
 async function verifyFailedMigrationRollsBack(connectionString: string): Promise<void> {
