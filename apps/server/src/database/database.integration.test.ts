@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { Pool } from 'pg';
+import { sql } from 'kysely';
 import { createDatabase } from './connection.js';
 import { migrateToLatest, pendingMigrations } from './migrator.js';
 import { AccountRepository } from '../repositories/accountRepository.js';
@@ -30,9 +31,13 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
+      assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
+        ${JSON.stringify({ nested: { origin: 'ChatGPTTeamPlan' } })}::jsonb,
+        '$.** ? (@ like_regex "chatgptteamplan" flag "i")'
+      ) matched`.execute(db)).rows[0]?.matched, true);
 
       const accounts = new AccountRepository(db);
       const workspaces = new WorkspaceRepository(db);
@@ -45,6 +50,64 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
       assert.deepEqual((await accounts.list({ hasManageableWorkspace: true })).map((item) => item.email), ['owner@example.com']);
       assert.deepEqual((await accounts.list({ isWorkspaceMember: true })).map((item) => item.email), ['member@example.com']);
+
+      const primaryPlanGroup = await accounts.createGroup('Primary plans');
+      const createPlanAccount = async (name: string) => accounts.create({ email: `${name}@example.com`, groupId: primaryPlanGroup.id });
+      const freeAccount = await createPlanAccount('primary-free');
+      const paidOwner = await createPlanAccount('primary-paid-owner');
+      const twoSeatOwner = await createPlanAccount('primary-two-seat');
+      const usageOwner = await createPlanAccount('primary-usage');
+      const bothOwner = await createPlanAccount('primary-both-owner');
+      const memberOnly = await createPlanAccount('primary-member');
+      const adminOnly = await createPlanAccount('primary-admin');
+      const ownerAndMember = await createPlanAccount('primary-owner-member');
+      const removedMember = await createPlanAccount('primary-removed');
+      const inactiveMember = await createPlanAccount('primary-inactive');
+      const billingOwner = await createPlanAccount('primary-billing');
+      await db.insertInto('personal_subscription_snapshots').values({
+        personal_space_id: paidOwner.personalSpace.id, normalized_plan: 'plus', raw_plan_code: 'chatgptplusplan',
+        status: 'active', will_renew: true, effective_at: null, ends_at: null, payload: {}, observed_at: new Date()
+      }).execute();
+      const fixedWorkspace = await workspaces.upsert({ externalId: 'primary-fixed', normalizedPlan: 'business' });
+      const usageWorkspace = await workspaces.upsert({ externalId: 'primary-usage', normalizedPlan: 'business_usage_based' });
+      const inactiveWorkspace = await workspaces.upsert({ externalId: 'primary-inactive', normalizedPlan: 'business', status: 'inactive' });
+      const billingWorkspace = await workspaces.upsert({ externalId: 'primary-billing', normalizedPlan: 'business_usage_based' });
+      const addMembership = (workspaceId: string, accountId: string, role: 'owner' | 'admin' | 'member', status: 'active' | 'removed' = 'active') =>
+        workspaces.upsertMembership({ workspaceId, accountId, normalizedRole: role, status, observedAt: new Date(), source: 'primary-plan-test' });
+      await addMembership(fixedWorkspace.id, paidOwner.account.id, 'owner');
+      await addMembership(fixedWorkspace.id, twoSeatOwner.account.id, 'owner');
+      await addMembership(usageWorkspace.id, usageOwner.account.id, 'owner');
+      await addMembership(usageWorkspace.id, bothOwner.account.id, 'owner');
+      await addMembership(fixedWorkspace.id, bothOwner.account.id, 'owner');
+      await addMembership(usageWorkspace.id, memberOnly.account.id, 'member');
+      await addMembership(usageWorkspace.id, adminOnly.account.id, 'admin');
+      await addMembership(usageWorkspace.id, ownerAndMember.account.id, 'owner');
+      await addMembership(fixedWorkspace.id, ownerAndMember.account.id, 'member');
+      await addMembership(usageWorkspace.id, removedMember.account.id, 'member', 'removed');
+      await addMembership(inactiveWorkspace.id, inactiveMember.account.id, 'member');
+      await addMembership(billingWorkspace.id, billingOwner.account.id, 'owner');
+      const primaryBilling = new BillingRepository(db);
+      await primaryBilling.saveSnapshot({ kind: 'workspace', workspaceId: billingWorkspace.id }, {
+        upcomingInvoice: { lines: [{ metadata: { user_origin_tag: 'ChatGPTTeamPlan' } }] }
+      }, new Date());
+      const operationalRows = await db.selectFrom('account_operational_summaries').select(['account_id', 'primary_plan'])
+        .where('account_id', 'in', [freeAccount.account.id, paidOwner.account.id, twoSeatOwner.account.id, usageOwner.account.id,
+          bothOwner.account.id, memberOnly.account.id, adminOnly.account.id, ownerAndMember.account.id,
+          removedMember.account.id, inactiveMember.account.id, billingOwner.account.id]).execute();
+      const plans = new Map(operationalRows.map((row) => [row.account_id, row.primary_plan]));
+      assert.equal(plans.get(freeAccount.account.id), 'free');
+      assert.equal(plans.get(paidOwner.account.id), 'plus', '个人付费套餐优先于 owner Workspace');
+      assert.equal(plans.get(twoSeatOwner.account.id), 'business_two_seat');
+      assert.equal(plans.get(usageOwner.account.id), 'business_usage_based');
+      assert.equal(plans.get(bothOwner.account.id), 'business_two_seat', '双席位优先于 0.52');
+      assert.equal(plans.get(memberOnly.account.id), 'team_member');
+      assert.equal(plans.get(adminOnly.account.id), 'team_member', 'admin 但非 owner 仍是 Team 子号');
+      assert.equal(plans.get(ownerAndMember.account.id), 'business_usage_based', 'owner + member 不算 Team 子号');
+      assert.equal(plans.get(removedMember.account.id), 'free', 'removed Membership 不参与判定');
+      assert.equal(plans.get(inactiveMember.account.id), 'free', 'inactive Workspace 不参与判定');
+      assert.equal(plans.get(billingOwner.account.id), 'business_two_seat', '固定席位账单证据优先于 usage-based Workspace plan');
+      assert.deepEqual((await accounts.list({ primaryPlan: 'team_member' })).map((item) => item.email).sort(),
+        ['member@example.com', 'primary-admin@example.com', 'primary-member@example.com']);
 
       const billing=new BillingRepository(db);await billing.saveSnapshot({kind:'personal',personalSpaceId:first.personalSpace.id},{invoices:{data:[{id:'invoice-envelope',amount_due:2600,currency:'cad',status:'paid',created:1781591356}]},payment_methods:{default_payment_method_id:'pm_default',payment_methods:[{id:'pm_default',card:{brand:'visa',last4:'4242',exp_month:12,exp_year:2030}}]},billing_info:{name:'Raw Name',address:{country:'CA'}},seat_type_counts:{seat_type_counts:{default:1,usage_based:2}},upcomingInvoice:{upcoming_invoice:{amount_due:3000}}},new Date('2026-08-13T00:00:00Z'));
       const billingDetail=await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id});assert.equal(billingDetail?.invoices[0].externalId,'invoice-envelope');assert.equal(billingDetail?.paymentMethods[0].isDefault,true);assert.equal(billingDetail?.paymentMethods[0].brand,'visa');assert.deepEqual(billingDetail?.summary.seatTypeCounts,{default:1,usage_based:2});assert.deepEqual(billingDetail?.summary.upcomingInvoice,{amount_due:3000});
@@ -73,6 +136,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const headers = { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' };
       assert.equal((await app.request('/health')).status, 200);
       assert.equal((await app.request('/api/accounts?hasManageableWorkspace=true', { headers })).status, 200);
+      const primaryPlanResponse = await app.request('/api/accounts?primaryPlan=team_member', { headers });
+      assert.equal(primaryPlanResponse.status, 200);
+      const primaryPlanAccounts = (await primaryPlanResponse.json() as any).data;
+      assert.deepEqual(primaryPlanAccounts.map((item: any) => item.email).sort(),
+        ['member@example.com', 'primary-admin@example.com', 'primary-member@example.com']);
+      assert.equal(primaryPlanAccounts[0].primaryPlan, 'team_member');
+      assert.equal(primaryPlanAccounts[0].personalPlan, undefined, '列表摘要不暴露个人套餐事实字段');
+      assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
+      assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
       assert.equal((await app.request('/api/parents', { headers })).status, 404);
       assert.equal((await app.request('/api/subaccounts', { headers })).status, 404);
       assert.equal((await app.request('/api/not-a-real-endpoint', { headers })).status, 404);
@@ -89,6 +161,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const syncResponse = await app.request(`/api/accounts/${first.account.id}/sync`, { method: 'POST', headers });
       assert.equal(syncResponse.status, 200);
       assert.equal((await db.selectFrom('personal_subscription_snapshots').selectAll().where('personal_space_id', '=', first.personalSpace.id).execute()).length, 1);
+      const detailResponse = await app.request(`/api/accounts/${first.account.id}`, { headers });
+      assert.equal(detailResponse.status, 200);
+      assert.equal((await detailResponse.json() as any).data.personalPlan, 'free', '详情保留个人套餐事实');
 
       const personal = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'plus', mode: 'start_new', country: 'US', currency: 'USD', autoPay: true, card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' } }) });
       assert.equal(personal.status, 200, await personal.clone().text());

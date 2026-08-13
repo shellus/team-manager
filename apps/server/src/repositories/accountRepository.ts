@@ -10,7 +10,7 @@ export interface AccountListFilters {
   hasGamBinding?: boolean;
   hasSession?: boolean;
   hasRunningProfile?: boolean;
-  personalPlan?: string;
+  primaryPlan?: string;
   isBanned?: boolean;
   query?: string;
 }
@@ -19,6 +19,9 @@ export interface AccountListItem extends AccountRow {
   group_name: string;
   has_manageable_workspace: boolean;
   personal_plan: string;
+  primary_plan: string;
+  limit_type: string;
+  profile_status: string;
   workspace_count: number;
   credential_count: number;
 }
@@ -170,6 +173,7 @@ export class AccountRepository {
   async list(filters: AccountListFilters = {}): Promise<AccountListItem[]> {
     let query = this.db.selectFrom('accounts as a')
       .innerJoin('account_groups as g', 'g.id', 'a.group_id')
+      .innerJoin('account_operational_summaries as aos', 'aos.account_id', 'a.id')
       .selectAll('a')
       .select([
         'g.name as group_name',
@@ -179,11 +183,10 @@ export class AccountRepository {
           where wm.account_id = a.id and wm.status = 'active'
             and wm.normalized_role in ('owner', 'admin') and w.status = 'active'
         )`.as('has_manageable_workspace'),
-        sql<string>`coalesce((
-          select pss.normalized_plan from personal_subscription_snapshots pss
-          join personal_spaces ps on ps.id = pss.personal_space_id
-          where ps.account_id = a.id order by pss.observed_at desc limit 1
-        ), 'free')`.as('personal_plan'),
+        'aos.personal_plan',
+        'aos.primary_plan',
+        'aos.limit_type',
+        'aos.profile_status',
         sql<number>`(select count(distinct wm.workspace_id)::int from workspace_memberships wm where wm.account_id = a.id and wm.status = 'active')`.as('workspace_count'),
         sql<number>`(select count(*)::int from workspace_credentials wc where wc.account_id = a.id and wc.status = 'active')`.as('credential_count')
       ]);
@@ -224,8 +227,8 @@ export class AccountRepository {
     if (filters.hasRunningProfile !== undefined) {
       query = query.where(sql<boolean>`exists (select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping'))`, '=', filters.hasRunningProfile);
     }
-    const rows = await query.orderBy('a.updated_at', 'desc').execute() as AccountListItem[];
-    return filters.personalPlan ? rows.filter((row) => row.personal_plan === filters.personalPlan) : rows;
+    if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', filters.primaryPlan);
+    return query.orderBy('a.updated_at', 'desc').execute() as Promise<AccountListItem[]>;
   }
 
   static async ensureGroup(trx: Transaction<Database>, nameInput?: string | null): Promise<string> {

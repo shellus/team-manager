@@ -378,7 +378,7 @@ function accountFilters(c: any): AccountListFilters {
     ...booleanQuery(c.req.query('hasSession'), 'hasSession'),
     ...booleanQuery(c.req.query('hasRunningProfile'), 'hasRunningProfile'),
     ...booleanQuery(c.req.query('isBanned'), 'isBanned'),
-    ...(c.req.query('personalPlan') ? { personalPlan: c.req.query('personalPlan') } : {}),
+    ...(c.req.query('primaryPlan') ? { primaryPlan: c.req.query('primaryPlan') } : {}),
     ...(c.req.query('query') ? { query: c.req.query('query') } : {})
   };
 }

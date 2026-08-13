@@ -1,7 +1,8 @@
-import type { AccountManagerOperationView, AccountManagerProfileView, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatType } from './index.js';
+import type { AccountLimitType, AccountManagerOperationView, AccountManagerProfileView, AccountProfileStatus, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatType } from './index.js';
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export type PersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
+export type PrimaryPlan = PersonalPlan | 'business_two_seat' | 'business_usage_based' | 'team_member';
 export type PersonalSubscriptionMode = 'start_new' | 'change_existing';
 export type BusinessSubscriptionMode = 'create_workspace' | 'upgrade_existing_workspace';
 export type NormalizedWorkspaceRole = 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown';
@@ -22,12 +23,14 @@ export interface UnifiedAccountSummaryView {
   group: Pick<AccountGroupView, 'id' | 'name'>;
   isBanned: boolean;
   hasGamBinding: boolean;
+  profileStatus: AccountProfileStatus;
   hasRunningProfile: boolean;
   hasSession: boolean;
   hasManageableWorkspace: boolean;
   isWorkspaceMember: boolean;
   hasWorkspaceCredential: boolean;
-  personalPlan: PersonalPlan;
+  primaryPlan: PrimaryPlan;
+  limitType: AccountLimitType;
   workspaceCount: number;
   credentialCount: number;
   lastError?: string;
@@ -243,7 +246,7 @@ export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
   remoteUserId?: string;
   gamAccountRef?: string;
   proxyConfigured: boolean;
-  limitType: string;
+  personalPlan: PersonalPlan;
   session?: ChatGptSessionInput;
   personalSpace: {
     id: string;

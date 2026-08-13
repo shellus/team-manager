@@ -1,6 +1,9 @@
 import { sql, type Kysely } from 'kysely';
 import type {
+  AccountProfileStatus,
   AccountGroupView,
+  AccountLimitType,
+  PersonalPlan,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
@@ -50,12 +53,14 @@ export class UnifiedProjectionRepository {
         group: { id: row.group_id, name: row.group_name },
         isBanned: row.is_banned,
         hasGamBinding: Boolean(extra?.gam_ref),
+        profileStatus: normalizeProfileStatus(row.profile_status),
         hasRunningProfile: extra?.has_running_profile ?? false,
         hasSession: Boolean(row.current_session_revision_id),
         hasManageableWorkspace: row.has_manageable_workspace,
         isWorkspaceMember: extra?.has_member ?? false,
         hasWorkspaceCredential: extra?.has_credential ?? false,
-        personalPlan: normalizePersonalPlan(row.personal_plan),
+        primaryPlan: normalizePrimaryPlan(row.primary_plan),
+        limitType: normalizeLimitType(row.limit_type),
         workspaceCount: row.workspace_count,
         credentialCount: row.credential_count,
         ...(row.last_error ? { lastError: row.last_error } : {}),
@@ -70,13 +75,14 @@ export class UnifiedProjectionRepository {
     const summary = summaries.find((item) => item.id === id);
     if (!summary) return undefined;
     const base = await sql<{
-      remote_user_id: string | null; external_account_ref: string | null; limit_type: string;
+      remote_user_id: string | null; external_account_ref: string | null; limit_type: string; personal_plan: string;
       proxy_configured: boolean; personal_space_id: string; remote_account_id: string | null; personal_status: string;
-    }>`select a.remote_user_id, gb.external_account_ref, op.limit_type,
+    }>`select a.remote_user_id, gb.external_account_ref, op.limit_type, aos.personal_plan,
           (op.proxy_url_ciphertext is not null) proxy_configured,
           ps.id personal_space_id, ps.remote_account_id, ps.status personal_status
         from accounts a
         join account_operational_profiles op on op.account_id=a.id
+        join account_operational_summaries aos on aos.account_id=a.id
         join personal_spaces ps on ps.account_id=a.id
         left join gam_bindings gb on gb.account_id=a.id
         where a.id=${id}::uuid`.execute(this.db).then((result) => result.rows[0]);
@@ -100,7 +106,7 @@ export class UnifiedProjectionRepository {
       ...(base.remote_user_id ? { remoteUserId: base.remote_user_id } : {}),
       ...(base.external_account_ref ? { gamAccountRef: base.external_account_ref } : {}),
       proxyConfigured: base.proxy_configured,
-      limitType: base.limit_type,
+      personalPlan: normalizePersonalPlan(base.personal_plan),
       ...(summary.hasSession ? { session: await this.sessions.currentSession(id) as UnifiedAccountDetailView['session'] } : {}),
       personalSpace: {
         id: base.personal_space_id,
@@ -226,8 +232,18 @@ function iso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   return new Date(String(value)).toISOString();
 }
-function normalizePersonalPlan(value: string): UnifiedAccountSummaryView['personalPlan'] {
-  return ['free', 'go', 'plus', 'pro_5x', 'pro_20x'].includes(value) ? value as UnifiedAccountSummaryView['personalPlan'] : 'unknown';
+function normalizePersonalPlan(value: string): PersonalPlan {
+  return ['free', 'go', 'plus', 'pro_5x', 'pro_20x'].includes(value) ? value as any : 'unknown';
+}
+function normalizePrimaryPlan(value: string): UnifiedAccountSummaryView['primaryPlan'] {
+  return ['free', 'go', 'plus', 'pro_5x', 'pro_20x', 'business_two_seat', 'business_usage_based', 'team_member'].includes(value)
+    ? value as UnifiedAccountSummaryView['primaryPlan'] : 'unknown';
+}
+function normalizeProfileStatus(value: string): AccountProfileStatus {
+  return ['stopped', 'queued', 'running', 'stopping', 'failed'].includes(value) ? value as AccountProfileStatus : 'unknown';
+}
+function normalizeLimitType(value: string): AccountLimitType {
+  return ['weekly', 'monthly'].includes(value) ? value as AccountLimitType : 'unknown';
 }
 function normalizeRole(value: string): 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown' {
   return ['owner', 'admin', 'member', 'analytics_viewer'].includes(value) ? value as any : 'unknown';

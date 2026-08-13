@@ -145,6 +145,7 @@ export interface AccountManagerOperationView {
 }
 
 export type AccountManagerProfileStatus = 'stopped' | 'queued' | 'running' | 'stopping' | 'failed';
+export type AccountProfileStatus = AccountManagerProfileStatus | 'unknown';
 export interface AccountManagerProfileView {
   accountId: string;
   status: AccountManagerProfileStatus;

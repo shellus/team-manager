@@ -14,6 +14,7 @@ export class BillingRepository {
       const row = await trx.insertInto('billing_snapshots').values({
         personal_space_id: context.kind === 'personal' ? context.personalSpaceId : null,
         workspace_id: context.kind === 'workspace' ? context.workspaceId : null,
+        normalized_workspace_plan: context.kind === 'workspace' ? normalizeWorkspaceBillingPlan(payload) : null,
         payload, observed_at: observedAt
       }).returning('id').executeTakeFirstOrThrow();
       const invoices = envelopeRecords(payload.invoices, ['data', 'invoices']);
@@ -105,3 +106,14 @@ function text(value: unknown): string | undefined { return typeof value === 'str
 function number(value: unknown): number | null { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function numberOrString(value: unknown): number | string | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : text(value); }
 function date(value: unknown): Date | null { if (typeof value !== 'string' && typeof value !== 'number') return null; const parsed = new Date(typeof value === 'number' && value < 10_000_000_000 ? value * 1000 : value); return Number.isFinite(parsed.getTime()) ? parsed : null; }
+
+function normalizeWorkspaceBillingPlan(payload: Record<string, unknown>): 'business' | 'unknown' {
+  return containsValue(payload, 'chatgptteamplan') ? 'business' : 'unknown';
+}
+
+function containsValue(value: unknown, expected: string): boolean {
+  if (typeof value === 'string') return value.toLowerCase() === expected;
+  if (Array.isArray(value)) return value.some((item) => containsValue(item, expected));
+  if (!value || typeof value !== 'object') return false;
+  return Object.values(value as Record<string, unknown>).some((item) => containsValue(item, expected));
+}

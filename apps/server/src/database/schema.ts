@@ -298,9 +298,18 @@ export interface BillingSnapshotTable {
   id: Generated<string>;
   personal_space_id: string | null;
   workspace_id: string | null;
+  normalized_workspace_plan: string | null;
   payload: JsonObject;
   observed_at: Timestamp;
   created_at: Generated<Timestamp>;
+}
+
+export interface AccountOperationalSummaryTable {
+  account_id: string;
+  personal_plan: string;
+  primary_plan: string;
+  limit_type: string;
+  profile_status: string;
 }
 
 export interface PaymentMethodSummaryTable {
@@ -419,6 +428,7 @@ export interface Database {
   account_groups: AccountGroupTable;
   accounts: AccountTable;
   account_operational_profiles: AccountOperationalProfileTable;
+  account_operational_summaries: AccountOperationalSummaryTable;
   gam_bindings: GamBindingTable;
   personal_spaces: PersonalSpaceTable;
   account_session_revisions: AccountSessionRevisionTable;
