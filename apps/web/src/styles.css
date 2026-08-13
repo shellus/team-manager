@@ -99,6 +99,29 @@ body {
 .filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .filter-bar > .ant-input-group-wrapper { width: 260px; }
 .filter-bar > .ant-select { width: 160px; }
+.account-group-filter { display: flex; flex-direction: column; gap: 8px; }
+.account-group-selector.ant-radio-group { padding: 6px; gap: 8px; }
+.account-group-selector .ant-radio-button-wrapper { height: 36px; padding-inline: 12px; line-height: 34px; }
+.account-group-option { display: inline-flex; gap: 8px; align-items: center; }
+.account-group-count {
+  display: inline-flex;
+  min-width: 22px;
+  height: 20px;
+  padding-inline: 6px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-control-track-hover);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+}
+.account-group-selector .ant-radio-button-wrapper-checked .account-group-count {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-shell));
+}
+.show-banned-filter { min-height: 32px; padding-inline: 4px; align-items: center; }
 .responsive-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
 .switch-grid { display: flex; flex-wrap: wrap; gap: 0 24px; }
 .switch-grid .ant-form-item { min-width: 180px; }
@@ -118,6 +141,7 @@ body {
   .page-header { flex-direction: column; }
   .page-header > .ant-space { width: 100%; }
   .filter-bar > .ant-input-group-wrapper, .filter-bar > .ant-select { width: 100% !important; }
+  .show-banned-filter { min-height: 40px; }
   .ant-tabs-nav-wrap { overflow-x: auto; }
 }
 
@@ -134,6 +158,11 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
+
+@media (pointer: coarse) {
+  .account-group-selector .ant-radio-button-wrapper { height: 44px; line-height: 42px; }
+  .show-banned-filter { min-height: 44px; }
 }
 
 .global-alert {
