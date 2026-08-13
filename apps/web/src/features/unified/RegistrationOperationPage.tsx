@@ -3,6 +3,7 @@ import { Alert, Button, Card, Descriptions, Progress, Tag, Typography } from 'an
 import { useNavigate, useParams } from 'react-router-dom';
 import type { AccountManagerOperationView } from '@team-manager/shared';
 import { unifiedApi } from '../../unifiedApi.js';
+import { OperationDrawer } from '../../components/OperationDrawer.js';
 
 export function RegistrationOperationPage() {
   const { operationId } = useParams(); const navigate = useNavigate(); const [operation, setOperation] = useState<AccountManagerOperationView>(); const [error, setError] = useState('');
@@ -20,5 +21,5 @@ export function RegistrationOperationPage() {
     };
     void poll(); return () => { active = false; };
   }, [operationId]);
-  return <Card><Typography.Title level={2}>账号注册操作</Typography.Title>{error && <Alert type="error" message={error} />}{operation && <><Progress percent={operation.progress} status={operation.status === 'failed' ? 'exception' : operation.status === 'succeeded' ? 'success' : 'active'} /><Descriptions bordered items={[{ key: 'status', label: '状态', children: <Tag>{operation.status}</Tag> }, { key: 'phase', label: '阶段', children: operation.phase }, { key: 'email', label: '邮箱', children: operation.email ?? '等待分配' }, { key: 'error', label: '错误', children: operation.errorMessage ?? '—' }]} /></>}<Button style={{ marginTop: 16 }} onClick={() => navigate('/accounts')}>返回账号列表</Button></Card>;
+  return <Card><Typography.Title level={2}>账号注册操作</Typography.Title>{error && <Alert type="error" message={error} />}{operation && <><Progress percent={operation.progress} status={operation.status === 'failed' ? 'exception' : operation.status === 'succeeded' ? 'success' : 'active'} /><Descriptions bordered items={[{ key: 'status', label: '状态', children: <Tag>{operation.status}</Tag> }, { key: 'phase', label: '阶段', children: operation.phase }, { key: 'email', label: '邮箱', children: operation.email ?? '等待分配' }, { key: 'error', label: '错误', children: operation.errorMessage ?? '—' }]} /></>}<Button style={{ marginTop: 16 }} onClick={() => navigate('/accounts')}>返回账号列表</Button>{operation&&<OperationDrawer operation={operation} open onClose={()=>navigate('/accounts')} />}</Card>;
 }
