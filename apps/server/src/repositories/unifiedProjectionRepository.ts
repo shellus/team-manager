@@ -141,7 +141,15 @@ export class UnifiedProjectionRepository {
     }>`select w.id,w.external_id,w.name,w.status,w.normalized_plan,w.raw_plan_code,
           wm.normalized_role,wm.raw_role,wm.seat_type,wm.status membership_status
         from workspace_memberships wm join workspaces w on w.id=wm.workspace_id
-        where wm.account_id=${id}::uuid order by w.name nulls last,w.external_id`.execute(this.db);
+        where wm.account_id=${id}::uuid and wm.status='active'
+        union all
+        select w.id,w.external_id,w.name,w.status,w.normalized_plan,w.raw_plan_code,
+          wi.normalized_role,wi.raw_role,wi.seat_type,wi.status membership_status
+        from workspace_invitations wi join workspaces w on w.id=wi.workspace_id
+        where wi.account_id=${id}::uuid and wi.status='pending'
+          and not exists(select 1 from workspace_memberships wm
+            where wm.workspace_id=wi.workspace_id and wm.account_id=${id}::uuid and wm.status='active')
+        order by name nulls last,external_id`.execute(this.db);
     const credentials = await credentialViews(this.db, sql`wc.account_id=${id}::uuid`);
     const paymentMethods = await this.db.selectFrom('payment_method_summaries').selectAll()
       .where('personal_space_id', '=', base.personal_space_id).orderBy('observed_at', 'desc').execute();
@@ -220,13 +228,24 @@ export class UnifiedProjectionRepository {
     return result.rows.map(workspaceSummary);
   }
 
-  async workspace(id: string): Promise<WorkspaceDetailView | undefined> {
+  async workspaceForAccount(id: string, accountId: string): Promise<WorkspaceDetailView | undefined> {
+    const membership = await this.db.selectFrom('workspace_memberships').select('id')
+      .where('workspace_id', '=', id).where('account_id', '=', accountId)
+      .where('status', '=', 'active').executeTakeFirst();
+    const invitation = membership ? undefined : await this.db.selectFrom('workspace_invitations').select('id')
+      .where('workspace_id', '=', id).where('account_id', '=', accountId)
+      .where('status', '=', 'pending').executeTakeFirst();
+    if (!membership && !invitation) return undefined;
+    return this.workspaceDetail(id, sql`wc.workspace_id=${id}::uuid and wc.account_id=${accountId}::uuid`);
+  }
+
+  private async workspaceDetail(id: string, credentialPredicate: ReturnType<typeof sql>): Promise<WorkspaceDetailView | undefined> {
     const summary = (await this.workspaces()).find((item) => item.id === id);
     if (!summary) return undefined;
     const members = await sql<any>`select wm.*,a.email account_email from workspace_memberships wm left join accounts a on a.id=wm.account_id where wm.workspace_id=${id}::uuid order by wm.normalized_role,wm.email`.execute(this.db);
     const invitations = await this.db.selectFrom('workspace_invitations').selectAll().where('workspace_id', '=', id).orderBy('observed_at', 'desc').execute();
     const seats = await this.db.selectFrom('seat_slots').selectAll().where('workspace_id', '=', id).orderBy('created_at').execute();
-    const credentials = await credentialViews(this.db, sql`wc.workspace_id=${id}::uuid`);
+    const credentials = await credentialViews(this.db, credentialPredicate);
     const settings = await this.db.selectFrom('workspace_setting_snapshots').selectAll().where('workspace_id', '=', id).orderBy('observed_at', 'desc').executeTakeFirst();
     const billing = await this.db.selectFrom('billing_snapshots').selectAll().where('workspace_id', '=', id).orderBy('observed_at', 'desc').executeTakeFirst();
     return {

@@ -1,6 +1,6 @@
 import { Alert, Card, Checkbox, Input, Segmented, Select, Space, Statistic, Table, Tag, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { OperationalRiskLevel, SeatOperationalOverviewView, WorkspaceOperationalOverviewView } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
@@ -59,7 +59,7 @@ function seatMatches(row:SeatOperationalOverviewView,type:string,includeOwners:b
 function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) {
   const pagination=useUrlPagination({total:rows.length});
   return <Table rowKey="id" dataSource={rows} pagination={pagination} scroll={{ x: 1250 }} columns={[
-    { title: "Workspace", render: (_, row) => <div><Link to={`/workspaces/${row.id}`}>{row.name ?? "未命名"}</Link><br/><Typography.Text type="secondary">{row.externalId}</Typography.Text></div> },
+    { title: "Workspace", render: (_, row) => <div>{row.name ?? "未命名"}<br/><Typography.Text type="secondary">{row.externalId}</Typography.Text></div> },
     { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{planLabel(value)}</Tag> },
     { title: "续费时间", dataIndex: "nextRenewalAt", render: formatTime },
     { title: "预计账单", render: (_, row) => formatMoney(row.expectedAmount,row.expectedCurrency) },
@@ -72,7 +72,7 @@ function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) 
 function SeatTable({ rows }: { rows: SeatOperationalOverviewView[] }) {
   const pagination=useUrlPagination({total:rows.length});
   return <Table rowKey="id" dataSource={rows} pagination={pagination} scroll={{ x: 1350 }} columns={[
-    { title: "Workspace", render: (_, row) => <Link to={`/workspaces/${row.workspaceId}`}>{row.workspaceName ?? row.workspaceExternalId}</Link> },
+    { title: "Workspace", render: (_, row) => row.workspaceName ?? row.workspaceExternalId },
     { title: "来源", render:(_,row)=>(row.sources??[row.source]).map(value=>sourceLabels[value]).join(" + ") },
     { title: "账号 / 客户", render: (_, row) => <div>{row.email ?? row.displayName ?? "—"}<br/>{row.contact && <Typography.Text type="secondary">{row.contact}</Typography.Text>}</div> },
     { title: "备注", dataIndex: "remark", render: value => value ?? "—" },

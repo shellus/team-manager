@@ -1,16 +1,8 @@
-import type { Kysely } from 'kysely';
-import type { Database } from '../database/schema.js';
 import { UnifiedProjectionRepository } from '../repositories/unifiedProjectionRepository.js';
-import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
-import { ServiceError, asServiceError } from '../serviceError.js';
-import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
+import { ServiceError } from '../serviceError.js';
 
 export class WorkspaceService {
-  readonly #workspaces: WorkspaceRepository;
-  constructor(
-    private readonly db: Kysely<Database>,
-    private readonly projections: UnifiedProjectionRepository
-  ) { this.#workspaces = new WorkspaceRepository(db); }
+  constructor(private readonly projections: UnifiedProjectionRepository) {}
 
   async list(query?: string) {
     const items = await this.projections.workspaces(query);
@@ -23,15 +15,10 @@ export class WorkspaceService {
       return { ...item, riskLevel: risks.some((risk) => risk.includes('过期')) ? 'critical' as const : risks.length ? 'warning' as const : 'normal' as const, risks };
     }).sort((a,b)=>riskRank(a.riskLevel)-riskRank(b.riskLevel)||(a.nextRenewalAt??'9999').localeCompare(b.nextRenewalAt??'9999'));
   }
-  async detail(id: string) {
-    const result = await this.projections.workspace(id);
-    if (!result) throw new ServiceError(404, 'Workspace 不存在');
+  async detailForAccount(id: string, accountId: string) {
+    const result = await this.projections.workspaceForAccount(id, accountId);
+    if (!result) throw new ServiceError(404, '账号没有该 Workspace 成员关系');
     return result;
   }
-  async requireExecutor(id: string, accountId: string) {
-    try { await this.#workspaces.requireManageableBy(id, accountId); }
-    catch (error) { throw asServiceError(error); }
-  }
-  activities(id: string, limit = 200) { return new ActivityLogRepository(this.db).list({ workspaceId: id, limit }); }
 }
 function riskRank(value:string){return value==='critical'?0:value==='warning'?1:value==='normal'?2:3;}

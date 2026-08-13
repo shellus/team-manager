@@ -23,7 +23,6 @@ import type {
   AccountManagerOperationView,
   AccountManagerStateView,
   UnifiedAccountDetailView,
-  WorkspaceCredentialView,
 } from "@team-manager/shared";
 import {
   unifiedApi,
@@ -49,9 +48,8 @@ import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../com
 import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
-import { useRememberedForm } from "../../webPreferences.js";
-import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
+import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
 
 export function AccountDetailPage() {
   const { accountId } = useParams();
@@ -116,7 +114,6 @@ export function AccountDetailPage() {
   const tab = params.get("tab") ?? "overview";
   const modal = params.get("modal");
   const accountAction = actionModalFromParams(params);
-  const workspacesPagination = useUrlPagination({ total: account?.workspaces.length ?? 0, pageKey: "workspacesPage", pageSizeKey: "workspacesPageSize" });
   const selectedOperation = useMemo(
     () =>
       mergeOperations(
@@ -241,45 +238,10 @@ export function AccountDetailPage() {
                   key: "workspaces",
                   label: `Workspaces (${account.workspaces.length})`,
                   children: (
-                    <Table
-                      rowKey="id"
-                      dataSource={account.workspaces}
-                      pagination={workspacesPagination}
-                      scroll={{ x: 850 }}
-                      onRow={(row) => ({
-                        onClick: () =>
-                          navigate(
-                            `/accounts/${account.id}/workspaces/${row.id}`,
-                          ),
-                        style: { cursor: "pointer" },
-                      })}
-                      columns={[
-                        {
-                          title: "名称",
-                          render: (_, row) => row.name ?? row.externalId,
-                        },
-                        { title: "角色", dataIndex: "role" },
-                        { title: "席位", dataIndex: "seatType" },
-                        { title: "状态", dataIndex: "membershipStatus" },
-                        {
-                          title: "管理",
-                          dataIndex: "manageable",
-                          render: (value) =>
-                            value ? <Tag color="green">可管理</Tag> : "—",
-                        },
-                      ]}
-                    />
-                  ),
-                },
-                {
-                  key: "credentials",
-                  label: `凭证 (${account.credentials.length})`,
-                  children: (
-                    <CredentialsPanel
+                    <AccountWorkspacePanel
                       account={account}
                       poolGroups={poolGroups}
-                      busy={busy}
-                      run={run}
+                      onAccountChanged={load}
                     />
                   ),
                 },
@@ -686,165 +648,6 @@ function PersonalPanel({
           保存个人设置
         </Button>
       </Form>
-    </Space>
-  );
-}
-
-function CredentialsPanel({
-  account,
-  poolGroups,
-  busy,
-  run,
-}: {
-  account: UnifiedAccountDetailView;
-  poolGroups: CredentialPoolGroupView[];
-  busy: string;
-  run: (k: string, a: () => Promise<unknown>) => Promise<void>;
-}) {
-  const [credentialForm] = Form.useForm();
-  const rememberCredentialForm = useRememberedForm(
-    credentialForm,
-    "create-workspace-credential",
-    ["workspaceId", "kind", "poolGroup", "name"],
-  );
-  const [viewError, setViewError] = useState("");
-  const [oauth, setOauth] = useState<{
-    sessionId: string;
-    authUrl: string;
-    poolGroup?: string;
-  }>();
-  const [oauthCallback, setOauthCallback] = useState("");
-  const pagination=useUrlPagination({total:account.credentials.length,pageKey:"credentialsPage",pageSizeKey:"credentialsPageSize"});
-  const create = async (
-    kind: "pat" | "oauth",
-    value: Record<string, string>,
-  ) => {
-    rememberCredentialForm(value);
-    if (kind === "pat")
-      return run(kind, () =>
-        unifiedApi.createPatCredential(account.id, value.workspaceId, {
-          name: value.name,
-          poolGroupId: value.poolGroup,
-        }),
-      );
-    try {
-      setOauthCallback("");
-      const auth = await unifiedApi.createOauthCredential(
-        account.id,
-        value.workspaceId,
-      );
-      setOauth({ ...auth, poolGroup: value.poolGroup });
-      window.open(auth.authUrl, "_blank", "noopener,noreferrer");
-    } catch (e) {
-      setViewError((e as Error).message);
-    }
-  };
-  return (
-    <Space direction="vertical" className="panel-stack">
-      {viewError && <Alert type="error" showIcon message={viewError} />}
-      <Form
-        form={credentialForm}
-        layout="inline"
-        onFinish={(v) => create(v.kind, v)}
-        initialValues={{ kind: "pat" }}
-      >
-        <Form.Item
-          name="workspaceId"
-          label="Workspace"
-          rules={[{ required: true }]}
-        >
-          <Select
-            style={{ width: 250 }}
-            options={account.workspaces.map((w) => ({
-              value: w.id,
-              label: w.name ?? w.externalId,
-            }))}
-          />
-        </Form.Item>
-        <Form.Item name="kind" label="类型">
-          <Select
-            style={{ width: 110 }}
-            options={[
-              { value: "pat", label: "PAT" },
-              { value: "oauth", label: "OAuth" },
-            ]}
-          />
-        </Form.Item>
-        <Form.Item name="poolGroup" label="号池组">
-          <Select
-            allowClear
-            style={{ width: 180 }}
-            options={poolGroups.map((g) => ({ value: g.id, label: g.name }))}
-          />
-        </Form.Item>
-        <Form.Item name="name" label="名称">
-          <Input />
-        </Form.Item>
-        <Button
-          htmlType="submit"
-          type="primary"
-          loading={busy === "pat" || busy === "oauth"}
-        >
-          创建凭证
-        </Button>
-      </Form>
-      <Table<WorkspaceCredentialView>
-        rowKey="id"
-        dataSource={account.credentials}
-        pagination={pagination}
-        scroll={{ x: 1050 }}
-        columns={[
-          { title: "Workspace", render:(_,row)=>row.workspaceName??row.workspaceId },
-          { title: "类型", dataIndex: "kind" },
-          { title: "号池组", render: (_, row) => row.poolGroup?.name ?? "—" },
-          { title: "状态", dataIndex: "status" },
-          {
-            title: "额度",
-            render: (_, row) => row.latestQuota?<Space direction="vertical" size={1}><Tag color={row.latestQuota.status==='success'?'green':row.latestQuota.status==='error'?'red':'default'}>{row.latestQuota.status==='success'?'正常':row.latestQuota.status==='error'?'错误':'不可用'}</Tag>{row.latestQuota.windows.map(w=><Typography.Text key={w.id} type="secondary">{w.label}：{w.usedPercent??'—'}% · 重置 {formatTime(w.resetAt??undefined)}</Typography.Text>)}<Typography.Text type="secondary">快照 {formatTime(row.quotaObservedAt)}</Typography.Text></Space>:"未刷新",
-          },
-          {
-            title: "操作",
-            fixed: "right",
-            render: (_, row) => <WorkspaceCredentialActions credential={row} run={run}/>,
-          },
-        ]}
-      />
-      <Modal
-        title="完成 OAuth 授权"
-        open={Boolean(oauth)}
-        onCancel={() => setOauth(undefined)}
-        footer={null}
-      >
-        <Alert
-          type="info"
-          showIcon
-          message="在新窗口完成授权，再粘贴完整回调 URL。"
-        />
-        <Typography.Paragraph copyable={{ text: oauth?.authUrl }}>
-          {oauth?.authUrl}
-        </Typography.Paragraph>
-        <Input.TextArea
-          rows={4}
-          value={oauthCallback}
-          onChange={(e) => setOauthCallback(e.target.value)}
-          placeholder="完整 OAuth callback URL"
-        />
-        <Button
-          type="primary"
-          onClick={() =>
-            oauth &&
-            run("oauth-complete", () =>
-              unifiedApi.completeOauthCredential(
-                oauth.sessionId,
-                oauthCallback,
-                oauth.poolGroup,
-              ),
-            ).then(() => setOauth(undefined))
-          }
-        >
-          完成 OAuth 凭证
-        </Button>
-      </Modal>
     </Space>
   );
 }

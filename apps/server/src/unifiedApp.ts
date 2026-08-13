@@ -63,7 +63,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const accounts = new UnifiedAccountService(
     database, projections, sessions, new AccountOperationalRepository(database, cipher)
   );
-  const workspaces = new WorkspaceService(database, projections);
+  const workspaces = new WorkspaceService(projections);
   const workspaceOperations = new WorkspaceOperationService(
     database, workspaces, sessions, new AccountOperationalRepository(database, cipher), transport
   );
@@ -167,6 +167,9 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     return wrap(c, () => accounts.create(body));
   });
   api.get('/accounts/:id', (c) => wrap(c, () => accounts.detail(c.req.param('id'))));
+  api.get('/accounts/:accountId/workspaces/:workspaceId', (c) =>
+    wrap(c, () => workspaces.detailForAccount(c.req.param('workspaceId'), c.req.param('accountId')))
+  );
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
   api.put('/accounts/:id/session', async (c) => {
     const body = await c.req.json().catch(() => undefined) as { session?: unknown } | undefined;
@@ -284,8 +287,6 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.delete('/settings/system/:key', (c)=>wrap(c,()=>settings.remove(c.req.param('key'))));
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
-  api.get('/workspaces/:id', (c) => wrap(c, () => workspaces.detail(c.req.param('id'))));
-  api.get('/workspaces/:id/activity', (c) => wrap(c, () => workspaces.activities(c.req.param('id'), Number(c.req.query('limit') || 200))));
   api.get('/workspaces/:id/settings', (c)=>wrap(c,()=>workspaceOperations.settings(c.req.param('id'))));
   api.get('/workspaces/:id/billing', (c)=>wrap(c,()=>workspaceOperations.billing(c.req.param('id'))));
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));
@@ -314,6 +315,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   });
   api.post('/workspaces/:id/members/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshMembers(c.req.param('id'), accountId)));
   api.post('/workspaces/:id/invitations/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshInvitations(c.req.param('id'), accountId)));
+  api.post('/workspaces/:id/people/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshPeople(c.req.param('id'), accountId)));
   api.post('/workspaces/:id/invitations', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; email?: string; seat?: 'default' | 'usage_based'; role?: string };
     if (!body.executorAccountId || !body.email || !body.seat) return c.json({ ok: false, error: '缺少 executorAccountId、email 或 seat' }, 400);

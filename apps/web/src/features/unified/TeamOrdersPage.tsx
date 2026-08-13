@@ -59,7 +59,7 @@ function MaintenanceForm({ initial, workspaces, accounts, busy, lockWorkspace, o
 function ConfigurationFields() { return <div className="team-order-config-grid"><Form.Item name="promoCode" label="Workspace 优惠码"><Input allowClear /></Form.Item><Form.Item name="country" label="覆盖国家"><Select allowClear showSearch options={CHECKOUT_COUNTRY_CODES.map(value => ({ value, label: value }))} /></Form.Item><Form.Item name="currency" label="覆盖货币"><Select allowClear options={CHECKOUT_CURRENCIES.map(value => ({ value, label: value }))} /></Form.Item></div>; }
 
 function maintenanceColumns(run: (key: string, action: () => Promise<unknown>) => Promise<void>, busy: string, updateParam: (key: string, value?: string) => void, configured: boolean): any[] { return [
-  { title: "Workspace", render: (_: unknown, row: TeamOrderMaintenanceView) => <div><Link to={`/workspaces/${row.workspaceId}`}>{row.workspaceName ?? row.workspaceExternalId}</Link><br/><Button type="link" size="small" onClick={() => updateParam("historyWorkspace", row.workspaceId)}>查看历史订单</Button></div> },
+  { title: "Workspace", render: (_: unknown, row: TeamOrderMaintenanceView) => <div><WorkspaceBillingLink row={row}/><br/><Button type="link" size="small" onClick={() => updateParam("historyWorkspace", row.workspaceId)}>查看历史订单</Button></div> },
   { title: "执行账号", dataIndex: "executorEmail" }, { title: "状态", dataIndex: "status", render: (value: string) => <Tag color={statusColors[value]}>{value}</Tag> },
   { title: "配置", render: (_:unknown,row:TeamOrderMaintenanceView)=>configurationText(row.configuration) }, { title: "下次运行", dataIndex: "nextRunAt", render: formatTime }, { title: "上次运行", dataIndex: "lastRunAt", render: formatTime }, { title: "上次成功", dataIndex: "lastSuccessAt", render: formatTime },
   { title: "异常", render: (_: unknown, row: TeamOrderMaintenanceView) => row.lastError ?? row.pauseReason ?? "—" },
@@ -67,7 +67,7 @@ function maintenanceColumns(run: (key: string, action: () => Promise<unknown>) =
 ]; }
 
 function orderColumns(run: (key: string, action: () => Promise<unknown>) => Promise<void>, busy: string, updateParam: (key: string, value?: string) => void, configured: boolean): any[] { return [
-  { title: "Workspace", render: (_: unknown, row: TeamUpgradeOrderView) => <Button type="link" onClick={() => updateParam("historyWorkspace", row.workspaceId)}>{row.workspaceName ?? row.workspaceExternalId}</Button> },
+  { title: "Workspace", render: (_: unknown, row: TeamUpgradeOrderView) => <Space direction="vertical" size={0}><WorkspaceBillingLink row={row}/><Button type="link" size="small" onClick={() => updateParam("historyWorkspace", row.workspaceId)}>查看历史订单</Button></Space> },
   { title: "执行账号", dataIndex: "executorEmail" }, { title: "状态", dataIndex: "status", render: (value: string) => <Tag color={statusColors[value]}>{value}</Tag> },
   { title: "Checkout", render: (_: unknown, row: TeamUpgradeOrderView) => safeHttpUrl(row.checkoutUrl) ? <Space><Button size="small" type="primary" onClick={() => window.open(safeHttpUrl(row.checkoutUrl), "_blank", "noopener,noreferrer")}>打开</Button><Button size="small" onClick={() => void navigator.clipboard.writeText(row.checkoutUrl!).then(() => message.success("Checkout 链接已复制"))}>复制</Button></Space> : row.checkoutUrl?<Tag color="red">无效链接</Tag>:"—" },
   { title: "有效期", render: (_: unknown, row: TeamUpgradeOrderView) => row.expiresAt ? <div>{formatTime(row.expiresAt)}<br/><Typography.Text type="secondary">{remaining(row.expiresAt)}</Typography.Text></div> : "—" },
@@ -75,6 +75,12 @@ function orderColumns(run: (key: string, action: () => Promise<unknown>) => Prom
   { title: "来源 / 尝试", render: (_: unknown, row: TeamUpgradeOrderView) => `${row.source} / ${row.attemptCount}` }, { title: "错误", dataIndex: "errorMessage", render: (value: string) => value ?? "—" },
   { title: "操作", fixed: "right", render: (_: unknown, row: TeamUpgradeOrderView) => <Space><Button size="small" disabled={!configured} loading={busy === `retry-${row.id}`} onClick={() => run(`retry-${row.id}`, () => unifiedApi.retryTeamOrder(row.id))}>重试</Button><Button size="small" danger onClick={() => Modal.confirm({ title: "删除订单记录？", content: "只删除订单记录，不影响 Workspace。", onOk: () => run(`delete-order-${row.id}`, () => unifiedApi.deleteTeamOrder(row.id)) })}>删除</Button></Space> },
 ]; }
+function WorkspaceBillingLink({ row }: { row: Pick<TeamOrderMaintenanceView | TeamUpgradeOrderView, "executorAccountId" | "workspaceId" | "workspaceName" | "workspaceExternalId"> }) {
+  const name = row.workspaceName ?? row.workspaceExternalId;
+  if (!row.executorAccountId) return <Typography.Text>{name}</Typography.Text>;
+  const query = new URLSearchParams({ tab: "workspaces", workspaceId: row.workspaceId, workspaceTab: "billing" });
+  return <Link to={`/accounts/${row.executorAccountId}?${query.toString()}`}>{name}</Link>;
+}
 function match(row: TeamOrderMaintenanceView | TeamUpgradeOrderView, query: string) { const value = query.trim().toLowerCase(); return !value || [row.workspaceName, row.workspaceExternalId, row.executorEmail].some(item => item?.toLowerCase().includes(value)); }
 function remaining(value: string) { const milliseconds = new Date(value).getTime() - Date.now(); if (milliseconds <= 0) return "已过期"; const hours = Math.ceil(milliseconds / 3_600_000); return hours > 48 ? `剩余 ${Math.ceil(hours / 24)} 天` : `剩余 ${hours} 小时`; }
 function configurationText(value:{promoCode?:string;country?:string;currency?:string}){return [value.country,value.currency,value.promoCode&&`优惠码 ${value.promoCode}`].filter(Boolean).join(" · ")||"—";}

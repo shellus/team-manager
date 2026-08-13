@@ -18,11 +18,11 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 - `AccountGroup`：稳定 ID 的结构化账号分组；账号恰好属于一个分组，重命名不改账号记录。
 - `Account`：唯一受管 ChatGPT 登录身份，承载邮箱、备注、封号标记、GAM 引用、代理和 Session 修订。
 - `PersonalSpace`：账号一对一的个人空间，承载 Free、Go、Plus、Pro 5x、Pro 20x、个人支付摘要和个人设置。
-- `Workspace`：独立 Team/Business 空间，承载成员、邀请、设置、订阅、账单、客户席位和 Team 订单。
+- `Workspace`：独立 Team/Business 空间，承载成员、邀请、设置、订阅、账单、客户席位和 Team 订单；管理入口统一位于账号详情中。
 - `WorkspaceMembership`：账号或远端成员在 Workspace 中的角色和席位事实。活动 owner/admin 关系产生“拥有可管理空间”能力。
 - `WorkspaceCredential`：绑定 `Account × Workspace` 的 OAuth/PAT 凭证。JSON 正文是文件制品，PostgreSQL 只保存索引、哈希和状态。
 
-一个账号可以管理多个 Workspace，也可以作为普通成员加入其他 Workspace。Workspace 不永久属于某个账号；执行写操作时显式选择当前有权限的执行账号。
+一个账号可以管理多个 Workspace，也可以作为普通成员加入其他 Workspace。Workspace 不永久属于某个账号；进入账号详情后，以当前账号作为 Workspace 操作上下文，只有活动 owner/admin 关系可以执行空间级写操作。
 
 ## 功能
 
@@ -31,7 +31,8 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 - Go、Plus、Pro 5x、Pro 20x 首次开通；已付费套餐间切换在上游合同验证完成前安全拒绝。
 - 个人支付方式绑定和取消续费；完整卡号/CVC 只转交 GAM，不写数据库或普通日志。
 - Business 创建新 Workspace，或升级账号当前可管理的既有 Workspace。
-- Workspace 成员、邀请、角色、席位、设置、账单、客户席位、公开换号和凭证关系。
+- 账号详情内切换 Workspace；成员与邀请合并显示，账单集中呈现订阅、续费、金额、计费席位、支付方式和发票；凭证严格按 `Account × Workspace` 显示。
+- 客户席位与公开换号保留为后台领域能力，但不进入账号 Workspace 管理界面。
 - Team 升级订单维护、有限重试通知、客户席位到期任务和跨空间运营总览。
 - OAuth/PAT 创建、替换、重新授权、号池排序与 CPA 原子投放。
 - HTTP trace、rrweb、凭证与隔离制品的文件索引、结构化日志、rrweb 回放、哈希复核和保留生命周期；Web UI 不展示或下载正文。
@@ -65,7 +66,7 @@ PostgreSQL 是结构化业务数据的唯一事实源。应用启动只检查 mi
 | 路径 | 作用 |
 |---|---|
 | `apps/server` | 统一 API、领域服务、Repository、migration 与文件制品 |
-| `apps/web` | 账号、Workspace、订单、设置和公开席位页面 |
+| `apps/web` | 账号内 Workspace 管理、订单、设置和公开席位页面 |
 | `apps/curl-cffi-worker` | ChatGPT Web 请求转发 sidecar |
 | `packages/shared` | 新版前后端共享合同与 Session 解析 |
 | `docs` | 领域规则、操作手册、协议样本和实施计划 |

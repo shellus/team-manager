@@ -6,15 +6,17 @@
 
 - GAM 绑定、同步、Profile、住宅代理和 Session；
 - 个人空间套餐、支付摘要和取消续费；
-- 加入或管理的全部 Workspace；
-- `Account × Workspace` 凭证；
+- 加入或管理的全部 Workspace，可在账号内切换；
+- 每个所选 Workspace 下当前账号自己的 `Account × Workspace` 凭证；
 - 自动化操作记录。
 
 “拥有可管理空间”来自活动 owner/admin Membership，不是账号类型。通过“管理分组”创建或重命名结构化分组；删除非空分组前先移动账号。
 
 ## Workspace
 
-在 `/workspaces` 按远端空间查看成员、邀请、席位、凭证、设置与账单。执行刷新、邀请、移除、改名或设置时，必须选择当前在该 Workspace 有 owner/admin 权限的账号。
+Workspace 不设独立列表和详情页。进入 `/accounts/:accountId` 的 Workspace 标签，在该账号的多个活动 Workspace 关系之间切换；URL 中的 `workspaceId`、子标签和分页可直接刷新恢复。
+
+成员和待接受邀请在同一个列表中显示。当前账号是 owner/admin 时可以刷新关系、邀请、撤销、移除、改角色/席位和修改设置；普通成员只能查看缓存资料并管理自己的凭证。订阅、续费、金额、计费席位、支付方式和发票统一在账单子标签中显示。客户席位和 Workspace 活动日志不在该界面展示。
 
 Business 支持：
 

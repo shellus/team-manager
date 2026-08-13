@@ -44,10 +44,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const group = await accounts.createGroup('Operators');
       const first = await accounts.create({ email: 'owner@example.com', groupId: group.id });
       const second = await accounts.create({ email: 'member@example.com', groupId: group.id });
+      const outsider = await accounts.create({ email: 'outsider@example.com', groupId: group.id });
       await assert.rejects(accounts.create({ email: 'OWNER@example.com', groupId: group.id }), /duplicate key/i);
       const workspace = await workspaces.upsert({ externalId: 'workspace-external', name: 'Business', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: first.account.id, email: first.account.email, normalizedRole: 'owner', seatType: 'default', observedAt: new Date(), source: 'test' });
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
+      const scopedCredentials = await db.insertInto('workspace_credentials').values([
+        { account_id: first.account.id, workspace_id: workspace.id, pool_group_id: null, kind: 'pat', external_id: 'owner-credential', storage_key: 'credentials/owner.json', content_sha256: 'owner-credential-sha', byte_size: 1, format_version: 1, eligibility_source: 'membership', status: 'active' },
+        { account_id: second.account.id, workspace_id: workspace.id, pool_group_id: null, kind: 'pat', external_id: 'member-credential', storage_key: 'credentials/member.json', content_sha256: 'member-credential-sha', byte_size: 1, format_version: 1, eligibility_source: 'membership', status: 'active' }
+      ]).returning(['id', 'account_id']).execute();
       assert.deepEqual((await accounts.list({ hasManageableWorkspace: true })).map((item) => item.email), ['owner@example.com']);
       assert.deepEqual((await accounts.list({ isWorkspaceMember: true })).map((item) => item.email), ['member@example.com']);
 
@@ -181,6 +186,32 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const detailResponse = await app.request(`/api/accounts/${first.account.id}`, { headers });
       assert.equal(detailResponse.status, 200);
       assert.equal((await detailResponse.json() as any).data.personalPlan, 'free', '详情保留个人套餐事实');
+      const accountWorkspaceResponse = await app.request(`/api/accounts/${first.account.id}/workspaces/${workspace.id}`, { headers });
+      assert.equal(accountWorkspaceResponse.status, 200);
+      assert.deepEqual((await accountWorkspaceResponse.json() as any).data.credentials.map((item: any) => item.id),
+        [scopedCredentials.find((item) => item.account_id === first.account.id)!.id], '账号作用域 Workspace 详情不能泄漏其他账号凭证');
+      const memberWorkspaceResponse = await app.request(`/api/accounts/${second.account.id}/workspaces/${workspace.id}`, { headers });
+      assert.equal(memberWorkspaceResponse.status, 200);
+      assert.deepEqual((await memberWorkspaceResponse.json() as any).data.credentials.map((item: any) => item.id),
+        [scopedCredentials.find((item) => item.account_id === second.account.id)!.id]);
+      assert.equal((await app.request(`/api/accounts/${outsider.account.id}/workspaces/${workspace.id}`, { headers })).status, 404,
+        '没有成员关系的账号不能读取 Workspace 详情');
+      await db.insertInto('workspace_invitations').values({
+        workspace_id: workspace.id, account_id: outsider.account.id, remote_invitation_id: 'outsider-invite',
+        email: outsider.account.email, normalized_email: outsider.account.email, raw_role: 'standard-user',
+        normalized_role: 'member', seat_type: 'usage_based', status: 'pending', invited_at: new Date(), observed_at: new Date()
+      }).execute();
+      assert.equal((await app.request(`/api/accounts/${outsider.account.id}/workspaces/${workspace.id}`, { headers })).status, 200,
+        '待接受邀请仍是有效的 Account × Workspace 上下文');
+      const invitedAccount = await app.request(`/api/accounts/${outsider.account.id}`, { headers });
+      assert.equal((await invitedAccount.json() as any).data.workspaces[0].membershipStatus, 'pending');
+      await db.updateTable('workspace_memberships').set({ status: 'removed' })
+        .where('workspace_id', '=', workspace.id).where('account_id', '=', second.account.id).execute();
+      assert.equal((await app.request(`/api/accounts/${second.account.id}/workspaces/${workspace.id}`, { headers })).status, 404,
+        '已移除的成员关系不能读取 Workspace 详情');
+      const secondAfterRemoval = await app.request(`/api/accounts/${second.account.id}`, { headers });
+      assert.equal(secondAfterRemoval.status, 200);
+      assert.deepEqual((await secondAfterRemoval.json() as any).data.workspaces, [], '已移除的成员关系不能进入账号 Workspace 切换器');
 
       const personal = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'plus', mode: 'start_new', country: 'US', currency: 'USD', autoPay: true, card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' } }) });
       assert.equal(personal.status, 200, await personal.clone().text());

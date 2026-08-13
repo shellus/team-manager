@@ -22,7 +22,6 @@ import type {
   QuarantinedCredentialClaimInput,
   RegisterAccountRequest,
   ResidentialProxyConfig,
-  SeatSlotMutationInput,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
@@ -43,7 +42,6 @@ export interface JsonSnapshot {
   observedAt?: string;
   raw?: unknown;
 }
-export type SeatSlotInput = SeatSlotMutationInput;
 export type ArtifactView = ArtifactIndexView;
 export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, NotificationPolicyView, PersonalSpaceDetailView };
 
@@ -109,6 +107,8 @@ export const unifiedApi = {
   accounts: (query: URLSearchParams) => request<UnifiedAccountSummaryView[]>('GET', `/accounts?${query}`),
   accountRegistrations: (query: URLSearchParams) => request<AccountRegistrationSummaryView[]>('GET', `/account-registrations?${query}`),
   account: (id: string) => request<UnifiedAccountDetailView>('GET', `/accounts/${id}`),
+  accountWorkspace: (accountId: string, workspaceId: string) =>
+    request<WorkspaceDetailView>('GET', `/accounts/${accountId}/workspaces/${workspaceId}`),
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),
   updateAccount: (id: string, body: Record<string, unknown>) => request<UnifiedAccountDetailView>('PATCH', `/accounts/${id}`, body),
   deleteAccount: (id: string) => request<boolean>('DELETE', `/accounts/${id}`),
@@ -139,14 +139,7 @@ export const unifiedApi = {
   supplyOperationCard: (id: string, body: Record<string, unknown>) => request<AccountManagerOperationView>('PUT', `/operations/${id}/payment-card`, body),
   deleteOperation: (id: string) => request<boolean>('DELETE', `/operations/${id}`),
   workspaces: (query = '') => request<WorkspaceSummaryView[]>('GET', `/workspaces${query ? `?query=${encodeURIComponent(query)}` : ''}`),
-  workspace: (id: string) => request<WorkspaceDetailView>('GET', `/workspaces/${id}`),
-  workspaceActivity: (id: string) => request<AccountActivityView[]>('GET', `/workspaces/${id}/activity`),
-  refreshWorkspace: (id: string, executorAccountId: string) =>
-    request<unknown>('POST', `/workspaces/${id}/refresh`, {
-      executorAccountId,
-    }),
-  refreshWorkspaceMembers: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/members/refresh`, { executorAccountId }),
-  refreshWorkspaceInvitations: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/invitations/refresh`, { executorAccountId }),
+  refreshWorkspacePeople: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/people/refresh`, { executorAccountId }),
   refreshWorkspaceSettings: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/settings/refresh`, { executorAccountId }),
   renameWorkspace: (id: string, executorAccountId: string, name: string) => request<unknown>('PATCH', `/workspaces/${id}`, { executorAccountId, name }),
   invite: (id: string, body: Record<string, unknown>) => request<unknown>('POST', `/workspaces/${id}/invitations`, body),
@@ -164,12 +157,6 @@ export const unifiedApi = {
   workspaceInvoice: (id: string, invoiceId: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/billing/invoices/${encodeURIComponent(invoiceId)}`),
   workspaceSubscription: (id: string, executorAccountId?: string) =>
     request<SubscriptionDetailView | undefined>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
-  createSeatSlot: (workspaceId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, body),
-  updateSeatSlot: (workspaceId: string, slotId: string, body: Partial<SeatSlotInput>) => request<unknown>('PATCH', `/workspaces/${workspaceId}/seat-slots/${slotId}`, body),
-  deleteSeatSlot: (workspaceId: string, slotId: string) => request<boolean>('DELETE', `/workspaces/${workspaceId}/seat-slots/${slotId}`),
-  releaseSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/release`, { executorAccountId }),
-  swapSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, email: string) =>
-    request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/swap`, { executorAccountId, email }),
   teamOrders: () => request<TeamOrderDashboardView>('GET', '/team-orders'),
   saveTeamOrderConfiguration: (body: Record<string, unknown>) => request<void>('PUT', '/team-orders/configuration', body),
   saveTeamOrderMaintenance: (workspaceId: string, body: Record<string, unknown>) => request<void>('PUT', `/team-orders/maintenances/${workspaceId}`, body),

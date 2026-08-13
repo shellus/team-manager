@@ -52,7 +52,7 @@ export class WorkspaceOperationService {
         .where('id', '=', row.id).execute();
     }
     await this.reconcileCredentials(workspaceId);
-    return this.views.detail(workspaceId);
+    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   async refreshInvitations(workspaceId: string, executorAccountId: string) {
@@ -81,7 +81,12 @@ export class WorkspaceOperationService {
       await this.db.updateTable('workspace_invitations').set({ status: 'revoked', observed_at: observedAt }).where('id', '=', row.id).execute();
     }
     await this.reconcileCredentials(workspaceId);
-    return this.views.detail(workspaceId);
+    return this.views.detailForAccount(workspaceId, executorAccountId);
+  }
+
+  async refreshPeople(workspaceId: string, executorAccountId: string) {
+    await this.refreshMembers(workspaceId, executorAccountId);
+    return this.refreshInvitations(workspaceId, executorAccountId);
   }
 
   async refreshSettings(workspaceId: string, executorAccountId: string) {
@@ -92,7 +97,7 @@ export class WorkspaceOperationService {
     ]);
     const payload = { ...settings, ...(automaticReload ? { automatic_reload: automaticReload } : {}) };
     await this.db.insertInto('workspace_setting_snapshots').values({ workspace_id: workspaceId, payload, observed_at: new Date() }).execute();
-    return this.views.detail(workspaceId);
+    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   async refreshBilling(workspaceId: string, executorAccountId: string) {
@@ -100,7 +105,7 @@ export class WorkspaceOperationService {
     const payload = await api.getBillingSnapshotRaw();
     await this.#billing.saveSnapshot({ kind: 'workspace', workspaceId }, payload, new Date());
     await this.refreshSubscription(workspaceId, executorAccountId);
-    return this.views.detail(workspaceId);
+    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   async billing(workspaceId: string) { return this.#billing.detail({ kind: 'workspace', workspaceId }); }
@@ -183,7 +188,7 @@ export class WorkspaceOperationService {
       nextRenewalAt: workspace.next_renewal_at
     });
     await this.activity(executorAccountId,workspaceId,'workspace_renamed',{name});
-    return this.views.detail(workspaceId);
+    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   async patchSettings(workspaceId: string, executorAccountId: string, input: Record<string, unknown>) {
