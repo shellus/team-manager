@@ -19,8 +19,8 @@ export function OperationDrawer({ operation, open, onClose, onChanged }: { opera
         <Progress percent={Math.max(0, Math.min(100, value.progress ?? 0))} status={value.status === 'failed' ? 'exception' : value.status === 'succeeded' ? 'success' : 'active'} />
         {(value.message || value.errorMessage) && <Alert type={value.errorMessage ? 'error' : 'info'} showIcon message={value.errorMessage ?? value.message} description={value.errorCode} />}
         <Space wrap>
-          <Button loading={busy === 'retry'} onClick={() => run('retry', () => unifiedApi.controlOperation(value.id, 'retry_current_step'))}>重试当前步骤</Button>
-          <Button loading={busy === 'proxy'} onClick={() => run('proxy', () => unifiedApi.controlOperation(value.id, 'rotate_proxy_sid'))}>轮换代理 IP</Button>
+          <Button loading={busy === 'retry'} onClick={() => run('retry', () => unifiedApi.controlOperation(value.id, 'retry'))}>重试当前步骤</Button>
+          <Button loading={busy === 'proxy'} onClick={() => run('proxy', () => unifiedApi.controlOperation(value.id, 'rotate-ip'))}>轮换代理 IP</Button>
           <Button loading={busy === 'terminate'} danger onClick={() => run('terminate', () => unifiedApi.controlOperation(value.id, 'terminate'))}>终止操作</Button>
           <Button onClick={() => setCardOpen(true)}>补充支付卡</Button>
           <Button loading={busy === 'delete'} danger onClick={() => Modal.confirm({ title: '清理操作记录？', content: '只清理操作记录，不回滚已经发生的上游行为。', onOk: () => run('delete', () => unifiedApi.deleteOperation(value.id)).then(onClose) })}>清理记录</Button>

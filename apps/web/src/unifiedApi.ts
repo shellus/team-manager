@@ -118,6 +118,7 @@ export const unifiedApi = {
   saveNotificationPolicy: (kind: string, body: Record<string, unknown>) => request<Array<Record<string, unknown>>>('PUT', `/settings/notification-policies/${encodeURIComponent(kind)}`, body),
   testNotificationPolicy: (kind: string) => request<NotificationDeliveryView>('POST', `/settings/notification-policies/${encodeURIComponent(kind)}/test`),
   notificationDeliveries: () => request<NotificationDeliveryView[]>('GET', '/settings/notification-deliveries'),
+  retryNotificationDelivery: (id:string) => request<NotificationDeliveryView>('POST',`/settings/notification-deliveries/${id}/retry`),
   systemSettings: () => request<Array<{key:string;value?:Record<string,unknown>}>>('GET', '/settings/system'),
   saveSystemSetting: (key:string, value: Record<string, unknown>) => request<Record<string, unknown>>('PUT', `/settings/system/${encodeURIComponent(key)}`, value),
   createPatCredential: (accountId: string, workspaceId: string, body: Record<string, unknown>) => request<{ id: string }>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/pat`, body),
