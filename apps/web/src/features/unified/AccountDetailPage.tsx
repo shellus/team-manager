@@ -1248,7 +1248,7 @@ function PaymentModal({
       open={open}
       onCancel={onClose}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       <Alert
         type="info"

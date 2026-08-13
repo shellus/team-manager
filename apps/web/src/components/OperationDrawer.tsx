@@ -96,7 +96,7 @@ export function OperationDrawer({
         open={open}
         onClose={onClose}
         width={720}
-        destroyOnClose
+        destroyOnHidden
         extra={<Button onClick={() => void load()}>刷新状态</Button>}
       >
         <LoadBoundary
@@ -251,7 +251,7 @@ export function OperationDrawer({
         open={cardOpen}
         onCancel={() => setCardOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <Alert
           type="info"

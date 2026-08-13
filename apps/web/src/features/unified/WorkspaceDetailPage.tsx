@@ -816,7 +816,7 @@ function SeatSlotModal({
       open={open}
       onCancel={onClose}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         layout="vertical"
@@ -919,7 +919,7 @@ function BusinessModal({
       open={open}
       onCancel={onClose}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
       width={640}
     >
       <Form
