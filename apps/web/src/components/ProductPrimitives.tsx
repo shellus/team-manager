@@ -22,13 +22,11 @@ export function JsonViewer({ value, title = '原始 JSON' }: { value: unknown; t
 export type TriStateFilterValue = 'true' | 'false' | undefined;
 
 export function TriStateCheckboxFilter({ label, value, onChange }: { label: string; value: TriStateFilterValue; onChange: (value: TriStateFilterValue) => void }) {
-  const selected = value ?? 'all';
   const options = [
-    { value: 'all', label: '所有' },
     { value: 'true', label: '是' },
     { value: 'false', label: '否' },
   ] as const;
-  return <div className="tri-state-checkbox-filter" role="group" aria-label={`${label}筛选`}><Typography.Text>{label}</Typography.Text><Space size={8}>{options.map((option) => <Checkbox key={option.value} checked={selected === option.value} onChange={() => onChange(option.value === 'all' ? undefined : option.value)}>{option.label}</Checkbox>)}</Space></div>;
+  return <div className="tri-state-checkbox-filter" role="group" aria-label={`${label}筛选，均不选表示所有`}><Typography.Text>{label}</Typography.Text><Space size={8}>{options.map((option) => <Checkbox key={option.value} checked={value === option.value} onChange={() => onChange(value === option.value ? undefined : option.value)}>{option.label}</Checkbox>)}</Space></div>;
 }
 
 export function formatTime(value?: string | number | null) {
