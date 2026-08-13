@@ -13,7 +13,7 @@
 - SeatSlot CRUD、释放、人工/公开换号历史、到期提醒去重、停用和可选移除；
 - OAuth/PAT、凭证原文、替换/停用/删除、号池分组、额度刷新和可配置 CPA 原子投放；
 - TeamCode 持久订单调度、启动恢复、运行/暂停/重试/删除；通知测试/投递/重试；系统设置；
-- trace、rrweb、凭证和隔离制品的原文读取、哈希复核、认领/丢弃、保留周期、宽限期和孤儿清理；
+- trace、rrweb、凭证和隔离制品的文件索引、哈希复核、认领/丢弃、保留周期、宽限期和孤儿清理；正文只保存在受控文件制品中；
 - operation、订单、通知、席位到期与制品清理后台任务随服务启动并在关闭时停止。
 
 前端入口、移动布局、401 行为以及 GAM 四套餐状态机由对应并行分支实现；完成状态以所有分支合并后的联合验收为准。
@@ -22,8 +22,8 @@
 
 ## 产品边界
 
-- 本项目是单管理员个人运营工具，不以公共网站的展示最小化规则限制调试能力。
-- 管理员界面和受鉴权 API 可以完整显示或下载 Session、上游账单 JSON、HTTP trace、rrweb、操作请求与响应、代理和浏览器现场。原始证据作为调试入口保留，结构化页面不能被原始 JSON 替代。
+- 本项目是单管理员个人运营工具，不对业务字段做脱敏，也不因公共网站假设增加调试障碍。
+- 只有 Session JSON 提供完整读取和编辑入口。上游账单、HTTP trace、操作请求与响应、凭证和浏览器现场保留为数据库日志或文件证据，但 Web UI 只提供结构化业务字段、日志摘要、元数据和 rrweb 可视化回放，不提供 JSON 原文查看、编辑或下载。
 - HTTP trace、rrweb 和 OAuth/PAT JSON 正文继续存文件；PostgreSQL 只保存结构化业务数据和文件索引。
 - 所有受管登录身份都是 Account。Workspace owner/admin 是 Membership 能力，不恢复母号、子号或兼容路由。
 - 付费个人套餐互切在上游协议未验证前继续返回 409，不把猜测实现计入完成范围；首次开通、同套餐幂等、取消续费和结果刷新必须闭环。
@@ -36,9 +36,9 @@
 - `GET /operations/:id`、`POST /operations/:id/controls/:control`、`PUT /operations/:id/payment-card`、`DELETE /operations/:id`：统一操作查询、重试、换 IP、终止、补卡和清理。
 - `POST /accounts/:id/personal-space/refresh`：刷新个人订阅、账单、额度和设置；各子资源允许单独刷新。
 - `GET /accounts/:id/session`、`PUT /accounts/:id/session`：管理员读取和更新完整 Session。
-- `GET /workspaces/:id/billing`、`GET /workspaces/:id/billing/invoices/:invoiceId`：结构化账单、发票和原始载荷。
+- `GET /workspaces/:id/billing`、`GET /workspaces/:id/billing/invoices/:invoiceId`：结构化账单和发票；普通页面合同不透传原始载荷。
 - `GET/POST/PATCH/DELETE /workspaces/:id/seat-slots`：客户席位管理；公开换号仍使用 `/public/seat-slots/:seatKey`。
-- `GET/POST/PATCH/DELETE /credential-pool-groups` 与凭证读取、下载、停用、替换和删除 API。
+- `GET/POST/PATCH/DELETE /credential-pool-groups` 与凭证停用、重新授权、替换、投放和删除 API；正文不进入 Web UI。
 - `GET/POST /artifacts`、`GET /artifacts/:kind/:id`、`DELETE /artifacts/:kind/:id`：trace、rrweb 与隔离制品管理；删除遵守隔离和宽限期。
 - `POST /team-orders/run`、维护关系运行/暂停/重试/删除 API。
 - `POST /settings/notification-policies/:kind/test` 和投递历史 API。
@@ -61,17 +61,17 @@
 
 - [x] B1. 账号列表实现展开的分组快捷筛选；每个分组数量基于当前关键词、主套餐、GAM、Profile 运行与封号可见性等其他筛选条件实时计算，切换分组不会改变计数基准。主套餐保持 URL 可恢复选择；GAM 与 Profile 运行各使用“是/否”两枚互斥 Checkbox，均不选表示所有，URL 保存最终三态。可管理空间、普通成员、凭证、Session 及 Workspace/凭证数量不再出现在列表筛选或字段中。“显示封号”默认不勾选并隐藏人工封号账号，勾选后同时显示正常与封号账号，并在账号字段使用错误状态徽标标识。
 - [x] B2. 账号设置可编辑分组、备注、显示名、封号、限额类型、GAM 绑定、账号代理和完整 Session。
-- [x] B3. 个人订阅显示实时套餐、续费、有效期、生效时间、原始代码和操作结果。
-- [x] B4. 个人账单显示摘要、发票、支付历史与原始 JSON。
+- [x] B3. 个人订阅显示实时套餐、续费、有效期、生效时间、规范化上游代码和操作结果。
+- [x] B4. 个人账单显示摘要、Upcoming invoice、发票、支付方式与账单主体，不用原始 JSON 替代页面。
 - [x] B5. 个人额度显示窗口和刷新结果。
-- [x] B6. 个人资料与设置支持用户名、显示名、通知和 Memory 写入，同时保留原始 JSON；Memory GET 实测 405，因此当前值明确显示未知。
+- [x] B6. 个人资料与设置支持用户名、显示名、通知和 Memory 写入；Memory GET 实测 405，因此当前值明确显示未知。
 - [x] B7. Account Activity Log 可查询；重要本地与上游操作继续追加日志。
 - [x] B8. AccountGroup 支持稳定排序。
 
 ### 阶段 C：Workspace
 
 - [x] C1. Workspace 订阅实时刷新并保存快照。
-- [x] C2. Workspace 账单解析席位、金额、周期、续费、支付方式、Upcoming invoice 和发票，同时保留原始 JSON。
+- [x] C2. Workspace 账单结构化解析席位、金额、周期、续费、支付方式、Upcoming invoice 和发票；原始证据留在后端快照，不进入 Web UI。
 - [x] C3. Workspace 设置提供全部已支持字段的结构化控件，允许一次更新多个字段并支持重命名。
 - [x] C4. 成员和邀请均可选择角色与席位；角色、席位、移除和撤销失败可恢复。
 - [x] C5. Account 内 Workspace 上下文路由可直接访问，Tab、执行账号和弹窗状态可刷新恢复。
@@ -87,7 +87,7 @@
 ### 阶段 E：凭证与号池
 
 - [x] E1. 支持 OAuth 和 PAT 两种凭证创建。
-- [x] E2. 凭证支持完整 JSON 读取/下载、停用、重新授权、替换和受控删除。
+- [x] E2. 凭证支持停用、重新授权、替换、投放和受控删除；JSON 正文仅作文件制品，不提供 Web 原文入口。
 - [x] E3. CredentialPoolGroup 支持列表、创建、重命名、排序和安全删除。
 - [x] E4. Membership/Invitation 生命周期变化自动重算凭证资格，保留历史而不伪造上游撤销。
 - [x] E5. CPA 投放使用可配置文件目标和原子替换，投放结果进入操作记录。
@@ -97,10 +97,10 @@
 - [x] F1. Team 订单维护实现持久调度、立即运行、批量生成、暂停、重试、删除、启动恢复和状态收敛。
 - [x] F2. 通知策略实现测试、实际投递、有限失败重试和投递历史。
 - [x] F3. 系统设置和表单偏好接入 `system_settings`，录制、自动刷新与非敏感表单记忆实际消费偏好。
-- [x] F4. rrweb 支持前端原文录制、上传、列表、读取和回放；原始 gzip 可下载。
-- [x] F5. trace、rrweb、凭证和隔离制品支持管理员列表、原始读取/下载和元数据查询。
+- [x] F4. rrweb 支持前端原文录制、上传、列表和可视化回放；原始 gzip 不提供 Web 下载。
+- [x] F5. trace、rrweb、凭证和隔离制品支持管理员索引、结构化元数据和生命周期查询，不提供原始读取/下载 UI。
 - [x] F6. 制品后台任务实现孤儿扫描、待删除隔离、宽限期清理、保留周期和哈希复核。
-- [x] F7. 隔离凭证支持查看原始 JSON、认领到 Account × Workspace 或明确丢弃。
+- [x] F7. 隔离凭证支持按索引认领到 Account × Workspace 或明确丢弃，不在认领页面显示原始 JSON。
 
 ### 阶段 G：产品质量与交付
 
@@ -113,10 +113,10 @@
 
 ## 联合验收结果
 
-- Team Manager Server 测试 10/10、Web 测试 12/12、随机临时 PostgreSQL 集成测试 1/1；
+- Team Manager Server 测试 16/16、Web 测试 34/34、随机临时 PostgreSQL 集成测试 1/1；
 - GAM 测试 214/214，Business 升级合同覆盖生产浏览器适配器到 `existing_workspace_id` 载荷边界；
-- 全仓类型检查、生产构建、VitePress 文档构建、migration 001–006 和开发进程重启通过；
-- 运行实例的主要 API、历史账单 envelope、外部发票 ID 和 Chromium 登录/主要路由/账号详情冒烟通过，浏览器无 console error 或 page error；
+- 全仓类型检查、生产构建、VitePress 文档构建、migration 001–008、开发数据库状态检查和开发进程重启通过；
+- 运行实例的主要 API、历史账单 envelope、外部发票 ID，以及 Chromium 登录、账号列表/详情、Workspace、运营总览、订单、制品和设置冒烟通过；移动端深色 390px 页面无页面级横向溢出，浏览器无 console error 或 page error；
 - 未执行真实付费、真实套餐变更或不可逆上游操作。
 
 ## 后续事项
@@ -128,7 +128,7 @@
 1. 先完成共享合同、数据库 migration、GAM 通用合同和统一 Operation 控制面。
 2. 完成个人空间、Workspace、凭证、SeatSlot 等后端闭环。
 3. 完成订单、通知、制品清理等后台任务，并验证重启恢复。
-4. 按新合同重做前端操作面和总览，不删除原始调试入口。
+4. 按新合同重做前端操作面和总览，删除 Session 之外的原始 JSON 入口。
 5. 补足自动测试，再在隔离数据和当前开发实例执行冒烟。
 6. 更新文档、提交各 Git 边界并重启开发进程。
 
