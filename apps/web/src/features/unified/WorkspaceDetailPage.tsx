@@ -24,22 +24,27 @@ import type {
   SeatSlotView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
+  WorkspaceMemberRemovalResult,
   SubscriptionDetailView,
 } from "@team-manager/shared";
 import { unifiedApi, type SeatSlotInput } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
+import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
 import {
   editableMemberRoleOptions,
   roleLabel,
   seatLabel,
+  planLabel,
+  statusLabel,
 } from "../../labels.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import type { AccountManagerOperationView } from "@team-manager/shared";
 import {
   workspaceSettingsFormValues,
   workspaceSettingsPatch,
+  automaticReloadDetails,
   type WorkspaceSettingsFormValues,
 } from "./unifiedUiModels.js";
 import { useRememberedForm } from "../../webPreferences.js";
@@ -57,6 +62,7 @@ export function WorkspaceDetailPage() {
   const [busy, setBusy] = useState("");
   const [businessOperation, setBusinessOperation] =
     useState<AccountManagerOperationView>();
+  const [lastRemoval,setLastRemoval]=useState<WorkspaceMemberRemovalResult["summary"]>();
   const load = async () => {
     if (!workspaceId) return;
     setLoading(true);
@@ -185,7 +191,7 @@ export function WorkspaceDetailPage() {
                           {
                             key: "plan",
                             label: "套餐",
-                            children: <Tag>{workspace.plan}</Tag>,
+                            children: <Tag>{planLabel(workspace.plan)}</Tag>,
                           },
                           {
                             key: "manager",
@@ -209,6 +215,9 @@ export function WorkspaceDetailPage() {
                   key: "members",
                   label: `成员 (${workspace.members.length})`,
                   children: (
+                    <Space direction="vertical" className="panel-stack">
+                    <Space wrap><Typography.Text type="secondary">成员快照：{formatTime(latestTime(workspace.members.map(row=>row.observedAt)))}</Typography.Text><Button size="small" icon={<ReloadOutlined/>} disabled={!executorAccountId} loading={busy==='members-refresh'} onClick={()=>run('members-refresh',()=>unifiedApi.refreshWorkspaceMembers(workspace.id,executorAccountId))}>刷新成员</Button></Space>
+                    {lastRemoval&&<Alert type={lastRemoval.hasBillingNotice||(lastRemoval.policy?.billedSeatDelta??0)>0?'warning':'info'} showIcon message={`最近移除成员：${lastRemoval.email??lastRemoval.remoteUserId}`} description={removalSummaryText(lastRemoval)}/>}
                     <Table
                       rowKey="id"
                       dataSource={workspace.members}
@@ -216,8 +225,7 @@ export function WorkspaceDetailPage() {
                       columns={[
                         {
                           title: "成员",
-                          render: (_, r) =>
-                            r.email ?? r.accountEmail ?? r.remoteUserId,
+                          render: (_, r) => <div>{r.email ?? r.accountEmail ?? r.remoteUserId}<br/>{(r.displayName||r.remoteUserId)&&<Typography.Text type="secondary">{r.displayName??r.remoteUserId}</Typography.Text>}</div>,
                         },
                         { title: "角色", dataIndex: "role", render: roleLabel },
                         {
@@ -225,7 +233,8 @@ export function WorkspaceDetailPage() {
                           dataIndex: "seatType",
                           render: seatLabel,
                         },
-                        { title: "状态", dataIndex: "status" },
+                        { title: "状态", dataIndex: "status", render:statusLabel },
+                        { title:"快照时间",dataIndex:"observedAt",render:formatTime },
                         {
                           title: "操作",
                           fixed: "right",
@@ -274,15 +283,15 @@ export function WorkspaceDetailPage() {
                                   Modal.confirm({
                                     title: "移除成员？",
                                     content:
-                                      "标准席位移除后仍可能临时计费，请先核对 Billing。",
+                                      "成员会立即失去 Workspace 访问权限，相关凭证会被停用；标准 ChatGPT 席位仍可能临时计费。完成后必须核对 Billing。",
                                     onOk: () =>
-                                      run(`remove-${r.id}`, () =>
-                                        unifiedApi.removeMember(
+                                      run(`remove-${r.id}`, async () => {
+                                        const result=await unifiedApi.removeMember(
                                           workspace.id,
                                           r.remoteUserId!,
                                           executorAccountId,
-                                        ),
-                                      ),
+                                        );setLastRemoval(result.summary);
+                                      }),
                                   })
                                 }
                               >
@@ -293,6 +302,7 @@ export function WorkspaceDetailPage() {
                         },
                       ]}
                     />
+                    </Space>
                   ),
                 },
                 {
@@ -300,6 +310,7 @@ export function WorkspaceDetailPage() {
                   label: `邀请 (${workspace.invitations.length})`,
                   children: (
                     <Space direction="vertical" className="panel-stack">
+                      <Space wrap><Typography.Text type="secondary">邀请快照：{formatTime(latestTime(workspace.invitations.map(row=>row.observedAt)))}</Typography.Text><Button size="small" icon={<ReloadOutlined/>} disabled={!executorAccountId} loading={busy==='invitations-refresh'} onClick={()=>run('invitations-refresh',()=>unifiedApi.refreshWorkspaceInvitations(workspace.id,executorAccountId))}>刷新邀请</Button></Space>
                       <Form
                         layout="inline"
                         onFinish={(v) =>
@@ -352,7 +363,9 @@ export function WorkspaceDetailPage() {
                             dataIndex: "seatType",
                             render: seatLabel,
                           },
-                          { title: "状态", dataIndex: "status" },
+                          { title: "状态", dataIndex: "status", render:statusLabel },
+                          { title:"邀请时间",dataIndex:"invitedAt",render:formatTime },
+                          { title:"快照时间",dataIndex:"observedAt",render:formatTime },
                           {
                             title: "操作",
                             render: (_, r) => (
@@ -408,7 +421,7 @@ export function WorkspaceDetailPage() {
                           title: "号池",
                           render: (_, row) => row.poolGroup?.name ?? "—",
                         },
-                        { title: "状态", dataIndex: "status" },
+                        { title: "状态", dataIndex: "status", render:statusLabel },
                         {
                           title: "额度",
                           render: (_, row) =>
@@ -417,7 +430,7 @@ export function WorkspaceDetailPage() {
                         {
                           title:"操作",
                           fixed:"right",
-                          render:(_,row)=><Space><Button size="small" onClick={()=>run(`quota-${row.id}`,()=>unifiedApi.refreshCredentialQuota(row.id))}>刷新额度</Button><Button size="small" href={`/accounts/${row.accountId}?tab=credentials`}>管理凭证</Button></Space>
+                          render:(_,row)=><Space wrap><WorkspaceCredentialActions credential={row} run={run}/><Button size="small" href={`/accounts/${row.accountId}?tab=credentials`}>进入账号</Button></Space>
                         },
                       ]}
                     />
@@ -499,7 +512,7 @@ function WorkspaceSettings({
 }) {
   const payload = workspace.latestSettings?.payload ?? {};
   const names: Array<
-    [Exclude<keyof WorkspaceSettingsFormValues, "name" | "defaultSeat">, string]
+    [Exclude<keyof WorkspaceSettingsFormValues, "name" | "defaultSeat" | "codexLocalAccessEnabled">, string]
   > = [
     ["workspaceReferralsEnabled", "推荐"],
     ["autoAcceptRequests", "自动接受邀请"],
@@ -509,29 +522,26 @@ function WorkspaceSettings({
     ["automaticReloadEnabled", "Automatic reload"],
   ];
   const initialValues = workspaceSettingsFormValues(payload, workspace.name);
+  const reloadDetails=automaticReloadDetails(payload);
+  const [form]=Form.useForm<WorkspaceSettingsFormValues>();
+  const submit=(v:WorkspaceSettingsFormValues)=>{
+    const settings=workspaceSettingsPatch(v,initialValues);
+    const execute=()=>run("settings", async () => {
+      if (typeof v.name === "string" && v.name !== workspace.name) await unifiedApi.renameWorkspace(workspace.id,executorAccountId,v.name);
+      if (Object.keys(settings).length) await unifiedApi.patchWorkspaceSettings(workspace.id,{executorAccountId,...settings});
+    });
+    if(initialValues.automaticReloadEnabled!==true&&settings.automaticReloadEnabled===true){Modal.confirm({title:"开启 Automatic reload？",content:"Credits 余额低于远端阈值时会使用默认支付方式自动补款；当前余额已低于阈值时可能立即扣款。",okText:"开启自动补款",onOk:execute});return;}
+    void execute();
+  };
   return (
     <Space direction="vertical" className="panel-stack">
+      <Space wrap><Typography.Text type="secondary">设置快照：{formatTime(workspace.latestSettings?.observedAt)}</Typography.Text><Button size="small" icon={<ReloadOutlined/>} disabled={!executorAccountId} loading={busy==='settings-refresh'} onClick={()=>run('settings-refresh',()=>unifiedApi.refreshWorkspaceSettings(workspace.id,executorAccountId))}>刷新设置</Button></Space>
       <Form
+        form={form}
         layout="vertical"
         key={workspace.latestSettings?.observedAt ?? workspace.updatedAt}
         initialValues={initialValues}
-        onFinish={(v: WorkspaceSettingsFormValues) =>
-          run("settings", async () => {
-            if (typeof v.name === "string" && v.name !== workspace.name)
-              await unifiedApi.renameWorkspace(
-                workspace.id,
-                executorAccountId,
-                v.name,
-              );
-            const settings = workspaceSettingsPatch(v);
-            if (Object.keys(settings).length) {
-              await unifiedApi.patchWorkspaceSettings(workspace.id, {
-                executorAccountId,
-                ...settings,
-              });
-            }
-          })
-        }
+        onFinish={submit}
       >
         <div className="responsive-form-grid">
           <Form.Item name="name" label="Workspace 名称">
@@ -546,6 +556,13 @@ function WorkspaceSettings({
             />
           </Form.Item>
         </div>
+        <Descriptions bordered size="small" column={{xs:1,sm:2}} items={[
+          {key:'local',label:'Codex Local 权限',children:initialValues.codexLocalAccessEnabled===undefined?'快照未提供':initialValues.codexLocalAccessEnabled?'允许':'关闭'},
+          {key:'threshold',label:'自动补款阈值',children:reloadDetails.threshold??'快照未提供'},
+          {key:'target',label:'自动补款目标',children:reloadDetails.target??'快照未提供'},
+          {key:'monthly',label:'月度补款',children:reloadDetails.monthlyLimit?`限额 ${reloadDetails.monthlyLimit} · 剩余 ${reloadDetails.monthlyRemaining??'未知'}`:'快照未提供'},
+          {key:'immediate',label:'立即补款状态',children:[reloadDetails.immediateStatus,reloadDetails.immediateMessage].filter(Boolean).join(' · ')||'无'},
+        ]}/>
         <div className="switch-grid">
           {names.map(([name, label]) => (
             <Form.Item key={name} name={name} label={label}>
@@ -637,9 +654,9 @@ function SeatSlots({
           { title: "联系方式", dataIndex: "contact" },
           { title: "备注", dataIndex: "remark" },
           { title: "价格", dataIndex: "price" },
-          { title: "到期", dataIndex: "expiresOn" },
+          { title: "到期策略", render:(_,slot)=><div>{slot.expiresOn??'未设置'}<br/><Typography.Text type="secondary">{slot.expireReminder?'到期前提醒':'不提醒'} · {slot.expireRemove?'到期后自动移除远端关系':'到期后仅停用本地席位'}</Typography.Text></div> },
           { title: "类型", dataIndex: "seatType", render: seatLabel },
-          { title: "状态", dataIndex: "status" },
+          { title: "状态", dataIndex: "status", render:statusLabel },
           {
             title: "操作",
             fixed: "right",
@@ -668,43 +685,14 @@ function SeatSlots({
                 <Button
                   size="small"
                   disabled={!executorAccountId}
-                  onClick={() =>
-                    run(`release-${slot.id}`, () =>
-                      unifiedApi.releaseSeatSlot(
-                        workspace.id,
-                        slot.id,
-                        executorAccountId,
-                      ),
-                    )
-                  }
+                  onClick={() => Modal.confirm({title:"释放客户席位？",content:"若当前是成员或待处理邀请，系统会同时移除远端成员或撤销邀请，并清空当前占用邮箱。成员可能立即失去访问和凭证，标准席位仍可能临时计费。",okText:"确认释放",onOk:()=>run(`release-${slot.id}`, () => unifiedApi.releaseSeatSlot(workspace.id,slot.id,executorAccountId))})}
                 >
                   释放占用
                 </Button>
                 <Button
                   size="small"
-                  onClick={() =>
-                    Modal.confirm({
-                      title: "管理员人工换号",
-                      content: (
-                        <Input id={`swap-${slot.id}`} placeholder="新邮箱" />
-                      ),
-                      onOk: () => {
-                        const email = (
-                          document.getElementById(
-                            `swap-${slot.id}`,
-                          ) as HTMLInputElement
-                        ).value;
-                        return run(`swap-${slot.id}`, () =>
-                          unifiedApi.swapSeatSlot(
-                            workspace.id,
-                            slot.id,
-                            executorAccountId,
-                            email,
-                          ),
-                        );
-                      },
-                    })
-                  }
+                  disabled={!executorAccountId}
+                  onClick={() => {set("seatId",slot.id);set("modal","swap");}}
                 >
                   人工换号
                 </Button>
@@ -743,6 +731,7 @@ function SeatSlots({
           )
         }
       />
+      <SwapSeatModal open={modal==='swap'} slot={edit} onClose={()=>{set('modal');set('seatId');}} onSubmit={email=>edit?run(`swap-${edit.id}`,()=>unifiedApi.swapSeatSlot(workspace.id,edit.id,executorAccountId,email)):Promise.resolve()}/>
     </Space>
   );
 }
@@ -773,7 +762,6 @@ function SeatSlotModal({
             seatType: "usage_based",
             expireReminder: true,
             expireRemove: false,
-            status: "empty",
           }
         }
         onFinish={async (v) => {
@@ -782,9 +770,7 @@ function SeatSlotModal({
         }}
       >
         <div className="responsive-form-grid">
-          <Form.Item name="email" label="当前邮箱">
-            <Input />
-          </Form.Item>
+          {initial?.email?<Form.Item label="当前邮箱"><Typography.Text>{initial.email}</Typography.Text></Form.Item>:<Form.Item name="email" label="当前邮箱（可选）" rules={[{type:'email',message:'邮箱格式不正确'}]} tooltip="用于关联已存在的成员或待接受邀请；没有远端关系时会标记为失联待核对。"><Input/></Form.Item>}
           <Form.Item name="contact" label="联系方式">
             <Input />
           </Form.Item>
@@ -802,17 +788,6 @@ function SeatSlotModal({
               ]}
             />
           </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select
-              options={[
-                { value: "empty", label: "空置" },
-                { value: "invited", label: "已邀请" },
-                { value: "member", label: "已绑定" },
-                { value: "unknown", label: "未知" },
-                { value: "disabled", label: "停用" },
-              ]}
-            />
-          </Form.Item>
         </div>
         <Form.Item name="remark" label="备注">
           <Input.TextArea />
@@ -821,7 +796,7 @@ function SeatSlotModal({
           <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked">
             <Switch />
           </Form.Item>
-          <Form.Item name="expireRemove" label="到期移除" valuePropName="checked">
+          <Form.Item name="expireRemove" label="到期自动移除远端关系" valuePropName="checked" tooltip="到期后会尝试移除成员或撤销邀请；失败时保留记录并停用本地席位。">
             <Switch />
           </Form.Item>
         </Space>
@@ -831,6 +806,15 @@ function SeatSlotModal({
       </Form>
     </Modal>
   );
+}
+
+function SwapSeatModal({open,slot,onClose,onSubmit}:{open:boolean;slot?:SeatSlotView;onClose:()=>void;onSubmit:(email:string)=>Promise<void>}){
+  return <Modal title="管理员人工换号" open={open} footer={null} onCancel={onClose} destroyOnHidden><Alert type="warning" showIcon message="换号会撤销旧邀请或移除旧成员，再邀请新邮箱；ChatGPT 固定席位的已接受成员受计费保护限制。"/><Form layout="vertical" onFinish={async(value)=>{await onSubmit(value.email);onClose();}}><Form.Item name="email" label="新邮箱" rules={[{required:true,message:'请输入新邮箱'},{type:'email',message:'邮箱格式不正确'}]}><Input placeholder="new@example.com"/></Form.Item><Typography.Paragraph type="secondary">当前邮箱：{slot?.email??'空置'}</Typography.Paragraph><Button type="primary" htmlType="submit">开始换号</Button></Form></Modal>;
+}
+
+function latestTime(values:string[]):string|undefined{return values.length?[...values].sort().at(-1):undefined;}
+function removalSummaryText(value:WorkspaceMemberRemovalResult["summary"]):string{
+  const parts=[value.upstreamSuccess===false?'上游报告失败':'成员已从远端移除',value.hasBillingNotice?'上游返回账单提示，请立即核对 Billing':undefined,value.policy?.kind?`策略：${value.policy.kind}`:undefined,value.policy?.billedSeatDelta!==undefined?`计费席位变化：${value.policy.billedSeatDelta}`:undefined,value.policy?.vacancyOrdinal!==undefined?`空缺序号：${value.policy.vacancyOrdinal}`:undefined,value.policy?.freeVacancyThreshold!==undefined?`临时阈值：${value.policy.freeVacancyThreshold}`:undefined,value.policy?.billingStartsAt?`计费开始：${formatTime(value.policy.billingStartsAt)}`:undefined,value.policy?.expiresAt?`策略截止：${formatTime(value.policy.expiresAt)}`:undefined];return parts.filter(Boolean).join('；');
 }
 
 function BusinessModal({

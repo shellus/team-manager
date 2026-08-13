@@ -1,12 +1,12 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Alert, Button, Form, Input, Modal, Select, Space, Tooltip, message } from "antd";
+import { Alert, Button, Form, Input, Modal, Space, Tooltip, message } from "antd";
 import type {
   AccountManagerOperationView,
   AccountProfileStatus,
   AccountManagerStateView,
   ResidentialProxyConfig,
 } from "@team-manager/shared";
-import { CHECKOUT_COUNTRY_CODES } from "@team-manager/shared";
+import { ProxyConfigurationFields } from "../../components/ProxyConfigurationFields.js";
 import { unifiedApi } from "../../unifiedApi.js";
 import { ApiError } from "../../api.js";
 import {
@@ -174,9 +174,6 @@ function ProxyModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const asn = Form.useWatch("asn", form);
-  const state = Form.useWatch("state", form);
-  const city = Form.useWatch("city", form);
 
   useEffect(() => {
     if (!open) return;
@@ -234,27 +231,7 @@ function ProxyModal({
           }
         }}
       >
-        <div className="responsive-form-grid">
-          <Form.Item name="sid" label="代理 SID" rules={[{ required: true }]}>
-            <Input autoComplete="off" />
-          </Form.Item>
-          <Form.Item
-            name="country"
-            label="国家"
-            rules={[{ required: true }]}
-          >
-            <Select showSearch optionFilterProp="label" options={CHECKOUT_COUNTRY_CODES.map(value => ({ value, label: value }))} />
-          </Form.Item>
-          <Form.Item name="asn" label="ASN" rules={[{ validator: async (_, value) => { if (value && (state || city)) throw new Error("ASN 不能与州/省或城市同时使用"); } }]}>
-            <Input allowClear disabled={Boolean(state || city)} autoComplete="off" placeholder={state || city ? "已使用地区定位" : "例如 AS7922"} />
-          </Form.Item>
-          <Form.Item name="state" label="州/省">
-            <Input allowClear disabled={Boolean(asn)} autoComplete="off" placeholder={asn ? "已使用 ASN 定位" : undefined} />
-          </Form.Item>
-          <Form.Item name="city" label="城市" rules={[{ validator: async (_, value) => { if (value && !state) throw new Error("填写城市时必须同时填写州/省"); } }]}>
-            <Input allowClear disabled={Boolean(asn)} autoComplete="off" placeholder={asn ? "已使用 ASN 定位" : undefined} />
-          </Form.Item>
-        </div>
+        <ProxyConfigurationFields form={form} />
         <Button type="primary" htmlType="submit" loading={saving}>
           保存代理配置
         </Button>

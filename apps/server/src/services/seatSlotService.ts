@@ -24,23 +24,26 @@ export class SeatSlotService {
     const seatKey = input.seatKey?.trim() || randomBytes(24).toString('base64url');
     if (!['default', 'usage_based'].includes(input.seatType ?? '')) throw new ServiceError(400, '缺少有效席位类型');
     await this.assertWorkspace(workspaceId);
-    const row = await this.#repository.save({ workspaceId, seatKey, email: input.email, remoteUserId: input.remoteUserId,
+    if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
+    const relationStatus=await this.relationStatus(workspaceId,input.email);
+    const row = await this.#repository.save({ workspaceId, seatKey, email: input.email, remoteUserId: null,
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
       expireReminder: input.expireReminder, expireRemove: input.expireRemove,
-      seatType: input.seatType!, status: input.status ?? (input.email ? 'unknown' : 'empty') });
+      seatType: input.seatType!, status: relationStatus });
     await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,seatType:row.seat_type}); return row;
   }
 
   async update(workspaceId: string, id: string, input: SeatSlotMutationInput) {
-    const row = await this.require(workspaceId, id); const email = input.email === undefined ? row.current_email : input.email;
-    const updated = await this.#repository.save({ workspaceId, seatKey: row.seat_key, email,
-      remoteUserId: input.remoteUserId === undefined ? row.remote_user_id : input.remoteUserId,
+    const row = await this.require(workspaceId, id);
+    if(input.email!==undefined&&normalizeEmail(input.email??'')!==normalizeEmail(row.current_email??''))throw new ServiceError(400,'当前邮箱不能在资料编辑中修改，请使用人工换号或释放操作');
+    if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工修改，请使用邀请、换号或释放操作');
+    const updated = await this.#repository.save({ workspaceId, seatKey: row.seat_key, email:row.current_email,
+      remoteUserId: row.remote_user_id,
       contact: input.contact === undefined ? row.contact : input.contact, remark: input.remark === undefined ? row.remark : input.remark,
       price: input.price === undefined ? row.price : input.price, expiresOn: input.expiresOn === undefined ? row.expires_on : input.expiresOn,
       expireReminder: input.expireReminder ?? row.expire_reminder, expireRemove: input.expireRemove ?? row.expire_remove,
       seatType: input.seatType ?? row.seat_type as SeatType,
       status: input.status ?? row.status as any });
-    if (row.normalized_current_email !== updated.normalized_current_email) await this.log(id, row.current_email, updated.current_email, 'admin_edit');
     await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,status:updated.status,seatType:updated.seat_type});
     return updated;
   }
@@ -58,7 +61,7 @@ export class SeatSlotService {
 
   async runExpirations(now = new Date()) {
     const today = dateInTimeZone(now, 'UTC'); const schedules = await this.notificationSchedules();
-    const dueSchedules = schedules.filter((schedule) => notificationScheduleDue(schedule, now));
+    const dueSchedules = schedules.filter((schedule) => !schedule.hasExplicitSchedule || notificationScheduleDue(schedule, now));
     const advanceDays = dueSchedules.length ? Math.max(...dueSchedules.map((item) => item.advanceDays)) : -1;
     const reminderEnd = advanceDays >= 0 ? new Date(now.getTime()+advanceDays*86400_000).toISOString().slice(0,10) : today;
     const reminders=await this.db.selectFrom('seat_slots').selectAll().where('expire_reminder','=',true)
@@ -66,7 +69,8 @@ export class SeatSlotService {
       .where('expires_on','>=',today).where('expires_on','<=',reminderEnd).execute();
     for (const schedule of dueSchedules) {
       const reminderKey=`seat-expiry-reminder:${schedule.kind}:${dateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
-      const matching=reminders.filter(row=>row.expires_on&&row.expires_on<=new Date(now.getTime()+schedule.advanceDays*86400_000).toISOString().slice(0,10));
+      const reminderEndForSchedule=new Date(now.getTime()+schedule.advanceDays*86400_000).toISOString().slice(0,10);
+      const matching=reminders.filter(row=>row.expires_on&&dateOnly(row.expires_on)<=reminderEndForSchedule);
       if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();}
     }
     const rows = await this.db.selectFrom('seat_slots').selectAll().where('expires_on', '<', today).execute();
@@ -81,9 +85,10 @@ export class SeatSlotService {
     }
     return { checked: rows.length, reminders:reminders.length, schedules: dueSchedules.length, disabled, removed };
   }
-  private async notificationSchedules() { const rows=await this.db.selectFrom('notification_policies').select(['kind','configuration']).where('enabled','=',true).execute();return rows.map(row=>{const config=row.configuration;return{kind:row.kind,advanceDays:Number.isInteger(Number(config.advanceDays))?Number(config.advanceDays):7,triggerTime:typeof config.triggerTime==='string'?config.triggerTime:'09:00',timeZone:typeof config.timeZone==='string'?config.timeZone:'Asia/Shanghai'};}); }
+  private async notificationSchedules() { const rows=await this.db.selectFrom('notification_policies').select(['kind','configuration']).where('enabled','=',true).execute();return rows.map(row=>{const config=row.configuration;return{kind:row.kind,advanceDays:Number.isInteger(Number(config.advanceDays))?Number(config.advanceDays):7,triggerTime:typeof config.triggerTime==='string'?config.triggerTime:'09:00',timeZone:typeof config.timeZone==='string'?config.timeZone:'Asia/Shanghai',hasExplicitSchedule:typeof config.triggerTime==='string'&&typeof config.timeZone==='string'};}); }
   private async require(workspaceId: string, id: string) { const row = await this.db.selectFrom('seat_slots').selectAll().where('id', '=', id).where('workspace_id', '=', workspaceId).executeTakeFirst(); if (!row) throw new ServiceError(404, '客户席位不存在'); return row; }
   private async assertWorkspace(id: string) { if (!await this.db.selectFrom('workspaces').select('id').where('id', '=', id).executeTakeFirst()) throw new ServiceError(404, 'Workspace 不存在'); }
+  private async relationStatus(workspaceId:string,email:string|null|undefined):Promise<'empty'|'member'|'invited'|'unknown'>{if(!email)return'empty';const normalized=normalizeEmail(email);if(await this.db.selectFrom('workspace_memberships').select('id').where('workspace_id','=',workspaceId).where('normalized_email','=',normalized).where('status','=','active').executeTakeFirst())return'member';if(await this.db.selectFrom('workspace_invitations').select('id').where('workspace_id','=',workspaceId).where('normalized_email','=',normalized).where('status','=','pending').executeTakeFirst())return'invited';return'unknown';}
   private log(id: string, previous: string | null, next: string | null, reason: string) { return this.db.insertInto('seat_slot_identity_history').values({ seat_slot_id: id, previous_email: previous, next_email: next, changed_at: new Date(), reason }).execute(); }
   private activity(workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({workspaceId,kind,payload});}
   private async executor(workspaceId: string) { return (await this.db.selectFrom('workspace_memberships').select('account_id').where('workspace_id', '=', workspaceId).where('status', '=', 'active').where('normalized_role', 'in', ['owner', 'admin']).where('account_id', 'is not', null).executeTakeFirst())?.account_id ?? undefined; }
@@ -91,6 +96,7 @@ export class SeatSlotService {
 
 export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string},now:Date):boolean{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
 function dateInTimeZone(now:Date,timeZone:string){const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);return `${parts.find(item=>item.type==='year')?.value}-${parts.find(item=>item.type==='month')?.value}-${parts.find(item=>item.type==='day')?.value}`;}
+function dateOnly(value:string|Date){return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
   const tick = () => void service.runExpirations().catch((error) => console.warn('[team-manager] 席位到期任务失败:', error));

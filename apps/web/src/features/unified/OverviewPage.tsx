@@ -4,6 +4,8 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import type { OperationalRiskLevel, SeatOperationalOverviewView, WorkspaceOperationalOverviewView } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
+import { formatMoney } from "../../components/OperationalDataPanels.js";
+import { planLabel, roleLabel, statusLabel } from "../../labels.js";
 
 const riskMeta: Record<OperationalRiskLevel, { label: string; color: string }> = {
   critical: { label: "严重", color: "red" }, warning: { label: "关注", color: "orange" },
@@ -48,9 +50,9 @@ export function OverviewPage() {
 function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) {
   return <Table rowKey="id" dataSource={rows} scroll={{ x: 1250 }} columns={[
     { title: "Workspace", render: (_, row) => <div><Link to={`/workspaces/${row.id}`}>{row.name ?? "未命名"}</Link><br/><Typography.Text type="secondary">{row.externalId}</Typography.Text></div> },
-    { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{value}</Tag> },
+    { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{planLabel(value)}</Tag> },
     { title: "续费时间", dataIndex: "nextRenewalAt", render: formatTime },
-    { title: "预计账单", render: (_, row) => row.expectedAmount ? `${row.expectedCurrency ?? ""} ${row.expectedAmount}`.trim() : "—" },
+    { title: "预计账单", render: (_, row) => formatMoney(row.expectedAmount,row.expectedCurrency) },
     { title: "固定席位", render: (_, row) => row.fixedSeatCapacity === undefined ? "—" : `${row.fixedSeatOccupied}/${row.fixedSeatCapacity}（余 ${row.fixedSeatAvailable ?? 0}）` },
     { title: "成员 / 邀请 / 客户席位", render: (_, row) => `${row.memberCount} / ${row.invitationCount} / ${row.seatSlotCount}` },
     { title: "运营风险", render: (_, row) => <RiskCell level={row.riskLevel} risks={row.risks} /> },
@@ -60,12 +62,12 @@ function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) 
 function SeatTable({ rows }: { rows: SeatOperationalOverviewView[] }) {
   return <Table rowKey="id" dataSource={rows} scroll={{ x: 1350 }} columns={[
     { title: "Workspace", render: (_, row) => <Link to={`/workspaces/${row.workspaceId}`}>{row.workspaceName ?? row.workspaceExternalId}</Link> },
-    { title: "来源", dataIndex: "source", render: value => sourceLabels[value as SeatOperationalOverviewView["source"]] },
+    { title: "来源", render:(_,row)=>(row.sources??[row.source]).map(value=>sourceLabels[value]).join(" + ") },
     { title: "账号 / 客户", render: (_, row) => <div>{row.email ?? row.displayName ?? "—"}<br/>{row.contact && <Typography.Text type="secondary">{row.contact}</Typography.Text>}</div> },
     { title: "备注", dataIndex: "remark", render: value => value ?? "—" },
-    { title: "角色", dataIndex: "role", render: value => value ?? "—" },
+    { title: "角色", dataIndex: "role", render: value => value ? roleLabel(value) : "—" },
     { title: "席位", dataIndex: "seatType", render: value => value === "usage_based" ? "按量" : "固定" },
-    { title: "状态", dataIndex: "status", render: value => <Tag>{value}</Tag> },
+    { title: "状态", dataIndex: "status", render: value => <Tag>{statusLabel(value)}</Tag> },
     { title: "到期日", dataIndex: "expiresOn", render: value => value ?? "—" },
     { title: "价格", dataIndex: "price", render: value => value ?? "—" },
     { title: "运营风险", render: (_, row) => <RiskCell level={row.riskLevel} risks={row.risks} /> },

@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import type { NotificationDeliveryView } from "@team-manager/shared";
 import {
   notificationDeliveryPresentation,
-  parseCredentialReplacement,
   workspaceSettingsFormValues,
   workspaceSettingsPatch,
 } from "./unifiedUiModels.js";
@@ -33,6 +32,7 @@ describe("workspace settings mapping", () => {
       personalAccessTokensEnabled: true,
       codexDeviceCodeAuthEnabled: false,
       codexRemoteControlEnabled: true,
+      codexLocalAccessEnabled: undefined,
       automaticReloadEnabled: undefined,
     });
   });
@@ -45,6 +45,14 @@ describe("workspace settings mapping", () => {
         codexRemoteControlEnabled: false,
       }),
     ).toEqual({ codexRemoteControlEnabled: false });
+  });
+
+  test("submits only values changed from the loaded snapshot", () => {
+    expect(workspaceSettingsPatch({defaultSeat:"default",autoAcceptRequests:false,automaticReloadEnabled:true},{defaultSeat:"default",autoAcceptRequests:true,automaticReloadEnabled:true})).toEqual({autoAcceptRequests:false});
+  });
+
+  test("keeps Codex Local permission read-only",()=>{
+    expect(workspaceSettingsPatch({codexLocalAccessEnabled:true},{})).toEqual({});
   });
 
   test("maps automatic reload only from an explicit independent snapshot", () => {
@@ -83,16 +91,5 @@ describe("notification retry state", () => {
         delivery({ status: "exhausted", attemptCount: 3 }),
       ).canRetry,
     ).toBe(false);
-  });
-});
-
-describe("credential replacement contract", () => {
-  test("accepts a JSON object and rejects arrays", () => {
-    expect(parseCredentialReplacement('{"account_id":"workspace-1"}')).toEqual({
-      account_id: "workspace-1",
-    });
-    expect(() => parseCredentialReplacement("[]")).toThrow(
-      "凭证必须是 JSON 对象",
-    );
   });
 });

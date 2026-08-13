@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import type { OperationalRiskLevel, WorkspaceSummaryView } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
+import { planLabel, statusLabel } from "../../labels.js";
 
 const riskLabels: Record<OperationalRiskLevel, { label: string; color: string }> = {
   critical: { label: "严重", color: "red" }, warning: { label: "关注", color: "orange" },
@@ -21,11 +22,11 @@ export function WorkspacesPage() {
   return <Card><Space direction="vertical" size={16} className="panel-stack">
     <PageHeader title="Workspaces" description="Team / Business 空间的运营状态、成员与席位入口" actions={<><Button onClick={() => navigate("/overview/workspaces")}>Workspace 总览</Button><Button onClick={() => navigate("/overview/seats")}>席位总览</Button></>} />
     {error && <Alert type="error" showIcon message={error} />}
-    <div className="overview-filters"><Input.Search allowClear placeholder="名称或外部 ID" value={query} onChange={event => update("query", event.target.value)} /><Select value={risk} onChange={value => update("risk", value)} options={[{ value: "all", label: "全部风险" }, ...Object.entries(riskLabels).map(([value, meta]) => ({ value, label: meta.label }))]} /></div>
+    <div className="overview-filters"><Input.Search allowClear placeholder="名称、ID、账号、成员、客户资料或备注" value={query} onChange={event => update("query", event.target.value)} /><Select value={risk} onChange={value => update("risk", value)} options={[{ value: "all", label: "全部风险" }, ...Object.entries(riskLabels).map(([value, meta]) => ({ value, label: meta.label }))]} /></div>
     <LoadBoundary loading={loading} error={error} empty={!visible.length} onRetry={load}><Table rowKey="id" dataSource={visible} scroll={{ x: 1200 }} onRow={row => ({ onClick: () => navigate(`/workspaces/${row.id}`), style: { cursor: "pointer" } })} columns={[
       { title: "Workspace", render: (_, row) => <div><Typography.Text strong>{row.name ?? "未命名"}</Typography.Text><br/><Typography.Text type="secondary">{row.externalId}</Typography.Text></div> },
-      { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{value}</Tag> },
-      { title: "状态", dataIndex: "status", render: value => <Tag>{value}</Tag> },
+      { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{planLabel(value)}</Tag> },
+      { title: "状态", dataIndex: "status", render: value => <Tag>{statusLabel(value)}</Tag> },
       { title: "续费时间", dataIndex: "nextRenewalAt", render: formatTime },
       { title: "风险", render: (_, row) => { const meta = riskLabels[row.riskLevel ?? "unknown"]; return <Space wrap size={[4, 4]}><Tag color={meta.color}>{meta.label}</Tag>{row.risks?.map(item => <Tag key={item}>{item}</Tag>)}</Space>; } },
       { title: "管理员账号", dataIndex: "manageableAccountCount" }, { title: "成员", dataIndex: "memberCount" },

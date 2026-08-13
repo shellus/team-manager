@@ -50,6 +50,7 @@ import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
 import { useRememberedForm } from "../../webPreferences.js";
+import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
 
 export function AccountDetailPage() {
   const { accountId } = useParams();
@@ -62,6 +63,7 @@ export function AccountDetailPage() {
   const [activity, setActivity] = useState<AccountActivityView[]>([]);
   const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
   const [error, setError] = useState("");
+  const [optionalErrors, setOptionalErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const load = async () => {
@@ -83,6 +85,7 @@ export function AccountDetailPage() {
         unifiedApi.accountActivity(accountId),
         unifiedApi.credentialPoolGroups(),
       ]);
+      setOptionalErrors(optional.flatMap((result) => result.status === 'rejected' ? [(result.reason as Error).message] : []));
       if (optional[0].status === "fulfilled") setManager(optional[0].value);
       if (optional[1].status === "fulfilled") setPersonal(optional[1].value);
       if (optional[2].status === "fulfilled") setActivity(optional[2].value);
@@ -150,6 +153,9 @@ export function AccountDetailPage() {
               message={error}
               onClose={() => setError("")}
             />
+          )}
+          {optionalErrors.length > 0 && (
+            <Alert type="warning" showIcon message="部分账号资料读取失败" description={optionalErrors.join('；')} />
           )}
           <Card>
             <PageHeader
@@ -308,6 +314,7 @@ export function AccountDetailPage() {
             onOperationCreated={showCreatedOperation}
           />
           <PaymentModal
+            accountId={account.id}
             open={modal === "payment"}
             busy={busy === "payment"}
             onClose={() => setUrl("modal")}
@@ -348,6 +355,7 @@ function Overview({
         account.lastError,
         invalidContexts.length ? `${invalidContexts.length} 个登录上下文无效` : "",
       ].filter(Boolean).join("；")} />}
+      {manager?.errors && <AccountManagerErrors errors={manager.errors} />}
       {account.latestOperation && <AccountOperationSummary operation={account.latestOperation} onOpen={openOperation} />}
       <Descriptions
         bordered
@@ -371,6 +379,8 @@ function Overview({
         },
         { key: "health", label: "登录健康", children: account.accessHealth.status === "invalid" ? <Tag color="error">无效</Tag> : account.accessHealth.status === "valid" ? <Tag color="success">有效</Tag> : "未验证" },
         { key: "sync", label: "最近 GAM 同步", children: account.lastSyncedAt ? formatTime(account.lastSyncedAt) : "未同步" },
+        { key: "remote-user-id", label: "ChatGPT User ID", children: account.remoteUserId ? <Typography.Text copyable>{account.remoteUserId}</Typography.Text> : "—" },
+        { key: "remote-account-id", label: "Personal Account ID", children: account.personalSpace.remoteAccountId ? <Typography.Text copyable>{account.personalSpace.remoteAccountId}</Typography.Text> : "—" },
         { key: "limit", label: "限额类型", children: account.limitType },
         {
           key: "banned",
@@ -404,8 +414,15 @@ function Management({
   return (
     <Space direction="vertical" size={16} className="panel-stack">
       {!account.gamAccountRef && (
-        <Alert type="warning" showIcon message="请先绑定 GAM 账号引用" />
+        <Alert
+          type="warning"
+          showIcon
+          message="账号尚未纳入 GAM 管理"
+          description={account.hasSession ? "可以使用当前 Session 发起 existing_session 纳管。" : "请先通过“编辑”保存完整 Session。"}
+          action={<Button type="primary" disabled={!account.hasSession} loading={busy === 'enroll'} onClick={() => run('enroll', () => unifiedApi.enrollAccountManager(account.id))}>纳入 GAM 管理</Button>}
+        />
       )}
+      {manager?.errors && <AccountManagerErrors errors={manager.errors} />}
       <Space wrap>
         <Button
           disabled={!account.gamAccountRef}
@@ -539,6 +556,9 @@ function PersonalPanel({
     asRecordArray(quotaPayload?.windows) ??
     asRecordArray(quotaPayload?.credits) ??
     [];
+  const paidSubscription = Boolean(subscriptionSnapshot && !['free', 'unknown'].includes(subscriptionSnapshot.plan));
+  const renewalCancelled = subscriptionSnapshot?.willRenew === false;
+  const renewalEnd = subscriptionSnapshot?.endsAt ? formatTime(subscriptionSnapshot.endsAt) : '当前计费周期结束';
 
   return (
     <Space direction="vertical" size={18} className="panel-stack">
@@ -552,13 +572,21 @@ function PersonalPanel({
         >
           刷新个人空间
         </Button>
-        <Button
-          onClick={() =>
-            run("cancel", () => unifiedApi.cancelPersonalRenewal(account.id))
-          }
+        {paidSubscription && <Button
+          danger={!renewalCancelled}
+          disabled={renewalCancelled}
+          loading={busy === 'cancel'}
+          onClick={() => Modal.confirm({
+            title: '取消个人套餐自动续费？',
+            content: `仅关闭自动续费，不退款；套餐权益保留到 ${renewalEnd}。`,
+            okText: '确认取消续费',
+            okButtonProps: { danger: true },
+            cancelText: '返回',
+            onOk: () => run('cancel', () => unifiedApi.cancelPersonalRenewal(account.id)),
+          })}
         >
-          取消续费
-        </Button>
+          {renewalCancelled ? '已取消续费' : '取消续费'}
+        </Button>}
         <Button onClick={() => open("payment")}>绑定支付方式</Button>
       </Space>
 
@@ -770,100 +798,7 @@ function CredentialsPanel({
           {
             title: "操作",
             fixed: "right",
-            render: (_, row) => (
-              <Space>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    run(`quota-${row.id}`, () =>
-                      unifiedApi.refreshCredentialQuota(row.id),
-                    )
-                  }
-                >
-                  刷新额度
-                </Button>
-                {row.kind === "oauth" && (
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      void create("oauth", {
-                        workspaceId: row.workspaceId,
-                        poolGroup: row.poolGroup?.id ?? "",
-                      })
-                    }
-                  >
-                    OAuth 重新授权
-                  </Button>
-                )}
-                <Button
-                  size="small"
-                  onClick={() =>
-                    run(`disable-${row.id}`, () =>
-                      unifiedApi.updateCredential(row.id, {
-                        status:
-                          row.status === "disabled" ? "active" : "disabled",
-                      }),
-                    )
-                  }
-                >
-                  {row.status === "disabled" ? "启用" : "停用"}
-                </Button>
-                <Button
-                  size="small"
-                  onClick={() =>
-                    Modal.confirm({
-                      title: "投放凭证到号池",
-                      content: (
-                        <>
-                          <Input
-                            id={`target-${row.id}`}
-                            placeholder="目标键，默认 default"
-                          />
-                          <Input
-                            id={`filename-${row.id}`}
-                            placeholder="文件名（可选）"
-                          />
-                        </>
-                      ),
-                      onOk: () =>
-                        run(`deploy-${row.id}`, () =>
-                          unifiedApi.deployCredential(row.id, {
-                            targetKey:
-                              (
-                                document.getElementById(
-                                  `target-${row.id}`,
-                                ) as HTMLInputElement
-                              ).value || "default",
-                            fileName:
-                              (
-                                document.getElementById(
-                                  `filename-${row.id}`,
-                                ) as HTMLInputElement
-                              ).value || undefined,
-                          }),
-                        ),
-                    })
-                  }
-                >
-                  投放
-                </Button>
-                <Button
-                  size="small"
-                  danger
-                  onClick={() =>
-                    Modal.confirm({
-                      title: "删除凭证？",
-                      onOk: () =>
-                        run(`delete-${row.id}`, () =>
-                          unifiedApi.deleteCredential(row.id),
-                        ),
-                    })
-                  }
-                >
-                  删除
-                </Button>
-              </Space>
-            ),
+            render: (_, row) => <WorkspaceCredentialActions credential={row} run={run}/>,
           },
         ]}
       />
@@ -949,16 +884,30 @@ function operationTypeLabel(value: string): string {
 }
 
 function PaymentModal({
+  accountId,
   open,
   busy,
   onClose,
   onSubmit,
 }: {
+  accountId: string;
   open: boolean;
   busy: boolean;
   onClose: () => void;
   onSubmit: (value: any) => Promise<void>;
 }) {
+  const [form] = Form.useForm();
+  const [defaultsLoading, setDefaultsLoading] = useState(false);
+  const [defaultsError, setDefaultsError] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    setDefaultsLoading(true);
+    setDefaultsError('');
+    void unifiedApi.personalPaymentMethodDefaults(accountId)
+      .then((value) => form.setFieldsValue(value))
+      .catch((reason) => setDefaultsError((reason as Error).message))
+      .finally(() => setDefaultsLoading(false));
+  }, [accountId, form, open]);
   return (
     <Modal
       title="绑定个人支付方式"
@@ -973,6 +922,7 @@ function PaymentModal({
         message="完整卡号和 CVC 只在本次请求中转交 GAM。"
       />
       <Form
+        form={form}
         layout="vertical"
         initialValues={{ country: "US", currency: "USD" }}
         onFinish={(v) =>
@@ -991,13 +941,20 @@ function PaymentModal({
             <Input maxLength={3} />
           </Form.Item>
         </div>
-        <PaymentCardFields prefix="card" />
-        <Button type="primary" htmlType="submit" loading={busy}>
+        <PaymentCardFields prefix="card" quickInput />
+        {defaultsError && <Alert className="modal-error" type="warning" showIcon message={`GAM 默认账单资料读取失败：${defaultsError}`} />}
+        <Button type="primary" htmlType="submit" loading={busy || defaultsLoading}>
           提交给 GAM
         </Button>
       </Form>
     </Modal>
   );
+}
+
+function AccountManagerErrors({ errors }: { errors: NonNullable<AccountManagerStateView['errors']> }) {
+  const labels = { service: 'GAM 服务', account: '账号资料', profile: 'Profile', proxy: '住宅代理', operations: '操作记录' };
+  const values = Object.entries(errors).map(([key, value]) => `${labels[key as keyof typeof labels]}：${value}`);
+  return values.length ? <Alert type="warning" showIcon message="GAM 部分资源读取失败" description={values.join('；')} /> : null;
 }
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)

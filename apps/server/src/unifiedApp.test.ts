@@ -68,6 +68,43 @@ test('GAM 同步等待 Operation 终态后再读取账号快照', async () => {
   ]);
 });
 
+test('GAM existing_session 纳管和注册任务代理使用既有上游契约', async () => {
+  const requests: Array<{ method: string; path: string; body: unknown }> = [];
+  const client = new AccountManagerClient('http://gam.test', 'token', async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    requests.push({ method: String(init?.method), path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    const data = path.endsWith('/proxy') ? { sid: 'sid-2', country: 'US', asn: null, state: null, city: null } : {
+      id: 'operation', type: 'import', status: 'queued', phase: 'queued', progress: 0,
+      createdAt: 1, updatedAt: 1,
+    };
+    return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  });
+  await client.startAccountImport({
+    email: 'account@example.com', authMethod: 'existing_session',
+    session: { user: { email: 'account@example.com' }, account: { id: 'personal' }, accessToken: 'access', sessionToken: 'session' },
+  });
+  await client.operationProxyConfig('operation');
+  await client.configureOperationProxy('operation', { sid: 'sid-2', country: 'US', asn: null, state: null, city: null });
+  assert.equal(requests[0].path, '/v1/accounts/imports');
+  assert.equal((requests[0].body as any).authMethod, 'existing_session');
+  assert.deepEqual(requests.slice(1).map((item) => [item.method, item.path]), [
+    ['GET', '/v1/operations/operation/proxy'],
+    ['PUT', '/v1/operations/operation/proxy'],
+  ]);
+});
+
+test('GAM 默认个人支付资料使用既有读取接口', async () => {
+  let path = '';
+  const client = new AccountManagerClient('http://gam.test', 'token', async (input) => {
+    path = new URL(String(input)).pathname;
+    return new Response(JSON.stringify({ ok: true, data: { country: 'SG', currency: 'USD' } }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  });
+  assert.deepEqual(await client.personalPaymentMethodDefaults('account@example.com'), { country: 'SG', currency: 'USD' });
+  assert.equal(path, '/v1/accounts/account%40example.com/personal-payment-method-defaults');
+});
+
 test('解析 Codex 五小时与七天额度窗口', () => {
   const quota = quotaFromPayload({ plan_type: 'team', rate_limit: {
     primary_window: { limit_window_seconds: 18000, used_percent: 25, resets_at: 2_000_000_000 },

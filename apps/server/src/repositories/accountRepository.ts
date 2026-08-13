@@ -232,7 +232,10 @@ export class AccountRepository {
       query = query.where(sql<boolean>`exists (select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping'))`, '=', filters.hasRunningProfile);
     }
     if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', filters.primaryPlan);
-    return query.orderBy('a.updated_at', 'desc').execute() as Promise<AccountListItem[]>;
+    return query
+      .orderBy(sql<number>`case when aos.profile_status in ('queued','running','stopping') then 0 else 1 end`)
+      .orderBy('a.updated_at', 'desc')
+      .execute() as Promise<AccountListItem[]>;
   }
 
   static async ensureGroup(trx: Transaction<Database>, nameInput?: string | null): Promise<string> {

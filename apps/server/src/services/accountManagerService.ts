@@ -34,15 +34,33 @@ export class AccountManagerService {
   }
 
   async state(accountId: string): Promise<AccountManagerStateView> {
-    const ref = await this.accountRef(accountId);
     const localOperations = await this.#operations.listForAccount(accountId);
-    if (!this.manager) return { operations: localOperations };
-    const [account, profile, proxy, remoteOperations] = await Promise.all([
-      this.manager.account?.(ref).catch(() => undefined),
-      this.manager.accountProfile?.(ref).catch(() => undefined),
-      this.manager.accountProxyConfig?.(ref).catch(() => undefined),
-      this.manager.listAccountOperations?.(ref).catch(() => []) ?? []
+    if (!this.manager) return { operations: localOperations, errors: { service: 'GAM 未配置' } };
+    const ref = await this.accountRef(accountId).catch((error) => {
+      if (error instanceof ServiceError && error.status === 409) return undefined;
+      throw error;
+    });
+    if (!ref) return { operations: localOperations };
+    const [healthResult, accountResult, profileResult, proxyResult, operationsResult] = await Promise.allSettled([
+      this.manager.health?.() ?? Promise.resolve(undefined),
+      this.manager.account?.(ref) ?? Promise.resolve(undefined),
+      this.manager.accountProfile?.(ref) ?? Promise.resolve(undefined),
+      this.manager.accountProxyConfig?.(ref) ?? Promise.resolve(undefined),
+      this.manager.listAccountOperations?.(ref) ?? Promise.resolve([])
     ]);
+    const account = fulfilled(accountResult);
+    const profile = fulfilled(profileResult);
+    const proxy = fulfilled(proxyResult);
+    const remoteOperations = fulfilled(operationsResult) ?? [];
+    const errors = {
+      ...(healthResult.status === 'rejected' ? { service: errorMessage(healthResult.reason) } : {}),
+      ...(healthResult.status === 'fulfilled' && healthResult.value?.status && healthResult.value.status !== 'ok'
+        ? { service: `GAM 服务状态：${healthResult.value.status}` } : {}),
+      ...(accountResult.status === 'rejected' ? { account: errorMessage(accountResult.reason) } : {}),
+      ...(profileResult.status === 'rejected' ? { profile: errorMessage(profileResult.reason) } : {}),
+      ...(proxyResult.status === 'rejected' ? { proxy: errorMessage(proxyResult.reason) } : {}),
+      ...(operationsResult.status === 'rejected' ? { operations: errorMessage(operationsResult.reason) } : {})
+    };
     if (profile) await this.db.updateTable('account_operational_profiles').set({ profile_status: profile.status, profile_checked_at: new Date() }).where('account_id', '=', accountId).execute();
     return {
       ...(account ? { account: {
@@ -53,8 +71,64 @@ export class AccountManagerService {
       } } : {}),
       ...(profile ? { profile } : {}),
       ...(proxy ? { proxy } : {}),
-      operations: mergeOperations(localOperations, remoteOperations)
+      operations: mergeOperations(localOperations, remoteOperations),
+      ...(Object.keys(errors).length ? { errors } : {})
     };
+  }
+
+  async enroll(accountId: string) {
+    const manager = this.require('startAccountImport');
+    const account = await this.#accounts.findById(accountId);
+    if (!account) throw new ServiceError(404, '账号不存在');
+    const existingBinding = await this.db.selectFrom('gam_bindings').select('external_account_ref')
+      .where('account_id', '=', accountId).executeTakeFirst();
+    if (existingBinding) return this.state(accountId);
+    const existingEnrollment = (await this.#operations.listForAccount(accountId)).find((item) =>
+      item.type === 'import_account' && !['failed', 'interrupted'].includes(item.status)
+    );
+    if (existingEnrollment) {
+      if (existingEnrollment.status === 'succeeded') {
+        await this.reconcileEnrollment(existingEnrollment.id);
+        return this.state(accountId);
+      }
+      return existingEnrollment;
+    }
+    const session = await this.sessions.currentSession(accountId);
+    if (!session) throw new ServiceError(409, '账号没有可用于 GAM 纳管的 Session');
+    const operationId = await this.#operations.start({
+      accountId,
+      kind: 'import_account',
+      idempotencyKey: randomUUID(),
+      safeRequestSummary: { email: account.email, authMethod: 'existing_session' }
+    });
+    const operation = await manager.startAccountImport!({
+      email: account.email,
+      authMethod: 'existing_session',
+      session: session as Parameters<NonNullable<AccountManagerGateway['startAccountImport']>>[0]['session'],
+      requestTag: `team-manager:${operationId}`,
+      clientReference: accountId
+    });
+    await this.#operations.attach(operationId, operation);
+    await this.#activity.log({ accountId, kind: 'gam_enrollment_requested', payload: { operationId, authMethod: 'existing_session' } });
+    return this.#operations.view(operationId);
+  }
+
+  async paymentMethodDefaults(accountId: string) {
+    const manager = this.require('personalPaymentMethodDefaults');
+    return manager.personalPaymentMethodDefaults!(await this.accountRef(accountId));
+  }
+
+  async registrationProxy(operationId: string) {
+    const operation = await this.registrationOperation(operationId);
+    const manager = this.require('operationProxyConfig');
+    return manager.operationProxyConfig!(operation.external_operation_id!);
+  }
+
+  async setRegistrationProxy(operationId: string, input: ResidentialProxyConfig) {
+    validateProxy(input);
+    const operation = await this.registrationOperation(operationId);
+    const manager = this.require('configureOperationProxy');
+    return manager.configureOperationProxy!(operation.external_operation_id!, normalizedProxy(input));
   }
 
   async sync(accountId: string): Promise<AccountManagerStateView> {
@@ -76,12 +150,9 @@ export class AccountManagerService {
   }
 
   async setProxy(accountId: string, input: ResidentialProxyConfig) {
-    if (!input.sid.trim()) throw new ServiceError(400, '代理 SID 不能为空');
-    if (!/^[A-Z]{2}$/i.test(input.country)) throw new ServiceError(400, '代理国家必须是两个字母');
-    if (input.asn && (input.state || input.city)) throw new ServiceError(400, 'ASN 与州/城市不能同时设置');
-    if (input.city && !input.state) throw new ServiceError(400, '设置城市时必须同时设置州/省');
+    validateProxy(input);
     const manager = this.require('configureAccountProxy');
-    return manager.configureAccountProxy!(await this.accountRef(accountId), { ...input, country: input.country.toUpperCase() });
+    return manager.configureAccountProxy!(await this.accountRef(accountId), normalizedProxy(input));
   }
 
   async importSession(accountId: string) {
@@ -176,6 +247,21 @@ export class AccountManagerService {
     return { operation, ...(accountId ? { accountId } : {}) };
   }
 
+  async reconcileEnrollment(operationId: string) {
+    const local = await this.db.selectFrom('automation_operations').selectAll().where('id', '=', operationId)
+      .where('kind', '=', 'import_account').executeTakeFirst();
+    if (!local?.external_operation_id || !local.account_id) throw new ServiceError(404, 'GAM 纳管操作不存在');
+    const manager = this.require('operation');
+    const operation = await manager.operation!(local.external_operation_id);
+    if (operation.status === 'succeeded') {
+      const account = await this.#accounts.findById(local.account_id);
+      if (!account) throw new ServiceError(404, '账号不存在');
+      await this.#accounts.bindGamAccount(account.id, account.email);
+    }
+    await this.#operations.updateFromExternal(local.id, operation, local.account_id);
+    return operation;
+  }
+
   async persistRemoteState(accountId: string, remote: ManagedAccountSummary) {
     const observedAt = new Date();
     await this.db.updateTable('account_operational_profiles').set({
@@ -250,10 +336,31 @@ export class AccountManagerService {
     return binding.external_account_ref;
   }
 
+  private async registrationOperation(operationId: string) {
+    const operation = await this.db.selectFrom('automation_operations').selectAll().where('id', '=', operationId)
+      .where('kind', '=', 'register_account').executeTakeFirst();
+    if (!operation?.external_operation_id) throw new ServiceError(404, '注册操作不存在');
+    return operation;
+  }
+
   private require<K extends keyof AccountManagerGateway>(method: K): AccountManagerGateway {
     if (!this.manager?.[method]) throw new ServiceError(503, `GAM ${String(method)} 未配置`);
     return this.manager;
   }
+}
+
+function fulfilled<T>(result: PromiseSettledResult<T>): T | undefined {
+  return result.status === 'fulfilled' ? result.value : undefined;
+}
+function errorMessage(value: unknown): string { return value instanceof Error ? value.message : String(value); }
+function validateProxy(input: ResidentialProxyConfig) {
+  if (!input.sid.trim()) throw new ServiceError(400, '代理 SID 不能为空');
+  if (!/^[A-Z]{2}$/i.test(input.country)) throw new ServiceError(400, '代理国家必须是两个字母');
+  if (input.asn && (input.state || input.city)) throw new ServiceError(400, 'ASN 与州/城市不能同时设置');
+  if (input.city && !input.state) throw new ServiceError(400, '设置城市时必须同时设置州/省');
+}
+function normalizedProxy(input: ResidentialProxyConfig): ResidentialProxyConfig {
+  return { ...input, country: input.country.toUpperCase() };
 }
 
 function normalizePersonalPlan(value: string): 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown' {

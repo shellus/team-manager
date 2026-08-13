@@ -189,6 +189,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     return wrap(c, () => subscriptions.openBusiness(c.req.param('id'), body));
   });
   api.get('/accounts/:id/account-manager', (c) => wrap(c, () => accountManagement.state(c.req.param('id'))));
+  api.post('/accounts/:id/account-manager/enroll', (c) => wrap(c, () => accountManagement.enroll(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/sync', (c) => wrap(c, () => accountManagement.sync(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/start', (c) => wrap(c, () => accountManagement.startProfile(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/stop', (c) => wrap(c, () => accountManagement.stopProfile(c.req.param('id'))));
@@ -197,6 +198,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     return wrap(c, () => accountManagement.setProxy(c.req.param('id'), body));
   });
   api.post('/accounts/:id/account-manager/session/import', (c) => wrap(c, () => accountManagement.importSession(c.req.param('id'))));
+  api.get('/accounts/:id/personal-payment-method-defaults', (c) => wrap(c, () => accountManagement.paymentMethodDefaults(c.req.param('id'))));
   api.post('/accounts/:id/personal-payment-methods', async (c) => {
     const body = await c.req.json().catch(() => ({})) as AddPersonalPaymentMethodRequest;
     return wrap(c, () => accountManagement.addPaymentMethod(c.req.param('id'), body));
@@ -218,6 +220,11 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     return wrap(c, () => accountManagement.register(body));
   });
   api.get('/operations/registrations/:operationId', (c) => wrap(c, () => accountManagement.registration(c.req.param('operationId'))));
+  api.get('/operations/registrations/:operationId/proxy', (c) => wrap(c, () => accountManagement.registrationProxy(c.req.param('operationId'))));
+  api.put('/operations/registrations/:operationId/proxy', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as ResidentialProxyConfig;
+    return wrap(c, () => accountManagement.setRegistrationProxy(c.req.param('operationId'), body));
+  });
   api.get('/operations/:operationId', (c) => wrap(c, () => operations.get(c.req.param('operationId'))));
   api.post('/operations/:operationId/controls/:control', (c) => wrap(c, () => operations.control(c.req.param('operationId'), c.req.param('control') as any)));
   api.put('/operations/:operationId/payment-card', async (c) => { const body=await c.req.json().catch(()=>({})) as any; return wrap(c,()=>operations.replacePaymentCard(c.req.param('operationId'),body.card??body)); });

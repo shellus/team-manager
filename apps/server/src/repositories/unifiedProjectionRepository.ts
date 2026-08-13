@@ -208,7 +208,14 @@ export class UnifiedProjectionRepository {
         left join workspace_invitations wi on wi.workspace_id=w.id
         left join seat_slots ss on ss.workspace_id=w.id
         left join workspace_credentials wc on wc.workspace_id=w.id
-        where (${query?.trim() ? true : false}=false or coalesce(w.name,'') ilike ${pattern} or w.external_id ilike ${pattern})
+        where (${query?.trim() ? true : false}=false
+          or coalesce(w.name,'') ilike ${pattern} or w.external_id ilike ${pattern}
+          or exists(select 1 from workspace_memberships search_wm left join accounts search_a on search_a.id=search_wm.account_id
+            where search_wm.workspace_id=w.id and (coalesce(search_wm.email,'') ilike ${pattern} or coalesce(search_wm.display_name,'') ilike ${pattern}
+              or coalesce(search_a.email,'') ilike ${pattern} or coalesce(search_a.remark,'') ilike ${pattern}))
+          or exists(select 1 from workspace_invitations search_wi where search_wi.workspace_id=w.id and search_wi.email ilike ${pattern})
+          or exists(select 1 from seat_slots search_ss where search_ss.workspace_id=w.id and (coalesce(search_ss.current_email,'') ilike ${pattern}
+            or coalesce(search_ss.contact,'') ilike ${pattern} or coalesce(search_ss.remark,'') ilike ${pattern})))
         group by w.id order by w.updated_at desc`.execute(this.db);
     return result.rows.map(workspaceSummary);
   }
@@ -256,8 +263,10 @@ function workspaceConsistencyRisks(members:any[],invitations:any[],seats:any[],c
   const activeMembers=new Set(members.filter(row=>row.status==='active').map(row=>String(row.email??row.account_email??'').trim().toLowerCase()).filter(Boolean));
   const pendingInvites=new Set(invitations.filter(row=>row.status==='pending').map(row=>String(row.email).trim().toLowerCase()));
   const risks:WorkspaceDetailView['consistencyRisks']=[];
-  for(const seat of seats.filter(row=>['member','invited'].includes(row.status))){const email=String(seat.current_email??'').trim().toLowerCase();if(!email)continue;
-    const matched=seat.status==='member'?activeMembers.has(email):pendingInvites.has(email);if(!matched)risks.push({key:`seat-${seat.id}`,severity:'warning',title:'客户席位与远端关系不一致',detail:`${seat.current_email} 标记为${seat.status==='member'?'已绑定成员':'已邀请'}，但远端没有对应${seat.status==='member'?'活动成员':'待处理邀请'}。`,targetTab:seat.status==='member'?'members':'invitations'});
+  for(const seat of seats.filter(row=>row.current_email&& !['empty','disabled'].includes(row.status))){const email=String(seat.current_email).trim().toLowerCase();
+    const actual=activeMembers.has(email)?'member':pendingInvites.has(email)?'invited':undefined;
+    if(!actual)risks.push({key:`seat-${seat.id}`,severity:'warning',title:'失联客户席位',detail:`${seat.current_email} 保留了客户资料，但远端成员和待处理邀请中都找不到对应邮箱。`,targetTab:'seats'});
+    else if(seat.status!==actual)risks.push({key:`seat-${seat.id}`,severity:'warning',title:'客户席位状态与远端关系不一致',detail:`${seat.current_email} 的本地状态为 ${seat.status}，远端实际关系为 ${actual}。`,targetTab:'seats'});
   }
   const activeAccountIds=new Set(members.filter(row=>row.status==='active'&&row.account_id).map(row=>row.account_id));
   for(const credential of credentials.filter(row=>row.status==='active'&&!activeAccountIds.has(row.accountId)))risks.push({key:`credential-${credential.id}`,severity:'error',title:'活动凭证缺少有效成员关系',detail:`${credential.accountEmail} 的凭证仍为活动状态，但账号不是当前 Workspace 的活动成员。`,targetTab:'credentials'});
@@ -308,14 +317,24 @@ async function credentialViews(db: Kysely<Database>, predicate: ReturnType<typeo
 }
 
 function workspaceSummary(row: any): WorkspaceSummaryView {
+  const risks=workspaceSummaryRisks(row);
   return {
     id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}), status: row.status,
     plan: row.normalized_plan, ...(row.raw_plan_code ? { rawPlanCode: row.raw_plan_code } : {}),
     ...(row.next_renewal_at ? { nextRenewalAt: iso(row.next_renewal_at) } : {}),
     manageableAccountCount: Number(row.manageable_count), memberCount: Number(row.member_count),
     invitationCount: Number(row.invitation_count), seatSlotCount: Number(row.seat_count), credentialCount: Number(row.credential_count),
+    riskLevel: risks.some((item)=>item.includes('过期'))?'critical':risks.length?'warning':'normal', risks,
     createdAt: iso(row.created_at), updatedAt: iso(row.updated_at)
   };
+}
+
+function workspaceSummaryRisks(row:any):string[]{
+  const risks:string[]=[];
+  if(row.status!=='active')risks.push('Workspace 非活动');
+  if(row.normalized_plan==='unknown')risks.push('套餐未知');
+  if(row.next_renewal_at){const renewal=new Date(row.next_renewal_at).getTime();if(renewal<Date.now())risks.push('订阅已过期');else if(renewal<Date.now()+7*86400_000)risks.push('七天内续费');}
+  return risks;
 }
 
 function iso(value: unknown): string {

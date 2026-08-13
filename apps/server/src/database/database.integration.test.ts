@@ -70,12 +70,16 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       }).execute();
       const fixedWorkspace = await workspaces.upsert({ externalId: 'primary-fixed', normalizedPlan: 'business' });
       const usageWorkspace = await workspaces.upsert({ externalId: 'primary-usage', normalizedPlan: 'business_usage_based' });
+      const laterFixedWorkspace = await workspaces.upsert({ externalId: 'primary-fixed-later', normalizedPlan: 'business' });
+      const earlierFixedWorkspace = await workspaces.upsert({ externalId: 'primary-fixed-earlier', normalizedPlan: 'business' });
       const inactiveWorkspace = await workspaces.upsert({ externalId: 'primary-inactive', normalizedPlan: 'business', status: 'inactive' });
       const billingWorkspace = await workspaces.upsert({ externalId: 'primary-billing', normalizedPlan: 'business_usage_based' });
       const addMembership = (workspaceId: string, accountId: string, role: 'owner' | 'admin' | 'member', status: 'active' | 'removed' = 'active') =>
         workspaces.upsertMembership({ workspaceId, accountId, normalizedRole: role, status, observedAt: new Date(), source: 'primary-plan-test' });
       await addMembership(fixedWorkspace.id, paidOwner.account.id, 'owner');
       await addMembership(fixedWorkspace.id, twoSeatOwner.account.id, 'owner');
+      await addMembership(laterFixedWorkspace.id, twoSeatOwner.account.id, 'owner');
+      await addMembership(earlierFixedWorkspace.id, twoSeatOwner.account.id, 'owner');
       await addMembership(usageWorkspace.id, usageOwner.account.id, 'owner');
       await addMembership(usageWorkspace.id, bothOwner.account.id, 'owner');
       await addMembership(fixedWorkspace.id, bothOwner.account.id, 'owner');
@@ -108,6 +112,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(plans.get(billingOwner.account.id), 'business_two_seat', '固定席位账单证据优先于 usage-based Workspace plan');
       const paidLifecycle = await db.selectFrom('account_operational_summaries').select(['primary_plan','lifecycle_at','lifecycle_will_renew']).where('account_id','=',paidOwner.account.id).executeTakeFirstOrThrow();
       assert.equal(paidLifecycle.primary_plan,'plus');assert.equal(new Date(paidLifecycle.lifecycle_at!).toISOString(),'2030-02-03T00:00:00.000Z');assert.equal(paidLifecycle.lifecycle_will_renew,true);
+      await db.updateTable('workspaces').set({ next_renewal_at: new Date('2031-06-01T00:00:00Z') }).where('id','=',laterFixedWorkspace.id).execute();
+      await db.updateTable('workspaces').set({ next_renewal_at: new Date('2031-03-01T00:00:00Z') }).where('id','=',earlierFixedWorkspace.id).execute();
+      const multipleOwnerLifecycle=await db.selectFrom('account_operational_summaries').select(['primary_plan','lifecycle_at']).where('account_id','=',twoSeatOwner.account.id).executeTakeFirstOrThrow();
+      assert.equal(multipleOwnerLifecycle.primary_plan,'business_two_seat');assert.equal(new Date(multipleOwnerLifecycle.lifecycle_at!).toISOString(),'2031-03-01T00:00:00.000Z','同类 owner Workspace 选择最早的未来续费时间');
       assert.deepEqual((await accounts.list({ primaryPlan: 'team_member' })).map((item) => item.email).sort(),
         ['member@example.com', 'primary-admin@example.com', 'primary-member@example.com']);
 

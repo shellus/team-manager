@@ -9,6 +9,16 @@ export interface WorkspaceSettingsFormValues {
   codexDeviceCodeAuthEnabled?: boolean;
   codexRemoteControlEnabled?: boolean;
   automaticReloadEnabled?: boolean;
+  codexLocalAccessEnabled?: boolean;
+}
+
+export interface AutomaticReloadDetails {
+  threshold?: string;
+  target?: string;
+  monthlyLimit?: string;
+  monthlyRemaining?: string;
+  immediateStatus?: string;
+  immediateMessage?: string;
 }
 
 export function workspaceSettingsFormValues(
@@ -27,17 +37,19 @@ export function workspaceSettingsFormValues(
     workspaceReferralsEnabled: bool(payload.workspace_referrals_enabled),
     autoAcceptRequests: bool(payload.auto_accept_requests),
     personalAccessTokensEnabled:
-      bool(beta?.personal_access_tokens) ??
+      bool(payload.personal_access_tokens) ?? bool(beta?.personal_access_tokens) ??
       bool(permissions?.personal_access_tokens),
-    codexDeviceCodeAuthEnabled: bool(beta?.codex_device_code_auth),
-    codexRemoteControlEnabled: bool(beta?.codex_remote_control),
+    codexDeviceCodeAuthEnabled: bool(payload.codex_device_code_auth) ?? bool(beta?.codex_device_code_auth),
+    codexRemoteControlEnabled: bool(payload.codex_remote_control) ?? bool(beta?.codex_remote_control),
+    codexLocalAccessEnabled:
+      bool(payload.wham_local_access) ?? bool(beta?.wham_local_access),
     automaticReloadEnabled:
       bool(payload.automatic_reload_enabled) ??
       bool(automaticReload?.is_enabled),
   };
 }
 
-export function workspaceSettingsPatch(values: WorkspaceSettingsFormValues) {
+export function workspaceSettingsPatch(values: WorkspaceSettingsFormValues, initial: WorkspaceSettingsFormValues = {}) {
   const keys: Array<Exclude<keyof WorkspaceSettingsFormValues, "name">> = [
     "defaultSeat",
     "workspaceReferralsEnabled",
@@ -49,9 +61,14 @@ export function workspaceSettingsPatch(values: WorkspaceSettingsFormValues) {
   ];
   return Object.fromEntries(
     keys
-      .filter((key) => values[key] !== undefined)
+      .filter((key) => values[key] !== undefined && values[key] !== initial[key])
       .map((key) => [key, values[key]]),
   );
+}
+
+export function automaticReloadDetails(payload:Record<string,unknown>):AutomaticReloadDetails{
+  const value=record(payload.automatic_reload)??record(payload.auto_top_up)??record(payload.automatic_reload_settings);
+  return {threshold:text(value?.recharge_threshold),target:text(value?.recharge_target),monthlyLimit:text(value?.recharge_monthly_limit),monthlyRemaining:text(value?.recharge_monthly_remaining),immediateStatus:text(value?.immediate_top_up_status),immediateMessage:text(value?.immediate_top_up_message)};
 }
 
 export function notificationDeliveryPresentation(
@@ -102,21 +119,12 @@ export function notificationDeliveryPresentation(
   };
 }
 
-export function parseCredentialReplacement(
-  value: string,
-): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(value);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("凭证必须是 JSON 对象");
-  }
-  return parsed as Record<string, unknown>;
-}
-
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
 }
+function text(value:unknown){return typeof value==='string'&&value.trim()?value.trim():undefined;}
 
 function bool(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;

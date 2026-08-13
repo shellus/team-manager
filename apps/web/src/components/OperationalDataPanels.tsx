@@ -64,4 +64,5 @@ export function ActivityTimeline({ value }: { value: AccountActivityView[] }) {
   ]}/>;
 }
 
-function money(amount?:number,currency?:string){if(amount===undefined||!currency)return '—';try{return new Intl.NumberFormat('zh-CN',{style:'currency',currency:currency.toUpperCase()}).format(amount/100);}catch{return `${(amount/100).toFixed(2)} ${currency.toUpperCase()}`;}}
+export function formatMoney(amount?:number|string,currency?:string){const value=typeof amount==='string'?Number(amount):amount;if(value===undefined||!Number.isFinite(value)||!currency)return '—';try{return new Intl.NumberFormat('zh-CN',{style:'currency',currency:currency.toUpperCase()}).format(value/100);}catch{return `${(value/100).toFixed(2)} ${currency.toUpperCase()}`;}}
+const money=formatMoney;

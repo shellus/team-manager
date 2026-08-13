@@ -19,12 +19,15 @@ export class OperationService {
     if (row.kind === 'register_account' && !row.account_id) {
       await this.accountManagerService.registration(row.id);
     }
-    if (row.kind !== 'register_account' && row.external_operation_id && this.manager?.operation && !terminal(row.status)) {
+    if (row.kind === 'import_account' && !terminal(row.status)) {
+      await this.accountManagerService.reconcileEnrollment(row.id);
+    }
+    if (!['register_account', 'import_account'].includes(row.kind) && row.external_operation_id && this.manager?.operation && !terminal(row.status)) {
       const remote = await this.manager.operation(row.external_operation_id);
       await this.#operations.updateFromExternal(row.id, remote, row.account_id ?? undefined);
     }
     const updated = await this.requireRow(id);
-    if (terminal(updated.status) && updated.account_id && !updated.converged_at) {
+    if (updated.status === 'succeeded' && updated.account_id && !updated.converged_at) {
       await this.accountManagerService.sync(updated.account_id);
       await this.#operations.markConverged(updated.id);
     }

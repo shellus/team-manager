@@ -83,6 +83,7 @@ export function SubscriptionModal({
     Form.useWatch("businessMode", form) ?? "create_workspace";
   const effectivePersonalPlan = detail?.personalPlan ?? currentPlan ?? "unknown";
   const isFree = effectivePersonalPlan === "free";
+  const personalChangeUnavailable = target === 'personal' && !isFree;
   const manageableWorkspaces = useMemo(
     () =>
       selectUpgradeableWorkspaces(detail?.workspaces ?? []),
@@ -107,6 +108,11 @@ export function SubscriptionModal({
       "personalMode",
       detail.personalPlan === "free" ? "start_new" : "change_existing",
     );
+  }, [detail, form]);
+
+  useEffect(() => {
+    if (!detail || detail.personalPlan === 'free') return;
+    form.setFieldValue('personalMode', 'change_existing');
   }, [detail, form]);
 
   const initial = useMemo<Partial<SubscriptionValues>>(
@@ -191,9 +197,11 @@ export function SubscriptionModal({
         {target === "personal" ? (
           <>
             <Alert
-              type="info"
+              type={personalChangeUnavailable ? "warning" : "info"}
               showIcon
-              message={`当前个人套餐：${effectivePersonalPlan === "free" ? "Free" : effectivePersonalPlan}`}
+              message={personalChangeUnavailable
+                ? `当前个人套餐：${effectivePersonalPlan}。GAM/上游套餐切换协议尚未验证，暂不可执行升级或变更。`
+                : "当前个人套餐：Free，可全新开通。"}
             />
             <Form.Item
               name="personalMode"
@@ -202,8 +210,8 @@ export function SubscriptionModal({
             >
               <Radio.Group
                 options={[
-                  { label: "全新开通", value: "start_new" },
-                  { label: "升级或变更", value: "change_existing" },
+                  { label: "全新开通", value: "start_new", disabled: !isFree },
+                  { label: "升级或变更（协议未验证）", value: "change_existing", disabled: true },
                 ]}
               />
             </Form.Item>
@@ -282,7 +290,7 @@ export function SubscriptionModal({
         <Form.Item name="autoPay" label="自动提交付款" valuePropName="checked">
           <Switch />
         </Form.Item>
-        <details className="raw-debug">
+        <details className="optional-fields">
           <summary>使用新支付卡（可选）</summary>
           <PaymentCardFields prefix="card" />
         </details>
@@ -291,7 +299,7 @@ export function SubscriptionModal({
           type="primary"
           htmlType="submit"
           loading={busy || loadingAccount}
-          disabled={!detail}
+          disabled={!detail || personalChangeUnavailable}
         >
           创建套餐操作
         </Button>

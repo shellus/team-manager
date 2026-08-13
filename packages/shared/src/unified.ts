@@ -152,6 +152,26 @@ export interface AccountActivityView {
   occurredAt: string;
 }
 
+export interface WorkspaceMemberRemovalResult {
+  workspace: WorkspaceDetailView;
+  summary: {
+    remoteUserId: string;
+    email?: string;
+    seatType?: SeatType;
+    upstreamSuccess?: boolean;
+    hasBillingNotice: boolean;
+    policy?: {
+      kind?: string;
+      billedSeatDelta?: number;
+      vacancyOrdinal?: number;
+      freeVacancyThreshold?: number;
+      expiresAt?: string;
+      billingStartsAt?: string;
+      replacementRequired?: boolean;
+    };
+  };
+}
+
 export type OperationControl = 'retry' | 'rotate-ip' | 'terminate';
 
 export interface ManagedPersonalSubscription {
@@ -325,6 +345,7 @@ export interface SeatOperationalOverviewView {
   workspaceName?: string;
   workspaceExternalId: string;
   source: SeatOperationalSource;
+  sources?: SeatOperationalSource[];
   email?: string;
   displayName?: string;
   role?: NormalizedWorkspaceRole;
@@ -467,6 +488,7 @@ export interface AccountManagerStateView {
   profile?: AccountManagerProfileView;
   proxy?: ResidentialProxyConfig;
   operations: AccountManagerOperationView[];
+  errors?: Partial<Record<'service' | 'account' | 'profile' | 'proxy' | 'operations', string>>;
 }
 
 export interface RegisterAccountRequest {

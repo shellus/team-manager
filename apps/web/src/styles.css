@@ -135,9 +135,9 @@ body {
 .responsive-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
 .switch-grid { display: flex; flex-wrap: wrap; gap: 0 24px; }
 .switch-grid .ant-form-item { min-width: 180px; }
-.raw-debug { width: 100%; padding: 10px 0; }
-.raw-debug > summary { cursor: pointer; color: var(--color-primary); font-weight: 600; }
-.raw-debug[open] > summary { margin-bottom: 10px; }
+.optional-fields { width: 100%; padding: 10px 0; }
+.optional-fields > summary { cursor: pointer; color: var(--color-primary); font-weight: 600; }
+.optional-fields[open] > summary { margin-bottom: 10px; }
 .raw-json textarea, textarea.raw-json { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
 .group-row { width: 100%; }
 .ant-table-wrapper { min-width: 0; }

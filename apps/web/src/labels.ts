@@ -18,6 +18,11 @@ export const LIMIT_TYPE_LABEL: Record<AccountLimitType, string> = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
+  owner: '所有者',
+  admin: '管理员',
+  member: '成员',
+  analytics_viewer: '分析者',
+  unknown: '未知角色',
   'account-owner': '所有者',
   'account-admin': '管理员',
   'standard-user': '成员',
@@ -27,10 +32,16 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const PLAN_LABELS: Record<string, string> = {
+  free: 'Free',
+  business: 'Business 双席位',
+  business_usage_based: 'Business 0.52',
+  unknown: '未知套餐',
   self_serve_business_usage_based: 'Codex席位',
   self_serve_business: 'Business',
   team: 'Business'
 };
+
+const STATUS_LABELS:Record<string,string>={active:'生效中',inactive:'未生效',unknown:'未知',pending:'待接受',revoked:'已撤销',removed:'已移除',empty:'空置',invited:'已邀请',member:'已绑定成员',disabled:'已停用',error:'错误',success:'成功',unavailable:'不可用'};
 
 export function seatLabel(seat?: SeatType | null): string {
   return seat ? SEAT_LABEL[seat] : '未设置';
@@ -56,3 +67,5 @@ export function editableMemberRoleOptions(currentRole: MemberRole) {
 export function planLabel(plan?: string | null): string {
   return plan ? PLAN_LABELS[plan] ?? plan : '暂无套餐';
 }
+
+export function statusLabel(status?:string|null):string{return status?STATUS_LABELS[status]??status:'未知';}

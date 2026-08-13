@@ -35,12 +35,23 @@ export interface AccountRegistrationRequest {
   clientReference?: string;
 }
 
+export interface AccountImportRequest {
+  email: string;
+  authMethod: 'existing_session';
+  session: ChatGptSessionInput;
+  requestTag?: string;
+  clientReference?: string;
+}
+
 export interface AccountManagerGateway {
   health?(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
   startRegistration?(input: AccountRegistrationRequest): Promise<AccountManagerOperationView>;
+  startAccountImport?(input: AccountImportRequest): Promise<AccountManagerOperationView>;
   operation?(operationId: string): Promise<AccountManagerOperationView>;
   controlOperation?(operationId: string, control: OperationControl): Promise<AccountManagerOperationView>;
   replaceOperationPaymentCard?(operationId: string, card: PaymentCardInput): Promise<AccountManagerOperationView>;
+  operationProxyConfig?(operationId: string): Promise<ResidentialProxyConfig>;
+  configureOperationProxy?(operationId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   deleteOperation?(operationId: string): Promise<boolean>;
   account?(accountId: string): Promise<ManagedAccountSummary>;
   syncAccount?(accountId: string): Promise<ManagedAccountSummary>;
@@ -91,6 +102,10 @@ export class AccountManagerClient implements AccountManagerGateway {
     return toOperation(await this.request('POST', '/v1/accounts/register', input));
   }
 
+  async startAccountImport(input: AccountImportRequest): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request('POST', '/v1/accounts/imports', input));
+  }
+
   async operation(operationId: string): Promise<AccountManagerOperationView> {
     return toOperation(await this.request('GET', `/v1/operations/${encodeURIComponent(operationId)}`));
   }
@@ -103,6 +118,14 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   async replaceOperationPaymentCard(operationId: string, card: PaymentCardInput): Promise<AccountManagerOperationView> {
     return toOperation(await this.request('PUT', `/v1/operations/${encodeURIComponent(operationId)}/payment-card`, { card }));
+  }
+
+  operationProxyConfig(operationId: string): Promise<ResidentialProxyConfig> {
+    return this.request('GET', `/v1/operations/${encodeURIComponent(operationId)}/proxy`);
+  }
+
+  configureOperationProxy(operationId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig> {
+    return this.request('PUT', `/v1/operations/${encodeURIComponent(operationId)}/proxy`, input);
   }
 
   async deleteOperation(operationId: string): Promise<boolean> {

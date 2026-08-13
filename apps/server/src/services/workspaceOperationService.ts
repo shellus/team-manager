@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
-import type { EditableMemberRole, SeatType } from '@team-manager/shared';
+import type { EditableMemberRole, SeatType, WorkspaceMemberRemovalResult } from '@team-manager/shared';
+import type { ChatGptMemberRemovalResponse } from '../chatgptApi.js';
 import type { Database } from '../database/schema.js';
 import { ChatGptApi } from '../chatgptApi.js';
 import { fetchWorkspaceWebAccessTokenFromSessionToken } from '../chatgptWebSession.js';
@@ -85,7 +86,11 @@ export class WorkspaceOperationService {
 
   async refreshSettings(workspaceId: string, executorAccountId: string) {
     const { api } = await this.context(workspaceId, executorAccountId);
-    const payload = await api.getSettings();
+    const [settings, automaticReload] = await Promise.all([
+      api.getSettings(),
+      api.getAutomaticReloadSettings().catch(() => undefined)
+    ]);
+    const payload = { ...settings, ...(automaticReload ? { automatic_reload: automaticReload } : {}) };
     await this.db.insertInto('workspace_setting_snapshots').values({ workspace_id: workspaceId, payload, observed_at: new Date() }).execute();
     return this.views.detail(workspaceId);
   }
@@ -145,11 +150,14 @@ export class WorkspaceOperationService {
     return this.refreshInvitations(workspaceId, executorAccountId);
   }
 
-  async removeMember(workspaceId: string, executorAccountId: string, remoteUserId: string) {
+  async removeMember(workspaceId: string, executorAccountId: string, remoteUserId: string): Promise<WorkspaceMemberRemovalResult> {
     const { api } = await this.context(workspaceId, executorAccountId);
-    await api.removeMember(remoteUserId);
-    await this.activity(executorAccountId,workspaceId,'workspace_member_removed',{remoteUserId});
-    return this.refreshMembers(workspaceId, executorAccountId);
+    const member=await this.db.selectFrom('workspace_memberships').select(['email','seat_type']).where('workspace_id','=',workspaceId).where('remote_user_id','=',remoteUserId).where('status','=','active').executeTakeFirst();
+    const result=await api.removeMember(remoteUserId);
+    if(result.success===false)throw new ServiceError(502,'上游返回成员移除失败');
+    const summary=memberRemovalSummary(remoteUserId,member,result);
+    await this.activity(executorAccountId,workspaceId,'workspace_member_removed',{...summary,billingNotice:result.billing_notice??null,policyNotice:result.policy_notice??null});
+    return {workspace:await this.refreshMembers(workspaceId, executorAccountId),summary};
   }
 
   async setMemberSeat(workspaceId: string, executorAccountId: string, remoteUserId: string, seat: SeatType) {
@@ -229,6 +237,15 @@ export class WorkspaceOperationService {
   }
   private activity(accountId:string,workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({accountId,workspaceId,kind,payload});}
 }
+
+export function memberRemovalSummary(remoteUserId:string,member:{email:string|null;seat_type:string|null}|undefined,result:ChatGptMemberRemovalResponse):WorkspaceMemberRemovalResult['summary']{
+  const policy=record(result.policy_notice);const number=(key:string)=>typeof policy?.[key]==='number'&&Number.isFinite(policy[key])?policy[key] as number:undefined;const string=(key:string)=>typeof policy?.[key]==='string'&&String(policy[key]).trim()?String(policy[key]).trim():undefined;
+  const parsedPolicy=policy?{...optional('kind',string('kind')),...optional('billedSeatDelta',number('billed_seat_delta')),...optional('vacancyOrdinal',number('vacancy_ordinal')),...optional('freeVacancyThreshold',number('free_vacancy_threshold')),...optional('expiresAt',string('expires_at')),...optional('billingStartsAt',string('billing_starts_at')),...optional('replacementRequired',typeof policy.replacement_required==='boolean'?policy.replacement_required:undefined)}:undefined;
+  const seatType:SeatType|undefined=member?.seat_type==='default'||member?.seat_type==='usage_based'?member.seat_type:undefined;
+  return {remoteUserId,...optional('email',member?.email??undefined),...optional('seatType',seatType),...optional('upstreamSuccess',result.success),hasBillingNotice:result.billing_notice!==undefined,...(parsedPolicy&&Object.keys(parsedPolicy).length?{policy:parsedPolicy}:{})};
+}
+function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}
+function optional<K extends string,V>(key:K,value:V|undefined):Record<K,V>|Record<string,never>{return value===undefined?{}:{[key]:value} as Record<K,V>;}
 
 function normalizeWorkspacePlan(value?: string): 'free' | 'business' | 'business_usage_based' | 'unknown' {
   const key = value?.toLowerCase() ?? ''; if (key.includes('usage')) return 'business_usage_based';

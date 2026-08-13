@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Alert, Button, Checkbox, Empty, Input, Skeleton, Space, Typography } from 'antd';
+import { Alert, Button, Checkbox, Empty, Skeleton, Space, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
@@ -11,12 +11,6 @@ export function LoadBoundary({ loading, error, empty, onRetry, children }: { loa
   if (error) return <Alert type="error" showIcon message="加载失败" description={error} action={onRetry && <Button icon={<ReloadOutlined />} onClick={onRetry}>重新加载</Button>} />;
   if (empty) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />;
   return <>{children}</>;
-}
-
-export function JsonViewer({ value, title = '原始 JSON' }: { value: unknown; title?: string }) {
-  if (value instanceof Blob) return <details className="raw-debug"><summary>{title}</summary><Typography.Text type="secondary">二进制原文，大小 {value.size} 字节。请使用下载按钮读取完整内容。</Typography.Text></details>;
-  const text = JSON.stringify(value ?? {}, null, 2);
-  return <details className="raw-debug"><summary>{title}</summary><Space direction="vertical" className="panel-stack"><Input.TextArea value={text} readOnly autoSize={{ minRows: 6, maxRows: 28 }} className="raw-json"/><Button onClick={() => void navigator.clipboard.writeText(text)}>复制完整 JSON</Button></Space></details>;
 }
 
 export type TriStateFilterValue = 'true' | 'false' | undefined;

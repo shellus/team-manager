@@ -11,6 +11,7 @@ import {
   Table,
   Tag,
   Typography,
+  message,
 } from "antd";
 import type {
   AccountManagerOperationView,
@@ -19,7 +20,13 @@ import type {
 import { unifiedApi } from "../unifiedApi.js";
 import { LoadBoundary, formatTime } from "./ProductPrimitives.js";
 import { PaymentCardFields } from "./PaymentCardFields.js";
-import { useWebPreferences } from "../webPreferences.js";
+import {
+  operationDrawerActions,
+  operationPhaseLabel,
+  operationTypeLabel,
+} from "../features/unified/operationUiModel.js";
+import type { ResidentialProxyConfig } from "@team-manager/shared";
+import { ProxyConfigurationFields } from "./ProxyConfigurationFields.js";
 
 export function OperationDrawer({
   operation,
@@ -39,7 +46,6 @@ export function OperationDrawer({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [cardOpen, setCardOpen] = useState(false);
-  const { autoRefreshOperations } = useWebPreferences();
   const targetOperationId = operationId ?? operation?.id;
   const load = async () => {
     if (!targetOperationId) return;
@@ -61,7 +67,6 @@ export function OperationDrawer({
     const status = detail?.status ?? operation?.status;
     if (
       !open ||
-      !autoRefreshOperations ||
       !status ||
       ["succeeded", "failed", "interrupted"].includes(status)
     )
@@ -70,7 +75,6 @@ export function OperationDrawer({
     return () => window.clearInterval(timer);
   }, [
     open,
-    autoRefreshOperations,
     targetOperationId,
     detail?.status,
     operation?.status,
@@ -89,6 +93,7 @@ export function OperationDrawer({
     }
   };
   const value = detail ?? operation;
+  const actions = value ? operationDrawerActions(value) : undefined;
   return (
     <>
       <Drawer
@@ -121,13 +126,13 @@ export function OperationDrawer({
                 column={2}
                 items={[
                   { key: "id", label: "操作 ID", children: value.id },
-                  { key: "type", label: "类型", children: value.type },
+                  { key: "type", label: "类型", children: operationTypeLabel(value.type) },
                   {
                     key: "status",
                     label: "状态",
-                    children: <Tag>{value.status}</Tag>,
+                    children: <Tag>{operationPhaseLabel(value.status)}</Tag>,
                   },
-                  { key: "phase", label: "阶段", children: value.phase },
+                  { key: "phase", label: "阶段", children: operationPhaseLabel(value.phase) },
                   {
                     key: "created",
                     label: "创建",
@@ -159,7 +164,7 @@ export function OperationDrawer({
                 />
               )}
               <Space wrap>
-                <Button
+                {actions?.retry && <Button
                   loading={busy === "retry"}
                   onClick={() =>
                     run("retry", () =>
@@ -168,30 +173,38 @@ export function OperationDrawer({
                   }
                 >
                   重试当前步骤
-                </Button>
-                <Button
+                </Button>}
+                {actions?.rotateIp && <Button
                   loading={busy === "proxy"}
                   onClick={() =>
-                    run("proxy", () =>
-                      unifiedApi.controlOperation(value.id, "rotate-ip"),
-                    )
+                    Modal.confirm({
+                      title: "轮换代理 IP 并重试？",
+                      content: "GAM 会切换住宅代理会话并从当前步骤继续。",
+                      okText: "轮换 IP",
+                      onOk: () => run("proxy", () => unifiedApi.controlOperation(value.id, "rotate-ip")),
+                    })
                   }
                 >
                   轮换代理 IP
-                </Button>
-                <Button
+                </Button>}
+                {actions?.terminate && <Button
                   loading={busy === "terminate"}
                   danger
                   onClick={() =>
-                    run("terminate", () =>
-                      unifiedApi.controlOperation(value.id, "terminate"),
-                    )
+                    Modal.confirm({
+                      title: "终止当前操作？",
+                      content: "终止后任务不会自动继续，已经发生的上游行为不会回滚。",
+                      okText: "终止操作",
+                      okButtonProps: { danger: true },
+                      onOk: () => run("terminate", () => unifiedApi.controlOperation(value.id, "terminate")),
+                    })
                   }
                 >
                   终止操作
-                </Button>
-                <Button onClick={() => setCardOpen(true)}>补充支付卡</Button>
-                <Button
+                </Button>}
+                {actions?.editRegistrationProxy && <RegistrationProxyButton operationId={value.id} onChanged={() => { void load(); onChanged?.(); }} />}
+                {actions?.supplyCard && <Button onClick={() => setCardOpen(true)}>补充支付卡</Button>}
+                {actions?.remove && <Button
                   loading={busy === "delete"}
                   danger
                   onClick={() =>
@@ -206,7 +219,7 @@ export function OperationDrawer({
                   }
                 >
                   清理记录
-                </Button>
+                </Button>}
               </Space>
               {detail?.events && (
                 <Table
@@ -220,8 +233,8 @@ export function OperationDrawer({
                       dataIndex: "occurredAt",
                       render: formatTime,
                     },
-                    { title: "阶段", dataIndex: "phase" },
-                    { title: "状态", dataIndex: "status" },
+                    { title: "阶段", dataIndex: "phase", render: operationPhaseLabel },
+                    { title: "状态", dataIndex: "status", render: operationPhaseLabel },
                     {
                       title: "说明",
                       dataIndex: "payload",
@@ -293,4 +306,67 @@ function operationEventSummary(payload: Record<string, unknown>): string {
     .slice(0, 3)
     .map(([key, value]) => `${key}: ${String(value)}`);
   return entries.join(" · ") || "—";
+}
+
+function RegistrationProxyButton({
+  operationId,
+  onChanged,
+}: {
+  operationId: string;
+  onChanged: () => void;
+}) {
+  const [form] = Form.useForm<ResidentialProxyConfig>();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setError('');
+    void unifiedApi.registrationProxy(operationId)
+      .then((value) => form.setFieldsValue(value))
+      .catch((reason) => setError((reason as Error).message))
+      .finally(() => setLoading(false));
+  }, [form, open, operationId]);
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>编辑注册代理</Button>
+      <Modal title="编辑注册任务代理" open={open} footer={null} destroyOnHidden onCancel={() => setOpen(false)} width={640}>
+        <Alert type="info" showIcon message="修改的是当前注册任务使用的住宅代理，不影响其他账号。" />
+        {error && <Alert className="modal-error" type="error" showIcon message={error} />}
+        <Form
+          form={form}
+          layout="vertical"
+          disabled={loading}
+          className="account-action-form"
+          onFinish={async (values) => {
+            setSaving(true);
+            setError('');
+            try {
+              await unifiedApi.configureRegistrationProxy(operationId, {
+                sid: values.sid,
+                country: values.country.toUpperCase(),
+                asn: values.asn || null,
+                state: values.state || null,
+                city: values.city || null,
+              });
+              message.success('注册任务代理已保存');
+              setOpen(false);
+              onChanged();
+            } catch (reason) {
+              setError((reason as Error).message);
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          <ProxyConfigurationFields form={form} />
+          <Button type="primary" htmlType="submit" loading={saving}>保存注册代理</Button>
+        </Form>
+      </Modal>
+    </>
+  );
 }
