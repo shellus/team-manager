@@ -47,6 +47,7 @@ export class WorkspaceOperationService {
       await this.db.updateTable('workspace_memberships').set({ status: 'removed', observed_at: observedAt })
         .where('id', '=', row.id).execute();
     }
+    await this.reconcileCredentials(workspaceId);
     return this.views.detail(workspaceId);
   }
 
@@ -75,6 +76,7 @@ export class WorkspaceOperationService {
     for (const row of pending.filter((item) => !seenEmails.has(item.normalized_email))) {
       await this.db.updateTable('workspace_invitations').set({ status: 'revoked', observed_at: observedAt }).where('id', '=', row.id).execute();
     }
+    await this.reconcileCredentials(workspaceId);
     return this.views.detail(workspaceId);
   }
 
@@ -89,7 +91,41 @@ export class WorkspaceOperationService {
     const { api } = await this.context(workspaceId, executorAccountId);
     const payload = await api.getBillingSnapshotRaw();
     await this.#billing.saveSnapshot({ kind: 'workspace', workspaceId }, payload, new Date());
+    await this.refreshSubscription(workspaceId, executorAccountId);
     return this.views.detail(workspaceId);
+  }
+
+  async billing(workspaceId: string) { return this.#billing.detail({ kind: 'workspace', workspaceId }); }
+  async invoice(workspaceId: string, invoiceId: string) { const item=await this.#billing.invoice({kind:'workspace',workspaceId},invoiceId); if(!item)throw new ServiceError(404,'发票不存在'); return item; }
+
+  async refreshSubscription(workspaceId: string, executorAccountId: string) {
+    const { api, workspace } = await this.context(workspaceId, executorAccountId);
+    const payload = await api.checkAccount(); const observedAt = new Date();
+    await this.db.transaction().execute(async (trx) => {
+      await trx.insertInto('workspace_subscription_snapshots').values({
+        workspace_id: workspaceId, normalized_plan: normalizeWorkspacePlan(payload.planType),
+        raw_plan_code: payload.planType ?? null, status: payload.planType ? 'active' : 'unknown', will_renew: null,
+        effective_at: null, ends_at: payload.nextRenewalOn ?? null, payload: payload as Record<string, unknown>, observed_at: observedAt
+      }).execute();
+      await trx.updateTable('workspaces').set({
+        name: payload.workspaceName ?? workspace.name, raw_plan_code: payload.planType ?? workspace.raw_plan_code,
+        normalized_plan: normalizeWorkspacePlan(payload.planType), next_renewal_at: payload.nextRenewalOn ?? workspace.next_renewal_at
+      }).where('id', '=', workspaceId).execute();
+    });
+    return this.subscription(workspaceId);
+  }
+
+  async subscription(workspaceId: string) {
+    const row = await this.db.selectFrom('workspace_subscription_snapshots').selectAll().where('workspace_id', '=', workspaceId).orderBy('observed_at', 'desc').executeTakeFirst();
+    return row ? { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString(), plan: row.normalized_plan,
+      rawPlanCode: row.raw_plan_code, status: row.status, willRenew: row.will_renew,
+      effectiveAt: row.effective_at ? new Date(row.effective_at as any).toISOString() : undefined,
+      endsAt: row.ends_at ? new Date(row.ends_at as any).toISOString() : undefined } : undefined;
+  }
+
+  async settings(workspaceId: string) {
+    const row = await this.db.selectFrom('workspace_setting_snapshots').selectAll().where('workspace_id', '=', workspaceId).orderBy('observed_at', 'desc').executeTakeFirst();
+    return row ? { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString() } : undefined;
   }
 
   async invite(workspaceId: string, executorAccountId: string, input: { email: string; seat: SeatType; role?: string }) {
@@ -135,14 +171,15 @@ export class WorkspaceOperationService {
 
   async patchSettings(workspaceId: string, executorAccountId: string, input: Record<string, unknown>) {
     const { api } = await this.context(workspaceId, executorAccountId);
-    if (input.defaultSeat === 'default' || input.defaultSeat === 'usage_based') await api.setDefaultSeat(input.defaultSeat);
-    else if (typeof input.workspaceReferralsEnabled === 'boolean') await api.setWorkspaceReferralsEnabled(input.workspaceReferralsEnabled);
-    else if (typeof input.autoAcceptRequests === 'boolean') await api.setAutoAcceptRequests(input.autoAcceptRequests);
-    else if (typeof input.personalAccessTokensEnabled === 'boolean') await api.setPersonalAccessTokensEnabled(input.personalAccessTokensEnabled);
-    else if (typeof input.codexDeviceCodeAuthEnabled === 'boolean') await api.setCodexDeviceCodeAuthEnabled(input.codexDeviceCodeAuthEnabled);
-    else if (typeof input.codexRemoteControlEnabled === 'boolean') await api.setCodexRemoteControlEnabled(input.codexRemoteControlEnabled);
-    else if (typeof input.automaticReloadEnabled === 'boolean') await api.setAutomaticReloadEnabled(input.automaticReloadEnabled);
-    else throw new ServiceError(400, '没有可更新的 Workspace 设置');
+    let changes = 0;
+    if (input.defaultSeat === 'default' || input.defaultSeat === 'usage_based') { await api.setDefaultSeat(input.defaultSeat); changes += 1; }
+    if (typeof input.workspaceReferralsEnabled === 'boolean') { await api.setWorkspaceReferralsEnabled(input.workspaceReferralsEnabled); changes += 1; }
+    if (typeof input.autoAcceptRequests === 'boolean') { await api.setAutoAcceptRequests(input.autoAcceptRequests); changes += 1; }
+    if (typeof input.personalAccessTokensEnabled === 'boolean') { await api.setPersonalAccessTokensEnabled(input.personalAccessTokensEnabled); changes += 1; }
+    if (typeof input.codexDeviceCodeAuthEnabled === 'boolean') { await api.setCodexDeviceCodeAuthEnabled(input.codexDeviceCodeAuthEnabled); changes += 1; }
+    if (typeof input.codexRemoteControlEnabled === 'boolean') { await api.setCodexRemoteControlEnabled(input.codexRemoteControlEnabled); changes += 1; }
+    if (typeof input.automaticReloadEnabled === 'boolean') { await api.setAutomaticReloadEnabled(input.automaticReloadEnabled); changes += 1; }
+    if (changes === 0) throw new ServiceError(400, '没有可更新的 Workspace 设置');
     return this.refreshSettings(workspaceId, executorAccountId);
   }
 
@@ -167,6 +204,24 @@ export class WorkspaceOperationService {
       };
     } catch (error) { throw asServiceError(error); }
   }
+
+  private async reconcileCredentials(workspaceId: string) {
+    const rows = await this.db.selectFrom('workspace_credentials as c').innerJoin('accounts as a', 'a.id', 'c.account_id')
+      .select(['c.id', 'c.account_id', 'a.normalized_email']).where('c.workspace_id', '=', workspaceId).execute();
+    for (const row of rows) {
+      const eligible = await this.db.selectFrom('workspace_memberships').select('id').where('workspace_id', '=', workspaceId)
+        .where('account_id', '=', row.account_id).where('status', '=', 'active').executeTakeFirst()
+        ?? await this.db.selectFrom('workspace_invitations').select('id').where('workspace_id', '=', workspaceId)
+          .where('normalized_email', '=', row.normalized_email).where('status', '=', 'pending').executeTakeFirst();
+      await this.db.updateTable('workspace_credentials').set({ status: eligible ? 'active' : 'disabled', disabled_at: eligible ? null : new Date() })
+        .where('id', '=', row.id).execute();
+    }
+  }
+}
+
+function normalizeWorkspacePlan(value?: string): 'free' | 'business' | 'business_usage_based' | 'unknown' {
+  const key = value?.toLowerCase() ?? ''; if (key.includes('usage')) return 'business_usage_based';
+  if (key.includes('business') || key.includes('team')) return 'business'; if (key === 'free') return 'free'; return 'unknown';
 }
 
 function normalizeRole(value: string): 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown' {

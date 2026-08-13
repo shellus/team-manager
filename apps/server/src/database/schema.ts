@@ -42,6 +42,8 @@ export interface AccountOperationalProfileTable extends AuditedTable {
   proxy_url_key_version: string | null;
   account_manager_plan_code: string | null;
   account_manager_synced_at: NullableTimestamp;
+  profile_status: string;
+  profile_checked_at: NullableTimestamp;
 }
 
 export interface GamBindingTable extends AuditedTable {
@@ -176,6 +178,9 @@ export interface SeatSlotSwapOperationTable extends AuditedTable {
   status: string;
   requested_email: string;
   error_message: string | null;
+  from_email: string | null;
+  steps: JsonObject;
+  completed_at: NullableTimestamp;
 }
 
 export interface PersonalSnapshotTable {
@@ -207,6 +212,22 @@ export interface AutomationOperationTable extends AuditedTable {
   result_summary: JsonObject | null;
   error_code: string | null;
   error_message: string | null;
+  completed_at: NullableTimestamp;
+  effective_at: NullableTimestamp;
+  last_polled_at: NullableTimestamp;
+  converged_at: NullableTimestamp;
+}
+
+export interface AutomationOperationEventTable {
+  id: Generated<string>; operation_id: string; phase: string | null; status: string;
+  safe_payload: JsonObject; occurred_at: Timestamp; created_at: Generated<Timestamp>;
+}
+
+export interface PaymentAttemptSummaryTable {
+  id: Generated<string>; operation_id: string; target_plan: string | null; result_code: string;
+  card_brand: string | null; card_last4: string | null;
+  amount: ColumnType<string | null, string | number | null, string | number | null>;
+  currency: string | null; submitted_at: NullableTimestamp; created_at: Generated<Timestamp>;
 }
 
 export interface ArtifactIndexTable {
@@ -294,6 +315,13 @@ export interface PaymentMethodSummaryTable {
   created_at: Generated<Timestamp>;
 }
 
+export interface BillingInvoiceTable {
+  id: Generated<string>; billing_snapshot_id: string; external_id: string | null;
+  amount: ColumnType<string | null, string | number | null, string | number | null>;
+  currency: string | null; status: string | null; occurred_at: NullableTimestamp;
+  payload: JsonObject; created_at: Generated<Timestamp>;
+}
+
 export interface SystemSettingTable {
   key: string;
   value: JsonObject;
@@ -309,6 +337,25 @@ export interface NotificationPolicyTable extends AuditedTable {
   kind: string;
   enabled: Generated<boolean>;
   configuration: JsonObject;
+}
+
+export interface NotificationDeliveryTable {
+  id: Generated<string>; policy_id: string; status: string; safe_summary: JsonObject;
+  error_message: string | null; delivered_at: NullableTimestamp; created_at: Generated<Timestamp>;
+}
+
+export interface AccountActivityLogTable {
+  id: Generated<string>; account_id: string | null; workspace_id: string | null;
+  kind: string; payload: JsonObject; source_file_sha256: string | null;
+  source_line: number | null; source_bytes_sha256: string | null;
+  occurred_at: Timestamp; created_at: Generated<Timestamp>;
+}
+
+export interface CodexOauthSessionTable {
+  id: string; account_id: string; workspace_id: string; state: string;
+  verifier_ciphertext: string; verifier_nonce: string; verifier_auth_tag: string;
+  verifier_key_version: string; auth_url: string; expires_at: Timestamp;
+  consumed_at: NullableTimestamp; created_at: Generated<Timestamp>;
 }
 
 export interface TeamOrderConfigurationTable extends AuditedTable {
@@ -373,13 +420,19 @@ export interface Database {
   workspace_setting_snapshots: WorkspaceSnapshotTable;
   credential_quota_snapshots: CredentialQuotaSnapshotTable;
   billing_snapshots: BillingSnapshotTable;
+  billing_invoices: BillingInvoiceTable;
   payment_method_summaries: PaymentMethodSummaryTable;
   system_settings: SystemSettingTable;
   notification_policies: NotificationPolicyTable;
+  notification_deliveries: NotificationDeliveryTable;
+  account_activity_logs: AccountActivityLogTable;
+  codex_oauth_sessions: CodexOauthSessionTable;
   team_order_configurations: TeamOrderConfigurationTable;
   team_order_maintenances: TeamOrderMaintenanceTable;
   team_upgrade_orders: TeamUpgradeOrderTable;
   automation_operations: AutomationOperationTable;
+  automation_operation_events: AutomationOperationEventTable;
+  payment_attempt_summaries: PaymentAttemptSummaryTable;
   upstream_trace_segments: ArtifactIndexTable;
   rrweb_recordings: ArtifactIndexTable;
   quarantined_artifacts: QuarantinedArtifactTable;

@@ -33,10 +33,11 @@ export class UnifiedProjectionRepository {
     const rows = await new AccountRepository(this.db).list(filters);
     const ids = rows.map((row) => row.id);
     const extras = ids.length === 0 ? [] : (await sql<{
-      id: string; group_id: string; gam_ref: string | null; has_member: boolean; has_credential: boolean;
+      id: string; group_id: string; gam_ref: string | null; has_member: boolean; has_credential: boolean; has_running_profile: boolean;
     }>`select a.id, a.group_id, gb.external_account_ref gam_ref,
           exists(select 1 from workspace_memberships wm where wm.account_id=a.id and wm.status='active' and wm.normalized_role not in ('owner','admin')) has_member,
-          exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential
+          exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential,
+          exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile
         from accounts a left join gam_bindings gb on gb.account_id=a.id where a.id = any(${ids}::uuid[])`.execute(this.db)).rows;
     const extraById = new Map(extras.map((row) => [row.id, row]));
     return rows.map((row) => {
@@ -49,6 +50,7 @@ export class UnifiedProjectionRepository {
         group: { id: row.group_id, name: row.group_name },
         isBanned: row.is_banned,
         hasGamBinding: Boolean(extra?.gam_ref),
+        hasRunningProfile: extra?.has_running_profile ?? false,
         hasSession: Boolean(row.current_session_revision_id),
         hasManageableWorkspace: row.has_manageable_workspace,
         isWorkspaceMember: extra?.has_member ?? false,

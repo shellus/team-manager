@@ -9,6 +9,7 @@ export interface AccountListFilters {
   hasWorkspaceCredential?: boolean;
   hasGamBinding?: boolean;
   hasSession?: boolean;
+  hasRunningProfile?: boolean;
   personalPlan?: string;
   isBanned?: boolean;
   query?: string;
@@ -98,7 +99,9 @@ export class AccountRepository {
         proxy_url_auth_tag: null,
         proxy_url_key_version: null,
         account_manager_plan_code: null,
-        account_manager_synced_at: null
+        account_manager_synced_at: null,
+        profile_status: 'unknown',
+        profile_checked_at: null
       }).execute();
       return { account, personalSpace };
     };
@@ -147,6 +150,10 @@ export class AccountRepository {
       external_account_ref: externalAccountRef.trim(),
       normalized_external_account_ref: normalized
     })).execute();
+  }
+
+  async clearGamAccount(accountId: string): Promise<void> {
+    await this.db.deleteFrom('gam_bindings').where('account_id', '=', accountId).execute();
   }
 
   async remove(id: string): Promise<void> {
@@ -213,6 +220,9 @@ export class AccountRepository {
     }
     if (filters.hasSession !== undefined) {
       query = query.where('a.current_session_revision_id', filters.hasSession ? 'is not' : 'is', null);
+    }
+    if (filters.hasRunningProfile !== undefined) {
+      query = query.where(sql<boolean>`exists (select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping'))`, '=', filters.hasRunningProfile);
     }
     const rows = await query.orderBy('a.updated_at', 'desc').execute() as AccountListItem[];
     return filters.personalPlan ? rows.filter((row) => row.personal_plan === filters.personalPlan) : rows;

@@ -12,10 +12,13 @@ import { AccountRepository } from '../repositories/accountRepository.js';
 import { AutomationOperationRepository } from '../repositories/automationOperationRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
+import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
+import type { ManagedAccountSummary } from '../accountManagerClient.js';
 
 export class AccountManagerService {
   readonly #accounts: AccountRepository;
   readonly #operations: AutomationOperationRepository;
+  readonly #workspaces: WorkspaceRepository;
 
   constructor(
     private readonly db: Kysely<Database>,
@@ -24,6 +27,7 @@ export class AccountManagerService {
   ) {
     this.#accounts = new AccountRepository(db);
     this.#operations = new AutomationOperationRepository(db);
+    this.#workspaces = new WorkspaceRepository(db);
   }
 
   async state(accountId: string): Promise<AccountManagerStateView> {
@@ -36,6 +40,7 @@ export class AccountManagerService {
       this.manager.accountProxyConfig?.(ref).catch(() => undefined),
       this.manager.listAccountOperations?.(ref).catch(() => []) ?? []
     ]);
+    if (profile) await this.db.updateTable('account_operational_profiles').set({ profile_status: profile.status, profile_checked_at: new Date() }).where('account_id', '=', accountId).execute();
     return {
       ...(account ? { account: {
         id: account.id,
@@ -59,12 +64,12 @@ export class AccountManagerService {
 
   async startProfile(accountId: string) {
     const manager = this.require('startAccountProfile');
-    return manager.startAccountProfile!(await this.accountRef(accountId));
+    const profile=await manager.startAccountProfile!(await this.accountRef(accountId));await this.db.updateTable('account_operational_profiles').set({profile_status:profile.status,profile_checked_at:new Date()}).where('account_id','=',accountId).execute();return profile;
   }
 
   async stopProfile(accountId: string) {
     const manager = this.require('stopAccountProfile');
-    return manager.stopAccountProfile!(await this.accountRef(accountId));
+    const profile=await manager.stopAccountProfile!(await this.accountRef(accountId));await this.db.updateTable('account_operational_profiles').set({profile_status:profile.status,profile_checked_at:new Date()}).where('account_id','=',accountId).execute();return profile;
   }
 
   async setProxy(accountId: string, input: ResidentialProxyConfig) {
@@ -162,12 +167,28 @@ export class AccountManagerService {
     return { operation, ...(accountId ? { accountId } : {}) };
   }
 
-  private async persistRemoteState(accountId: string, remote: { personalPlan?: string; paymentMethods?: Array<any> }) {
+  async persistRemoteState(accountId: string, remote: ManagedAccountSummary) {
+    const observedAt = new Date();
     await this.db.updateTable('account_operational_profiles').set({
       account_manager_plan_code: remote.personalPlan ?? null,
-      account_manager_synced_at: new Date()
+      account_manager_synced_at: observedAt
     }).where('account_id', '=', accountId).execute();
     const personal = await this.db.selectFrom('personal_spaces').select('id').where('account_id', '=', accountId).executeTakeFirstOrThrow();
+    if (remote.personalPlan || remote.personalSubscription) {
+      const subscription = remote.personalSubscription ?? {};
+      const rawPlan = subscription.planType ?? remote.personalPlan ?? 'unknown';
+      await this.db.insertInto('personal_subscription_snapshots').values({
+        personal_space_id: personal.id,
+        normalized_plan: normalizePersonalPlan(rawPlan),
+        raw_plan_code: rawPlan,
+        status: subscription.isDelinquent ? 'delinquent' : 'active',
+        will_renew: subscription.willRenew ?? null,
+        effective_at: subscription.activeStart ?? null,
+        ends_at: subscription.activeUntil ?? null,
+        payload: subscription as Record<string, unknown>,
+        observed_at: observedAt
+      }).execute();
+    }
     if (remote.paymentMethods) {
       await this.db.transaction().execute(async (trx) => {
         await trx.deleteFrom('payment_method_summaries').where('personal_space_id', '=', personal.id).execute();
@@ -179,10 +200,37 @@ export class AccountManagerService {
           expiry_month: item.expMonth ?? null,
           expiry_year: item.expYear ?? null,
           is_default: item.isDefault === true,
-          observed_at: new Date()
+          observed_at: observedAt
         }))).execute();
       });
     }
+    const seen = new Set<string>();
+    for (const item of remote.workspaces ?? []) {
+      if (!item.id?.trim()) continue;
+      const workspace = await this.#workspaces.upsert({
+        externalId: item.id, name: item.name ?? null,
+        status: item.visible === false || item.status === 'inactive' ? 'inactive' : 'active',
+        rawPlanCode: item.planType ?? null,
+        normalizedPlan: normalizeWorkspacePlan(item.planType),
+        nextRenewalAt: item.nextRenewalAt ?? null
+      });
+      seen.add(workspace.id);
+      await this.#workspaces.upsertMembership({
+        workspaceId: workspace.id, accountId, email: remote.email,
+        normalizedRole: normalizeWorkspaceRole(item.role), rawRole: item.role ?? null,
+        seatType: item.seatType ?? null, status: 'active', observedAt, source: 'gam_sync'
+      });
+    }
+    const existing = await this.db.selectFrom('workspace_memberships').select(['id', 'workspace_id'])
+      .where('account_id', '=', accountId).where('source', '=', 'gam_sync').where('status', '=', 'active').execute();
+    for (const row of existing) if (!seen.has(row.workspace_id)) {
+      await this.db.updateTable('workspace_memberships').set({ status: 'removed', observed_at: observedAt }).where('id', '=', row.id).execute();
+    }
+    await this.db.insertInto('account_activity_logs').values({
+      account_id: accountId, workspace_id: null, kind: 'gam_sync',
+      payload: { personalPlan: remote.personalPlan ?? null, workspaceCount: remote.workspaces?.length ?? 0 },
+      source_file_sha256: null, source_line: null, source_bytes_sha256: null, occurred_at: observedAt
+    }).execute();
   }
 
   private async accountRef(accountId: string): Promise<string> {
@@ -197,6 +245,29 @@ export class AccountManagerService {
     if (!this.manager?.[method]) throw new ServiceError(503, `GAM ${String(method)} 未配置`);
     return this.manager;
   }
+}
+
+function normalizePersonalPlan(value: string): 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown' {
+  const key = value.toLowerCase();
+  if (['free', 'go', 'plus', 'pro_5x', 'pro_20x'].includes(key)) return key as any;
+  if (key.includes('prolite')) return 'pro_5x';
+  if (key.includes('pro')) return 'pro_20x';
+  if (key.includes('plus')) return 'plus';
+  if (key.includes('go')) return 'go';
+  return 'unknown';
+}
+function normalizeWorkspacePlan(value?: string): 'free' | 'business' | 'business_usage_based' | 'unknown' {
+  const key = value?.toLowerCase() ?? '';
+  if (key.includes('usage')) return 'business_usage_based';
+  if (key.includes('business') || key.includes('team')) return 'business';
+  if (key === 'free') return 'free';
+  return 'unknown';
+}
+function normalizeWorkspaceRole(value?: string): 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown' {
+  const key = value?.toLowerCase() ?? '';
+  if (key.includes('owner')) return 'owner'; if (key.includes('admin')) return 'admin';
+  if (key.includes('analytics')) return 'analytics_viewer'; if (key.includes('member') || key.includes('user')) return 'member';
+  return 'unknown';
 }
 
 function mergeOperations(local: AccountManagerStateView['operations'], remote: AccountManagerStateView['operations']) {

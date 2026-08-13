@@ -4,7 +4,7 @@ import type { AccountManagerGateway } from './accountManagerClient.js';
 import { AccountManagerClient } from './accountManagerClient.js';
 import { quotaFromPayload } from './codexQuota.js';
 
-test('GAM 个人套餐请求转发四档套餐且 trace 中隐藏卡数据', async () => {
+test('GAM 个人套餐请求完整转发四档套餐与管理员提交的卡数据', async () => {
   let requestBody = '';
   const client = new AccountManagerClient('http://gam.test', 'token', async (_input, init) => {
     requestBody = String(init?.body ?? '');
@@ -19,6 +19,7 @@ test('GAM 个人套餐请求转发四档套餐且 trace 中隐藏卡数据', asy
   });
   assert.equal(JSON.parse(requestBody).targetPlan, 'pro_20x');
   assert.equal(JSON.parse(requestBody).mode, 'start_new');
+  assert.equal(JSON.parse(requestBody).card.number, '4242424242424242');
 });
 
 test('统一账号 GAM 网关不再暴露旧套餐和角色专用方法', () => {

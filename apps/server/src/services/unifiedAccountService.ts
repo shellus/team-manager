@@ -84,7 +84,10 @@ export class UnifiedAccountService {
         await this.operational.updateLimitType(id, input.limitType as 'unknown' | 'weekly' | 'monthly');
       }
       if (typeof input.proxy === 'string' || input.proxy === null) await this.operational.setProxy(id, input.proxy);
-      if (typeof input.gamAccountRef === 'string' && input.gamAccountRef.trim()) await this.#accounts.bindGamAccount(id, input.gamAccountRef);
+      if (typeof input.gamAccountRef === 'string') {
+        if (input.gamAccountRef.trim()) await this.#accounts.bindGamAccount(id, input.gamAccountRef);
+        else await this.#accounts.clearGamAccount(id);
+      }
       if (input.session !== undefined) {
         const parsed = parseChatGptSessionInput(input.session);
         if ('error' in parsed) throw new ServiceError(400, parsed.error);
@@ -102,6 +105,18 @@ export class UnifiedAccountService {
     try { await this.#accounts.remove(id); return true; } catch (error) { throw asServiceError(error); }
   }
 
+  async session(id: string) {
+    if (!await this.#accounts.findById(id)) throw new ServiceError(404, '账号不存在');
+    const session = await this.sessions.currentSession(id);
+    if (!session) throw new ServiceError(404, '账号没有 Session');
+    return session;
+  }
+
+  async replaceSession(id: string, input: unknown) {
+    await this.update(id, { session: input });
+    return this.session(id);
+  }
+
   async createGroup(name: string) {
     try { await this.#accounts.createGroup(name); return this.groups(); } catch (error) { throw asServiceError(error); }
   }
@@ -110,6 +125,16 @@ export class UnifiedAccountService {
   }
   async deleteGroup(id: string) {
     try { await this.#accounts.deleteGroup(id); return this.groups(); } catch (error) { throw asServiceError(error); }
+  }
+
+  async reorderGroups(ids: string[]) {
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) throw new ServiceError(400, '分组排序无效');
+    await this.db.transaction().execute(async (trx) => {
+      const existing = await trx.selectFrom('account_groups').select('id').execute();
+      if (existing.length !== ids.length || existing.some((row) => !ids.includes(row.id))) throw new ServiceError(409, '分组排序必须包含全部分组');
+      for (const [sortOrder, id] of ids.entries()) await trx.updateTable('account_groups').set({ sort_order: sortOrder }).where('id', '=', id).execute();
+    });
+    return this.groups();
   }
 
   private async saveSession(accountId: string, personalSpaceId: string, session: ChatGptSessionInput, source: string): Promise<void> {

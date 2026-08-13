@@ -14,7 +14,7 @@ export interface SaveSeatSlotInput {
   expireReminder?: boolean;
   expireRemove?: boolean;
   seatType: 'default' | 'usage_based';
-  status: 'empty' | 'invited' | 'member' | 'unknown';
+  status: 'empty' | 'invited' | 'member' | 'unknown' | 'disabled';
 }
 
 export class SeatSlotRepository {

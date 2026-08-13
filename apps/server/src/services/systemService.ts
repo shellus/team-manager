@@ -53,4 +53,17 @@ export class SystemService {
     }).onConflict((oc) => oc.column('kind').doUpdateSet({ enabled: input.enabled === true, configuration: input.configuration ?? {} })).execute();
     return this.notificationPolicies();
   }
+
+  async overviewWorkspaces() {
+    return this.db.selectFrom('workspaces as w').selectAll('w').select((eb) => [
+      eb.selectFrom('workspace_memberships as m').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('m.workspace_id', '=', 'w.id').where('m.status', '=', 'active').as('member_count'),
+      eb.selectFrom('workspace_invitations as i').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('i.workspace_id', '=', 'w.id').where('i.status', '=', 'pending').as('invitation_count'),
+      eb.selectFrom('workspace_credentials as c').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('c.workspace_id', '=', 'w.id').where('c.status', '=', 'active').as('credential_count')
+    ]).orderBy('w.updated_at', 'desc').execute();
+  }
+
+  async overviewSeats() {
+    return this.db.selectFrom('seat_slots as s').innerJoin('workspaces as w', 'w.id', 's.workspace_id')
+      .selectAll('s').select(['w.name as workspace_name', 'w.external_id']).orderBy('s.expires_on').execute();
+  }
 }

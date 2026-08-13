@@ -11,6 +11,7 @@ import { AccountRepository } from '../repositories/accountRepository.js';
 import { AutomationOperationRepository } from '../repositories/automationOperationRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
+import { AccountManagerService } from './accountManagerService.js';
 
 export class SubscriptionService {
   readonly #accounts: AccountRepository;
@@ -19,7 +20,8 @@ export class SubscriptionService {
 
   constructor(
     private readonly db: Kysely<Database>,
-    private readonly accountManager?: AccountManagerGateway
+    private readonly accountManager?: AccountManagerGateway,
+    private readonly accountManagerService?: AccountManagerService
   ) {
     this.#accounts = new AccountRepository(db);
     this.#workspaces = new WorkspaceRepository(db);
@@ -35,6 +37,19 @@ export class SubscriptionService {
       if (!['go', 'plus', 'pro_5x', 'pro_20x'].includes(input.targetPlan)) throw new ServiceError(400, '无效的目标个人套餐');
       if (!['start_new', 'change_existing'].includes(input.mode)) throw new ServiceError(400, '无效的个人套餐操作模式');
       validateCheckout(input);
+      const remote = await this.accountManagerService?.sync(accountId);
+      const current = normalizePlan(remote?.account?.personalPlan);
+      if (current === input.targetPlan) {
+        return {
+          id: `idempotent:${accountId}:${input.targetPlan}`, accountId, type: 'change_personal_subscription',
+          status: 'succeeded', phase: 'already_effective', progress: 100,
+          result: { targetPlan: input.targetPlan, effectiveAt: new Date().toISOString(), idempotent: true },
+          createdAt: Date.now(), updatedAt: Date.now(), completedAt: Date.now()
+        };
+      }
+      if (input.mode === 'start_new' && current && current !== 'free' && current !== 'unknown') {
+        throw new ServiceError(409, `账号当前套餐为 ${current}，不能使用首次开通模式`);
+      }
       if (input.mode === 'change_existing') {
         throw new ServiceError(409, '现有付费套餐切换协议尚未验证，当前不能执行');
       }
@@ -55,8 +70,9 @@ export class SubscriptionService {
 
   async cancelPersonalRenewal(accountId: string): Promise<AccountManagerOperationView> {
     try {
+      await this.accountManagerService?.sync(accountId);
       const accountRef = await this.accountRef(accountId);
-      const manager = this.requireManager();
+      const manager = this.requireManager('cancelPersonalSubscriptionRenewal');
       const operationId = await this.#operations.start({
         accountId,
         kind: 'cancel_personal_subscription_renewal',
@@ -91,7 +107,7 @@ export class SubscriptionService {
       } else if (input.workspaceId) {
         throw new ServiceError(400, '创建新 Workspace 不应提供 workspaceId');
       }
-      const manager = this.requireManager();
+      const manager = this.requireManager('openBusinessSubscription');
       const operationId = await this.#operations.start({
         accountId, workspaceId, kind: 'open_business_subscription', idempotencyKey: randomUUID(),
         safeRequestSummary: safeSubscriptionRequest(input)
@@ -106,10 +122,8 @@ export class SubscriptionService {
     } catch (error) { throw asServiceError(error); }
   }
 
-  private requireManager(): AccountManagerGateway {
-    if (!this.accountManager?.changePersonalSubscription || !this.accountManager.openBusinessSubscription) {
-      throw new ServiceError(503, 'GAM 套餐管理未配置');
-    }
+  private requireManager(method: 'changePersonalSubscription' | 'cancelPersonalSubscriptionRenewal' | 'openBusinessSubscription' = 'changePersonalSubscription'): AccountManagerGateway {
+    if (!this.accountManager?.[method]) throw new ServiceError(503, `GAM ${method} 未配置`);
     return this.accountManager;
   }
 
@@ -121,6 +135,13 @@ export class SubscriptionService {
     if (!binding) throw new ServiceError(409, '账号尚未绑定 GAM');
     return binding.external_account_ref;
   }
+}
+
+function normalizePlan(value?: string) {
+  const key = value?.toLowerCase() ?? '';
+  if (['free', 'go', 'plus', 'pro_5x', 'pro_20x', 'unknown'].includes(key)) return key;
+  if (key.includes('prolite')) return 'pro_5x'; if (key.includes('pro')) return 'pro_20x';
+  if (key.includes('plus')) return 'plus'; if (key.includes('go')) return 'go'; return undefined;
 }
 
 function safeSubscriptionRequest(input: ChangePersonalSubscriptionRequest | OpenBusinessSubscriptionRequest) {

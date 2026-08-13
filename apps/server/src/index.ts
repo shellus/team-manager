@@ -24,7 +24,7 @@ async function main() {
     });
   });
   installCatchAllFetchTracing();
-  const app = await buildUnifiedApp({ config, database, artifactStore });
+  const app = await buildUnifiedApp({ config, database, artifactStore, startBackgroundTasks: true });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`[team-manager] listening on :${info.port} (mode=unified-account-postgresql)`);
@@ -34,6 +34,7 @@ async function main() {
   });
 
   const shutdown = async () => {
+    app.stopBackgroundTasks();
     await database.destroy();
     process.exit(0);
   };

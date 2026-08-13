@@ -22,6 +22,7 @@ export interface UnifiedAccountSummaryView {
   group: Pick<AccountGroupView, 'id' | 'name'>;
   isBanned: boolean;
   hasGamBinding: boolean;
+  hasRunningProfile: boolean;
   hasSession: boolean;
   hasManageableWorkspace: boolean;
   isWorkspaceMember: boolean;
@@ -42,6 +43,107 @@ export interface PersonalSubscriptionSnapshotView {
   effectiveAt?: string;
   endsAt?: string;
   observedAt: string;
+}
+
+export interface SnapshotView<T = Record<string, unknown>> {
+  payload: T;
+  observedAt: string;
+}
+
+export interface BillingInvoiceView {
+  id: string;
+  externalId?: string;
+  amount?: string;
+  currency?: string;
+  status?: string;
+  occurredAt?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface BillingDetailView extends SnapshotView {
+  invoices: BillingInvoiceView[];
+  paymentMethods: PersonalPaymentMethodView[];
+  summary: {
+    seatTypeCounts?: unknown;
+    billingInfo?: unknown;
+    upcomingInvoice?: unknown;
+  };
+}
+
+export interface AccountActivityView {
+  id: string;
+  accountId?: string;
+  workspaceId?: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export type OperationControl = 'retry' | 'rotate-ip' | 'terminate';
+
+export interface ManagedPersonalSubscription {
+  id?: string;
+  planType?: string;
+  activeStart?: string;
+  activeUntil?: string;
+  billingPeriod?: string;
+  scheduledBillingPeriod?: string;
+  willRenew?: boolean;
+  cancellationOutcome?: string;
+  billingCurrency?: string;
+  isDelinquent?: boolean;
+  updatedAt?: number;
+}
+
+export interface ManagedWorkspaceSummary {
+  id: string;
+  name?: string;
+  planType?: string;
+  role?: string;
+  seatType?: SeatType;
+  status?: string;
+  nextRenewalAt?: string;
+  visible?: boolean;
+}
+
+export interface SeatSlotMutationInput {
+  seatKey?: string;
+  email?: string | null;
+  remoteUserId?: string | null;
+  contact?: string | null;
+  remark?: string | null;
+  price?: string | null;
+  expiresOn?: string | null;
+  expireReminder?: boolean;
+  expireRemove?: boolean;
+  seatType?: SeatType;
+  status?: 'empty' | 'invited' | 'member' | 'disabled' | 'unknown';
+}
+
+export interface CredentialPoolGroupView {
+  id: string;
+  name: string;
+  sortOrder: number;
+  credentialCount: number;
+}
+
+export interface CodexAuthStart {
+  sessionId: string;
+  authUrl: string;
+  expiresAt: number;
+  targetChatgptAccountId?: string;
+}
+
+export interface ArtifactIndexView {
+  id: string;
+  kind: 'trace' | 'rrweb' | 'credential' | 'quarantine';
+  storageKey: string;
+  contentSha256: string;
+  byteSize: number;
+  status: string;
+  recordedAt: string;
+  expiresAt?: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface AccountWorkspaceLinkView {

@@ -8,7 +8,11 @@ import type {
   OpenBusinessSubscriptionRequest,
   PersonalPaymentMethodDefaults,
   PersonalPaymentMethodView,
-  ResidentialProxyConfig
+  ResidentialProxyConfig,
+  ManagedPersonalSubscription,
+  ManagedWorkspaceSummary,
+  OperationControl,
+  PaymentCardInput
 } from '@team-manager/shared';
 import { fetchWithRawTrace } from './transport.js';
 
@@ -16,8 +20,9 @@ export interface ManagedAccountSummary {
   id: string;
   email: string;
   personalPlan?: string;
+  personalSubscription?: ManagedPersonalSubscription;
   paymentMethods?: PersonalPaymentMethodView[];
-  workspaces?: Array<{ id: string; name?: string; planType?: string; visible?: boolean }>;
+  workspaces?: ManagedWorkspaceSummary[];
 }
 
 export interface AccountRegistrationRequest {
@@ -34,6 +39,9 @@ export interface AccountManagerGateway {
   health?(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
   startRegistration?(input: AccountRegistrationRequest): Promise<AccountManagerOperationView>;
   operation?(operationId: string): Promise<AccountManagerOperationView>;
+  controlOperation?(operationId: string, control: OperationControl): Promise<AccountManagerOperationView>;
+  replaceOperationPaymentCard?(operationId: string, card: PaymentCardInput): Promise<AccountManagerOperationView>;
+  deleteOperation?(operationId: string): Promise<boolean>;
   account?(accountId: string): Promise<ManagedAccountSummary>;
   syncAccount?(accountId: string): Promise<ManagedAccountSummary>;
   listAccountOperations?(accountId: string): Promise<AccountManagerOperationView[]>;
@@ -87,6 +95,21 @@ export class AccountManagerClient implements AccountManagerGateway {
     return toOperation(await this.request('GET', `/v1/operations/${encodeURIComponent(operationId)}`));
   }
 
+  async controlOperation(operationId: string, control: OperationControl): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request(
+      'POST', `/v1/operations/${encodeURIComponent(operationId)}/controls/${encodeURIComponent(control)}`, {}
+    ));
+  }
+
+  async replaceOperationPaymentCard(operationId: string, card: PaymentCardInput): Promise<AccountManagerOperationView> {
+    return toOperation(await this.request('PUT', `/v1/operations/${encodeURIComponent(operationId)}/payment-card`, { card }));
+  }
+
+  async deleteOperation(operationId: string): Promise<boolean> {
+    await this.request('DELETE', `/v1/operations/${encodeURIComponent(operationId)}`);
+    return true;
+  }
+
   account(accountId: string): Promise<ManagedAccountSummary> {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}`);
   }
@@ -126,7 +149,7 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   async changePersonalSubscription(accountId: string, input: ChangePersonalSubscriptionRequest & { requestTag?: string }) {
     return toOperation(await this.request(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/change-personal-subscription`, input, Boolean(input.card)
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/change-personal-subscription`, input
     ));
   }
 
@@ -138,13 +161,13 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   async openBusinessSubscription(accountId: string, input: OpenBusinessSubscriptionRequest & { requestTag?: string }) {
     return toOperation(await this.request(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`, input, Boolean(input.card)
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`, input
     ));
   }
 
   async addPersonalPaymentMethod(accountId: string, input: AddPersonalPaymentMethodRequest & { requestTag?: string }) {
     return toOperation(await this.request(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-personal-payment-method`, input, true
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-personal-payment-method`, input
     ));
   }
 
@@ -152,7 +175,7 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/personal-payment-method-defaults`);
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, sensitiveBody = false): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await fetchWithRawTrace('account-manager', `${this.baseUrl}${path}`, {
       method,
       headers: {
@@ -161,7 +184,7 @@ export class AccountManagerClient implements AccountManagerGateway {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
-    }, this.fetchImpl, sensitiveBody ? { requestBody: '[REDACTED SENSITIVE PAYMENT INPUT]' } : {});
+    }, this.fetchImpl);
     const text = await response.text();
     let parsed: { ok?: boolean; data?: T; error?: string };
     try { parsed = JSON.parse(text) as typeof parsed; }
