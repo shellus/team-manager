@@ -127,12 +127,14 @@ body {
 .account-email-link { color: var(--color-primary); }
 .account-action-buttons { min-width: max-content; }
 .account-operation-summary { max-width: 520px; margin-top: 6px; padding: 7px 9px; border-radius: 8px; background: var(--color-control-track-hover); }
-.account-operation-summary.is-error { background: color-mix(in srgb, var(--color-error) 9%, var(--color-bg-shell)); }
+.account-operation-summary.is-error { background: color-mix(in srgb, var(--color-danger) 9%, var(--color-bg-shell)); }
 .account-operation-summary .ant-progress { margin: 2px 0 0; }
 .account-operation-summary .ant-typography-danger { display: block; }
 .account-action-form { margin-top: 16px; }
 .account-session-editor { display: block; margin: 16px 0 12px; }
 .responsive-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
+.notification-channel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 16px; }
+.notification-channel-card { padding: 12px 14px 0; border: 1px solid var(--color-border-subtle); border-radius: 8px; background: var(--color-surface); }
 .switch-grid { display: flex; flex-wrap: wrap; gap: 0 24px; }
 .switch-grid .ant-form-item { min-width: 180px; }
 .optional-fields { width: 100%; padding: 10px 0; }
@@ -426,8 +428,15 @@ body {
 }
 
 .overview-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
   justify-content: flex-end;
 }
+.overview-filters > .ant-input-group-wrapper { width: min(340px, 100%); }
+.overview-filters > .ant-select { min-width: 150px; }
+.overview-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 12px; margin: 14px 0; padding: 12px 16px; border: 1px solid var(--color-border-subtle); border-radius: 8px; background: var(--color-surface); }
 
 .overview-switch {
   display: inline-flex;
@@ -1196,7 +1205,12 @@ body {
   }
 
   .team-order-stat-grid,
-  .team-orders-toolbar {
+  .team-orders-toolbar,
+  .overview-stat-grid,
+  .notification-channel-grid {
     grid-template-columns: 1fr;
   }
+  .overview-filters > .ant-input-group-wrapper,
+  .overview-filters > .ant-select,
+  .overview-filters > .ant-checkbox-wrapper { width: 100%; }
 }

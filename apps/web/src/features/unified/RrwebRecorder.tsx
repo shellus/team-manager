@@ -37,6 +37,7 @@ export function RrwebRecorder() {
   const [recording, setRecording] = useState(false);
   const [eventCount, setEventCount] = useState(0);
   const [preview, setPreview] = useState<RecordingFile>();
+  const [replayOpen, setReplayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -101,6 +102,7 @@ export function RrwebRecorder() {
       events: [...events.current],
     };
     setPreview(content);
+    setReplayOpen(true);
     setBusy(true);
     try {
       const jsonBytes = new TextEncoder().encode(JSON.stringify(content));
@@ -151,7 +153,7 @@ export function RrwebRecorder() {
           {preview && !recording && (
             <Button
               icon={<PlayCircleOutlined />}
-              onClick={() => setPreview({ ...preview })}
+              onClick={() => setReplayOpen(true)}
             >
               回放最近录制
             </Button>
@@ -160,8 +162,8 @@ export function RrwebRecorder() {
       </div>
       <Modal
         title="最近 rrweb 录制"
-        open={Boolean(preview) && !recording}
-        onCancel={() => setPreview(undefined)}
+        open={Boolean(preview) && replayOpen && !recording}
+        onCancel={() => setReplayOpen(false)}
         footer={null}
         width="min(1120px, 94vw)"
       >

@@ -8,13 +8,13 @@ import type { NotificationPolicyConfiguration, NotificationPolicyView, SeatOpera
 export class SystemService {
   readonly #orders: TeamOrderRepository;
   readonly #workspaces: WorkspaceRepository;
-  constructor(private readonly db: Kysely<Database>) {
+  constructor(private readonly db: Kysely<Database>, private readonly teamCodeConfigured = false) {
     this.#orders = new TeamOrderRepository(db);
     this.#workspaces = new WorkspaceRepository(db);
   }
 
   async teamOrders() {
-    return this.#orders.dashboard();
+    return this.#orders.dashboard(this.teamCodeConfigured);
   }
 
   saveTeamOrderConfiguration(input: { workspaceId?: string; promoCode?: string; country?: string; currency?: string }) {
@@ -41,7 +41,7 @@ export class SystemService {
     const normalized = kind.trim();
     if (!normalized) throw new ServiceError(400, '通知策略类型不能为空');
     const configuration = notificationConfiguration(input.configuration ?? {});
-    validateNotificationConfiguration(configuration);
+    validateNotificationConfiguration(configuration, input.enabled === true);
     const storedConfiguration = { ...configuration } as Record<string, unknown>;
     await this.db.insertInto('notification_policies').values({
       kind: normalized,
@@ -92,19 +92,24 @@ export class SystemService {
 
 function notificationConfiguration(value: Record<string, unknown>): NotificationPolicyConfiguration {
   return { advanceDays: integer(value.advanceDays, 7), triggerTime: time(value.triggerTime), timeZone: text(value.timeZone) ?? 'Asia/Shanghai',
+    webhookEnabled: enabled(value.webhookEnabled, value.webhookUrl), feishuEnabled: enabled(value.feishuEnabled, value.feishuWebhookUrl),
+    telegramEnabled: enabled(value.telegramEnabled, Boolean(text(value.telegramBotToken) && text(value.telegramChatId))),
+    wecomEnabled: enabled(value.wecomEnabled, value.wecomWebhookUrl),
     ...optionalText(value, 'webhookUrl'), ...optionalText(value, 'feishuWebhookUrl'), ...optionalText(value, 'telegramBotToken'),
     ...optionalText(value, 'telegramChatId'), ...optionalText(value, 'wecomWebhookUrl') };
 }
-function validateNotificationConfiguration(value: NotificationPolicyConfiguration) {
+function validateNotificationConfiguration(value: NotificationPolicyConfiguration, policyEnabled: boolean) {
   if (value.advanceDays < 0 || value.advanceDays > 365) throw new ServiceError(400,'提前提醒天数必须在 0 到 365 之间');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value.triggerTime)) throw new ServiceError(400,'触发时间格式无效');
   try { new Intl.DateTimeFormat('en-US',{timeZone:value.timeZone}).format(); } catch { throw new ServiceError(400,'通知时区无效'); }
-  if (!value.webhookUrl&&!value.feishuWebhookUrl&&!value.wecomWebhookUrl&&!(value.telegramBotToken&&value.telegramChatId)) throw new ServiceError(400,'至少配置一个完整通知渠道');
+  const valid = (value.webhookEnabled&&value.webhookUrl)||(value.feishuEnabled&&value.feishuWebhookUrl)||(value.wecomEnabled&&value.wecomWebhookUrl)||(value.telegramEnabled&&value.telegramBotToken&&value.telegramChatId);
+  if (policyEnabled && !valid) throw new ServiceError(400,'启用通知策略前，至少启用并完整配置一个通知渠道');
 }
 function optionalText(value:Record<string,unknown>,key:keyof NotificationPolicyConfiguration){const item=text(value[key]);return item?{[key]:item}:{};}
 function integer(value:unknown,fallback:number){const n=Number(value);return Number.isInteger(n)?n:fallback;}
 function time(value:unknown){const item=text(value);return item&&/^([01]\d|2[0-3]):[0-5]\d$/.test(item)?item:'09:00';}
 function text(value:unknown){return typeof value==='string'&&value.trim()?value.trim():undefined;}
+function enabled(value:unknown,legacyValue:unknown){return typeof value==='boolean'?value:Boolean(legacyValue);}
 function iso(value:unknown){return value instanceof Date?value.toISOString():new Date(String(value)).toISOString();}
 function workspaceRisks(row:any,next?:string){const risks:string[]=[];if(row.status!=='active')risks.push('Workspace 非活动');if(row.normalized_plan==='unknown')risks.push('套餐未知');if(next&&new Date(next).getTime()<Date.now())risks.push('订阅已过期');else if(next&&new Date(next).getTime()<Date.now()+7*86400_000)risks.push('七天内续费');if(row.normalized_plan==='business'&&Number(row.fixed_occupied)>2)risks.push('固定席位超出双席位容量');return risks;}
 function riskLevel(risks:string[]):WorkspaceOperationalOverviewView['riskLevel']{return risks.some(item=>item.includes('过期')||item.includes('超出'))?'critical':risks.length?'warning':'normal';}

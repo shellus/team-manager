@@ -229,7 +229,7 @@ export interface CodexAuthStart {
 
 export interface ArtifactIndexView {
   id: string;
-  kind: 'trace' | 'rrweb' | 'credential' | 'quarantine';
+  kind: 'trace' | 'rrweb' | 'credential' | 'quarantine' | 'orphan';
   storageKey: string;
   contentSha256: string;
   byteSize: number;
@@ -297,10 +297,14 @@ export interface NotificationPolicyConfiguration {
   triggerTime: string;
   timeZone: string;
   webhookUrl?: string;
+  webhookEnabled: boolean;
   feishuWebhookUrl?: string;
+  feishuEnabled: boolean;
   telegramBotToken?: string;
   telegramChatId?: string;
+  telegramEnabled: boolean;
   wecomWebhookUrl?: string;
+  wecomEnabled: boolean;
 }
 
 export interface NotificationPolicyView {
@@ -405,6 +409,7 @@ export interface TeamUpgradeOrderView {
 }
 
 export interface TeamOrderDashboardView {
+  configured: boolean;
   statistics: {
     maintenanceCount: number;
     runningCount: number;

@@ -119,6 +119,22 @@ export function notificationDeliveryPresentation(
   };
 }
 
+export function parseRrwebRecording(value: string): unknown {
+  const parsed: unknown = JSON.parse(value);
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === "object" && Array.isArray((parsed as { events?: unknown }).events)) return parsed;
+  throw new Error("本地文件不是可回放的 rrweb 录制");
+}
+
+export function normalizedArtifactParams(input: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(input);
+  if (next.has("kind") && !["trace", "rrweb", "credential", "quarantine", "orphan"].includes(next.get("kind")!)) next.delete("kind");
+  if (next.has("status") && !["active", "quarantined", "pending_delete", "deleted", "missing", "claimed", "discarded"].includes(next.get("status")!)) next.delete("status");
+  const modal = next.get("modal");
+  if (modal && !["replay", "local-replay", "claim"].includes(modal)) { next.delete("modal"); next.delete("artifactId"); }
+  if ((modal === "replay" || modal === "claim") && !next.get("artifactId")) { next.delete("modal"); next.delete("artifactId"); }
+  return next;
+}
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

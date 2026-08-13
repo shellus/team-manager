@@ -15,6 +15,7 @@ export class TeamOrderService {
 
   async recover() { await this.db.updateTable('team_upgrade_orders').set({ status: 'queued', retry_at: new Date(), error_message: '进程重启后恢复' }).where('status', '=', 'running').execute(); }
   async run(input: { workspaceId?: string; all?: boolean; source?: string } = {}) {
+    if (!this.gateway.configured) throw new ServiceError(503, 'TeamCode 服务尚未配置，无法生成订单');
     const q = this.db.selectFrom('team_order_maintenances').selectAll().where('enabled', '=', true);
     const rows = input.workspaceId ? await q.where('workspace_id', '=', input.workspaceId).execute() : await q.execute();
     let queued = 0; for (const row of rows) { if (await this.hasPending(row.workspace_id)) continue; await this.enqueue(row, input.source ?? (input.all ? 'manual_all' : 'manual')); queued += 1; }
@@ -25,10 +26,11 @@ export class TeamOrderService {
     if (action === 'delete') { if (await this.hasRunning(workspaceId)) throw new ServiceError(409, '存在运行中订单'); await this.db.deleteFrom('team_order_maintenances').where('workspace_id','=',workspaceId).execute(); return true; }
     await this.db.updateTable('team_order_maintenances').set({ enabled: action === 'resume', pause_reason: action === 'pause' ? '手动暂停' : null, next_run_at: action === 'resume' ? new Date() : null }).where('workspace_id','=',workspaceId).execute(); return true;
   }
-  async retry(orderId: string) { const row=await this.db.selectFrom('team_upgrade_orders').selectAll().where('id','=',orderId).executeTakeFirst(); if(!row) throw new ServiceError(404,'订单不存在'); await this.db.updateTable('team_upgrade_orders').set({status:'queued',retry_at:new Date(),scheduled_for:new Date(),error_message:null}).where('id','=',orderId).execute(); return true; }
+  async retry(orderId: string) { if(!this.gateway.configured) throw new ServiceError(503,'TeamCode 服务尚未配置，无法重试订单'); const row=await this.db.selectFrom('team_upgrade_orders').selectAll().where('id','=',orderId).executeTakeFirst(); if(!row) throw new ServiceError(404,'订单不存在'); await this.db.updateTable('team_upgrade_orders').set({status:'queued',retry_at:new Date(),scheduled_for:new Date(),error_message:null}).where('id','=',orderId).execute(); return true; }
   async removeOrder(orderId: string) { const row=await this.db.selectFrom('team_upgrade_orders').selectAll().where('id','=',orderId).executeTakeFirst(); if(!row) throw new ServiceError(404,'订单不存在'); if(row.status==='running') throw new ServiceError(409,'运行中订单不能删除'); await this.db.deleteFrom('team_upgrade_orders').where('id','=',orderId).execute(); return true; }
 
   async tick(now = new Date()) {
+    if (!this.gateway.configured) return { maintenances: 0, orders: 0, skipped: 'teamcode_unconfigured' as const };
     const dueMaintenances = await this.db.selectFrom('team_order_maintenances').selectAll().where('enabled','=',true).where((eb)=>eb.or([eb('next_run_at','is',null),eb('next_run_at','<=',now)])).execute();
     for(const row of dueMaintenances){ if(!await this.hasPending(row.workspace_id)){ await this.enqueue(row,'scheduled'); await this.db.updateTable('team_order_maintenances').set({next_run_at:new Date(now.getTime()+CYCLE_MS)}).where('id','=',row.id).execute(); } }
     const orders=await this.db.selectFrom('team_upgrade_orders').selectAll().where('status','=','queued').where((eb)=>eb.or([eb('retry_at','is',null),eb('retry_at','<=',now)])).where((eb)=>eb.or([eb('scheduled_for','is',null),eb('scheduled_for','<=',now)])).orderBy('created_at').limit(3).execute();

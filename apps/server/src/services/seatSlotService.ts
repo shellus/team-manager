@@ -62,16 +62,26 @@ export class SeatSlotService {
   async runExpirations(now = new Date()) {
     const today = dateInTimeZone(now, 'UTC'); const schedules = await this.notificationSchedules();
     const dueSchedules = schedules.filter((schedule) => !schedule.hasExplicitSchedule || notificationScheduleDue(schedule, now));
-    const advanceDays = dueSchedules.length ? Math.max(...dueSchedules.map((item) => item.advanceDays)) : -1;
-    const reminderEnd = advanceDays >= 0 ? new Date(now.getTime()+advanceDays*86400_000).toISOString().slice(0,10) : today;
+    const seatSchedules = dueSchedules.filter((schedule) => schedule.kind !== 'workspace_renewal');
+    const seatWindows=seatSchedules.map(schedule=>({schedule,start:dateInTimeZone(now,schedule.timeZone),end:addCalendarDays(dateInTimeZone(now,schedule.timeZone),schedule.advanceDays)}));
+    const reminderStart=seatWindows.map(item=>item.start).sort()[0]??today;const reminderEnd=seatWindows.map(item=>item.end).sort().at(-1)??today;
     const reminders=await this.db.selectFrom('seat_slots').selectAll().where('expire_reminder','=',true)
       .where('status','in',['invited','member']).where('current_email','is not',null)
-      .where('expires_on','>=',today).where('expires_on','<=',reminderEnd).execute();
-    for (const schedule of dueSchedules) {
+      .where('expires_on','>=',reminderStart).where('expires_on','<=',reminderEnd).execute();
+    for (const {schedule,start,end} of seatWindows) {
       const reminderKey=`seat-expiry-reminder:${schedule.kind}:${dateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
-      const reminderEndForSchedule=new Date(now.getTime()+schedule.advanceDays*86400_000).toISOString().slice(0,10);
-      const matching=reminders.filter(row=>row.expires_on&&dateOnly(row.expires_on)<=reminderEndForSchedule);
+      const matching=reminders.filter(row=>{const expiresOn=dateOnly(row.expires_on!);return expiresOn>=start&&expiresOn<=end;});
       if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();}
+    }
+    const renewalSchedules = dueSchedules.filter((schedule) => schedule.kind === 'workspace_renewal');
+    const renewalRows = renewalSchedules.length ? await this.db.selectFrom('workspaces').select(['id','external_id','name','normalized_plan','next_renewal_at'])
+      .where('status','=','active').where('next_renewal_at','is not',null).execute() : [];
+    let renewalReminders = 0;
+    for (const schedule of renewalSchedules) {
+      const localToday=dateInTimeZone(now,schedule.timeZone);const localEnd=addCalendarDays(localToday,schedule.advanceDays);
+      const matching=renewalRows.filter(row=>{const date=dateInTimeZone(new Date(row.next_renewal_at as Date),schedule.timeZone);return date>=localToday&&date<=localEnd;});
+      const reminderKey=`workspace-renewal-reminder:${schedule.kind}:${localToday}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
+      if(matching.length&&!already){await this.notifications?.notifyWorkspaceRenewal(matching.map(row=>({workspaceId:row.id,externalId:row.external_id,name:row.name,plan:row.normalized_plan,nextRenewalAt:new Date(row.next_renewal_at as Date).toISOString()})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();renewalReminders+=matching.length;}
     }
     const rows = await this.db.selectFrom('seat_slots').selectAll().where('expires_on', '<', today).execute();
     let disabled = 0; let removed = 0;
@@ -83,7 +93,7 @@ export class SeatSlotService {
       }
       await this.db.updateTable('seat_slots').set({ status: 'disabled' }).where('id', '=', row.id).execute(); disabled += 1;
     }
-    return { checked: rows.length, reminders:reminders.length, schedules: dueSchedules.length, disabled, removed };
+    return { checked: rows.length, reminders:reminders.length, renewalReminders, schedules: dueSchedules.length, disabled, removed };
   }
   private async notificationSchedules() { const rows=await this.db.selectFrom('notification_policies').select(['kind','configuration']).where('enabled','=',true).execute();return rows.map(row=>{const config=row.configuration;return{kind:row.kind,advanceDays:Number.isInteger(Number(config.advanceDays))?Number(config.advanceDays):7,triggerTime:typeof config.triggerTime==='string'?config.triggerTime:'09:00',timeZone:typeof config.timeZone==='string'?config.timeZone:'Asia/Shanghai',hasExplicitSchedule:typeof config.triggerTime==='string'&&typeof config.timeZone==='string'};}); }
   private async require(workspaceId: string, id: string) { const row = await this.db.selectFrom('seat_slots').selectAll().where('id', '=', id).where('workspace_id', '=', workspaceId).executeTakeFirst(); if (!row) throw new ServiceError(404, '客户席位不存在'); return row; }
@@ -94,9 +104,10 @@ export class SeatSlotService {
   private async executor(workspaceId: string) { return (await this.db.selectFrom('workspace_memberships').select('account_id').where('workspace_id', '=', workspaceId).where('status', '=', 'active').where('normalized_role', 'in', ['owner', 'admin']).where('account_id', 'is not', null).executeTakeFirst())?.account_id ?? undefined; }
 }
 
-export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string},now:Date):boolean{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
+export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string;hasExplicitSchedule?:boolean},now:Date):boolean{if(schedule.hasExplicitSchedule===false)return true;const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
 function dateInTimeZone(now:Date,timeZone:string){const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);return `${parts.find(item=>item.type==='year')?.value}-${parts.find(item=>item.type==='month')?.value}-${parts.find(item=>item.type==='day')?.value}`;}
 function dateOnly(value:string|Date){return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);}
+function addCalendarDays(value:string,days:number){const date=new Date(`${value}T00:00:00Z`);date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10);}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
   const tick = () => void service.runExpirations().catch((error) => console.warn('[team-manager] 席位到期任务失败:', error));

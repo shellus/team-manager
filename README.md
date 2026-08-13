@@ -9,6 +9,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 3. [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：账号、Workspace、席位和凭证规则。
 4. [`docs/plans/unified-account-postgresql-refactor.md`](./docs/plans/unified-account-postgresql-refactor.md)：本次重构实施与验收台账。
 5. [`docs/plans/account-operational-primary-plan-and-actions.md`](./docs/plans/account-operational-primary-plan-and-actions.md)：账号运营主套餐和共享操作实施计划。
+6. [`docs/plans/operational-visibility-restoration.md`](./docs/plans/operational-visibility-restoration.md)：旧版运营可见性恢复和最终 UI 验收台账。
 
 开始和结束任务时检查 `git status --short --branch`。
 
@@ -33,9 +34,9 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 - Workspace 成员、邀请、角色、席位、设置、账单、客户席位、公开换号和凭证关系。
 - Team 升级订单维护、有限重试通知、客户席位到期任务和跨空间运营总览。
 - OAuth/PAT 创建、替换、重新授权、号池排序与 CPA 原子投放。
-- HTTP trace、rrweb、凭证与隔离制品的原文查看、下载、哈希复核和保留生命周期。
+- HTTP trace、rrweb、凭证与隔离制品的文件索引、结构化日志、rrweb 回放、哈希复核和保留生命周期；Web UI 不展示或下载正文。
 
-个人 Memory 的 PATCH 写入协议已经验证；当前值读取在上游实测返回 405，因此界面保持三态未知，不把未知伪装为关闭。rrweb 由管理员显式开启和启动，按本项目的私有管理边界记录完整输入原文。
+个人 Memory 的 PATCH 写入协议已经验证；当前值读取在上游实测返回 405，因此界面保持三态未知，不把未知伪装为关闭。只有账号 Session 在专用编辑弹窗中完整显示和保存；其他 JSON 正文不进入 Web UI。rrweb 由管理员显式开启和启动，按本项目的私有管理边界记录完整输入原文，但只通过可视化回放使用。
 
 ## 数据与安全边界
 
@@ -97,6 +98,7 @@ corepack pnpm --filter @team-manager/server db:migrate
 - [账号、Workspace、席位与凭证模型](./docs/core/seat-and-credential-model.md)
 - [PostgreSQL 数据模型](./docs/dev-spec/data-model.md)
 - [账号运营主套餐和共享操作计划](./docs/plans/account-operational-primary-plan-and-actions.md)
+- [运营可见性恢复实施计划](./docs/plans/operational-visibility-restoration.md)
 - [Team 升级订单维护](./docs/guide/team-order-maintenance.md)
 - [凭证号池填充](./docs/guide/fill-credential-pool.md)
 - [ChatGPT Web 协议样本](./docs/dev-spec/chatgpt-backend-api/README.md)

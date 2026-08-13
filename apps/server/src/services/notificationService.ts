@@ -61,6 +61,13 @@ export class NotificationService {
     return { policies: policies.length, items: items.length };
   }
 
+  async notifyWorkspaceRenewal(items: Record<string, unknown>[], kind = 'workspace_renewal') {
+    await this.send(kind, {
+      type: 'workspace_renewal', text: `Team Workspace 续费提醒：${items.length} 项`, items
+    });
+    return { items: items.length };
+  }
+
   async retryFailed(limit = 20) {
     const now = new Date();
     await this.db.updateTable('notification_deliveries').set({ status: 'retrying', next_retry_at: now })
@@ -111,11 +118,12 @@ export class NotificationService {
 
 async function sendConfiguration(config: Record<string, unknown>, payload: Record<string, unknown>, fetchImpl?: typeof fetch) {
   const requests: Array<{ upstream: string; url: string; body: unknown }> = [];
-  if (text(config.webhookUrl)) requests.push({ upstream: 'notification-webhook', url: text(config.webhookUrl), body: payload });
-  if (text(config.feishuWebhookUrl)) requests.push({ upstream: 'notification-feishu', url: text(config.feishuWebhookUrl), body: { msg_type: 'text', content: { text: String(payload.text ?? JSON.stringify(payload)) } } });
-  if (text(config.wecomWebhookUrl)) requests.push({ upstream: 'notification-wecom', url: text(config.wecomWebhookUrl), body: { msgtype: 'text', text: { content: String(payload.text ?? JSON.stringify(payload)) } } });
+  const channels = configuredNotificationChannels(config);
+  if (channels.includes('webhook')) requests.push({ upstream: 'notification-webhook', url: text(config.webhookUrl), body: payload });
+  if (channels.includes('feishu')) requests.push({ upstream: 'notification-feishu', url: text(config.feishuWebhookUrl), body: { msg_type: 'text', content: { text: String(payload.text ?? JSON.stringify(payload)) } } });
+  if (channels.includes('wecom')) requests.push({ upstream: 'notification-wecom', url: text(config.wecomWebhookUrl), body: { msgtype: 'text', text: { content: String(payload.text ?? JSON.stringify(payload)) } } });
   const bot = text(config.telegramBotToken), chat = text(config.telegramChatId);
-  if (bot && chat) requests.push({ upstream: 'notification-telegram', url: `https://api.telegram.org/bot${bot}/sendMessage`, body: { chat_id: chat, text: String(payload.text ?? JSON.stringify(payload)) } });
+  if (channels.includes('telegram')) requests.push({ upstream: 'notification-telegram', url: `https://api.telegram.org/bot${bot}/sendMessage`, body: { chat_id: chat, text: String(payload.text ?? JSON.stringify(payload)) } });
   if (!requests.length) throw new Error('通知策略没有可用渠道');
   for (const item of requests) {
     const response = await fetchWithRawTrace(item.upstream, item.url, {
@@ -124,6 +132,17 @@ async function sendConfiguration(config: Record<string, unknown>, payload: Recor
     if (!response.ok) throw new Error(`${item.upstream} HTTP ${response.status}`);
   }
 }
+
+export function configuredNotificationChannels(config: Record<string, unknown>): Array<'webhook'|'feishu'|'wecom'|'telegram'> {
+  const channels: Array<'webhook'|'feishu'|'wecom'|'telegram'> = [];
+  if (channelEnabled(config.webhookEnabled, text(config.webhookUrl))) channels.push('webhook');
+  if (channelEnabled(config.feishuEnabled, text(config.feishuWebhookUrl))) channels.push('feishu');
+  if (channelEnabled(config.wecomEnabled, text(config.wecomWebhookUrl))) channels.push('wecom');
+  if (channelEnabled(config.telegramEnabled, text(config.telegramBotToken) && text(config.telegramChatId))) channels.push('telegram');
+  return channels;
+}
+
+function channelEnabled(value: unknown, configured: unknown) { return (typeof value === 'boolean' ? value : Boolean(configured)) && Boolean(configured); }
 
 function text(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
 function deliverySummary(value:Record<string,unknown>):string{return text(value.text)||text(value.type)||'通知投递';}

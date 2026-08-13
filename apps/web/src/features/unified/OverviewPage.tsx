@@ -1,4 +1,4 @@
-import { Alert, Card, Input, Segmented, Select, Space, Table, Tag, Typography } from "antd";
+import { Alert, Card, Checkbox, Input, Segmented, Select, Space, Statistic, Table, Tag, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { OperationalRiskLevel, SeatOperationalOverviewView, WorkspaceOperationalOverviewView } from "@team-manager/shared";
@@ -25,27 +25,35 @@ export function OverviewPage() {
   const [error, setError] = useState("");
   const query = params.get("query") ?? "";
   const risk = params.get("risk") ?? "all";
+  const seatType = params.get("type") ?? "all";
+  const includeOwners = params.get("owners") === "1";
   const load = async () => {
     setLoading(true); setError("");
     try { if (kind === "seats") setSeats(await unifiedApi.overviewSeats()); else setWorkspaces(await unifiedApi.overviewWorkspaces()); }
     catch (reason) { setError((reason as Error).message); } finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, [kind]);
+  useEffect(()=>{if(!["workspaces","seats"].includes(kind))navigate("/overview/workspaces",{replace:true});},[kind,navigate]);
+  useEffect(()=>{const next=new URLSearchParams(params);let changed=false;if(!["all","critical","warning","normal","unknown"].includes(risk)){next.delete("risk");changed=true;}if(!["all","chatgpt","codex"].includes(seatType)){next.delete("type");changed=true;}if(params.has("owners")&&!(["0","1"].includes(params.get("owners")!))){next.delete("owners");changed=true;}if(changed)setParams(next,{replace:true});},[params,risk,seatType,setParams]);
   const updateParam = (key: string, value?: string) => { const next = new URLSearchParams(params); value && value !== "all" ? next.set(key, value) : next.delete(key); setParams(next); };
   const visibleWorkspaces = useMemo(() => workspaces.filter((row) => matches(row, query, risk)), [workspaces, query, risk]);
-  const visibleSeats = useMemo(() => seats.filter((row) => matches(row, query, risk)), [seats, query, risk]);
+  const visibleSeats = useMemo(() => seats.filter((row) => matches(row, query, risk)&&seatMatches(row,seatType,includeOwners)), [seats, query, risk,seatType,includeOwners]);
+  const seatStats=useMemo(()=>({total:seats.filter(row=>includeOwners||row.role!=="owner").length,chatgpt:seats.filter(row=>(includeOwners||row.role!=="owner")&&row.seatType==="default").length,codex:seats.filter(row=>(includeOwners||row.role!=="owner")&&row.seatType==="usage_based").length}),[seats,includeOwners]);
 
   return <Space direction="vertical" size={16} className="panel-stack">
     <Card><PageHeader title="运营总览" description="以可操作字段核对 Workspace、席位占用与到期风险" actions={<Segmented value={kind} options={[{ value: "workspaces", label: "Workspace 总览" }, { value: "seats", label: "席位总览" }]} onChange={(value) => navigate(`/overview/${value}`)} />} /></Card>
     {error && <Alert type="error" showIcon message={error} />}
     <Card>
-      <div className="overview-filters"><Input.Search allowClear placeholder="搜索 Workspace、账号或备注" value={query} onChange={(event) => updateParam("query", event.target.value)} /><Select value={risk} onChange={(value) => updateParam("risk", value)} options={[{ value: "all", label: "全部风险" }, ...Object.entries(riskMeta).map(([value, meta]) => ({ value, label: meta.label }))]} /></div>
+      <div className="overview-filters"><Input.Search allowClear placeholder="搜索 Workspace、账号或备注" value={query} onChange={(event) => updateParam("query", event.target.value)} /><Select value={risk} onChange={(value) => updateParam("risk", value)} options={[{ value: "all", label: "全部风险" }, ...Object.entries(riskMeta).map(([value, meta]) => ({ value, label: meta.label }))]} />{kind==="seats"&&<><Select value={seatType} onChange={(value) => updateParam("type", value)} options={[{value:"all",label:"全部类型"},{value:"chatgpt",label:"ChatGPT 席位"},{value:"codex",label:"Codex 席位"}]} /><Checkbox checked={includeOwners} onChange={event=>updateParam("owners",event.target.checked?"1":undefined)}>显示所有者</Checkbox></>}</div>
+      {kind==="seats"&&<div className="overview-stat-grid"><Statistic title="席位合计" value={seatStats.total}/><Statistic title="ChatGPT" value={seatStats.chatgpt}/><Statistic title="Codex" value={seatStats.codex}/></div>}
       <LoadBoundary loading={loading} error={error} empty={kind === "seats" ? !visibleSeats.length : !visibleWorkspaces.length} onRetry={load}>
         {kind === "seats" ? <SeatTable rows={visibleSeats} /> : <WorkspaceTable rows={visibleWorkspaces} />}
       </LoadBoundary>
     </Card>
   </Space>;
 }
+
+function seatMatches(row:SeatOperationalOverviewView,type:string,includeOwners:boolean){if(!includeOwners&&row.role==="owner")return false;if(type==="chatgpt")return row.seatType==="default";if(type==="codex")return row.seatType==="usage_based";return true;}
 
 function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) {
   return <Table rowKey="id" dataSource={rows} scroll={{ x: 1250 }} columns={[

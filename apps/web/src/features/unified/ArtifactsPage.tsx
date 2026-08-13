@@ -11,6 +11,8 @@ import {
   Space,
   Table,
   Tag,
+  Typography,
+  Upload,
 } from "antd";
 import { useSearchParams } from "react-router-dom";
 import type { QuarantinedCredentialClaimInput } from "@team-manager/shared";
@@ -21,15 +23,13 @@ import {
 } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { RrwebReplay } from "../../components/RrwebReplay.js";
+import { normalizedArtifactParams, parseRrwebRecording } from "./unifiedUiModels.js";
 
 export function ArtifactsPage() {
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<ArtifactView[]>([]);
   const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
-  const [selected, setSelected] = useState<{
-    artifact: ArtifactView;
-    recording?: unknown;
-  }>();
+  const [recording, setRecording] = useState<unknown>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -51,9 +51,9 @@ export function ArtifactsPage() {
     }
   };
 
-  useEffect(() => {
-    void load();
-  }, [params.toString()]);
+  const queryKey=`${params.get("kind")??""}:${params.get("status")??""}`;
+  useEffect(() => { void load(); }, [queryKey]);
+  useEffect(()=>{const next=normalizedArtifactParams(params);if(next.toString()!==params.toString())setParams(next,{replace:true});},[params,setParams]);
 
   const set = (key: string, value?: string) => {
     const next = new URLSearchParams(params);
@@ -93,21 +93,23 @@ export function ArtifactsPage() {
       const response = row.storageKey.endsWith(".gz")
         ? new Response(blob.stream().pipeThrough(new DecompressionStream("gzip")))
         : new Response(blob);
-      setSelected({ artifact: row, recording: JSON.parse(await response.text()) });
+      setRecording(parseRrwebRecording(await response.text()));
+      const next=new URLSearchParams(params);next.set("modal","replay");next.set("artifactId",row.id);setParams(next);
     } catch (reason) {
       setError((reason as Error).message);
     }
   };
 
   const openClaim = (row: ArtifactView) => {
-    setSelected({ artifact: row });
-    set("modal", "claim");
+    const next=new URLSearchParams(params);next.set("modal","claim");next.set("artifactId",row.id);setParams(next);
   };
 
   const closeClaim = () => {
-    set("modal");
-    setSelected(undefined);
+    const next=new URLSearchParams(params);next.delete("modal");next.delete("artifactId");setParams(next);
   };
+  const selected=rows.find(row=>row.id===params.get("artifactId"));
+  useEffect(()=>{if(params.get("modal")==="replay"&&selected?.kind==="rrweb"&&recording===undefined)void replayContent(selected).then(setRecording).catch(reason=>setError((reason as Error).message));},[params,selected,recording]);
+  useEffect(()=>{if(!loading&&["replay","claim"].includes(params.get("modal")??"")&&!selected)closeClaim();},[loading,params,selected]);
 
   return (
     <Space direction="vertical" size={16} className="panel-stack">
@@ -115,6 +117,7 @@ export function ArtifactsPage() {
         <PageHeader
           title="文件制品"
           description="查看 HTTP 请求日志、rrweb 录制和凭证文件的索引、状态与生命周期"
+          actions={<Upload accept="application/json,.json" showUploadList={false} beforeUpload={file=>{void file.text().then(text=>{setRecording(parseRrwebRecording(text));const next=new URLSearchParams(params);next.set("modal","local-replay");next.delete("artifactId");setParams(next);}).catch(reason=>setError((reason as Error).message));return false;}}><Button>导入本地 rrweb 回放</Button></Upload>}
         />
       </Card>
       {error && <Alert type="error" showIcon message={error} />}
@@ -125,7 +128,7 @@ export function ArtifactsPage() {
             placeholder="制品类型"
             value={params.get("kind") ?? undefined}
             onChange={(value) => set("kind", value)}
-            options={["trace", "rrweb", "credential", "quarantine"].map(
+            options={["trace", "rrweb", "credential", "quarantine", "orphan"].map(
               (value) => ({ value, label: value }),
             )}
           />
@@ -139,7 +142,9 @@ export function ArtifactsPage() {
               "quarantined",
               "pending_delete",
               "deleted",
-              "orphan",
+              "missing",
+              "claimed",
+              "discarded",
             ].map((value) => ({ value, label: value }))}
           />
           <Input.Search
@@ -166,7 +171,8 @@ export function ArtifactsPage() {
               },
               { title: "ID", dataIndex: "id", ellipsis: true },
               { title: "状态", dataIndex: "status" },
-              { title: "大小", dataIndex: "byteSize" },
+              { title: "摘要", render:(_,row)=><ArtifactMetadata row={row}/> },
+              { title: "大小", dataIndex: "byteSize", render:formatBytes },
               { title: "SHA-256", dataIndex: "contentSha256", ellipsis: true },
               { title: "存储键", dataIndex: "storageKey", ellipsis: true },
               { title: "时间", dataIndex: "recordedAt", render: formatTime },
@@ -236,12 +242,12 @@ export function ArtifactsPage() {
       </Card>
       <Drawer
         title="rrweb 录制回放"
-        open={Boolean(selected) && params.get("modal") !== "claim"}
-        onClose={() => setSelected(undefined)}
+        open={["replay","local-replay"].includes(params.get("modal")??"")}
+        onClose={() => {setRecording(undefined);closeClaim();}}
         width="min(900px, 94vw)"
       >
-        {selected?.recording !== undefined && (
-          <RrwebReplay recording={selected.recording} />
+        {recording !== undefined && (
+          <RrwebReplay recording={recording} />
         )}
       </Drawer>
       <Modal
@@ -256,7 +262,7 @@ export function ArtifactsPage() {
           onFinish={(value: QuarantinedCredentialClaimInput) =>
             run("claim", () =>
               unifiedApi.claimQuarantinedCredential(
-                selected!.artifact.id,
+                selected!.id,
                 value,
               ),
             ).then(closeClaim)
@@ -303,7 +309,7 @@ export function ArtifactsPage() {
               onClick={() =>
                 run("discard", () =>
                   unifiedApi.discardQuarantinedCredential(
-                    selected!.artifact.id,
+                    selected!.id,
                   ),
                 ).then(closeClaim)
               }
@@ -316,3 +322,8 @@ export function ArtifactsPage() {
     </Space>
   );
 }
+
+async function replayContent(row:ArtifactView){const blob=await unifiedApi.artifactContent(row.kind,row.id);const response=row.storageKey.endsWith(".gz")?new Response(blob.stream().pipeThrough(new DecompressionStream("gzip"))):new Response(blob);return parseRrwebRecording(await response.text());}
+function ArtifactMetadata({row}:{row:ArtifactView}){const entries=metadataEntries(row.metadata);return entries.length?<Space direction="vertical" size={0}>{entries.map(([label,value])=><Typography.Text key={label} type="secondary">{label}：{value}</Typography.Text>)}</Space>:"—";}
+function metadataEntries(value:Record<string,unknown>){const fields:Array<[string,string[]]>=[['上游',['upstream','service']],['方法',['method']],['响应',['status','statusCode']],['耗时',['durationMs','duration']],['来源',['source']],['内容类型',['contentType']],['账号',['accountId']],['Workspace',['workspaceId']],['凭证',['credentialKind']],['原因',['reason']]];return fields.flatMap(([label,keys])=>{const key=keys.find(item=>['string','number','boolean'].includes(typeof value[item]));return key?[[label,String(value[key])] as [string,string]]:[];});}
+function formatBytes(value:number){if(value<1024)return `${value} B`;if(value<1024*1024)return `${(value/1024).toFixed(1)} KB`;return `${(value/1024/1024).toFixed(1)} MB`;}

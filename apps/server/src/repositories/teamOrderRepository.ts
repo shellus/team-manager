@@ -25,7 +25,7 @@ export class TeamOrderRepository {
     else await this.db.insertInto('team_order_configurations').values(values).execute();
   }
 
-  async dashboard(): Promise<TeamOrderDashboardView> {
+  async dashboard(configured: boolean): Promise<TeamOrderDashboardView> {
     const [configurationRows, maintenanceRows, orderRows] = await Promise.all([
       this.db.selectFrom('team_order_configurations as c')
         .leftJoin('workspaces as w', 'w.id', 'c.workspace_id')
@@ -63,6 +63,7 @@ export class TeamOrderRepository {
       configuration: configurationSnapshot(row.configuration_snapshot, row.workspace_id, row.workspace_name)
     }));
     return {
+      configured,
       statistics: {
         maintenanceCount: maintenances.filter((item) => item.enabled).length,
         runningCount: orders.filter((item) => ['queued', 'running'].includes(item.status)).length,

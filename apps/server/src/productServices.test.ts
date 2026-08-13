@@ -5,7 +5,7 @@ import { temporaryDirectory } from './testHelpers.js';
 import { ArtifactStore } from './artifactStore.js';
 import { createCodexAuthSession } from './codexAuth.js';
 import { TeamCodeClient } from './teamCodeClient.js';
-import { NotificationService } from './services/notificationService.js';
+import { configuredNotificationChannels, NotificationService } from './services/notificationService.js';
 import { teamOrderScheduledFor } from './services/teamOrderService.js';
 import { ChatGptApi } from './chatgptApi.js';
 import { notificationScheduleDue } from './services/seatSlotService.js';
@@ -47,6 +47,12 @@ test('通知策略的触发时间按配置时区生效', () => {
   assert.equal(notificationScheduleDue({ triggerTime: '09:30', timeZone: 'Asia/Shanghai' }, now), true);
   assert.equal(notificationScheduleDue({ triggerTime: '09:31', timeZone: 'Asia/Shanghai' }, now), false);
   assert.equal(notificationScheduleDue({ triggerTime: '01:30', timeZone: 'UTC' }, now), true);
+});
+
+test('通知渠道可独立停用且兼容旧配置', () => {
+  assert.deepEqual(configuredNotificationChannels({webhookUrl:'https://notify.test'}),['webhook']);
+  assert.deepEqual(configuredNotificationChannels({webhookEnabled:false,webhookUrl:'https://notify.test',feishuEnabled:true,feishuWebhookUrl:'https://feishu.test'}),['feishu']);
+  assert.deepEqual(configuredNotificationChannels({telegramEnabled:true,telegramBotToken:'token'}),[]);
 });
 
 test('通知失败在同一投递上有限重试并保留原始正文', async () => {

@@ -74,7 +74,8 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const subscriptions = new SubscriptionService(database, accountManager, accountManagement);
   const publicSeats = new PublicSeatService(database, workspaceOperations);
   const artifactIndexes = new ArtifactIndexRepository(database, artifactStore ?? new ArtifactStore(config.artifactDir));
-  const system = new SystemService(database);
+  const teamCode = new TeamCodeClient(config.teamCodeBaseUrl, config.teamCodePasscode);
+  const system = new SystemService(database, teamCode.configured);
   const credentials = new CredentialService(
     database,
     artifactStore ?? new ArtifactStore(config.artifactDir),
@@ -89,7 +90,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const seatSlots = new SeatSlotService(database, workspaceOperations, publicSeats, notifications);
   const artifacts = new ArtifactService(database, artifactStore ?? new ArtifactStore(config.artifactDir), config.artifactDir);
   const settings = new SettingsService(database, cipher);
-  const teamOrders = new TeamOrderService(database, sessions, new AccountOperationalRepository(database, cipher), new TeamCodeClient(config.teamCodeBaseUrl, config.teamCodePasscode));
+  const teamOrders = new TeamOrderService(database, sessions, new AccountOperationalRepository(database, cipher), teamCode);
   const stops: Array<() => void> = [];
   if (startBackgroundTasks) {
     stops.push(startOperationPoller(operations), startTeamOrderScheduler(teamOrders),

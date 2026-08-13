@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { NotificationDeliveryView } from "@team-manager/shared";
 import {
   notificationDeliveryPresentation,
+  normalizedArtifactParams,
+  parseRrwebRecording,
   workspaceSettingsFormValues,
   workspaceSettingsPatch,
 } from "./unifiedUiModels.js";
@@ -64,6 +66,19 @@ describe("workspace settings mapping", () => {
       workspaceSettingsFormValues({ automaticReloadEnabled: false })
         .automaticReloadEnabled,
     ).toBeUndefined();
+  });
+});
+
+describe("artifact URL and rrweb import", () => {
+  test("keeps orphan and a restorable replay modal while removing invalid values", () => {
+    expect(normalizedArtifactParams(new URLSearchParams("kind=orphan&status=pending_delete&modal=replay&artifactId=a")).toString()).toBe("kind=orphan&status=pending_delete&modal=replay&artifactId=a");
+    expect(normalizedArtifactParams(new URLSearchParams("kind=unknown&status=orphan&modal=debug&artifactId=a")).toString()).toBe("");
+  });
+
+  test("accepts wrapped and raw rrweb events without exposing a JSON viewer", () => {
+    expect(parseRrwebRecording('[{"timestamp":1}]')).toEqual([{ timestamp: 1 }]);
+    expect(parseRrwebRecording('{"format":"team-manager-rrweb","events":[]}')).toEqual({ format: "team-manager-rrweb", events: [] });
+    expect(() => parseRrwebRecording('{"events":"invalid"}')).toThrow("不是可回放");
   });
 });
 

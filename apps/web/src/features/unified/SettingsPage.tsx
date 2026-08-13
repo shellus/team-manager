@@ -79,8 +79,11 @@ export function SettingsPage() {
 
   const valueOf = (key: string) =>
     settings.find((row) => row.key === key)?.value;
-  const activeTab = params.get("tab") ?? "notifications";
+  const tabs = ["notifications", "deliveries", "pools", "preferences", "retention"];
+  const activeTab = tabs.includes(params.get("tab") ?? "") ? params.get("tab")! : "notifications";
   const selectTab = (value: string) => { const next = new URLSearchParams(params); value === "notifications" ? next.delete("tab") : next.set("tab", value); setParams(next); };
+  useEffect(()=>{const tab=params.get("tab");if(tab&&!tabs.includes(tab)){const next=new URLSearchParams(params);next.delete("tab");setParams(next,{replace:true});}},[params,setParams]);
+  useEffect(()=>{const policy=params.get("policy");if(policy&&policy!=="new"&&policies.length&&!policies.some(row=>row.kind===policy)){const next=new URLSearchParams(params);next.delete("policy");setParams(next,{replace:true});}},[params,policies,setParams]);
 
   return (
     <Space direction="vertical" size={16} className="panel-stack">
@@ -252,7 +255,7 @@ export function SettingsPage() {
 }
 
 function notificationChannels(configuration: NotificationPolicyView["configuration"]) {
-  return [configuration.webhookUrl && "通用 Webhook", configuration.feishuWebhookUrl && "飞书", configuration.wecomWebhookUrl && "企业微信", configuration.telegramBotToken && configuration.telegramChatId && "Telegram"].filter((value): value is string => Boolean(value));
+  return [configuration.webhookEnabled && configuration.webhookUrl && "通用 Webhook", configuration.feishuEnabled && configuration.feishuWebhookUrl && "飞书", configuration.wecomEnabled && configuration.wecomWebhookUrl && "企业微信", configuration.telegramEnabled && configuration.telegramBotToken && configuration.telegramChatId && "Telegram"].filter((value): value is string => Boolean(value));
 }
 
 function NotificationPolicies({
@@ -302,13 +305,13 @@ function NotificationPolicies({
       <Form
         key={selected?.id ?? "new-policy"}
         layout="vertical"
-        initialValues={{ kind: selected?.kind ?? "seat_expiration", enabled: selected?.enabled ?? true, advanceDays: selected?.configuration.advanceDays ?? 7, triggerTime: selected?.configuration.triggerTime ?? "09:00", timeZone: selected?.configuration.timeZone ?? "Asia/Shanghai", webhookUrl: selected?.configuration.webhookUrl, feishuWebhookUrl: selected?.configuration.feishuWebhookUrl, telegramBotToken: selected?.configuration.telegramBotToken, telegramChatId: selected?.configuration.telegramChatId, wecomWebhookUrl: selected?.configuration.wecomWebhookUrl }}
-        onFinish={(value) => run("policy", () => unifiedApi.saveNotificationPolicy(value.kind, { enabled: value.enabled === true, configuration: { advanceDays: value.advanceDays, triggerTime: value.triggerTime, timeZone: value.timeZone, ...(value.webhookUrl ? { webhookUrl: value.webhookUrl } : {}), ...(value.feishuWebhookUrl ? { feishuWebhookUrl: value.feishuWebhookUrl } : {}), ...(value.telegramBotToken ? { telegramBotToken: value.telegramBotToken } : {}), ...(value.telegramChatId ? { telegramChatId: value.telegramChatId } : {}), ...(value.wecomWebhookUrl ? { wecomWebhookUrl: value.wecomWebhookUrl } : {}) } }))}
+        initialValues={{ kind: selected?.kind ?? "seat_expiration", enabled: selected?.enabled ?? true, advanceDays: selected?.configuration.advanceDays ?? 7, triggerTime: selected?.configuration.triggerTime ?? "09:00", timeZone: selected?.configuration.timeZone ?? "Asia/Shanghai", webhookEnabled: selected?.configuration.webhookEnabled ?? false, feishuEnabled: selected?.configuration.feishuEnabled ?? false, wecomEnabled: selected?.configuration.wecomEnabled ?? false, telegramEnabled: selected?.configuration.telegramEnabled ?? false, webhookUrl: selected?.configuration.webhookUrl, feishuWebhookUrl: selected?.configuration.feishuWebhookUrl, telegramBotToken: selected?.configuration.telegramBotToken, telegramChatId: selected?.configuration.telegramChatId, wecomWebhookUrl: selected?.configuration.wecomWebhookUrl }}
+        onFinish={(value) => run("policy", () => unifiedApi.saveNotificationPolicy(value.kind, { enabled: value.enabled === true, configuration: { advanceDays: value.advanceDays, triggerTime: value.triggerTime, timeZone: value.timeZone, webhookEnabled:value.webhookEnabled===true,feishuEnabled:value.feishuEnabled===true,wecomEnabled:value.wecomEnabled===true,telegramEnabled:value.telegramEnabled===true, ...(value.webhookUrl ? { webhookUrl: value.webhookUrl } : {}), ...(value.feishuWebhookUrl ? { feishuWebhookUrl: value.feishuWebhookUrl } : {}), ...(value.telegramBotToken ? { telegramBotToken: value.telegramBotToken } : {}), ...(value.telegramChatId ? { telegramChatId: value.telegramChatId } : {}), ...(value.wecomWebhookUrl ? { wecomWebhookUrl: value.wecomWebhookUrl } : {}) } }))}
       >
         <Typography.Title level={4}>{selected ? `编辑 ${selected.kind}` : "新建通知策略"}</Typography.Title>
         <div className="responsive-form-grid">
-          <Form.Item name="kind" label="策略键" rules={[{ required: true }]}>
-            <Input disabled={Boolean(selected)} />
+          <Form.Item name="kind" label="提醒类型" rules={[{ required: true }]}>
+            <Select disabled={Boolean(selected)} options={[{value:"seat_expiration",label:"客户席位到期"},{value:"workspace_renewal",label:"Team Workspace 续费"}]} />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
@@ -319,9 +322,12 @@ function NotificationPolicies({
           <Form.Item name="triggerTime" label="每日触发时间" rules={[{ required: true, pattern: /^([01]\d|2[0-3]):[0-5]\d$/ }]}><Input type="time" /></Form.Item>
           <Form.Item name="timeZone" label="时区" rules={[{ required: true }]}><Select showSearch options={["Asia/Shanghai", "UTC", "America/Los_Angeles", "America/New_York", "Europe/London"].map(value => ({ value, label: value }))} /></Form.Item>
         </div>
-        <Typography.Text type="secondary">至少配置一个渠道；Telegram 需要同时填写 Bot Token 与 Chat ID。</Typography.Text>
-        <div className="responsive-form-grid">
-          <Form.Item name="webhookUrl" label="通用 Webhook"><Input allowClear /></Form.Item><Form.Item name="feishuWebhookUrl" label="飞书 Webhook"><Input allowClear /></Form.Item><Form.Item name="wecomWebhookUrl" label="企业微信 Webhook"><Input allowClear /></Form.Item><Form.Item name="telegramBotToken" label="Telegram Bot Token"><Input allowClear /></Form.Item><Form.Item name="telegramChatId" label="Telegram Chat ID"><Input allowClear /></Form.Item>
+        <Typography.Text type="secondary">渠道开关与地址分开保存；关闭渠道不会删除已填配置。Telegram 需要同时填写 Bot Token 与 Chat ID。</Typography.Text>
+        <div className="notification-channel-grid">
+          <div className="notification-channel-card"><Form.Item name="webhookEnabled" label="启用通用 Webhook" valuePropName="checked"><Switch /></Form.Item><Form.Item name="webhookUrl" label="Webhook URL"><Input allowClear /></Form.Item></div>
+          <div className="notification-channel-card"><Form.Item name="feishuEnabled" label="启用飞书" valuePropName="checked"><Switch /></Form.Item><Form.Item name="feishuWebhookUrl" label="飞书 Webhook"><Input allowClear /></Form.Item></div>
+          <div className="notification-channel-card"><Form.Item name="wecomEnabled" label="启用企业微信" valuePropName="checked"><Switch /></Form.Item><Form.Item name="wecomWebhookUrl" label="企业微信 Webhook"><Input allowClear /></Form.Item></div>
+          <div className="notification-channel-card"><Form.Item name="telegramEnabled" label="启用 Telegram" valuePropName="checked"><Switch /></Form.Item><Form.Item name="telegramBotToken" label="Bot Token"><Input allowClear /></Form.Item><Form.Item name="telegramChatId" label="Chat ID"><Input allowClear /></Form.Item></div>
         </div>
         <Button htmlType="submit" type="primary" loading={busy === "policy"}>
           保存通知策略
