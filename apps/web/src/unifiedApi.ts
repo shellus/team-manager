@@ -11,6 +11,8 @@ import type {
   CodexAuthStart,
   CredentialPoolGroupView,
   NotificationDeliveryView,
+  NotificationPolicyView,
+  SaveNotificationPolicyRequest,
   OpenBusinessSubscriptionRequest,
   SubscriptionDetailView,
   OperationControl,
@@ -23,6 +25,9 @@ import type {
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
+  WorkspaceOperationalOverviewView,
+  SeatOperationalOverviewView,
+  TeamOrderDashboardView,
   WorkspaceSummaryView,
 } from '@team-manager/shared';
 import { ApiError, expireAuthentication, getToken } from './api.js';
@@ -38,7 +43,7 @@ export interface JsonSnapshot {
 }
 export type SeatSlotInput = SeatSlotMutationInput;
 export type ArtifactView = ArtifactIndexView;
-export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, PersonalSpaceDetailView };
+export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, NotificationPolicyView, PersonalSpaceDetailView };
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
@@ -156,15 +161,15 @@ export const unifiedApi = {
   releaseSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/release`, { executorAccountId }),
   swapSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, email: string) =>
     request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/swap`, { executorAccountId, email }),
-  teamOrders: () => request<Record<string, unknown>>('GET', '/team-orders'),
+  teamOrders: () => request<TeamOrderDashboardView>('GET', '/team-orders'),
   saveTeamOrderConfiguration: (body: Record<string, unknown>) => request<void>('PUT', '/team-orders/configuration', body),
   saveTeamOrderMaintenance: (workspaceId: string, body: Record<string, unknown>) => request<void>('PUT', `/team-orders/maintenances/${workspaceId}`, body),
   runTeamOrders: (body: Record<string, unknown>) => request<unknown>('POST', '/team-orders/run', body),
   controlTeamOrder: (workspaceId: string, action: string) => request<unknown>('POST', `/team-orders/maintenances/${workspaceId}/${encodeURIComponent(action)}`),
   retryTeamOrder: (id: string) => request<unknown>('POST', `/team-orders/orders/${id}/retry`),
   deleteTeamOrder: (id: string) => request<boolean>('DELETE', `/team-orders/orders/${id}`),
-  notificationPolicies: () => request<Array<Record<string, unknown>>>('GET', '/settings/notification-policies'),
-  saveNotificationPolicy: (kind: string, body: Record<string, unknown>) => request<Array<Record<string, unknown>>>('PUT', `/settings/notification-policies/${encodeURIComponent(kind)}`, body),
+  notificationPolicies: () => request<NotificationPolicyView[]>('GET', '/settings/notification-policies'),
+  saveNotificationPolicy: (kind: string, body: SaveNotificationPolicyRequest) => request<NotificationPolicyView[]>('PUT', `/settings/notification-policies/${encodeURIComponent(kind)}`, body),
   testNotificationPolicy: (kind: string) => request<NotificationDeliveryView>('POST', `/settings/notification-policies/${encodeURIComponent(kind)}/test`),
   notificationDeliveries: () => request<NotificationDeliveryView[]>('GET', '/settings/notification-deliveries'),
   retryNotificationDelivery: (id: string) => request<NotificationDeliveryView>('POST', `/settings/notification-deliveries/${id}/retry`),
@@ -191,8 +196,8 @@ export const unifiedApi = {
     }),
   updateCredentialPoolGroup: (id: string, body: Record<string, unknown>) => request<CredentialPoolGroupView[]>('PATCH', `/credential-pool-groups/${id}`, body),
   deleteCredentialPoolGroup: (id: string) => request<CredentialPoolGroupView[]>('DELETE', `/credential-pool-groups/${id}`),
-  overviewWorkspaces: () => request<Array<Record<string, unknown>>>('GET', '/overview/workspaces'),
-  overviewSeats: () => request<Array<Record<string, unknown>>>('GET', '/overview/seats'),
+  overviewWorkspaces: () => request<WorkspaceOperationalOverviewView[]>('GET', '/overview/workspaces'),
+  overviewSeats: () => request<SeatOperationalOverviewView[]>('GET', '/overview/seats'),
   artifacts: (query: URLSearchParams) => request<ArtifactView[]>('GET', `/artifacts?${query}`),
   uploadRrweb: (body: Uint8Array, fileName: string, recordedAt: string) =>
     requestBytes('POST', '/artifacts/rrweb', body, {

@@ -57,12 +57,18 @@ export class SeatSlotService {
   async swap(workspaceId: string, id: string, email: string) { const row = await this.require(workspaceId, id);const result=await this.publicSeats.swap(row.seat_key, normalizeEmail(email));await this.activity(workspaceId,'seat_slot_swap_requested',{seatSlotId:id,email:normalizeEmail(email)});return result; }
 
   async runExpirations(now = new Date()) {
-    const today = now.toISOString().slice(0, 10); const reminderEnd = new Date(now.getTime()+7*86400_000).toISOString().slice(0,10);
+    const today = dateInTimeZone(now, 'UTC'); const schedules = await this.notificationSchedules();
+    const dueSchedules = schedules.filter((schedule) => notificationScheduleDue(schedule, now));
+    const advanceDays = dueSchedules.length ? Math.max(...dueSchedules.map((item) => item.advanceDays)) : -1;
+    const reminderEnd = advanceDays >= 0 ? new Date(now.getTime()+advanceDays*86400_000).toISOString().slice(0,10) : today;
     const reminders=await this.db.selectFrom('seat_slots').selectAll().where('expire_reminder','=',true)
       .where('status','in',['invited','member']).where('current_email','is not',null)
       .where('expires_on','>=',today).where('expires_on','<=',reminderEnd).execute();
-    const reminderKey=`seat-expiry-reminder:${today}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
-    if(reminders.length&&!already){await this.notifications?.notifySeatExpiry(reminders.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})));await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:reminders.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();}
+    for (const schedule of dueSchedules) {
+      const reminderKey=`seat-expiry-reminder:${schedule.kind}:${dateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
+      const matching=reminders.filter(row=>row.expires_on&&row.expires_on<=new Date(now.getTime()+schedule.advanceDays*86400_000).toISOString().slice(0,10));
+      if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();}
+    }
     const rows = await this.db.selectFrom('seat_slots').selectAll().where('expires_on', '<', today).execute();
     let disabled = 0; let removed = 0;
     for (const row of rows) {
@@ -73,14 +79,18 @@ export class SeatSlotService {
       }
       await this.db.updateTable('seat_slots').set({ status: 'disabled' }).where('id', '=', row.id).execute(); disabled += 1;
     }
-    return { checked: rows.length, reminders:reminders.length, disabled, removed };
+    return { checked: rows.length, reminders:reminders.length, schedules: dueSchedules.length, disabled, removed };
   }
+  private async notificationSchedules() { const rows=await this.db.selectFrom('notification_policies').select(['kind','configuration']).where('enabled','=',true).execute();return rows.map(row=>{const config=row.configuration;return{kind:row.kind,advanceDays:Number.isInteger(Number(config.advanceDays))?Number(config.advanceDays):7,triggerTime:typeof config.triggerTime==='string'?config.triggerTime:'09:00',timeZone:typeof config.timeZone==='string'?config.timeZone:'Asia/Shanghai'};}); }
   private async require(workspaceId: string, id: string) { const row = await this.db.selectFrom('seat_slots').selectAll().where('id', '=', id).where('workspace_id', '=', workspaceId).executeTakeFirst(); if (!row) throw new ServiceError(404, '客户席位不存在'); return row; }
   private async assertWorkspace(id: string) { if (!await this.db.selectFrom('workspaces').select('id').where('id', '=', id).executeTakeFirst()) throw new ServiceError(404, 'Workspace 不存在'); }
   private log(id: string, previous: string | null, next: string | null, reason: string) { return this.db.insertInto('seat_slot_identity_history').values({ seat_slot_id: id, previous_email: previous, next_email: next, changed_at: new Date(), reason }).execute(); }
   private activity(workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({workspaceId,kind,payload});}
   private async executor(workspaceId: string) { return (await this.db.selectFrom('workspace_memberships').select('account_id').where('workspace_id', '=', workspaceId).where('status', '=', 'active').where('normalized_role', 'in', ['owner', 'admin']).where('account_id', 'is not', null).executeTakeFirst())?.account_id ?? undefined; }
 }
+
+export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string},now:Date):boolean{const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
+function dateInTimeZone(now:Date,timeZone:string){const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);return `${parts.find(item=>item.type==='year')?.value}-${parts.find(item=>item.type==='month')?.value}-${parts.find(item=>item.type==='day')?.value}`;}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
   const tick = () => void service.runExpirations().catch((error) => console.warn('[team-manager] 席位到期任务失败:', error));

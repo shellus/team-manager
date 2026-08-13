@@ -76,8 +76,12 @@ export class AccountManagerService {
   }
 
   async setProxy(accountId: string, input: ResidentialProxyConfig) {
+    if (!input.sid.trim()) throw new ServiceError(400, '代理 SID 不能为空');
+    if (!/^[A-Z]{2}$/i.test(input.country)) throw new ServiceError(400, '代理国家必须是两个字母');
+    if (input.asn && (input.state || input.city)) throw new ServiceError(400, 'ASN 与州/城市不能同时设置');
+    if (input.city && !input.state) throw new ServiceError(400, '设置城市时必须同时设置州/省');
     const manager = this.require('configureAccountProxy');
-    return manager.configureAccountProxy!(await this.accountRef(accountId), input);
+    return manager.configureAccountProxy!(await this.accountRef(accountId), { ...input, country: input.country.toUpperCase() });
   }
 
   async importSession(accountId: string) {

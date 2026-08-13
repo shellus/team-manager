@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -6,6 +7,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Select,
   Space,
   Switch,
   Table,
@@ -17,9 +19,9 @@ import {
   unifiedApi,
   type CredentialPoolGroupView,
   type NotificationDeliveryView,
+  type NotificationPolicyView,
 } from "../../unifiedApi.js";
 import {
-  JsonViewer,
   LoadBoundary,
   PageHeader,
   formatTime,
@@ -30,7 +32,8 @@ import { setWebPreferences } from "../../webPreferences.js";
 type SystemSetting = { key: string; value?: Record<string, unknown> };
 
 export function SettingsPage() {
-  const [policies, setPolicies] = useState<Array<Record<string, unknown>>>([]);
+  const [params, setParams] = useSearchParams();
+  const [policies, setPolicies] = useState<NotificationPolicyView[]>([]);
   const [deliveries, setDeliveries] = useState<NotificationDeliveryView[]>([]);
   const [groups, setGroups] = useState<CredentialPoolGroupView[]>([]);
   const [settings, setSettings] = useState<SystemSetting[]>([]);
@@ -76,6 +79,8 @@ export function SettingsPage() {
 
   const valueOf = (key: string) =>
     settings.find((row) => row.key === key)?.value;
+  const activeTab = params.get("tab") ?? "notifications";
+  const selectTab = (value: string) => { const next = new URLSearchParams(params); value === "notifications" ? next.delete("tab") : next.set("tab", value); setParams(next); };
 
   return (
     <Space direction="vertical" size={16} className="panel-stack">
@@ -89,6 +94,8 @@ export function SettingsPage() {
       <Card>
         <LoadBoundary loading={loading} error={error} onRetry={load}>
           <Tabs
+            activeKey={activeTab}
+            onChange={selectTab}
             items={[
               {
                 key: "notifications",
@@ -98,7 +105,8 @@ export function SettingsPage() {
                     policies={policies}
                     busy={busy}
                     run={run}
-                    setError={setError}
+                    selectedKind={params.get("policy") ?? policies[0]?.kind}
+                    onSelect={(kind) => { const next = new URLSearchParams(params); next.set("policy", kind ?? "new"); setParams(next); }}
                   />
                 ),
               },
@@ -235,13 +243,6 @@ export function SettingsPage() {
                   </Form>
                 ),
               },
-              {
-                key: "raw",
-                label: "原始设置",
-                children: (
-                  <JsonViewer title="系统设置原始 JSON" value={settings} />
-                ),
-              },
             ]}
           />
         </LoadBoundary>
@@ -250,21 +251,28 @@ export function SettingsPage() {
   );
 }
 
+function notificationChannels(configuration: NotificationPolicyView["configuration"]) {
+  return [configuration.webhookUrl && "通用 Webhook", configuration.feishuWebhookUrl && "飞书", configuration.wecomWebhookUrl && "企业微信", configuration.telegramBotToken && configuration.telegramChatId && "Telegram"].filter((value): value is string => Boolean(value));
+}
+
 function NotificationPolicies({
   policies,
   busy,
   run,
-  setError,
+  selectedKind,
+  onSelect,
 }: {
-  policies: Array<Record<string, unknown>>;
+  policies: NotificationPolicyView[];
   busy: string;
   run: (key: string, action: () => Promise<unknown>) => Promise<void>;
-  setError: (value: string) => void;
+  selectedKind?: string;
+  onSelect: (kind?: string) => void;
 }) {
+  const selected = policies.find((policy) => policy.kind === selectedKind);
   return (
     <Space direction="vertical" className="panel-stack">
       <Table
-        rowKey={(row) => String(row.kind)}
+        rowKey="id"
         pagination={false}
         dataSource={policies}
         scroll={{ x: 900 }}
@@ -276,63 +284,49 @@ function NotificationPolicies({
             render: (value) => (value ? <Tag color="green">是</Tag> : "否"),
           },
           {
-            title: "配置",
-            dataIndex: "configuration",
-            render: (value) => (
-              <JsonViewer title="查看完整配置" value={value} />
-            ),
+            title: "提醒时间",
+            render: (_, row) => `提前 ${row.configuration.advanceDays} 天，${row.configuration.triggerTime}（${row.configuration.timeZone}）`,
+          },
+          {
+            title: "渠道",
+            render: (_, row) => notificationChannels(row.configuration).join("、") || "未配置",
           },
           {
             title: "操作",
             render: (_, row) => (
-              <Button
-                loading={busy === `test-${row.kind}`}
-                onClick={() =>
-                  run(`test-${row.kind}`, () =>
-                    unifiedApi.testNotificationPolicy(String(row.kind)),
-                  )
-                }
-              >
-                发送测试
-              </Button>
+              <Space><Button onClick={() => onSelect(row.kind)}>编辑</Button><Button loading={busy === `test-${row.kind}`} onClick={() => run(`test-${row.kind}`, () => unifiedApi.testNotificationPolicy(row.kind))}>发送测试</Button></Space>
             ),
           },
         ]}
       />
       <Form
+        key={selected?.id ?? "new-policy"}
         layout="vertical"
-        onFinish={async (value) => {
-          let configuration = {};
-          try {
-            configuration = value.configuration
-              ? JSON.parse(value.configuration)
-              : {};
-          } catch {
-            setError("配置必须是 JSON 对象");
-            return;
-          }
-          await run("policy", () =>
-            unifiedApi.saveNotificationPolicy(value.kind, {
-              enabled: value.enabled === true,
-              configuration,
-            }),
-          );
-        }}
+        initialValues={{ kind: selected?.kind ?? "seat_expiration", enabled: selected?.enabled ?? true, advanceDays: selected?.configuration.advanceDays ?? 7, triggerTime: selected?.configuration.triggerTime ?? "09:00", timeZone: selected?.configuration.timeZone ?? "Asia/Shanghai", webhookUrl: selected?.configuration.webhookUrl, feishuWebhookUrl: selected?.configuration.feishuWebhookUrl, telegramBotToken: selected?.configuration.telegramBotToken, telegramChatId: selected?.configuration.telegramChatId, wecomWebhookUrl: selected?.configuration.wecomWebhookUrl }}
+        onFinish={(value) => run("policy", () => unifiedApi.saveNotificationPolicy(value.kind, { enabled: value.enabled === true, configuration: { advanceDays: value.advanceDays, triggerTime: value.triggerTime, timeZone: value.timeZone, ...(value.webhookUrl ? { webhookUrl: value.webhookUrl } : {}), ...(value.feishuWebhookUrl ? { feishuWebhookUrl: value.feishuWebhookUrl } : {}), ...(value.telegramBotToken ? { telegramBotToken: value.telegramBotToken } : {}), ...(value.telegramChatId ? { telegramChatId: value.telegramChatId } : {}), ...(value.wecomWebhookUrl ? { wecomWebhookUrl: value.wecomWebhookUrl } : {}) } }))}
       >
+        <Typography.Title level={4}>{selected ? `编辑 ${selected.kind}` : "新建通知策略"}</Typography.Title>
         <div className="responsive-form-grid">
           <Form.Item name="kind" label="策略键" rules={[{ required: true }]}>
-            <Input />
+            <Input disabled={Boolean(selected)} />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
             <Switch />
           </Form.Item>
         </div>
-        <Form.Item name="configuration" label="配置 JSON">
-          <Input.TextArea rows={6} />
-        </Form.Item>
+        <div className="responsive-form-grid">
+          <Form.Item name="advanceDays" label="提前提醒天数" rules={[{ required: true }]}><InputNumber min={0} max={365} precision={0} /></Form.Item>
+          <Form.Item name="triggerTime" label="每日触发时间" rules={[{ required: true, pattern: /^([01]\d|2[0-3]):[0-5]\d$/ }]}><Input type="time" /></Form.Item>
+          <Form.Item name="timeZone" label="时区" rules={[{ required: true }]}><Select showSearch options={["Asia/Shanghai", "UTC", "America/Los_Angeles", "America/New_York", "Europe/London"].map(value => ({ value, label: value }))} /></Form.Item>
+        </div>
+        <Typography.Text type="secondary">至少配置一个渠道；Telegram 需要同时填写 Bot Token 与 Chat ID。</Typography.Text>
+        <div className="responsive-form-grid">
+          <Form.Item name="webhookUrl" label="通用 Webhook"><Input allowClear /></Form.Item><Form.Item name="feishuWebhookUrl" label="飞书 Webhook"><Input allowClear /></Form.Item><Form.Item name="wecomWebhookUrl" label="企业微信 Webhook"><Input allowClear /></Form.Item><Form.Item name="telegramBotToken" label="Telegram Bot Token"><Input allowClear /></Form.Item><Form.Item name="telegramChatId" label="Telegram Chat ID"><Input allowClear /></Form.Item>
+        </div>
         <Button htmlType="submit" type="primary" loading={busy === "policy"}>
           保存通知策略
         </Button>
+        {selected && <Button onClick={() => onSelect(undefined)}>新建策略</Button>}
       </Form>
     </Space>
   );
@@ -372,8 +366,7 @@ function NotificationDeliveries({
         { title: "错误", dataIndex: "error" },
         {
           title: "投递摘要",
-          dataIndex: "summary",
-          render: (value) => <JsonViewer title="查看摘要" value={value} />,
+          dataIndex: "summaryText",
         },
         {
           title: "操作",

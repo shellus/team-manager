@@ -8,6 +8,7 @@ import { TeamCodeClient } from './teamCodeClient.js';
 import { NotificationService } from './services/notificationService.js';
 import { teamOrderScheduledFor } from './services/teamOrderService.js';
 import { ChatGptApi } from './chatgptApi.js';
+import { notificationScheduleDue } from './services/seatSlotService.js';
 
 test('Codex OAuth 会话使用 PKCE 且固定回调', () => {
   const session=createCodexAuthSession('account@example.com');const url=new URL(session.authUrl);
@@ -39,6 +40,13 @@ test('个人账单只请求个人账号支持的三类接口', async () => {
 test('手动 Team 订单立即执行，仅定时维护采用错峰', () => {
   const now=new Date('2026-08-13T00:00:00Z');assert.equal(teamOrderScheduledFor('manual','workspace-1',now).getTime(),now.getTime());assert.equal(teamOrderScheduledFor('manual_all','workspace-1',now).getTime(),now.getTime());
   const scheduled=teamOrderScheduledFor('scheduled','workspace-1',now).getTime();assert.ok(scheduled>=now.getTime());assert.ok(scheduled<now.getTime()+10*60_000);
+});
+
+test('通知策略的触发时间按配置时区生效', () => {
+  const now = new Date('2026-08-13T01:30:00Z');
+  assert.equal(notificationScheduleDue({ triggerTime: '09:30', timeZone: 'Asia/Shanghai' }, now), true);
+  assert.equal(notificationScheduleDue({ triggerTime: '09:31', timeZone: 'Asia/Shanghai' }, now), false);
+  assert.equal(notificationScheduleDue({ triggerTime: '01:30', timeZone: 'UTC' }, now), true);
 });
 
 test('通知失败在同一投递上有限重试并保留原始正文', async () => {

@@ -66,7 +66,7 @@ describe("notification retry state", () => {
     id: "delivery-1",
     kind: "webhook",
     status: "retrying",
-    summary: {},
+    summaryText: "通知投递",
     attemptCount: 1,
     maxAttempts: 3,
     createdAt: "2026-08-13T00:00:00Z",

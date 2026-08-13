@@ -15,8 +15,8 @@ export class NotificationService {
       .selectAll('d').select('p.kind').orderBy('d.created_at', 'desc')
       .limit(Math.min(Math.max(limit, 1), 1000)).execute();
     return rows.map((row) => ({
-      id: row.id, kind: row.kind, status: row.status, summary: row.safe_summary,
-      payload: row.payload, attemptCount: row.attempt_count, maxAttempts: row.max_attempts,
+      id: row.id, kind: row.kind, status: row.status, summaryText: deliverySummary(row.safe_summary),
+      attemptCount: row.attempt_count, maxAttempts: row.max_attempts,
       ...(row.error_message ? { error: row.error_message } : {}),
       ...(row.next_retry_at ? { nextRetryAt: new Date(row.next_retry_at as any).toISOString() } : {}),
       ...(row.delivered_at ? { deliveredAt: new Date(row.delivered_at as any).toISOString() } : {}),
@@ -49,8 +49,10 @@ export class NotificationService {
     return this.attempt(id, true);
   }
 
-  async notifySeatExpiry(items: Record<string, unknown>[]) {
-    const policies = await this.db.selectFrom('notification_policies').select('kind').where('enabled', '=', true).execute();
+  async notifySeatExpiry(items: Record<string, unknown>[], kind?: string) {
+    let query = this.db.selectFrom('notification_policies').select('kind').where('enabled', '=', true);
+    if (kind) query = query.where('kind', '=', kind);
+    const policies = await query.execute();
     for (const policy of policies) {
       await this.send(policy.kind, {
         type: 'seat_expiration', text: `客户席位到期提醒：${items.length} 项`, items
@@ -124,3 +126,4 @@ async function sendConfiguration(config: Record<string, unknown>, payload: Recor
 }
 
 function text(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
+function deliverySummary(value:Record<string,unknown>):string{return text(value.text)||text(value.type)||'通知投递';}

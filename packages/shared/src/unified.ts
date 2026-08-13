@@ -263,14 +263,137 @@ export interface NotificationDeliveryView {
   id: string;
   kind: string;
   status: string;
-  summary: Record<string, unknown>;
-  payload?: Record<string, unknown>;
+  summaryText: string;
   attemptCount: number;
   maxAttempts: number;
   nextRetryAt?: string;
   error?: string;
   deliveredAt?: string;
   createdAt: string;
+}
+
+export interface NotificationPolicyConfiguration {
+  advanceDays: number;
+  triggerTime: string;
+  timeZone: string;
+  webhookUrl?: string;
+  feishuWebhookUrl?: string;
+  telegramBotToken?: string;
+  telegramChatId?: string;
+  wecomWebhookUrl?: string;
+}
+
+export interface NotificationPolicyView {
+  id: string;
+  kind: string;
+  enabled: boolean;
+  configuration: NotificationPolicyConfiguration;
+  updatedAt: string;
+}
+
+export interface SaveNotificationPolicyRequest {
+  enabled: boolean;
+  configuration: NotificationPolicyConfiguration;
+}
+
+export type OperationalRiskLevel = 'critical' | 'warning' | 'normal' | 'unknown';
+
+export interface WorkspaceOperationalOverviewView {
+  id: string;
+  externalId: string;
+  name?: string;
+  status: string;
+  plan: string;
+  nextRenewalAt?: string;
+  expectedAmount?: string;
+  expectedCurrency?: string;
+  fixedSeatCapacity?: number;
+  fixedSeatOccupied: number;
+  fixedSeatAvailable?: number;
+  memberCount: number;
+  invitationCount: number;
+  seatSlotCount: number;
+  riskLevel: OperationalRiskLevel;
+  risks: string[];
+}
+
+export type SeatOperationalSource = 'membership' | 'invitation' | 'seat_slot' | 'fixed_vacancy';
+
+export interface SeatOperationalOverviewView {
+  id: string;
+  workspaceId: string;
+  workspaceName?: string;
+  workspaceExternalId: string;
+  source: SeatOperationalSource;
+  email?: string;
+  displayName?: string;
+  role?: NormalizedWorkspaceRole;
+  seatType: SeatType;
+  status: string;
+  contact?: string;
+  remark?: string;
+  expiresOn?: string;
+  price?: string;
+  riskLevel: OperationalRiskLevel;
+  risks: string[];
+}
+
+export interface TeamOrderConfigurationView {
+  workspaceId?: string;
+  workspaceName?: string;
+  promoCode?: string;
+  country?: string;
+  currency?: string;
+}
+
+export interface TeamOrderMaintenanceView {
+  id: string;
+  workspaceId: string;
+  workspaceName?: string;
+  workspaceExternalId: string;
+  executorAccountId: string;
+  executorEmail: string;
+  enabled: boolean;
+  status: 'running' | 'scheduled' | 'paused' | 'attention';
+  nextRunAt?: string;
+  lastRunAt?: string;
+  lastSuccessAt?: string;
+  lastError?: string;
+  pauseReason?: string;
+  configuration: TeamOrderConfigurationView;
+}
+
+export interface TeamUpgradeOrderView {
+  id: string;
+  workspaceId: string;
+  workspaceName?: string;
+  workspaceExternalId: string;
+  executorAccountId: string;
+  executorEmail: string;
+  status: string;
+  checkoutUrl?: string;
+  expiresAt?: string;
+  source: string;
+  scheduledFor?: string;
+  retryAt?: string;
+  attemptCount: number;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  configuration: TeamOrderConfigurationView;
+}
+
+export interface TeamOrderDashboardView {
+  statistics: {
+    maintenanceCount: number;
+    runningCount: number;
+    readyCount: number;
+    attentionCount: number;
+  };
+  globalConfiguration: TeamOrderConfigurationView;
+  configurations: TeamOrderConfigurationView[];
+  maintenances: TeamOrderMaintenanceView[];
+  orders: TeamUpgradeOrderView[];
 }
 
 export interface QuarantinedCredentialClaimInput {
@@ -368,6 +491,8 @@ export interface WorkspaceSummaryView {
   plan: string;
   rawPlanCode?: string;
   nextRenewalAt?: string;
+  riskLevel?: OperationalRiskLevel;
+  risks?: string[];
   manageableAccountCount: number;
   memberCount: number;
   invitationCount: number;
