@@ -870,11 +870,11 @@ function SeatSlotModal({
           <Input.TextArea />
         </Form.Item>
         <Space>
-          <Form.Item name="expireReminder" valuePropName="checked">
-            <Switch /> 到期提醒
+          <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked">
+            <Switch />
           </Form.Item>
-          <Form.Item name="expireRemove" valuePropName="checked">
-            <Switch /> 到期移除
+          <Form.Item name="expireRemove" label="到期移除" valuePropName="checked">
+            <Switch />
           </Form.Item>
         </Space>
         <Button type="primary" htmlType="submit">

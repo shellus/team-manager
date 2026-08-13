@@ -174,8 +174,8 @@ export function TeamOrdersPage() {
                 options={accounts.map((a) => ({ value: a.id, label: a.email }))}
               />
             </Form.Item>
-            <Form.Item name="enabled" valuePropName="checked" initialValue>
-              <Switch /> 启用
+            <Form.Item name="enabled" label="启用" valuePropName="checked" initialValue>
+              <Switch />
             </Form.Item>
             <Button htmlType="submit">保存维护关系</Button>
           </Form>
