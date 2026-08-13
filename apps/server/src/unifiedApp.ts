@@ -87,7 +87,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const personalSpaces = new PersonalSpaceService(database, sessions, new AccountOperationalRepository(database, cipher), transport);
   const operations = new OperationService(database, accountManagement, accountManager);
   const notifications = new NotificationService(database);
-  const seatSlots = new SeatSlotService(database, workspaceOperations, publicSeats, notifications);
+  const seatSlots = new SeatSlotService(database, workspaceOperations, notifications);
   const artifacts = new ArtifactService(database, artifactStore ?? new ArtifactStore(config.artifactDir), config.artifactDir);
   const settings = new SettingsService(database, cipher);
   const teamOrders = new TeamOrderService(database, sessions, new AccountOperationalRepository(database, cipher), teamCode);
@@ -292,12 +292,10 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));
   api.get('/workspaces/:id/subscription', (c)=>wrap(c,()=>workspaceOperations.subscription(c.req.param('id'))));
   api.post('/workspaces/:id/subscription/refresh', async (c)=>withExecutor(c,(accountId)=>workspaceOperations.refreshSubscription(c.req.param('id'),accountId)));
-  api.get('/workspaces/:id/seat-slots', (c)=>wrap(c,()=>seatSlots.list(c.req.param('id'))));
-  api.post('/workspaces/:id/seat-slots', async (c)=>{const body=await c.req.json();return wrap(c,()=>seatSlots.create(c.req.param('id'),body));});
-  api.patch('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json();return wrap(c,()=>seatSlots.update(c.req.param('id'),c.req.param('slotId'),body));});
-  api.delete('/workspaces/:id/seat-slots/:slotId', (c)=>wrap(c,()=>seatSlots.remove(c.req.param('id'),c.req.param('slotId'))));
+  api.post('/workspaces/:id/seat-slots', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);const {executorAccountId,...input}=body;return wrap(c,()=>seatSlots.create(c.req.param('id'),executorAccountId,input));});
+  api.patch('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);const {executorAccountId,...input}=body;return wrap(c,()=>seatSlots.update(c.req.param('id'),c.req.param('slotId'),executorAccountId,input));});
+  api.delete('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);return wrap(c,()=>seatSlots.remove(c.req.param('id'),c.req.param('slotId'),body.executorAccountId));});
   api.post('/workspaces/:id/seat-slots/:slotId/release', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;return wrap(c,()=>seatSlots.release(c.req.param('id'),c.req.param('slotId'),body.executorAccountId,body.force===true));});
-  api.post('/workspaces/:id/seat-slots/:slotId/swap', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;return wrap(c,()=>seatSlots.swap(c.req.param('id'),c.req.param('slotId'),body.email));});
   api.post('/workspaces/:id/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);

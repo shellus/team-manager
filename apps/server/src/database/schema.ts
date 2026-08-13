@@ -156,7 +156,6 @@ export interface SeatSlotTable extends AuditedTable {
   remark: string | null;
   price: string | null;
   expires_on: ColumnType<string | null, string | null, string | null>;
-  expire_reminder: Generated<boolean>;
   expire_remove: Generated<boolean>;
   seat_type: string;
   status: string;

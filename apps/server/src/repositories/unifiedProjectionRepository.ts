@@ -268,7 +268,7 @@ export class UnifiedProjectionRepository {
         id: row.id, seatKey: row.seat_key, ...(row.current_email ? { email: row.current_email } : {}),
         ...(row.remote_user_id ? { remoteUserId: row.remote_user_id } : {}), ...(row.contact ? { contact: row.contact } : {}),
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
-        ...(row.expires_on ? { expiresOn: row.expires_on } : {}), expireReminder: row.expire_reminder,
+        ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
         expireRemove: row.expire_remove, seatType: row.seat_type as 'default' | 'usage_based', status: row.status
       })),
       ...(settings ? { latestSettings: { payload: settings.payload, observedAt: iso(settings.observed_at) } } : {}),

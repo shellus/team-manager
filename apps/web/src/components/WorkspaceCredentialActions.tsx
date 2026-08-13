@@ -5,7 +5,7 @@ import { unifiedApi } from "../unifiedApi.js";
 
 export function WorkspaceCredentialActions({ credential, run }: {
   credential: WorkspaceCredentialView;
-  run: (key:string, action:()=>Promise<unknown>)=>Promise<void>;
+  run: (key:string, action:()=>Promise<unknown>)=>Promise<unknown>;
 }) {
   const [deployOpen,setDeployOpen]=useState(false);
   const [oauth,setOauth]=useState<{sessionId:string;authUrl:string;poolGroupId?:string}>();

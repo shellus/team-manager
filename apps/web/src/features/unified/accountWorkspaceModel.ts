@@ -3,11 +3,23 @@ import type {
   WorkspaceDetailView,
   WorkspaceInvitationView,
   WorkspaceMembershipView,
+  SeatSlotView,
 } from "@team-manager/shared";
 
-export type AccountWorkspacePersonRow =
-  | ({ kind: "member"; rowKey: string } & WorkspaceMembershipView)
-  | ({ kind: "invitation"; rowKey: string } & WorkspaceInvitationView);
+export type AccountWorkspacePersonRow = {
+  kind: "member" | "invitation" | "customer";
+  rowKey: string;
+  id: string;
+  email?: string;
+  accountEmail?: string;
+  remoteUserId?: string;
+  displayName?: string;
+  role?: WorkspaceMembershipView["role"];
+  rawRole?: string;
+  seatType?: WorkspaceMembershipView["seatType"];
+  observedAt?: string;
+  seatSlot?: SeatSlotView;
+};
 
 const CHILD_QUERY_KEYS = [
   "peoplePage",
@@ -16,6 +28,7 @@ const CHILD_QUERY_KEYS = [
   "credentialsPageSize",
   "modal",
   "operationId",
+  "seatSlotId",
 ];
 
 export function resolveAccountWorkspaceId(
@@ -38,15 +51,41 @@ export function selectAccountWorkspaceParams(
 }
 
 export function accountWorkspacePeople(
-  workspace?: Pick<WorkspaceDetailView, "members" | "invitations">,
+  workspace?: Pick<WorkspaceDetailView, "members" | "invitations" | "seatSlots">,
 ): AccountWorkspacePersonRow[] {
   if (!workspace) return [];
-  return [
-    ...workspace.members
-      .filter((member) => member.status === "active")
-      .map((member) => ({ ...member, kind: "member" as const, rowKey: `member:${member.id}` })),
-    ...workspace.invitations
-      .filter((invitation) => invitation.status === "pending")
-      .map((invitation) => ({ ...invitation, kind: "invitation" as const, rowKey: `invitation:${invitation.id}` })),
-  ];
+  const remainingSlots = new Map(workspace.seatSlots.map((slot) => [slot.id, slot]));
+  const takeSlot = (email?: string, remoteUserId?: string) => {
+    const normalized = normalizeEmail(email);
+    const match = [...remainingSlots.values()].find((slot) =>
+      Boolean(remoteUserId && slot.remoteUserId === remoteUserId) || Boolean(normalized && normalizeEmail(slot.email) === normalized));
+    if (match) remainingSlots.delete(match.id);
+    return match;
+  };
+  const members = workspace.members.filter((member) => member.status === "active").map((member) => ({
+    ...member,
+    kind: "member" as const,
+    rowKey: `member:${member.id}`,
+    seatSlot: takeSlot(member.email ?? member.accountEmail, member.remoteUserId),
+  }));
+  const invitations = workspace.invitations.filter((invitation) => invitation.status === "pending").map((invitation) => ({
+    ...invitation,
+    kind: "invitation" as const,
+    rowKey: `invitation:${invitation.id}`,
+    seatSlot: takeSlot(invitation.email),
+  }));
+  const customers = [...remainingSlots.values()].map((seatSlot) => ({
+    kind: "customer" as const,
+    rowKey: `customer:${seatSlot.id}`,
+    id: seatSlot.id,
+    email: seatSlot.email,
+    remoteUserId: seatSlot.remoteUserId,
+    seatType: seatSlot.seatType,
+    seatSlot,
+  }));
+  return [...members, ...invitations, ...customers];
+}
+
+function normalizeEmail(value?: string): string {
+  return value?.trim().toLowerCase() ?? "";
 }

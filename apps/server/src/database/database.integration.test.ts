@@ -31,7 +31,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -47,8 +47,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const outsider = await accounts.create({ email: 'outsider@example.com', groupId: group.id });
       await assert.rejects(accounts.create({ email: 'OWNER@example.com', groupId: group.id }), /duplicate key/i);
       const workspace = await workspaces.upsert({ externalId: 'workspace-external', name: 'Business', normalizedPlan: 'business' });
-      await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: first.account.id, email: first.account.email, normalizedRole: 'owner', seatType: 'default', observedAt: new Date(), source: 'test' });
-      await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
+      await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: first.account.id, remoteUserId:'owner-remote',email: first.account.email, normalizedRole: 'owner', seatType: 'default', observedAt: new Date(), source: 'test' });
+      await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, remoteUserId:'member-remote',email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
       const scopedCredentials = await db.insertInto('workspace_credentials').values([
         { account_id: first.account.id, workspace_id: workspace.id, pool_group_id: null, kind: 'pat', external_id: 'owner-credential', storage_key: 'credentials/owner.json', content_sha256: 'owner-credential-sha', byte_size: 1, format_version: 1, eligibility_source: 'membership', status: 'active' },
         { account_id: second.account.id, workspace_id: workspace.id, pool_group_id: null, kind: 'pat', external_id: 'member-credential', storage_key: 'credentials/member.json', content_sha256: 'member-credential-sha', byte_size: 1, format_version: 1, eligibility_source: 'membership', status: 'active' }
@@ -236,12 +236,17 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await app.request(`/api/operations/${operationRow.id}`, { headers })).status, 200);
       assert.ok((await db.selectFrom('automation_operation_events').selectAll().where('operation_id', '=', operationRow.id).execute()).length > 0);
 
-      const slot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ email: 'customer@example.com', seatType: 'usage_based', contact: 'contact', expiresOn: '2030-01-01' }) });
+      const unauthorizedSlot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:outsider.account.id,email: 'customer@example.com', seatType: 'usage_based' }) });
+      assert.equal(unauthorizedSlot.status,409,'普通成员不能维护客户资料');
+      await db.updateTable('workspace_memberships').set({remote_user_id:'owner-remote',email:first.account.email,normalized_email:first.account.email,seat_type:'default'})
+        .where('workspace_id','=',workspace.id).where('account_id','=',first.account.id).where('status','=','active').execute();
+      const slot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:first.account.id,email: first.account.email, seatType: 'usage_based', contact: 'contact', expiresOn: '2030-01-01' }) });
       assert.equal(slot.status, 200);
-      const slotId = (await slot.json() as any).data.id;
-      assert.equal((await app.request(`/api/workspaces/${workspace.id}/seat-slots/${slotId}`, { method: 'PATCH', headers, body: JSON.stringify({ remark: 'paid' }) })).status, 200);
+      const slotData=(await slot.json() as any).data;const slotId = slotData.id;
+      assert.equal(slotData.remote_user_id,'owner-remote');assert.equal(slotData.seat_type,'default','成员关系中的席位类型优先于资料提交值');
+      assert.equal((await app.request(`/api/workspaces/${workspace.id}/seat-slots/${slotId}`, { method: 'PATCH', headers, body: JSON.stringify({ executorAccountId:first.account.id,remark: 'paid' }) })).status, 200);
       await db.updateTable('seat_slots').set({ expires_on: '2020-01-01', status: 'invited', expire_remove: false }).where('id', '=', slotId).execute();
-      const expirationService = new SeatSlotService(db, {} as any, {} as any);
+      const expirationService = new SeatSlotService(db, {} as any);
       assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:00:00Z'))).disabled, 1);
       assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:01:00Z'))).disabled, 0);
 
@@ -267,8 +272,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await assert.rejects(()=>notifications.send('reliable-test',rawPayload));const delivery=await db.selectFrom('notification_deliveries').selectAll().where('policy_id','=',policy.id).executeTakeFirstOrThrow();await assert.rejects(()=>notifications.retry(delivery.id));await assert.rejects(()=>notifications.retry(delivery.id));
       const finalDeliveries=await db.selectFrom('notification_deliveries').selectAll().where('policy_id','=',policy.id).execute();assert.equal(finalDeliveries.length,1);assert.equal(finalDeliveries[0].attempt_count,3);assert.equal(finalDeliveries[0].status,'exhausted');assert.deepEqual(finalDeliveries[0].payload,rawPayload);
 
-      for(const [status,email] of [['member','member-expiry@example.com'],['invited','invited-expiry@example.com'],['empty',null],['unknown','unknown-expiry@example.com'],['disabled','disabled-expiry@example.com']] as const)await db.insertInto('seat_slots').values({workspace_id:workspace.id,seat_key:`reminder-${status}`,remote_user_id:null,current_email:email,normalized_current_email:email,contact:null,remark:null,price:null,expires_on:'2032-01-05',expire_reminder:true,expire_remove:false,seat_type:'default',status}).execute();
-      let reminderItems:Record<string,unknown>[]=[];const reminderService=new SeatSlotService(db,{} as any,{} as any,{notifySeatExpiry:async(items:Record<string,unknown>[])=>(reminderItems=items)} as any);const reminderResult=await reminderService.runExpirations(new Date('2032-01-01T00:00:00Z'));assert.equal(reminderResult.reminders,2);assert.deepEqual(reminderItems.map(item=>item.email).sort(),['invited-expiry@example.com','member-expiry@example.com']);
+      for(const [status,email] of [['member','member-expiry@example.com'],['invited','invited-expiry@example.com'],['empty',null],['unknown','unknown-expiry@example.com'],['disabled','disabled-expiry@example.com']] as const)await db.insertInto('seat_slots').values({workspace_id:workspace.id,seat_key:`reminder-${status}`,remote_user_id:null,current_email:email,normalized_current_email:email,contact:null,remark:null,price:null,expires_on:'2032-01-05',expire_remove:false,seat_type:'default',status}).execute();
+      await db.insertInto('notification_policies').values({kind:'seat_expiration',enabled:true,configuration:{advanceDays:7,triggerTime:'08:00',timeZone:'Asia/Shanghai',webhookEnabled:true,webhookUrl:'https://notify.test'}}).onConflict(oc=>oc.column('kind').doUpdateSet({enabled:true,configuration:{advanceDays:7,triggerTime:'08:00',timeZone:'Asia/Shanghai',webhookEnabled:true,webhookUrl:'https://notify.test'}})).execute();
+      let reminderItems:Record<string,unknown>[]=[];const reminderService=new SeatSlotService(db,{} as any,{notifySeatExpiry:async(items:Record<string,unknown>[])=>(reminderItems=items)} as any);const reminderResult=await reminderService.runExpirations(new Date('2032-01-01T00:00:00Z'));assert.equal(reminderResult.reminders,3);assert.deepEqual(reminderItems.map(item=>item.email).sort(),['invited-expiry@example.com','member-expiry@example.com','unknown-expiry@example.com']);
     } finally { await db.destroy(); }
   } finally {
     await admin.query(`drop database if exists ${quoteIdentifier(databaseName)} with (force)`).catch(() => undefined);

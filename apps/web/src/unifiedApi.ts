@@ -22,6 +22,7 @@ import type {
   QuarantinedCredentialClaimInput,
   RegisterAccountRequest,
   ResidentialProxyConfig,
+  SeatSlotMutationInput,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
@@ -43,6 +44,7 @@ export interface JsonSnapshot {
   raw?: unknown;
 }
 export type ArtifactView = ArtifactIndexView;
+export type SeatSlotInput = SeatSlotMutationInput;
 export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, NotificationPolicyView, PersonalSpaceDetailView };
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -157,6 +159,10 @@ export const unifiedApi = {
   workspaceInvoice: (id: string, invoiceId: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/billing/invoices/${encodeURIComponent(invoiceId)}`),
   workspaceSubscription: (id: string, executorAccountId?: string) =>
     request<SubscriptionDetailView | undefined>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+  createSeatSlot: (workspaceId: string, executorAccountId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, { ...body, executorAccountId }),
+  updateSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, body: Partial<SeatSlotInput>) => request<unknown>('PATCH', `/workspaces/${workspaceId}/seat-slots/${slotId}`, { ...body, executorAccountId }),
+  deleteSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<boolean>('DELETE', `/workspaces/${workspaceId}/seat-slots/${slotId}`, { executorAccountId }),
+  releaseSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/release`, { executorAccountId }),
   teamOrders: () => request<TeamOrderDashboardView>('GET', '/team-orders'),
   saveTeamOrderConfiguration: (body: Record<string, unknown>) => request<void>('PUT', '/team-orders/configuration', body),
   saveTeamOrderMaintenance: (workspaceId: string, body: Record<string, unknown>) => request<void>('PUT', `/team-orders/maintenances/${workspaceId}`, body),

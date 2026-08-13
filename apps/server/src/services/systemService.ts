@@ -5,6 +5,8 @@ import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError } from '../serviceError.js';
 import type { NotificationPolicyConfiguration, NotificationPolicyView, SeatOperationalOverviewView, WorkspaceOperationalOverviewView } from '@team-manager/shared';
 
+const SUPPORTED_NOTIFICATION_POLICY_KINDS = ['seat_expiration', 'workspace_renewal'] as const;
+
 export class SystemService {
   readonly #orders: TeamOrderRepository;
   readonly #workspaces: WorkspaceRepository;
@@ -32,14 +34,15 @@ export class SystemService {
   }
 
   async notificationPolicies(): Promise<NotificationPolicyView[]> {
-    const rows = await this.db.selectFrom('notification_policies').selectAll().orderBy('kind').execute();
+    const rows = await this.db.selectFrom('notification_policies').selectAll()
+      .where('kind', 'in', [...SUPPORTED_NOTIFICATION_POLICY_KINDS]).orderBy('kind').execute();
     return rows.map((row) => ({ id: row.id, kind: row.kind, enabled: row.enabled,
       configuration: notificationConfiguration(row.configuration), updatedAt: iso(row.updated_at) }));
   }
 
   async saveNotificationPolicy(kind: string, input: { enabled?: boolean; configuration?: Record<string, unknown> }) {
     const normalized = kind.trim();
-    if (!normalized) throw new ServiceError(400, '通知策略类型不能为空');
+    if (!SUPPORTED_NOTIFICATION_POLICY_KINDS.includes(normalized as typeof SUPPORTED_NOTIFICATION_POLICY_KINDS[number])) throw new ServiceError(400, '不支持的通知策略类型');
     const configuration = notificationConfiguration(input.configuration ?? {});
     validateNotificationConfiguration(configuration, input.enabled === true);
     const storedConfiguration = { ...configuration } as Record<string, unknown>;

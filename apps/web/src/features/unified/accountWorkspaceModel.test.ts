@@ -34,10 +34,26 @@ describe("account workspace model", () => {
         { id: "i1", status: "pending" },
         { id: "i2", status: "revoked" },
       ],
+      seatSlots: [],
     } as any);
     expect(rows.map((row) => [row.rowKey, row.kind])).toEqual([
       ["member:m1", "member"],
       ["invitation:i1", "invitation"],
     ]);
+  });
+
+  it("按邮箱关联客户资料，并保留没有远端关系的资料", () => {
+    const rows = accountWorkspacePeople({
+      members: [{ id: "m1", status: "active", email: "Member@Example.com" }],
+      invitations: [{ id: "i1", status: "pending", email: "invite@example.com" }],
+      seatSlots: [
+        { id: "s1", email: "member@example.com", contact: "member-contact" },
+        { id: "s2", email: "orphan@example.com", remark: "历史资料" },
+      ],
+    } as any);
+    expect(rows).toHaveLength(3);
+    expect(rows[0].seatSlot?.id).toBe("s1");
+    expect(rows[1].seatSlot).toBeUndefined();
+    expect(rows[2]).toMatchObject({ kind: "customer", email: "orphan@example.com", seatSlot: { id: "s2" } });
   });
 });
