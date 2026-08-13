@@ -24,6 +24,7 @@ import {
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { RrwebReplay } from "../../components/RrwebReplay.js";
 import { normalizedArtifactParams, parseRrwebRecording } from "./unifiedUiModels.js";
+import { useUrlPagination } from "../../components/urlPagination.js";
 
 export function ArtifactsPage() {
   const [params, setParams] = useSearchParams();
@@ -73,6 +74,7 @@ export function ArtifactsPage() {
       }),
     [params, rows],
   );
+  const pagination = useUrlPagination({ total: filteredRows.length });
 
   const run = async (key: string, action: () => Promise<unknown>) => {
     setBusy(key);
@@ -162,6 +164,7 @@ export function ArtifactsPage() {
           <Table
             rowKey="id"
             dataSource={filteredRows}
+            pagination={pagination}
             scroll={{ x: 1_200 }}
             columns={[
               {

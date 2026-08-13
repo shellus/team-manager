@@ -5,6 +5,7 @@ import type { OperationalRiskLevel, WorkspaceSummaryView } from "@team-manager/s
 import { unifiedApi } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { planLabel, statusLabel } from "../../labels.js";
+import { useUrlPagination } from "../../components/urlPagination.js";
 
 const riskLabels: Record<OperationalRiskLevel, { label: string; color: string }> = {
   critical: { label: "严重", color: "red" }, warning: { label: "关注", color: "orange" },
@@ -19,11 +20,12 @@ export function WorkspacesPage() {
   useEffect(() => { void load(); }, [query]);
   const update = (key: string, value?: string) => { const next = new URLSearchParams(params); value && value !== "all" ? next.set(key, value) : next.delete(key); setParams(next); };
   const visible = useMemo(() => items.filter(item => risk === "all" || (item.riskLevel ?? "unknown") === risk), [items, risk]);
+  const pagination = useUrlPagination({ total: visible.length });
   return <Card><Space direction="vertical" size={16} className="panel-stack">
     <PageHeader title="Workspaces" description="Team / Business 空间的运营状态、成员与席位入口" actions={<><Button onClick={() => navigate("/overview/workspaces")}>Workspace 总览</Button><Button onClick={() => navigate("/overview/seats")}>席位总览</Button></>} />
     {error && <Alert type="error" showIcon message={error} />}
     <div className="overview-filters"><Input.Search allowClear placeholder="名称、ID、账号、成员、客户资料或备注" value={query} onChange={event => update("query", event.target.value)} /><Select value={risk} onChange={value => update("risk", value)} options={[{ value: "all", label: "全部风险" }, ...Object.entries(riskLabels).map(([value, meta]) => ({ value, label: meta.label }))]} /></div>
-    <LoadBoundary loading={loading} error={error} empty={!visible.length} onRetry={load}><Table rowKey="id" dataSource={visible} scroll={{ x: 1200 }} onRow={row => ({ onClick: () => navigate(`/workspaces/${row.id}`), style: { cursor: "pointer" } })} columns={[
+    <LoadBoundary loading={loading} error={error} empty={!visible.length} onRetry={load}><Table rowKey="id" dataSource={visible} pagination={pagination} scroll={{ x: 1200 }} onRow={row => ({ onClick: () => navigate(`/workspaces/${row.id}`), style: { cursor: "pointer" } })} columns={[
       { title: "Workspace", render: (_, row) => <div><Typography.Text strong>{row.name ?? "未命名"}</Typography.Text><br/><Typography.Text type="secondary">{row.externalId}</Typography.Text></div> },
       { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{planLabel(value)}</Tag> },
       { title: "状态", dataIndex: "status", render: value => <Tag>{statusLabel(value)}</Tag> },

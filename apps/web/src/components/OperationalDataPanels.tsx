@@ -1,6 +1,7 @@
 import { Descriptions, Empty, Space, Table, Tag, Typography } from 'antd';
 import type { AccountActivityView, BillingDetailView, BillingInvoiceView, SubscriptionDetailView } from '@team-manager/shared';
 import { formatTime } from './ProductPrimitives.js';
+import { useUrlPagination } from './urlPagination.js';
 
 const planLabels: Record<string, string> = { free:'Free',go:'Go',plus:'Plus',pro_5x:'Pro 5x',pro_20x:'Pro 20x',business:'Business',business_usage_based:'Business 0.52',unknown:'未知' };
 const statusLabels: Record<string,string> = { active:'生效中',paid:'已支付',open:'待支付',draft:'草稿',void:'已作废',uncollectible:'无法收款',delinquent:'欠费',unknown:'未知' };
@@ -56,8 +57,9 @@ function InvoiceTable({ invoices, empty, upcoming=false }: { invoices: BillingIn
   ]}/>;
 }
 
-export function ActivityTimeline({ value }: { value: AccountActivityView[] }) {
-  return <Table rowKey="id" size="small" pagination={{pageSize:30,showSizeChanger:false}} dataSource={value} locale={{emptyText:'暂无活动记录'}} columns={[
+export function ActivityTimeline({ value, pageKey='activityPage', pageSizeKey='activityPageSize' }: { value: AccountActivityView[]; pageKey?:string; pageSizeKey?:string }) {
+  const pagination=useUrlPagination({total:value.length,pageKey,pageSizeKey,defaultPageSize:30});
+  return <Table rowKey="id" size="small" pagination={pagination} dataSource={value} locale={{emptyText:'暂无活动记录'}} columns={[
     {title:'时间',dataIndex:'occurredAt',width:190,render:formatTime},
     {title:'事件',dataIndex:'title',width:220},
     {title:'说明',dataIndex:'detail',render:(v)=>v??'—'},

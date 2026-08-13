@@ -51,6 +51,7 @@ import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
 import { useRememberedForm } from "../../webPreferences.js";
 import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
+import { useUrlPagination } from "../../components/urlPagination.js";
 
 export function AccountDetailPage() {
   const { accountId } = useParams();
@@ -115,6 +116,7 @@ export function AccountDetailPage() {
   const tab = params.get("tab") ?? "overview";
   const modal = params.get("modal");
   const accountAction = actionModalFromParams(params);
+  const workspacesPagination = useUrlPagination({ total: account?.workspaces.length ?? 0, pageKey: "workspacesPage", pageSizeKey: "workspacesPageSize" });
   const selectedOperation = useMemo(
     () =>
       mergeOperations(
@@ -242,6 +244,7 @@ export function AccountDetailPage() {
                     <Table
                       rowKey="id"
                       dataSource={account.workspaces}
+                      pagination={workspacesPagination}
                       scroll={{ x: 850 }}
                       onRow={(row) => ({
                         onClick: () =>
@@ -556,6 +559,7 @@ function PersonalPanel({
     asRecordArray(quotaPayload?.windows) ??
     asRecordArray(quotaPayload?.credits) ??
     [];
+  const quotaPagination=useUrlPagination({total:quotaWindows.length,pageKey:"quotaPage",pageSizeKey:"quotaPageSize"});
   const paidSubscription = Boolean(subscriptionSnapshot && !['free', 'unknown'].includes(subscriptionSnapshot.plan));
   const renewalCancelled = subscriptionSnapshot?.willRenew === false;
   const renewalEnd = subscriptionSnapshot?.endsAt ? formatTime(subscriptionSnapshot.endsAt) : '当前计费周期结束';
@@ -602,6 +606,7 @@ function PersonalPanel({
           String(row.id ?? row.label ?? row.type ?? index)
         }
         dataSource={quotaWindows}
+        pagination={quotaPagination}
         columns={[
           {
             title: "窗口/项目",
@@ -709,6 +714,7 @@ function CredentialsPanel({
     poolGroup?: string;
   }>();
   const [oauthCallback, setOauthCallback] = useState("");
+  const pagination=useUrlPagination({total:account.credentials.length,pageKey:"credentialsPage",pageSizeKey:"credentialsPageSize"});
   const create = async (
     kind: "pat" | "oauth",
     value: Record<string, string>,
@@ -785,6 +791,7 @@ function CredentialsPanel({
       <Table<WorkspaceCredentialView>
         rowKey="id"
         dataSource={account.credentials}
+        pagination={pagination}
         scroll={{ x: 1050 }}
         columns={[
           { title: "Workspace", render:(_,row)=>row.workspaceName??row.workspaceId },
@@ -849,10 +856,12 @@ function Operations({
   operations: AccountManagerOperationView[];
   open: (id: string) => void;
 }) {
+  const pagination=useUrlPagination({total:operations.length,pageKey:"operationsPage",pageSizeKey:"operationsPageSize"});
   return (
     <Table
       rowKey="id"
       dataSource={operations}
+      pagination={pagination}
       scroll={{ x: 1000 }}
       columns={[
         { title: "时间", dataIndex: "updatedAt", render: formatTime },

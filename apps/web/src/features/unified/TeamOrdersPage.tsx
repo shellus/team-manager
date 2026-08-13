@@ -5,6 +5,7 @@ import type { TeamOrderDashboardView, TeamOrderMaintenanceView, TeamUpgradeOrder
 import { CHECKOUT_COUNTRY_CODES, CHECKOUT_CURRENCIES } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
+import { useUrlPagination } from "../../components/urlPagination.js";
 
 const emptyDashboard: TeamOrderDashboardView = { configured: false, statistics: { maintenanceCount: 0, runningCount: 0, readyCount: 0, attentionCount: 0 }, globalConfiguration: {}, configurations: [], maintenances: [], orders: [] };
 const statusColors: Record<string, string> = { ready: "green", running: "blue", queued: "processing", scheduled: "cyan", paused: "default", failed: "red", attention: "orange", expired: "default" };
@@ -24,6 +25,9 @@ export function TeamOrdersPage() {
   const maintenance = useMemo(() => data.maintenances.filter(row => match(row, query) && (status === "all" || row.status === status)), [data.maintenances, query, status]);
   const orders = useMemo(() => data.orders.filter(row => match(row, query) && (status === "all" || row.status === status)), [data.orders, query, status]);
   const edit = data.maintenances.find(row => row.workspaceId === editWorkspaceId); const history = data.orders.filter(row => row.workspaceId === historyWorkspaceId);
+  const maintenancePagination=useUrlPagination({total:maintenance.length,pageKey:"maintenancePage",pageSizeKey:"maintenancePageSize"});
+  const ordersPagination=useUrlPagination({total:orders.length,pageKey:"ordersPage",pageSizeKey:"ordersPageSize"});
+  const historyPagination=useUrlPagination({total:history.length,pageKey:"historyPage",pageSizeKey:"historyPageSize"});
 
   return <Space direction="vertical" size={16} className="panel-stack">
     <Card><PageHeader title="Team 升级订单" description="按 Workspace 管理执行关系、Checkout 链接和历史订单" actions={<><Button onClick={()=>void load()} loading={loading}>立即刷新</Button><Button disabled={!data.configured} loading={busy === "all"} onClick={() => run("all", () => unifiedApi.runTeamOrders({ all: true, source: "manual_all" }))}>生成全部订单</Button><Button disabled={!data.configured} type="primary" loading={busy === "due"} onClick={() => run("due", () => unifiedApi.runTeamOrders({ source: "manual_maintenance" }))}>运行维护池</Button></>} /></Card>
@@ -34,15 +38,15 @@ export function TeamOrdersPage() {
       <Card title="全局订单配置"><ConfigurationForm initial={data.globalConfiguration} busy={busy === "config"} onSave={value => run("config", () => unifiedApi.saveTeamOrderConfiguration(value))} /></Card>
       <Card title="加入维护池"><MaintenanceForm workspaces={workspaces} accounts={accounts} busy={busy === "maintenance"} onSave={value => run("maintenance", () => unifiedApi.saveTeamOrderMaintenance(value.workspaceId, value))} /></Card>
       <Card title="维护状态"><FilterBar query={query} status={status} onQuery={value => updateParam("query", value)} onStatus={value => updateParam("status", value)} />
-        <Table rowKey="id" dataSource={maintenance} scroll={{ x: 1450 }} columns={maintenanceColumns(run, busy, updateParam, data.configured)} />
+        <Table rowKey="id" dataSource={maintenance} pagination={maintenancePagination} scroll={{ x: 1450 }} columns={maintenanceColumns(run, busy, updateParam, data.configured)} />
       </Card>
-      <Card title="最近订单"><Table rowKey="id" dataSource={orders} scroll={{ x: 2050 }} columns={orderColumns(run, busy, updateParam, data.configured)} /></Card>
+      <Card title="最近订单"><Table rowKey="id" dataSource={orders} pagination={ordersPagination} scroll={{ x: 2050 }} columns={orderColumns(run, busy, updateParam, data.configured)} /></Card>
     </LoadBoundary>
     <Modal title={`编辑维护关系 · ${edit?.workspaceName ?? edit?.workspaceExternalId ?? ""}`} open={Boolean(edit)} footer={null} destroyOnHidden onCancel={() => updateParam("editWorkspace")}>
       {edit && <MaintenanceForm initial={edit} workspaces={workspaces.filter(row => row.id === edit.workspaceId)} accounts={accounts} busy={busy === `edit-${edit.id}`} lockWorkspace onSave={value => run(`edit-${edit.id}`, async () => { await unifiedApi.saveTeamOrderMaintenance(edit.workspaceId, value); updateParam("editWorkspace"); })} />}
     </Modal>
     <Modal title={`Workspace 历史订单（${history.length}）`} open={Boolean(historyWorkspaceId)} width={1000} footer={null} onCancel={() => updateParam("historyWorkspace")}>
-      <Table rowKey="id" dataSource={history} scroll={{ x: 1800 }} columns={orderColumns(run, busy, updateParam, data.configured).filter(column => column.title !== "Workspace")} />
+      <Table rowKey="id" dataSource={history} pagination={historyPagination} scroll={{ x: 1800 }} columns={orderColumns(run, busy, updateParam, data.configured).filter(column => column.title !== "Workspace")} />
     </Modal>
   </Space>;
 }

@@ -51,6 +51,7 @@ import {
 } from "./accountActionsModel.js";
 import { AccountOperationSummary, isActiveOperation } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
+import { useUrlPagination } from "../../components/urlPagination.js";
 
 type AccountListRow = UnifiedAccountSummaryView | AccountRegistrationSummaryView;
 function isRegistration(row: AccountListRow): row is AccountRegistrationSummaryView { return "kind" in row && row.kind === "registration"; }
@@ -87,6 +88,7 @@ export function AccountsPage() {
     const pending = selectedGroupId ? registrations.filter((item) => item.group.id === selectedGroupId) : registrations;
     return [...pending, ...accounts];
   }, [accounts, registrations, selectedGroupId]);
+  const pagination = useUrlPagination({ total: rows.length });
   const groupCounts = useMemo(
     () => countAccountsByGroup([...matchingAccounts, ...registrations]),
     [matchingAccounts, registrations],
@@ -305,6 +307,7 @@ export function AccountsPage() {
           <Table<AccountListRow>
             rowKey="id"
             dataSource={rows}
+            pagination={pagination}
             scroll={{ x: 1160 }}
             columns={columns}
           />

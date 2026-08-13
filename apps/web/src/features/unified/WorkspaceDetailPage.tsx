@@ -48,6 +48,7 @@ import {
   type WorkspaceSettingsFormValues,
 } from "./unifiedUiModels.js";
 import { useRememberedForm } from "../../webPreferences.js";
+import { useUrlPagination } from "../../components/urlPagination.js";
 
 export function WorkspaceDetailPage() {
   const { workspaceId } = useParams();
@@ -107,6 +108,9 @@ export function WorkspaceDetailPage() {
   };
   const executorAccountId =
     params.get("executorAccountId") ?? executors[0]?.accountId ?? "";
+  const membersPagination=useUrlPagination({total:workspace?.members.length??0,pageKey:"membersPage",pageSizeKey:"membersPageSize"});
+  const invitationsPagination=useUrlPagination({total:workspace?.invitations.length??0,pageKey:"invitationsPage",pageSizeKey:"invitationsPageSize"});
+  const credentialsPagination=useUrlPagination({total:workspace?.credentials.length??0,pageKey:"credentialsPage",pageSizeKey:"credentialsPageSize"});
   const run = async (key: string, action: () => Promise<unknown>) => {
     setBusy(key);
     setError("");
@@ -221,6 +225,7 @@ export function WorkspaceDetailPage() {
                     <Table
                       rowKey="id"
                       dataSource={workspace.members}
+                      pagination={membersPagination}
                       scroll={{ x: 1000 }}
                       columns={[
                         {
@@ -350,6 +355,7 @@ export function WorkspaceDetailPage() {
                       <Table
                         rowKey="id"
                         dataSource={workspace.invitations}
+                        pagination={invitationsPagination}
                         scroll={{ x: 800 }}
                         columns={[
                           { title: "邮箱", dataIndex: "email" },
@@ -413,6 +419,7 @@ export function WorkspaceDetailPage() {
                     <Table<WorkspaceDetailView["credentials"][number]>
                       rowKey="id"
                       dataSource={workspace.credentials}
+                      pagination={credentialsPagination}
                       scroll={{ x: 900 }}
                       columns={[
                         { title: "账号", render:(_,row)=><Typography.Link href={`/accounts/${row.accountId}?tab=credentials`}>{row.accountEmail}</Typography.Link> },
@@ -633,6 +640,7 @@ function SeatSlots({
   modal: string | null;
   set: (k: string, v?: string) => void;
 }) {
+  const pagination=useUrlPagination({total:workspace.seatSlots.length,pageKey:"seatsPage",pageSizeKey:"seatsPageSize"});
   const edit = workspace.seatSlots.find(
     (slot) => slot.id === new URLSearchParams(location.search).get("seatId"),
   );
@@ -648,6 +656,7 @@ function SeatSlots({
       <Table
         rowKey="id"
         dataSource={workspace.seatSlots}
+        pagination={pagination}
         scroll={{ x: 1200 }}
         columns={[
           { title: "邮箱", dataIndex: "email" },
