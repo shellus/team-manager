@@ -167,6 +167,7 @@ export function AccountDetailPage() {
                     account={account as AccountActionSummary}
                     profileStatus={manager?.profile?.status}
                     onOpen={openAccountAction}
+                    onChanged={load}
                   />
                   <Button
                     danger

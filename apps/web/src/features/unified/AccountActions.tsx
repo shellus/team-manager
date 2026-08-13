@@ -9,6 +9,7 @@ import type {
 import { unifiedApi } from "../../unifiedApi.js";
 import { ApiError } from "../../api.js";
 import {
+  executeProfileAction,
   profileAction,
   parseSessionEditorInput,
   type AccountActionModal,
@@ -20,13 +21,17 @@ export function AccountActionButtons({
   account,
   profileStatus,
   onOpen,
+  onChanged,
 }: {
   account: AccountActionSummary;
   profileStatus?: AccountProfileStatus;
   onOpen: (action: AccountActionModal) => void;
+  onChanged: () => void | Promise<void>;
 }) {
+  const [profileBusy, setProfileBusy] = useState(false);
+  const currentProfileStatus = profileStatus ?? account.profileStatus;
   const nextProfileAction = profileAction(
-    profileStatus ?? account.profileStatus,
+    currentProfileStatus,
     account.hasRunningProfile,
   );
   const gamDisabled = !account.hasGamBinding;
@@ -74,14 +79,30 @@ export function AccountActionButtons({
         <span>
           <Button
             size="small"
-            disabled={gamDisabled || profilePending}
-            onClick={(event) => {
+            loading={profileBusy}
+            disabled={gamDisabled || profilePending || profileBusy}
+            onClick={async (event) => {
               stopPropagation(event);
-              onOpen("profile");
+              setProfileBusy(true);
+              try {
+                if (nextProfileAction === "pending") return;
+                await executeProfileAction(account.id, nextProfileAction, {
+                  start: unifiedApi.startProfile,
+                  stop: unifiedApi.stopProfile,
+                });
+                message.success(`Profile 已${nextProfileAction === "stop" ? "停止" : "启动"}`);
+                await onChanged();
+              } catch (reason) {
+                message.error((reason as Error).message);
+              } finally {
+                setProfileBusy(false);
+              }
             }}
           >
-            {profilePending
-              ? account.profileStatus === "stopping"
+            {profileBusy
+              ? nextProfileAction === "stop" ? "停止中" : "启动中"
+              : profilePending
+              ? currentProfileStatus === "stopping"
                 ? "停止中"
                 : "启动中"
               : nextProfileAction === "stop"
@@ -119,12 +140,6 @@ export function AccountActionModals({
         onClose={onClose}
         onSaved={onChanged}
       />
-      <ProfileModal
-        account={account}
-        open={action === "profile"}
-        onClose={onClose}
-        onChanged={onChanged}
-      />
       <SubscriptionModal
         accountId={account.id}
         currentPlan={account.personalPlan}
@@ -140,68 +155,6 @@ export function AccountActionModals({
         onSaved={onChanged}
       />
     </>
-  );
-}
-
-function ProfileModal({
-  account,
-  open,
-  onClose,
-  onChanged,
-}: {
-  account: AccountActionSummary;
-  open: boolean;
-  onClose: () => void;
-  onChanged: () => void | Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const nextProfileAction = profileAction(
-    account.profileStatus,
-    account.hasRunningProfile,
-  );
-  const pending = nextProfileAction === "pending";
-  const verb = nextProfileAction === "stop" ? "停止" : "启动";
-  return (
-    <Modal
-      title={`${verb} Profile`}
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      destroyOnHidden
-    >
-      <Alert
-        type={nextProfileAction === "stop" ? "warning" : "info"}
-        showIcon
-        message={`账号：${account.email}`}
-        description={`当前状态：${account.profileStatus ?? (account.hasRunningProfile ? "运行中" : "已停止")}`}
-      />
-      {error && <Alert className="modal-error" type="error" showIcon message={error} />}
-      <Button
-        className="account-action-submit"
-        type="primary"
-        danger={nextProfileAction === "stop"}
-        loading={busy}
-        disabled={pending}
-        onClick={async () => {
-          setBusy(true);
-          setError("");
-          try {
-            if (nextProfileAction === "stop") await unifiedApi.stopProfile(account.id);
-            else await unifiedApi.startProfile(account.id);
-            message.success(`Profile 已${verb}`);
-            await onChanged();
-            onClose();
-          } catch (reason) {
-            setError((reason as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        {pending ? "状态切换中" : `确认${verb}`}
-      </Button>
-    </Modal>
   );
 }
 

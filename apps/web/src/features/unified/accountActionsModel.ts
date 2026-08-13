@@ -5,7 +5,6 @@ import type {
 } from "@team-manager/shared";
 
 export type AccountActionModal =
-  | "profile"
   | "proxy"
   | "subscription"
   | "session";
@@ -77,12 +76,22 @@ export function profileAction(
   return hasRunningProfile ? "stop" : "start";
 }
 
+export function executeProfileAction(
+  accountId: string,
+  action: Exclude<ProfileAction, "pending">,
+  commands: {
+    start: (id: string) => Promise<unknown>;
+    stop: (id: string) => Promise<unknown>;
+  },
+): Promise<unknown> {
+  return action === "stop" ? commands.stop(accountId) : commands.start(accountId);
+}
+
 export function actionModalFromParams(
   params: URLSearchParams,
 ): AccountActionModal | undefined {
   const modal = params.get("modal");
-  return modal === "profile" ||
-    modal === "proxy" ||
+  return modal === "proxy" ||
     modal === "subscription" ||
     modal === "session"
     ? modal

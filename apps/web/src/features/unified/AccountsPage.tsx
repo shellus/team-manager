@@ -25,8 +25,10 @@ import { unifiedApi } from "../../unifiedApi.js";
 import {
   LoadBoundary,
   PageHeader,
+  TriStateCheckboxFilter,
 } from "../../components/ProductPrimitives.js";
 import {
+  accountListBooleanFilter,
   accountListRequestQuery,
   countAccountsByGroup,
   selectAccountsByGroup,
@@ -46,7 +48,7 @@ import {
   type AccountActionSummary,
 } from "./accountActionsModel.js";
 
-const CHECKBOX_FILTERS = [
+const TRI_STATE_FILTERS = [
   ["hasGamBinding", "GAM"],
   ["hasRunningProfile", "Profile 运行"],
 ] as const;
@@ -173,6 +175,7 @@ export function AccountsPage() {
         <AccountActionButtons
           account={row}
           onOpen={(action) => openAccountAction(row, action)}
+          onChanged={load}
         />
       ),
     },
@@ -251,17 +254,13 @@ export function AccountsPage() {
             onChange={(value) => set("primaryPlan", value)}
             options={[...PRIMARY_PLAN_OPTIONS]}
           />
-          {CHECKBOX_FILTERS.map(([key, label]) => (
-            <Checkbox
+          {TRI_STATE_FILTERS.map(([key, label]) => (
+            <TriStateCheckboxFilter
               key={key}
-              className="account-boolean-filter"
-              checked={params.get(key) === "true"}
-              onChange={(event) =>
-                set(key, event.target.checked ? "true" : undefined)
-              }
-            >
-              {label}
-            </Checkbox>
+              label={label}
+              value={accountListBooleanFilter(params, key)}
+              onChange={(value) => set(key, value)}
+            />
           ))}
           <Checkbox
             className="show-banned-filter"

@@ -6,6 +6,7 @@ import {
   primaryPlanLabel,
   setAccountActionInParams,
   profileAction,
+  executeProfileAction,
   selectUpgradeableWorkspaces,
 } from "./accountActionsModel.js";
 
@@ -25,6 +26,17 @@ describe("account action UI model", () => {
     expect(profileAction("unknown", false)).toBe("start");
   });
 
+  test("executes start and stop immediately through the selected command", async () => {
+    const calls: string[] = [];
+    const commands = {
+      start: async (id: string) => calls.push(`start:${id}`),
+      stop: async (id: string) => calls.push(`stop:${id}`),
+    };
+    await executeProfileAction("account-1", "start", commands);
+    await executeProfileAction("account-1", "stop", commands);
+    expect(calls).toEqual(["start:account-1", "stop:account-1"]);
+  });
+
   test("persists and clears an account modal in URL parameters", () => {
     const opened = setAccountActionInParams(
       new URLSearchParams("query=alice"),
@@ -39,9 +51,7 @@ describe("account action UI model", () => {
     const closed = setAccountActionInParams(opened);
     expect(closed.toString()).toBe("query=alice");
     expect(actionModalFromParams(closed)).toBeUndefined();
-    expect(actionModalFromParams(new URLSearchParams("modal=profile"))).toBe(
-      "profile",
-    );
+    expect(actionModalFromParams(new URLSearchParams("modal=profile"))).toBeUndefined();
   });
 
   test("shows only the explicit account remark below the email", () => {

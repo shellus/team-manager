@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  accountListBooleanFilter,
   accountListRequestQuery,
   countAccountsByGroup,
   selectAccountsByGroup,
@@ -12,6 +13,13 @@ const account = (id: string, groupId: string) => ({
 });
 
 describe("account list filters", () => {
+  test("represents every boolean filter as all, yes, or no", () => {
+    expect(accountListBooleanFilter(new URLSearchParams(), "hasGamBinding")).toBeUndefined();
+    expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=true"), "hasGamBinding")).toBe("true");
+    expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=false"), "hasGamBinding")).toBe("false");
+    expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=all"), "hasGamBinding")).toBeUndefined();
+  });
+
   test("defaults to hiding banned accounts and leaves group selection to the UI", () => {
     const params = new URLSearchParams(
       "groupId=group-a&query=alice&modal=session&actionAccountId=account-1&operationId=op-1&hasGamBinding=true",
@@ -34,13 +42,13 @@ describe("account list filters", () => {
     expect(showsBannedAccounts(params)).toBe(true);
   });
 
-  test("drops removed and negative boolean filters from old URLs", () => {
+  test("drops removed filters and preserves every tri-state boolean value", () => {
     const params = new URLSearchParams(
       "hasManageableWorkspace=true&isWorkspaceMember=true&hasWorkspaceCredential=true&hasSession=true&hasGamBinding=false&hasRunningProfile=true",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
-      "hasRunningProfile=true&isBanned=false",
+      "hasGamBinding=false&hasRunningProfile=true&isBanned=false",
     );
   });
 
