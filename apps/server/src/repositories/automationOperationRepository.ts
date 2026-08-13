@@ -24,6 +24,7 @@ export class AutomationOperationRepository {
       external_operation_id: null,
       status: 'queued',
       phase: 'queued',
+      progress: 0,
       safe_request_summary: input.safeRequestSummary,
       result_summary: null,
       error_code: null,
@@ -45,6 +46,7 @@ export class AutomationOperationRepository {
       external_operation_id: null,
       status: 'queued',
       phase: 'queued',
+      progress: 0,
       safe_request_summary: input.safeRequestSummary,
       result_summary: null,
       error_code: null,
@@ -61,7 +63,7 @@ export class AutomationOperationRepository {
       type: row.kind,
       status: normalizeStatus(row.status),
       phase: row.phase ?? row.status,
-      progress: row.status === 'succeeded' ? 100 : row.status === 'queued' ? 0 : 1,
+      progress: row.progress,
       requestSummary: row.safe_request_summary,
       ...(row.result_summary ? { result: row.result_summary } : {}),
       ...(row.error_code ? { errorCode: row.error_code } : {}),
@@ -73,6 +75,21 @@ export class AutomationOperationRepository {
 
   async find(id: string) {
     return this.db.selectFrom('automation_operations').selectAll().where('id', '=', id).executeTakeFirst();
+  }
+
+  async view(id: string): Promise<AccountManagerOperationView> {
+    const row = await this.find(id);
+    if (!row) throw new Error('操作不存在');
+    return operationView(row);
+  }
+
+  async completeLocal(id: string, input: { phase: string; result: Record<string, unknown> }): Promise<void> {
+    const now = new Date();
+    await this.db.updateTable('automation_operations').set({
+      status: 'succeeded', phase: input.phase, progress: 100, result_summary: input.result,
+      completed_at: now, effective_at: dateFromResult(input.result, ['effectiveAt', 'activeStart', 'active_start']),
+      converged_at: now
+    }).where('id', '=', id).execute();
   }
 
   async active(limit = 100) {
@@ -104,6 +121,7 @@ export class AutomationOperationRepository {
         external_operation_id: operation.id,
         status: operation.status,
         phase: operation.phase,
+        progress: clampProgress(operation.progress),
         result_summary: operation.result ?? null,
         error_code: operation.errorCode ?? null,
         error_message: operation.errorMessage ?? null,
@@ -131,6 +149,22 @@ export class AutomationOperationRepository {
       }
     });
   }
+}
+
+function operationView(row: any): AccountManagerOperationView {
+  return {
+    id: row.id, ...(row.account_id ? { accountId: row.account_id } : {}), type: row.kind,
+    status: normalizeStatus(row.status), phase: row.phase ?? row.status, progress: row.progress,
+    requestSummary: row.safe_request_summary, ...(row.result_summary ? { result: row.result_summary } : {}),
+    ...(row.error_code ? { errorCode: row.error_code } : {}), ...(row.error_message ? { errorMessage: row.error_message } : {}),
+    createdAt: toMillis(row.created_at), updatedAt: toMillis(row.updated_at),
+    ...(row.completed_at ? { completedAt: toMillis(row.completed_at) } : {})
+  };
+}
+
+function clampProgress(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(100, Math.max(0, Math.round(parsed))) : 0;
 }
 
 function terminal(status: string): boolean {

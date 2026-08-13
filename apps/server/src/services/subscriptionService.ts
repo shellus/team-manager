@@ -12,11 +12,13 @@ import { AutomationOperationRepository } from '../repositories/automationOperati
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
 import { AccountManagerService } from './accountManagerService.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 
 export class SubscriptionService {
   readonly #accounts: AccountRepository;
   readonly #workspaces: WorkspaceRepository;
   readonly #operations: AutomationOperationRepository;
+  readonly #activity: ActivityLogRepository;
 
   constructor(
     private readonly db: Kysely<Database>,
@@ -26,6 +28,7 @@ export class SubscriptionService {
     this.#accounts = new AccountRepository(db);
     this.#workspaces = new WorkspaceRepository(db);
     this.#operations = new AutomationOperationRepository(db);
+    this.#activity = new ActivityLogRepository(db);
   }
 
   async changePersonalSubscription(
@@ -40,12 +43,12 @@ export class SubscriptionService {
       const remote = await this.accountManagerService?.sync(accountId);
       const current = normalizePlan(remote?.account?.personalPlan);
       if (current === input.targetPlan) {
-        return {
-          id: `idempotent:${accountId}:${input.targetPlan}`, accountId, type: 'change_personal_subscription',
-          status: 'succeeded', phase: 'already_effective', progress: 100,
-          result: { targetPlan: input.targetPlan, effectiveAt: new Date().toISOString(), idempotent: true },
-          createdAt: Date.now(), updatedAt: Date.now(), completedAt: Date.now()
-        };
+        const operationId = await this.#operations.start({ accountId, kind: 'change_personal_subscription',
+          idempotencyKey: randomUUID(), safeRequestSummary: safeSubscriptionRequest(input) });
+        await this.#operations.completeLocal(operationId, { phase: 'already_effective',
+          result: { targetPlan: input.targetPlan, effectiveAt: new Date().toISOString(), idempotent: true } });
+        await this.#activity.log({accountId,kind:'personal_subscription_unchanged',payload:{operationId,targetPlan:input.targetPlan}});
+        return this.#operations.view(operationId);
       }
       if (input.mode === 'start_new' && current && current !== 'free' && current !== 'unknown') {
         throw new ServiceError(409, `账号当前套餐为 ${current}，不能使用首次开通模式`);
@@ -64,7 +67,8 @@ export class SubscriptionService {
         ...input, requestTag: `team-manager:${operationId}`
       });
       await this.#operations.attach(operationId, operation);
-      return operation;
+      await this.#activity.log({accountId,kind:'personal_subscription_requested',payload:{operationId,targetPlan:input.targetPlan,mode:input.mode}});
+      return this.#operations.view(operationId);
     } catch (error) { throw asServiceError(error); }
   }
 
@@ -83,7 +87,8 @@ export class SubscriptionService {
         requestTag: `team-manager:${operationId}`
       });
       await this.#operations.attach(operationId, operation);
-      return operation;
+      await this.#activity.log({accountId,kind:'personal_subscription_renewal_cancel_requested',payload:{operationId}});
+      return this.#operations.view(operationId);
     } catch (error) { throw asServiceError(error); }
   }
 
@@ -118,7 +123,8 @@ export class SubscriptionService {
         requestTag: `team-manager:${operationId}`
       });
       await this.#operations.attach(operationId, operation);
-      return operation;
+      await this.#activity.log({accountId,workspaceId:workspaceId??null,kind:'business_subscription_requested',payload:{operationId,mode:input.mode}});
+      return this.#operations.view(operationId);
     } catch (error) { throw asServiceError(error); }
   }
 

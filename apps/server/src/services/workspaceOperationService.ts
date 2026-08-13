@@ -11,10 +11,12 @@ import { normalizeEmail } from '../domain/identity.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 
 export class WorkspaceOperationService {
   readonly #workspaces: WorkspaceRepository;
   readonly #billing: BillingRepository;
+  readonly #activity: ActivityLogRepository;
   constructor(
     private readonly db: Kysely<Database>,
     private readonly views: WorkspaceService,
@@ -24,6 +26,7 @@ export class WorkspaceOperationService {
   ) {
     this.#workspaces = new WorkspaceRepository(db);
     this.#billing = new BillingRepository(db);
+    this.#activity = new ActivityLogRepository(db);
   }
 
   async refreshMembers(workspaceId: string, executorAccountId: string) {
@@ -131,30 +134,35 @@ export class WorkspaceOperationService {
   async invite(workspaceId: string, executorAccountId: string, input: { email: string; seat: SeatType; role?: string }) {
     const { api } = await this.context(workspaceId, executorAccountId);
     await api.invite(input.email, input.seat, input.role || 'standard-user');
+    await this.activity(executorAccountId,workspaceId,'workspace_invitation_created',{email:normalizeEmail(input.email),seat:input.seat,role:input.role||'standard-user'});
     return this.refreshInvitations(workspaceId, executorAccountId);
   }
 
   async revokeInvitation(workspaceId: string, executorAccountId: string, email: string) {
     const { api } = await this.context(workspaceId, executorAccountId);
     await api.revokePendingInvite(email);
+    await this.activity(executorAccountId,workspaceId,'workspace_invitation_revoked',{email:normalizeEmail(email)});
     return this.refreshInvitations(workspaceId, executorAccountId);
   }
 
   async removeMember(workspaceId: string, executorAccountId: string, remoteUserId: string) {
     const { api } = await this.context(workspaceId, executorAccountId);
     await api.removeMember(remoteUserId);
+    await this.activity(executorAccountId,workspaceId,'workspace_member_removed',{remoteUserId});
     return this.refreshMembers(workspaceId, executorAccountId);
   }
 
   async setMemberSeat(workspaceId: string, executorAccountId: string, remoteUserId: string, seat: SeatType) {
     const { api } = await this.context(workspaceId, executorAccountId);
     await api.setMemberSeat(remoteUserId, seat);
+    await this.activity(executorAccountId,workspaceId,'workspace_member_seat_changed',{remoteUserId,seat});
     return this.refreshMembers(workspaceId, executorAccountId);
   }
 
   async setMemberRole(workspaceId: string, executorAccountId: string, remoteUserId: string, role: EditableMemberRole) {
     const { api } = await this.context(workspaceId, executorAccountId);
     await api.setMemberRole(remoteUserId, role);
+    await this.activity(executorAccountId,workspaceId,'workspace_member_role_changed',{remoteUserId,role});
     return this.refreshMembers(workspaceId, executorAccountId);
   }
 
@@ -166,6 +174,7 @@ export class WorkspaceOperationService {
       rawPlanCode: workspace.raw_plan_code, normalizedPlan: workspace.normalized_plan as any,
       nextRenewalAt: workspace.next_renewal_at
     });
+    await this.activity(executorAccountId,workspaceId,'workspace_renamed',{name});
     return this.views.detail(workspaceId);
   }
 
@@ -180,6 +189,7 @@ export class WorkspaceOperationService {
     if (typeof input.codexRemoteControlEnabled === 'boolean') { await api.setCodexRemoteControlEnabled(input.codexRemoteControlEnabled); changes += 1; }
     if (typeof input.automaticReloadEnabled === 'boolean') { await api.setAutomaticReloadEnabled(input.automaticReloadEnabled); changes += 1; }
     if (changes === 0) throw new ServiceError(400, '没有可更新的 Workspace 设置');
+    await this.activity(executorAccountId,workspaceId,'workspace_settings_changed',{changes,input});
     return this.refreshSettings(workspaceId, executorAccountId);
   }
 
@@ -217,6 +227,7 @@ export class WorkspaceOperationService {
         .where('id', '=', row.id).execute();
     }
   }
+  private activity(accountId:string,workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({accountId,workspaceId,kind,payload});}
 }
 
 function normalizeWorkspacePlan(value?: string): 'free' | 'business' | 'business_usage_based' | 'unknown' {

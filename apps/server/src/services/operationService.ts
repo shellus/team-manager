@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely';
-import type { AccountManagerOperationView, OperationControl, PaymentCardInput } from '@team-manager/shared';
+import type { AccountManagerOperationView, OperationControl, OperationDetailView, PaymentCardInput } from '@team-manager/shared';
 import type { AccountManagerGateway } from '../accountManagerClient.js';
 import type { Database } from '../database/schema.js';
 import { AutomationOperationRepository } from '../repositories/automationOperationRepository.js';
@@ -14,7 +14,7 @@ export class OperationService {
     private readonly manager?: AccountManagerGateway
   ) { this.#operations = new AutomationOperationRepository(db); }
 
-  async get(id: string): Promise<AccountManagerOperationView> {
+  async get(id: string): Promise<OperationDetailView> {
     const row = await this.requireRow(id);
     if (row.external_operation_id && this.manager?.operation && !terminal(row.status)) {
       const remote = await this.manager.operation(row.external_operation_id);
@@ -29,7 +29,20 @@ export class OperationService {
     const [events, payment, persisted] = await Promise.all([
       this.#operations.events(id), this.#operations.payment(id), this.#operations.find(id)
     ]);
-    return Object.assign(view, { events, payment,
+    return Object.assign(view, {
+      events: events.map((event) => ({
+        id: event.id, ...(event.phase ? { phase: event.phase } : {}), status: event.status,
+        payload: event.safe_payload, occurredAt: new Date(event.occurred_at as any).toISOString()
+      })),
+      ...(payment ? { payment: {
+        id: payment.id, ...(payment.target_plan ? { targetPlan: payment.target_plan } : {}),
+        resultCode: payment.result_code, ...(payment.card_brand ? { cardBrand: payment.card_brand } : {}),
+        ...(payment.card_last4 ? { cardLast4: payment.card_last4 } : {}),
+        ...(payment.amount !== null ? { amount: String(payment.amount) } : {}),
+        ...(payment.currency ? { currency: payment.currency } : {}),
+        ...(payment.submitted_at ? { submittedAt: new Date(payment.submitted_at as any).toISOString() } : {}),
+        createdAt: new Date(payment.created_at as any).toISOString()
+      } } : {}),
       completedAt: persisted?.completed_at ? new Date(persisted.completed_at as any).getTime() : view.completedAt,
       effectiveAt: persisted?.effective_at ? new Date(persisted.effective_at as any).toISOString() : undefined });
   }
@@ -77,7 +90,7 @@ export class OperationService {
     }
     return {
       id: row.id, type: row.kind, status: normalizeStatus(row.status), phase: row.phase ?? row.status,
-      progress: row.status === 'succeeded' ? 100 : row.status === 'queued' ? 0 : 1,
+      progress: row.progress,
       requestSummary: row.safe_request_summary, ...(row.result_summary ? { result: row.result_summary } : {}),
       ...(row.error_code ? { errorCode: row.error_code } : {}), ...(row.error_message ? { errorMessage: row.error_message } : {}),
       createdAt: new Date(row.created_at as any).getTime(), updatedAt: new Date(row.updated_at as any).getTime()

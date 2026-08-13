@@ -16,7 +16,7 @@ export class BillingRepository {
         workspace_id: context.kind === 'workspace' ? context.workspaceId : null,
         payload, observed_at: observedAt
       }).returning('id').executeTakeFirstOrThrow();
-      const invoices = arrayRecords(payload.invoices);
+      const invoices = envelopeRecords(payload.invoices, ['data', 'invoices']);
       if (invoices.length) await trx.insertInto('billing_invoices').values(invoices.map((invoice) => ({
         billing_snapshot_id: row.id,
         external_id: text(invoice.id) ?? text(invoice.invoice_id) ?? null,
@@ -25,19 +25,21 @@ export class BillingRepository {
         occurred_at: date(invoice.created) ?? date(invoice.created_at) ?? null,
         payload: invoice
       }))).execute();
-      const methods = arrayRecords(payload.paymentMethods ?? payload.payment_methods);
-      if (methods.length) {
+      const paymentEnvelope = payload.paymentMethods ?? payload.payment_methods;
+      const methods = envelopeRecords(paymentEnvelope, ['payment_methods', 'data']);
+      if (paymentEnvelope !== undefined) {
         let q = trx.deleteFrom('payment_method_summaries');
         q = context.kind === 'personal' ? q.where('personal_space_id', '=', context.personalSpaceId) : q.where('workspace_id', '=', context.workspaceId);
         await q.execute();
-        await trx.insertInto('payment_method_summaries').values(methods.map((item) => ({
+        if (methods.length) await trx.insertInto('payment_method_summaries').values(methods.map((item) => ({
           personal_space_id: context.kind === 'personal' ? context.personalSpaceId : null,
           workspace_id: context.kind === 'workspace' ? context.workspaceId : null,
           brand: text(item.brand) ?? text(record(item.card)?.brand) ?? null,
           last4: text(item.last4) ?? text(record(item.card)?.last4) ?? null,
           expiry_month: number(item.exp_month ?? record(item.card)?.exp_month),
           expiry_year: number(item.exp_year ?? record(item.card)?.exp_year),
-          is_default: item.is_default === true || item.default === true, observed_at: observedAt
+          is_default: item.is_default === true || item.default === true
+            || text(item.id) === defaultPaymentMethodId(paymentEnvelope), observed_at: observedAt
         }))).execute();
       }
       return row.id;
@@ -60,29 +62,45 @@ export class BillingRepository {
         ? this.db.selectFrom('payment_method_summaries').selectAll().where('personal_space_id', '=', context.personalSpaceId).execute()
         : this.db.selectFrom('payment_method_summaries').selectAll().where('workspace_id', '=', context.workspaceId).execute()
     ]);
+    const invoiceViews = invoices.length ? invoices.map(invoiceView) : envelopeRecords(snapshot.payload.invoices, ['data','invoices']).map((item,index)=>payloadInvoiceView(item,index));
+    const paymentEnvelope=snapshot.payload.paymentMethods??snapshot.payload.payment_methods;
+    const paymentViews = paymentEnvelope!==undefined ? payloadPaymentMethods(snapshot.payload) : paymentMethods.map(paymentMethodView);
     return {
       payload: snapshot.payload, observedAt: new Date(snapshot.observed_at as any).toISOString(),
-      invoices: invoices.map((item) => ({ id: item.id, ...(item.external_id ? { externalId: item.external_id } : {}),
-        ...(item.amount !== null ? { amount: String(item.amount) } : {}), ...(item.currency ? { currency: item.currency } : {}),
-        ...(item.status ? { status: item.status } : {}), ...(item.occurred_at ? { occurredAt: new Date(item.occurred_at as any).toISOString() } : {}), payload: item.payload })),
-      paymentMethods: paymentMethods.map((item) => ({ id: item.id, ...(item.brand ? { brand: item.brand } : {}),
-        ...(item.last4 ? { last4: item.last4 } : {}), ...(item.expiry_month ? { expMonth: item.expiry_month } : {}),
-        ...(item.expiry_year ? { expYear: item.expiry_year } : {}), isDefault: item.is_default })),
-      summary: { seatTypeCounts: snapshot.payload.seatTypeCounts ?? snapshot.payload.seat_type_counts,
-        billingInfo: snapshot.payload.billingInfo ?? snapshot.payload.billing_info,
-        upcomingInvoice: snapshot.payload.upcomingInvoice ?? snapshot.payload.upcoming_invoice }
+      invoices: invoiceViews,
+      paymentMethods: paymentViews,
+      summary: { seatTypeCounts: unwrapObject(snapshot.payload.seatTypeCounts ?? snapshot.payload.seat_type_counts, 'seat_type_counts'),
+        billingInfo: unwrapObject(snapshot.payload.billingInfo ?? snapshot.payload.billing_info, 'billing_info'),
+        upcomingInvoice: unwrapObject(snapshot.payload.upcomingInvoice ?? snapshot.payload.upcoming_invoice, 'upcoming_invoice') }
     };
   }
 
   async invoice(context: BillingContext, invoiceId: string) {
     const snapshot = await this.latest(context); if (!snapshot) return undefined;
-    return this.db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id', '=', snapshot.id)
-      .where((eb) => eb.or([eb('id', '=', invoiceId), eb('external_id', '=', invoiceId)])).executeTakeFirst();
+    let stored=await this.db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id', '=', snapshot.id)
+      .where('external_id', '=', invoiceId).executeTakeFirst();
+    if(!stored&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(invoiceId))stored=await this.db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id','=',snapshot.id).where('id','=',invoiceId).executeTakeFirst();
+    if(stored)return stored;
+    const payload=envelopeRecords(snapshot.payload.invoices,['data','invoices']).find(item=>text(item.id)===invoiceId||text(item.invoice_id)===invoiceId);
+    return payload?{id:text(payload.id)??text(payload.invoice_id)??invoiceId,billing_snapshot_id:snapshot.id,external_id:text(payload.id)??text(payload.invoice_id)??null,amount:numberOrString(payload.amount_due)??numberOrString(payload.amount)??null,currency:text(payload.currency)??null,status:text(payload.status)??null,occurred_at:date(payload.created)??date(payload.created_at),payload,created_at:snapshot.created_at}:undefined;
   }
 }
 
+function invoiceView(item:any){return{id:item.id,...(item.external_id?{externalId:item.external_id}:{}),...(item.amount!==null?{amount:String(item.amount)}:{}),...(item.currency?{currency:item.currency}:{}),...(item.status?{status:item.status}:{}),...(item.occurred_at?{occurredAt:new Date(item.occurred_at).toISOString()}:{}),payload:item.payload};}
+function payloadInvoiceView(item:Record<string,unknown>,index:number){const externalId=text(item.id)??text(item.invoice_id);const occurred=date(item.created)??date(item.created_at);const amount=numberOrString(item.amount_due)??numberOrString(item.amount);return{id:externalId??`snapshot-invoice-${index}`,...(externalId?{externalId}:{}),...(amount!==undefined?{amount:String(amount)}:{}),...(text(item.currency)?{currency:text(item.currency)!}:{}),...(text(item.status)?{status:text(item.status)!}:{}),...(occurred?{occurredAt:occurred.toISOString()}:{}),payload:item};}
+function paymentMethodView(item:any){return{id:item.id,...(item.brand?{brand:item.brand}:{}),...(item.last4?{last4:item.last4}:{}),...(item.expiry_month?{expMonth:item.expiry_month}:{}),...(item.expiry_year?{expYear:item.expiry_year}:{}),isDefault:item.is_default};}
+function payloadPaymentMethods(payload:Record<string,unknown>){const envelope=payload.paymentMethods??payload.payment_methods;const defaultId=defaultPaymentMethodId(envelope);return envelopeRecords(envelope,['payment_methods','data']).map((item,index)=>{const card=record(item.card);const id=text(item.id)??`snapshot-payment-${index}`;return{id,...(text(item.brand)??text(card?.brand)?{brand:text(item.brand)??text(card?.brand)}:{}),...(text(item.last4)??text(card?.last4)?{last4:text(item.last4)??text(card?.last4)}:{}),...(number(item.exp_month??card?.exp_month)!==null?{expMonth:number(item.exp_month??card?.exp_month)!}:{}),...(number(item.exp_year??card?.exp_year)!==null?{expYear:number(item.exp_year??card?.exp_year)!}:{}),isDefault:item.is_default===true||item.default===true||id===defaultId};});}
+
 function record(value: unknown): Record<string, unknown> | undefined { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }
 function arrayRecords(value: unknown): Record<string, unknown>[] { return Array.isArray(value) ? value.map(record).filter(Boolean) as Record<string, unknown>[] : []; }
+function envelopeRecords(value: unknown, keys: string[]): Record<string, unknown>[] {
+  const direct = arrayRecords(value); if (direct.length || Array.isArray(value)) return direct;
+  const object = record(value); if (!object) return [];
+  for (const key of keys) { const values = arrayRecords(object[key]); if (values.length || Array.isArray(object[key])) return values; }
+  return [];
+}
+function unwrapObject(value: unknown, key: string): unknown { return record(value)?.[key] ?? value; }
+function defaultPaymentMethodId(value: unknown): string | undefined { return text(record(value)?.default_payment_method_id); }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.trim() ? value.trim() : undefined; }
 function number(value: unknown): number | null { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function numberOrString(value: unknown): number | string | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : text(value); }

@@ -208,6 +208,7 @@ export interface AutomationOperationTable extends AuditedTable {
   external_operation_id: string | null;
   status: string;
   phase: string | null;
+  progress: Generated<number>;
   safe_request_summary: JsonObject;
   result_summary: JsonObject | null;
   error_code: string | null;

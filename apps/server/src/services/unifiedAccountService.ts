@@ -12,9 +12,11 @@ import { AccountOperationalRepository } from '../repositories/accountOperational
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { UnifiedProjectionRepository } from '../repositories/unifiedProjectionRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 
 export class UnifiedAccountService {
   readonly #accounts: AccountRepository;
+  readonly #activity: ActivityLogRepository;
   constructor(
     private readonly db: Kysely<Database>,
     private readonly projections: UnifiedProjectionRepository,
@@ -22,6 +24,7 @@ export class UnifiedAccountService {
     private readonly operational: AccountOperationalRepository
   ) {
     this.#accounts = new AccountRepository(db);
+    this.#activity = new ActivityLogRepository(db);
   }
 
   list(filters: AccountListFilters): Promise<UnifiedAccountSummaryView[]> {
@@ -60,6 +63,7 @@ export class UnifiedAccountService {
       if (gamAccountRef) await this.#accounts.bindGamAccount(created.account.id, gamAccountRef);
       const proxy = string(input.proxy);
       if (proxy) await this.operational.setProxy(created.account.id, proxy);
+      await this.#activity.log({accountId:created.account.id,kind:'account_created',payload:{groupId:created.account.group_id,email:created.account.email,hasSession:Boolean(parsed),hasGamBinding:Boolean(gamAccountRef)}});
       return this.detail(created.account.id);
     } catch (error) {
       throw asServiceError(error);
@@ -95,6 +99,7 @@ export class UnifiedAccountService {
         const personal = await this.db.selectFrom('personal_spaces').select('id').where('account_id', '=', id).executeTakeFirstOrThrow();
         await this.saveSession(id, personal.id, parsed, 'manual_replace');
       }
+      await this.#activity.log({accountId:id,kind:'account_updated',payload:{fields:Object.keys(input)}});
       return this.detail(id);
     } catch (error) {
       throw asServiceError(error);
@@ -102,7 +107,7 @@ export class UnifiedAccountService {
   }
 
   async remove(id: string): Promise<boolean> {
-    try { await this.#accounts.remove(id); return true; } catch (error) { throw asServiceError(error); }
+    try { const account=await this.#accounts.findById(id);if(!account)throw new ServiceError(404,'账号不存在');await this.#accounts.remove(id);await this.#activity.log({kind:'account_removed',payload:{accountId:id,email:account.email}}); return true; } catch (error) { throw asServiceError(error); }
   }
 
   async session(id: string) {
@@ -118,13 +123,13 @@ export class UnifiedAccountService {
   }
 
   async createGroup(name: string) {
-    try { await this.#accounts.createGroup(name); return this.groups(); } catch (error) { throw asServiceError(error); }
+    try { const group=await this.#accounts.createGroup(name);await this.#activity.log({kind:'account_group_created',payload:{groupId:group.id,name:group.name}}); return this.groups(); } catch (error) { throw asServiceError(error); }
   }
   async renameGroup(id: string, name: string) {
-    try { await this.#accounts.renameGroup(id, name); return this.groups(); } catch (error) { throw asServiceError(error); }
+    try { const group=await this.#accounts.renameGroup(id, name);await this.#activity.log({kind:'account_group_renamed',payload:{groupId:id,name:group.name}}); return this.groups(); } catch (error) { throw asServiceError(error); }
   }
   async deleteGroup(id: string) {
-    try { await this.#accounts.deleteGroup(id); return this.groups(); } catch (error) { throw asServiceError(error); }
+    try { await this.#accounts.deleteGroup(id);await this.#activity.log({kind:'account_group_deleted',payload:{groupId:id}}); return this.groups(); } catch (error) { throw asServiceError(error); }
   }
 
   async reorderGroups(ids: string[]) {
@@ -134,6 +139,7 @@ export class UnifiedAccountService {
       if (existing.length !== ids.length || existing.some((row) => !ids.includes(row.id))) throw new ServiceError(409, '分组排序必须包含全部分组');
       for (const [sortOrder, id] of ids.entries()) await trx.updateTable('account_groups').set({ sort_order: sortOrder }).where('id', '=', id).execute();
     });
+    await this.#activity.log({kind:'account_groups_reordered',payload:{ids}});
     return this.groups();
   }
 

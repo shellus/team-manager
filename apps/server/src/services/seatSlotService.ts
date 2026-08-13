@@ -8,13 +8,15 @@ import { ServiceError } from '../serviceError.js';
 import { PublicSeatService } from './publicSeatService.js';
 import { WorkspaceOperationService } from './workspaceOperationService.js';
 import type { NotificationService } from './notificationService.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 
 export class SeatSlotService {
   readonly #repository: SeatSlotRepository;
+  readonly #activity: ActivityLogRepository;
   constructor(
     private readonly db: Kysely<Database>, private readonly workspaceOperations: WorkspaceOperationService,
     private readonly publicSeats: PublicSeatService, private readonly notifications?: NotificationService
-  ) { this.#repository = new SeatSlotRepository(db); }
+  ) { this.#repository = new SeatSlotRepository(db); this.#activity = new ActivityLogRepository(db); }
 
   list(workspaceId: string) { return this.db.selectFrom('seat_slots').selectAll().where('workspace_id', '=', workspaceId).orderBy('created_at').execute(); }
 
@@ -26,7 +28,7 @@ export class SeatSlotService {
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
       expireReminder: input.expireReminder, expireRemove: input.expireRemove,
       seatType: input.seatType!, status: input.status ?? (input.email ? 'unknown' : 'empty') });
-    await this.log(row.id, null, row.current_email, 'created'); return row;
+    await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,seatType:row.seat_type}); return row;
   }
 
   async update(workspaceId: string, id: string, input: SeatSlotMutationInput) {
@@ -39,19 +41,20 @@ export class SeatSlotService {
       seatType: input.seatType ?? row.seat_type as SeatType,
       status: input.status ?? row.status as any });
     if (row.normalized_current_email !== updated.normalized_current_email) await this.log(id, row.current_email, updated.current_email, 'admin_edit');
+    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,status:updated.status,seatType:updated.seat_type});
     return updated;
   }
 
-  async disable(workspaceId: string, id: string) { await this.require(workspaceId, id); return this.db.updateTable('seat_slots').set({ status: 'disabled' }).where('id', '=', id).returningAll().executeTakeFirstOrThrow(); }
-  async remove(workspaceId: string, id: string) { const row = await this.require(workspaceId, id); if (['member', 'invited'].includes(row.status)) throw new ServiceError(409, '占用中的席位不能删除，请先释放'); await this.db.deleteFrom('seat_slots').where('id', '=', id).execute(); return true; }
+  async disable(workspaceId: string, id: string) { await this.require(workspaceId, id);const row=await this.db.updateTable('seat_slots').set({ status: 'disabled' }).where('id', '=', id).returningAll().executeTakeFirstOrThrow();await this.activity(workspaceId,'seat_slot_disabled',{seatSlotId:id});return row; }
+  async remove(workspaceId: string, id: string) { const row = await this.require(workspaceId, id); if (['member', 'invited'].includes(row.status)) throw new ServiceError(409, '占用中的席位不能删除，请先释放'); await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();await this.activity(workspaceId,'seat_slot_removed',{seatSlotId:id}); return true; }
   async release(workspaceId: string, id: string, executorAccountId: string, force = false) {
     const row = await this.require(workspaceId, id);
     if (row.status === 'member' && row.remote_user_id && !force) await this.workspaceOperations.removeMember(workspaceId, executorAccountId, row.remote_user_id);
     else if (row.status === 'invited' && row.current_email && !force) await this.workspaceOperations.revokeInvitation(workspaceId, executorAccountId, row.current_email);
     await this.log(id, row.current_email, null, force ? 'force_release' : 'release');
-    return this.db.updateTable('seat_slots').set({ current_email: null, normalized_current_email: null, remote_user_id: null, status: 'empty' }).where('id', '=', id).returningAll().executeTakeFirstOrThrow();
+    const released=await this.db.updateTable('seat_slots').set({ current_email: null, normalized_current_email: null, remote_user_id: null, status: 'empty' }).where('id', '=', id).returningAll().executeTakeFirstOrThrow();await this.#activity.log({accountId:executorAccountId,workspaceId,kind:'seat_slot_released',payload:{seatSlotId:id,previousEmail:row.current_email,force}});return released;
   }
-  async swap(workspaceId: string, id: string, email: string) { const row = await this.require(workspaceId, id); return this.publicSeats.swap(row.seat_key, normalizeEmail(email)); }
+  async swap(workspaceId: string, id: string, email: string) { const row = await this.require(workspaceId, id);const result=await this.publicSeats.swap(row.seat_key, normalizeEmail(email));await this.activity(workspaceId,'seat_slot_swap_requested',{seatSlotId:id,email:normalizeEmail(email)});return result; }
 
   async runExpirations(now = new Date()) {
     const today = now.toISOString().slice(0, 10); const reminderEnd = new Date(now.getTime()+7*86400_000).toISOString().slice(0,10);
@@ -75,6 +78,7 @@ export class SeatSlotService {
   private async require(workspaceId: string, id: string) { const row = await this.db.selectFrom('seat_slots').selectAll().where('id', '=', id).where('workspace_id', '=', workspaceId).executeTakeFirst(); if (!row) throw new ServiceError(404, '客户席位不存在'); return row; }
   private async assertWorkspace(id: string) { if (!await this.db.selectFrom('workspaces').select('id').where('id', '=', id).executeTakeFirst()) throw new ServiceError(404, 'Workspace 不存在'); }
   private log(id: string, previous: string | null, next: string | null, reason: string) { return this.db.insertInto('seat_slot_identity_history').values({ seat_slot_id: id, previous_email: previous, next_email: next, changed_at: new Date(), reason }).execute(); }
+  private activity(workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({workspaceId,kind,payload});}
   private async executor(workspaceId: string) { return (await this.db.selectFrom('workspace_memberships').select('account_id').where('workspace_id', '=', workspaceId).where('status', '=', 'active').where('normalized_role', 'in', ['owner', 'admin']).where('account_id', 'is not', null).executeTakeFirst())?.account_id ?? undefined; }
 }
 

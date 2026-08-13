@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TeamOrderService } from '../services/teamOrderService.js';
 import { NotificationService } from '../services/notificationService.js';
+import { BillingRepository } from '../repositories/billingRepository.js';
 
 const adminUrl = process.env.TEAMMGR_TEST_ADMIN_DATABASE_URL;
 
@@ -29,7 +30,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
 
@@ -44,6 +45,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
       assert.deepEqual((await accounts.list({ hasManageableWorkspace: true })).map((item) => item.email), ['owner@example.com']);
       assert.deepEqual((await accounts.list({ isWorkspaceMember: true })).map((item) => item.email), ['member@example.com']);
+
+      const billing=new BillingRepository(db);await billing.saveSnapshot({kind:'personal',personalSpaceId:first.personalSpace.id},{invoices:{data:[{id:'invoice-envelope',amount_due:2600,currency:'cad',status:'paid',created:1781591356}]},payment_methods:{default_payment_method_id:'pm_default',payment_methods:[{id:'pm_default',card:{brand:'visa',last4:'4242',exp_month:12,exp_year:2030}}]},billing_info:{name:'Raw Name',address:{country:'CA'}},seat_type_counts:{seat_type_counts:{default:1,usage_based:2}},upcomingInvoice:{upcoming_invoice:{amount_due:3000}}},new Date('2026-08-13T00:00:00Z'));
+      const billingDetail=await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id});assert.equal(billingDetail?.invoices[0].externalId,'invoice-envelope');assert.equal(billingDetail?.paymentMethods[0].isDefault,true);assert.equal(billingDetail?.paymentMethods[0].brand,'visa');assert.deepEqual(billingDetail?.summary.seatTypeCounts,{default:1,usage_based:2});assert.deepEqual(billingDetail?.summary.upcomingInvoice,{amount_due:3000});
+      const historical=await db.insertInto('billing_snapshots').values({personal_space_id:first.personalSpace.id,workspace_id:null,payload:{invoices:{data:[{id:'historical-invoice',amount_due:9900,currency:'usd',status:'open',created:1781591356}]},payment_methods:{default_payment_method_id:'historical-pm',payment_methods:[{id:'historical-pm',card:{brand:'mastercard',last4:'4444',exp_month:11,exp_year:2031}}]},seat_type_counts:{seat_type_counts:{default:3,usage_based:4}}},observed_at:new Date('2026-08-14T00:00:00Z')}).returning('id').executeTakeFirstOrThrow();assert.equal((await db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id','=',historical.id).execute()).length,0);const historicalDetail=await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id});assert.equal(historicalDetail?.invoices[0].externalId,'historical-invoice');assert.equal(historicalDetail?.paymentMethods[0].last4,'4444');assert.equal(historicalDetail?.paymentMethods[0].isDefault,true);assert.equal((await billing.invoice({kind:'personal',personalSpaceId:first.personalSpace.id},'historical-invoice') as any)?.amount,9900);
 
       const sessions = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
       await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'secret' }, source: 'test' });
@@ -60,7 +65,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             paymentMethods: [], workspaces: [{ id: workspace.external_id, name: workspace.name ?? undefined, planType: 'business', role: 'account-owner', seatType: 'default' }] }),
           changePersonalSubscription: async () => operation('personal-operation'),
           cancelPersonalSubscriptionRenewal: async () => operation('cancel-operation'),
-          openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId })
+          openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId }),
+          addPersonalPaymentMethod: async()=>operation('payment-operation'),
+          startRegistration:async()=>operation('registration-operation')
         }
       });
       const headers = { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' };
@@ -79,6 +86,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
 
       const personal = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'plus', mode: 'start_new', country: 'US', currency: 'USD', autoPay: true, card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' } }) });
       assert.equal(personal.status, 200, await personal.clone().text());
+      const personalOperationId=(await personal.clone().json() as any).data.id;assert.match(personalOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${personalOperationId}`,{headers})).status,200);
       const stored = await db.selectFrom('automation_operations').selectAll().where('external_operation_id', '=', 'personal-operation').executeTakeFirstOrThrow();
       assert.equal(JSON.stringify(stored).includes('4242424242424242'), false);
       assert.equal(JSON.stringify(stored).includes('123'), false);
@@ -87,6 +95,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(blocked.status, 409);
       const business = await app.request(`/api/accounts/${first.account.id}/business-subscription`, { method: 'POST', headers, body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, country: 'US', currency: 'USD', autoPay: false }) });
       assert.equal(business.status, 200);
+      const businessOperationId=(await business.clone().json() as any).data.id;assert.match(businessOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${businessOperationId}`,{headers})).status,200);
+
+      const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-payment-methods`,{method:'POST',headers,body:JSON.stringify({country:'US',currency:'USD',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}})});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
+      const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
 
       const operationRow = await db.selectFrom('automation_operations').select('id').where('external_operation_id', '=', 'business-operation').executeTakeFirstOrThrow();
       assert.equal((await app.request(`/api/operations/${operationRow.id}`, { headers })).status, 200);

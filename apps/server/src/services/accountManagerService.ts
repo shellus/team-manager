@@ -14,11 +14,13 @@ import { SessionRepository } from '../repositories/sessionRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import type { ManagedAccountSummary } from '../accountManagerClient.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 
 export class AccountManagerService {
   readonly #accounts: AccountRepository;
   readonly #operations: AutomationOperationRepository;
   readonly #workspaces: WorkspaceRepository;
+  readonly #activity: ActivityLogRepository;
 
   constructor(
     private readonly db: Kysely<Database>,
@@ -28,6 +30,7 @@ export class AccountManagerService {
     this.#accounts = new AccountRepository(db);
     this.#operations = new AutomationOperationRepository(db);
     this.#workspaces = new WorkspaceRepository(db);
+    this.#activity = new ActivityLogRepository(db);
   }
 
   async state(accountId: string): Promise<AccountManagerStateView> {
@@ -114,7 +117,8 @@ export class AccountManagerService {
       requestTag: `team-manager:${operationId}`
     });
     await this.#operations.attach(operationId, operation);
-    return operation;
+    await this.#activity.log({accountId,kind:'personal_payment_method_add_requested',payload:{operationId,country:input.country,currency:input.currency,cardLast4:input.card.number.slice(-4)}});
+    return this.#operations.view(operationId);
   }
 
   async register(input: RegisterAccountRequest) {
@@ -141,7 +145,8 @@ export class AccountManagerService {
       clientReference: group.id
     });
     await this.#operations.attach(operationId, operation);
-    return operation;
+    await this.#activity.log({kind:'account_registration_requested',payload:{operationId,targetGroupId:group.id,email:input.email?.trim().toLowerCase()??null}});
+    return this.#operations.view(operationId);
   }
 
   async registration(operationId: string) {
