@@ -120,7 +120,7 @@ export class WorkspaceOperationService {
 
   async subscription(workspaceId: string) {
     const row = await this.db.selectFrom('workspace_subscription_snapshots').selectAll().where('workspace_id', '=', workspaceId).orderBy('observed_at', 'desc').executeTakeFirst();
-    return row ? { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString(), plan: row.normalized_plan,
+    return row ? { observedAt: new Date(row.observed_at as any).toISOString(), plan: row.normalized_plan,
       rawPlanCode: row.raw_plan_code, status: row.status, willRenew: row.will_renew,
       effectiveAt: row.effective_at ? new Date(row.effective_at as any).toISOString() : undefined,
       endsAt: row.ends_at ? new Date(row.ends_at as any).toISOString() : undefined } : undefined;

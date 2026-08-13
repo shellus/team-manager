@@ -48,6 +48,16 @@ export interface PersonalSubscriptionSnapshotView {
   observedAt: string;
 }
 
+export interface SubscriptionDetailView {
+  plan: string;
+  rawPlanCode?: string;
+  status: string;
+  willRenew?: boolean;
+  effectiveAt?: string;
+  endsAt?: string;
+  observedAt: string;
+}
+
 export interface SnapshotView<T = Record<string, unknown>> {
   payload: T;
   observedAt: string;
@@ -57,23 +67,45 @@ export interface BillingInvoiceView {
   id: string;
   number?: string;
   externalId?: string;
-  amount?: string;
+  total?: number;
+  amountDue?: number;
+  amountPaid?: number;
+  amountRemaining?: number;
+  subtotal?: number;
+  tax?: number;
   currency?: string;
   status?: string;
-  occurredAt?: string;
   createdAt?: string;
-  payload: Record<string, unknown>;
+  nextPaymentAttempt?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  billingReason?: string;
+  lineDescription?: string;
+  lineQuantity?: number;
+  lineUnitAmount?: number;
+  hostedInvoiceUrl?: string;
+  invoicePdfUrl?: string;
 }
 
-export interface BillingDetailView extends SnapshotView {
+export interface BillingIdentityView {
+  name?: string;
+  email?: string;
+  taxId?: string;
+  address?: string;
+}
+
+export interface BillingSeatTypeCountsView {
+  default: number;
+  usageBased: number;
+}
+
+export interface BillingDetailView {
+  observedAt: string;
+  upcomingInvoice?: BillingInvoiceView;
   invoices: BillingInvoiceView[];
   paymentMethods: PersonalPaymentMethodView[];
-  summary: {
-    seatTypeCounts?: unknown;
-    billingInfo?: unknown;
-    upcomingInvoice?: unknown;
-  };
-  raw?: unknown;
+  billingIdentity?: BillingIdentityView;
+  seatTypeCounts?: BillingSeatTypeCountsView;
 }
 
 export interface AccountActivityView {
@@ -81,7 +113,8 @@ export interface AccountActivityView {
   accountId?: string;
   workspaceId?: string;
   kind: string;
-  payload: Record<string, unknown>;
+  title: string;
+  detail?: string;
   occurredAt: string;
 }
 
@@ -153,7 +186,7 @@ export interface ArtifactIndexView {
 }
 
 export interface PersonalSpaceDetailView {
-  subscription?: SnapshotView | PersonalSubscriptionSnapshotView;
+  subscription?: PersonalSubscriptionSnapshotView;
   billing?: BillingDetailView;
   quota?: SnapshotView & {
     windows?: Array<Record<string, unknown>>;
@@ -232,6 +265,7 @@ export interface WorkspaceCredentialView {
   accountId: string;
   accountEmail: string;
   workspaceId: string;
+  workspaceName?: string;
   kind: 'oauth' | 'pat';
   poolGroup?: { id: string; name: string };
   status: string;
@@ -357,6 +391,15 @@ export interface WorkspaceDetailView extends WorkspaceSummaryView {
   seatSlots: SeatSlotView[];
   latestSettings?: { payload: Record<string, unknown>; observedAt: string };
   latestBilling?: { payload: Record<string, unknown>; observedAt: string };
+  consistencyRisks: WorkspaceConsistencyRiskView[];
+}
+
+export interface WorkspaceConsistencyRiskView {
+  key: string;
+  severity: 'warning' | 'error';
+  title: string;
+  detail: string;
+  targetTab: 'members' | 'invitations' | 'seats' | 'credentials' | 'billing';
 }
 
 export interface PaymentCardInput {

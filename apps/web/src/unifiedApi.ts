@@ -11,6 +11,7 @@ import type {
   CredentialPoolGroupView,
   NotificationDeliveryView,
   OpenBusinessSubscriptionRequest,
+  SubscriptionDetailView,
   OperationControl,
   OperationDetailView,
   PersonalSpaceDetailView,
@@ -126,6 +127,7 @@ export const unifiedApi = {
   deleteOperation: (id: string) => request<boolean>('DELETE', `/operations/${id}`),
   workspaces: (query = '') => request<WorkspaceSummaryView[]>('GET', `/workspaces${query ? `?query=${encodeURIComponent(query)}` : ''}`),
   workspace: (id: string) => request<WorkspaceDetailView>('GET', `/workspaces/${id}`),
+  workspaceActivity: (id: string) => request<AccountActivityView[]>('GET', `/workspaces/${id}/activity`),
   refreshWorkspace: (id: string, executorAccountId: string) =>
     request<unknown>('POST', `/workspaces/${id}/refresh`, {
       executorAccountId,
@@ -141,10 +143,11 @@ export const unifiedApi = {
   patchWorkspaceSettings: (id: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/workspaces/${id}/settings`, body),
   removeMember: (id: string, remoteUserId: string, executorAccountId: string) => request<unknown>('DELETE', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId }),
   workspaceBilling: (id: string, executorAccountId?: string) =>
-    request<(BillingDetailView & Record<string, unknown>) | undefined>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+    request<BillingDetailView | undefined>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+  refreshWorkspaceBilling: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/billing/refresh`, { executorAccountId }),
   workspaceInvoice: (id: string, invoiceId: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/billing/invoices/${encodeURIComponent(invoiceId)}`),
   workspaceSubscription: (id: string, executorAccountId?: string) =>
-    request<Record<string, unknown>>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+    request<SubscriptionDetailView | undefined>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
   createSeatSlot: (workspaceId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, body),
   updateSeatSlot: (workspaceId: string, slotId: string, body: Partial<SeatSlotInput>) => request<unknown>('PATCH', `/workspaces/${workspaceId}/seat-slots/${slotId}`, body),
   deleteSeatSlot: (workspaceId: string, slotId: string) => request<boolean>('DELETE', `/workspaces/${workspaceId}/seat-slots/${slotId}`),

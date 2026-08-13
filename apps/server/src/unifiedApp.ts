@@ -276,6 +276,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
   api.get('/workspaces/:id', (c) => wrap(c, () => workspaces.detail(c.req.param('id'))));
+  api.get('/workspaces/:id/activity', (c) => wrap(c, () => workspaces.activities(c.req.param('id'), Number(c.req.query('limit') || 200))));
   api.get('/workspaces/:id/settings', (c)=>wrap(c,()=>workspaceOperations.settings(c.req.param('id'))));
   api.get('/workspaces/:id/billing', (c)=>wrap(c,()=>workspaceOperations.billing(c.req.param('id'))));
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));

@@ -197,20 +197,33 @@ export class UnifiedProjectionRepository {
         expireRemove: row.expire_remove, seatType: row.seat_type as 'default' | 'usage_based', status: row.status
       })),
       ...(settings ? { latestSettings: { payload: settings.payload, observedAt: iso(settings.observed_at) } } : {}),
-      ...(billing ? { latestBilling: { payload: billing.payload, observedAt: iso(billing.observed_at) } } : {})
+      ...(billing ? { latestBilling: { payload: billing.payload, observedAt: iso(billing.observed_at) } } : {}),
+      consistencyRisks: workspaceConsistencyRisks(members.rows, invitations, seats, credentials)
     };
   }
 }
 
+function workspaceConsistencyRisks(members:any[],invitations:any[],seats:any[],credentials:Awaited<ReturnType<typeof credentialViews>>):WorkspaceDetailView['consistencyRisks']{
+  const activeMembers=new Set(members.filter(row=>row.status==='active').map(row=>String(row.email??row.account_email??'').trim().toLowerCase()).filter(Boolean));
+  const pendingInvites=new Set(invitations.filter(row=>row.status==='pending').map(row=>String(row.email).trim().toLowerCase()));
+  const risks:WorkspaceDetailView['consistencyRisks']=[];
+  for(const seat of seats.filter(row=>['member','invited'].includes(row.status))){const email=String(seat.current_email??'').trim().toLowerCase();if(!email)continue;
+    const matched=seat.status==='member'?activeMembers.has(email):pendingInvites.has(email);if(!matched)risks.push({key:`seat-${seat.id}`,severity:'warning',title:'客户席位与远端关系不一致',detail:`${seat.current_email} 标记为${seat.status==='member'?'已绑定成员':'已邀请'}，但远端没有对应${seat.status==='member'?'活动成员':'待处理邀请'}。`,targetTab:seat.status==='member'?'members':'invitations'});
+  }
+  const activeAccountIds=new Set(members.filter(row=>row.status==='active'&&row.account_id).map(row=>row.account_id));
+  for(const credential of credentials.filter(row=>row.status==='active'&&!activeAccountIds.has(row.accountId)))risks.push({key:`credential-${credential.id}`,severity:'error',title:'活动凭证缺少有效成员关系',detail:`${credential.accountEmail} 的凭证仍为活动状态，但账号不是当前 Workspace 的活动成员。`,targetTab:'credentials'});
+  return risks;
+}
+
 async function credentialViews(db: Kysely<Database>, predicate: ReturnType<typeof sql>) {
-  const result = await sql<any>`select wc.*,a.email account_email,cpg.id pool_id,cpg.name pool_name,
+  const result = await sql<any>`select wc.*,a.email account_email,w.name workspace_name,w.external_id workspace_external_id,cpg.id pool_id,cpg.name pool_name,
     cqs.payload latest_quota,cqs.observed_at quota_observed_at
-    from workspace_credentials wc join accounts a on a.id=wc.account_id
+    from workspace_credentials wc join accounts a on a.id=wc.account_id join workspaces w on w.id=wc.workspace_id
     left join credential_pool_groups cpg on cpg.id=wc.pool_group_id
     left join lateral (select payload,observed_at from credential_quota_snapshots where credential_id=wc.id order by observed_at desc limit 1) cqs on true
     where ${predicate} order by wc.created_at desc`.execute(db);
   return result.rows.map((row: any) => ({
-    id: row.id, accountId: row.account_id, accountEmail: row.account_email, workspaceId: row.workspace_id,
+    id: row.id, accountId: row.account_id, accountEmail: row.account_email, workspaceId: row.workspace_id, workspaceName: row.workspace_name??row.workspace_external_id,
     kind: row.kind as 'oauth' | 'pat', ...(row.pool_id ? { poolGroup: { id: row.pool_id, name: row.pool_name } } : {}),
     status: row.status, contentSha256: row.content_sha256, byteSize: Number(row.byte_size), createdAt: iso(row.created_at),
     ...(row.latest_quota ? { latestQuota: row.latest_quota, quotaObservedAt: iso(row.quota_observed_at) } : {})

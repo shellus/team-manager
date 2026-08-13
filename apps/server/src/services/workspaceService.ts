@@ -3,6 +3,7 @@ import type { Database } from '../database/schema.js';
 import { UnifiedProjectionRepository } from '../repositories/unifiedProjectionRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 
 export class WorkspaceService {
   readonly #workspaces: WorkspaceRepository;
@@ -21,4 +22,5 @@ export class WorkspaceService {
     try { await this.#workspaces.requireManageableBy(id, accountId); }
     catch (error) { throw asServiceError(error); }
   }
+  activities(id: string, limit = 200) { return new ActivityLogRepository(this.db).list({ workspaceId: id, limit }); }
 }

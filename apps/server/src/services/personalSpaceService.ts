@@ -3,6 +3,7 @@ import type { Database } from '../database/schema.js';
 import { ChatGptApi, ChatGptApiError } from '../chatgptApi.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 import { BillingRepository } from '../repositories/billingRepository.js';
+import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { ServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
@@ -65,11 +66,7 @@ export class PersonalSpaceService {
   async billing(accountId: string) { const p = await this.personal(accountId); return this.#billing.detail({ kind: 'personal', personalSpaceId: p.id }); }
   async quota(accountId: string) { const p = await this.personal(accountId); const v = await this.db.selectFrom('personal_quota_snapshots').selectAll().where('personal_space_id', '=', p.id).orderBy('observed_at', 'desc').executeTakeFirst(); return v ? snapshot(v) : undefined; }
   async settings(accountId: string) { const p = await this.personal(accountId); const v = await this.db.selectFrom('personal_setting_snapshots').selectAll().where('personal_space_id', '=', p.id).orderBy('observed_at', 'desc').executeTakeFirst(); return v ? snapshot(v) : undefined; }
-  async activities(accountId: string, limit = 200) {
-    const rows = await this.db.selectFrom('account_activity_logs').selectAll().where('account_id', '=', accountId).orderBy('occurred_at', 'desc').limit(Math.min(Math.max(limit, 1), 1000)).execute();
-    return rows.map((row) => ({ id: row.id, accountId: row.account_id ?? undefined, workspaceId: row.workspace_id ?? undefined,
-      kind: row.kind, payload: row.payload, occurredAt: new Date(row.occurred_at as any).toISOString() }));
-  }
+  async activities(accountId: string, limit = 200) { return new ActivityLogRepository(this.db).list({ accountId, limit }); }
   async patchSettings(accountId: string, input: Record<string, unknown>) {
     const { api } = await this.context(accountId); const me = await api.getMe();
     const remoteUserId = typeof me.id === 'string' ? me.id : undefined;
@@ -95,7 +92,13 @@ export class PersonalSpaceService {
   private async personal(accountId: string) { const row = await this.db.selectFrom('personal_spaces').selectAll().where('account_id', '=', accountId).executeTakeFirst(); if (!row) throw new ServiceError(404, '账号不存在'); return row; }
   private activity(accountId: string, kind: string, payload: Record<string, unknown>) { return this.db.insertInto('account_activity_logs').values({ account_id: accountId, workspace_id: null, kind, payload, source_file_sha256: null, source_line: null, source_bytes_sha256: null, occurred_at: new Date() }).execute(); }
 }
-function snapshot(row: { payload: Record<string, unknown>; observed_at: unknown }) { return { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString() }; }
+function snapshot(row: { normalized_plan?: string; raw_plan_code?: string | null; status?: string; will_renew?: boolean | null; effective_at?: unknown; ends_at?: unknown; payload: Record<string, unknown>; observed_at: unknown }) {
+  if (row.normalized_plan !== undefined) return { plan: normalizePlan(row.normalized_plan), ...(row.raw_plan_code?{rawPlanCode:row.raw_plan_code}:{}),
+    status: row.status ?? 'unknown', ...(row.will_renew===null||row.will_renew===undefined?{}:{willRenew:row.will_renew}),
+    ...(row.effective_at?{effectiveAt:new Date(row.effective_at as any).toISOString()}:{}),...(row.ends_at?{endsAt:new Date(row.ends_at as any).toISOString()}:{}),
+    observedAt:new Date(row.observed_at as any).toISOString() };
+  return { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString() };
+}
 function normalizePlan(value: string): 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown' { const key = value.toLowerCase(); if (key.includes('prolite')) return 'pro_5x'; if (key.includes('pro')) return 'pro_20x'; if (key.includes('plus')) return 'plus'; if (key.includes('go')) return 'go'; if (key.includes('free')) return 'free'; return 'unknown'; }
 async function captureUpstream<T extends Record<string, unknown>>(action: () => Promise<T>): Promise<T | { error: Record<string, unknown> }> {
   try { return await action(); }

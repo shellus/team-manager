@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Descriptions,
-  Drawer,
   Form,
   Input,
   Modal,
@@ -20,18 +19,16 @@ import { CopyOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useParams, useSearchParams } from "react-router-dom";
 import type {
   BillingDetailView,
+  AccountActivityView,
   OpenBusinessSubscriptionRequest,
   SeatSlotView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
+  SubscriptionDetailView,
 } from "@team-manager/shared";
 import { unifiedApi, type SeatSlotInput } from "../../unifiedApi.js";
-import {
-  JsonViewer,
-  LoadBoundary,
-  PageHeader,
-  formatTime,
-} from "../../components/ProductPrimitives.js";
+import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
+import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
 import {
   editableMemberRoleOptions,
@@ -52,8 +49,9 @@ export function WorkspaceDetailPage() {
   const [params, setParams] = useSearchParams();
   const [workspace, setWorkspace] = useState<WorkspaceDetailView>();
   const [accounts, setAccounts] = useState<UnifiedAccountSummaryView[]>([]);
-  const [billing, setBilling] = useState<Record<string, unknown>>();
-  const [subscription, setSubscription] = useState<Record<string, unknown>>();
+  const [billing, setBilling] = useState<BillingDetailView>();
+  const [subscription, setSubscription] = useState<SubscriptionDetailView>();
+  const [activity, setActivity] = useState<AccountActivityView[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -73,9 +71,11 @@ export function WorkspaceDetailPage() {
       const extras = await Promise.allSettled([
         unifiedApi.workspaceBilling(workspaceId),
         unifiedApi.workspaceSubscription(workspaceId),
+        unifiedApi.workspaceActivity(workspaceId),
       ]);
       if (extras[0].status === "fulfilled") setBilling(extras[0].value);
       if (extras[1].status === "fulfilled") setSubscription(extras[1].value);
+      if (extras[2].status === "fulfilled") setActivity(extras[2].value);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -200,8 +200,8 @@ export function WorkspaceDetailPage() {
                         ]}
                       />
                       <Typography.Title level={4}>订阅</Typography.Title>
-                      <StructuredObject value={subscription} />
-                      <JsonViewer title="订阅原始 JSON" value={subscription} />
+                      <SubscriptionSummary value={subscription} />
+                      {workspace.consistencyRisks.length>0&&<Space direction="vertical" className="panel-stack">{workspace.consistencyRisks.map(risk=><Alert key={risk.key} type={risk.severity} showIcon message={risk.title} description={<Space direction="vertical"><span>{risk.detail}</span><Button size="small" onClick={()=>set("tab",risk.targetTab)}>前往处理</Button></Space>}/>)}</Space>}
                     </Space>
                   ),
                 },
@@ -402,7 +402,7 @@ export function WorkspaceDetailPage() {
                       dataSource={workspace.credentials}
                       scroll={{ x: 900 }}
                       columns={[
-                        { title: "账号", dataIndex: "accountEmail" },
+                        { title: "账号", render:(_,row)=><Typography.Link href={`/accounts/${row.accountId}?tab=credentials`}>{row.accountEmail}</Typography.Link> },
                         { title: "类型", dataIndex: "kind" },
                         {
                           title: "号池",
@@ -412,12 +412,12 @@ export function WorkspaceDetailPage() {
                         {
                           title: "额度",
                           render: (_, row) =>
-                            row.latestQuota?.status ?? "未刷新",
+                            row.latestQuota ? <Space direction="vertical" size={1}><Tag color={row.latestQuota.status==='success'?'green':row.latestQuota.status==='error'?'red':'default'}>{row.latestQuota.status==='success'?'正常':row.latestQuota.status==='error'?'错误':'不可用'}</Tag>{row.latestQuota.windows.map(window=><Typography.Text key={window.id} type="secondary">{window.label}：{window.usedPercent??'—'}% · 重置 {formatTime(window.resetAt??undefined)}</Typography.Text>)}<Typography.Text type="secondary">快照 {formatTime(row.quotaObservedAt)}</Typography.Text></Space> : "未刷新",
                         },
                         {
-                          title: "哈希",
-                          dataIndex: "contentSha256",
-                          ellipsis: true,
+                          title:"操作",
+                          fixed:"right",
+                          render:(_,row)=><Space><Button size="small" onClick={()=>run(`quota-${row.id}`,()=>unifiedApi.refreshCredentialQuota(row.id))}>刷新额度</Button><Button size="small" href={`/accounts/${row.accountId}?tab=credentials`}>管理凭证</Button></Space>
                         },
                       ]}
                     />
@@ -441,10 +441,16 @@ export function WorkspaceDetailPage() {
                   children: (
                     <BillingPanel
                       workspaceId={workspace.id}
-                      value={billing ?? workspace.latestBilling?.payload}
+                      workspaceExternalId={workspace.externalId}
+                      executorAccountId={executorAccountId}
+                      value={billing}
+                      busy={busy}
+                      run={run}
+                      reload={async()=>{const next=await unifiedApi.workspaceBilling(workspace.id);setBilling(next);}}
                     />
                   ),
                 },
+                {key:"activity",label:`活动日志 (${activity.length})`,children:<ActivityTimeline value={activity}/>},
               ]}
             />
           </Card>
@@ -563,92 +569,34 @@ function WorkspaceSettings({
           保存全部设置
         </Button>
       </Form>
-      <JsonViewer title="设置原始 JSON" value={payload} />
     </Space>
   );
 }
 
 function BillingPanel({
   workspaceId,
+  workspaceExternalId,
+  executorAccountId,
   value,
+  busy,
+  run,
+  reload,
 }: {
   workspaceId: string;
-  value?: Record<string, unknown>;
+  workspaceExternalId: string;
+  executorAccountId: string;
+  value?: BillingDetailView;
+  busy: string;
+  run:(key:string,action:()=>Promise<unknown>)=>Promise<void>;
+  reload:()=>Promise<void>;
 }) {
-  const invoices = (value?.invoices ?? []) as Record<string, unknown>[];
-  const methods = (value?.paymentMethods ??
-    value?.payment_methods ??
-    []) as Record<string, unknown>[];
-  const [invoice, setInvoice] = useState<Record<string, unknown>>();
-  const [error, setError] = useState("");
   return (
     <Space direction="vertical" className="panel-stack">
-      {error && <Alert type="error" showIcon message={error} />}
-      <StructuredObject
-        value={(value?.summary ?? value) as Record<string, unknown>}
-      />
-      <Typography.Title level={4}>支付方式</Typography.Title>
-      <Table
-        rowKey={(r) => String(r.id ?? r.last4)}
-        dataSource={methods}
-        scroll={{ x: 650 }}
-        columns={[
-          { title: "品牌", dataIndex: "brand" },
-          { title: "尾号", dataIndex: "last4" },
-          { title: "状态", dataIndex: "status" },
-          {
-            title: "默认",
-            dataIndex: "isDefault",
-            render: (v) => (v ? "是" : "否"),
-          },
-        ]}
-      />
-      <Typography.Title level={4}>发票</Typography.Title>
-      <Table
-        rowKey={(r) => String(r.id ?? r.number)}
-        dataSource={invoices}
-        scroll={{ x: 800 }}
-        columns={[
-          {
-            title: "发票",
-            render: (_, r) => String(r.number ?? r.externalId ?? r.id),
-          },
-          { title: "金额", dataIndex: "amount" },
-          { title: "状态", dataIndex: "status" },
-          { title: "时间", dataIndex: "occurredAt", render: formatTime },
-          {
-            title: "原始发票",
-            render: (_, row) => (
-              <Button
-                size="small"
-                onClick={async () => {
-                  try {
-                    setInvoice(
-                      await unifiedApi.workspaceInvoice(
-                        workspaceId,
-                        String(row.id),
-                      ),
-                    );
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
-              >
-                查看
-              </Button>
-            ),
-          },
-        ]}
-      />
-      <Drawer
-        title="发票完整原始 JSON"
-        open={Boolean(invoice)}
-        onClose={() => setInvoice(undefined)}
-        width={720}
-      >
-        <JsonViewer title="发票原文" value={invoice} />
-      </Drawer>
-      <JsonViewer title="账单完整原始 JSON" value={value} />
+      <Space wrap>
+        <Button href={`https://chatgpt.com/account/manage?account_id=${encodeURIComponent(workspaceExternalId)}`} target="_blank" rel="noreferrer">打开 ChatGPT 账单管理</Button>
+        <Button icon={<ReloadOutlined/>} disabled={!executorAccountId} loading={busy==='billing'} onClick={()=>run('billing',async()=>{await unifiedApi.refreshWorkspaceBilling(workspaceId,executorAccountId);await reload();})}>刷新账单</Button>
+      </Space>
+      <BillingSummary value={value}/>
     </Space>
   );
 }
@@ -1001,20 +949,5 @@ function BusinessModal({
         </Button>
       </Form>
     </Modal>
-  );
-}
-
-function StructuredObject({ value }: { value?: Record<string, unknown> }) {
-  if (!value)
-    return <Typography.Text type="secondary">暂无结构化数据</Typography.Text>;
-  return (
-    <Descriptions
-      bordered
-      size="small"
-      column={{ xs: 1, sm: 2 }}
-      items={Object.entries(value)
-        .filter(([, v]) => typeof v !== "object")
-        .map(([key, v]) => ({ key, label: key, children: String(v ?? "—") }))}
-    />
   );
 }

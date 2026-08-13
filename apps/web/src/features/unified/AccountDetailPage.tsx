@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Descriptions,
-  Drawer,
   Form,
   Input,
   Modal,
@@ -17,11 +16,7 @@ import {
   Typography,
   message,
 } from "antd";
-import {
-  DownloadOutlined,
-  EyeOutlined,
-  ReloadOutlined,
-} from "@ant-design/icons";
+import { ReloadOutlined } from "@ant-design/icons";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   AccountGroupView,
@@ -46,15 +41,10 @@ import {
   type AccountActionModal,
   type AccountActionSummary,
 } from "./accountActionsModel.js";
-import {
-  JsonViewer,
-  LoadBoundary,
-  PageHeader,
-  formatTime,
-} from "../../components/ProductPrimitives.js";
+import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
+import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
-import { parseCredentialReplacement } from "./unifiedUiModels.js";
 import { useRememberedForm } from "../../webPreferences.js";
 
 export function AccountDetailPage() {
@@ -296,28 +286,7 @@ export function AccountDetailPage() {
                 {
                   key: "activity",
                   label: `活动日志 (${activity.length})`,
-                  children: (
-                    <Table
-                      rowKey="id"
-                      dataSource={activity}
-                      scroll={{ x: 900 }}
-                      columns={[
-                        {
-                          title: "时间",
-                          dataIndex: "occurredAt",
-                          render: formatTime,
-                        },
-                        { title: "类型", dataIndex: "kind" },
-                        {
-                          title: "原始载荷",
-                          dataIndex: "payload",
-                          render: (value) => (
-                            <JsonViewer title="查看" value={value} />
-                          ),
-                        },
-                      ]}
-                    />
-                  ),
+                  children: <ActivityTimeline value={activity}/>,
                 },
               ]}
             />
@@ -553,7 +522,6 @@ function PersonalPanel({
 }) {
   const subscriptionSnapshot =
     personal?.subscription ?? account.personalSpace.subscription;
-  const subscription = snapshotPayload(subscriptionSnapshot);
   const billing = personal?.billing;
   const settingsPayload = asRecord(personal?.settings?.payload);
   const settingsValues = deriveSettingsValues(personal, settingsPayload);
@@ -563,9 +531,6 @@ function PersonalPanel({
     asRecordArray(quotaPayload?.windows) ??
     asRecordArray(quotaPayload?.credits) ??
     [];
-  const paymentMethods = billing?.paymentMethods?.length
-    ? billing.paymentMethods
-    : account.paymentMethods;
 
   return (
     <Space direction="vertical" size={18} className="panel-stack">
@@ -590,63 +555,10 @@ function PersonalPanel({
       </Space>
 
       <Typography.Title level={4}>订阅</Typography.Title>
-      <StructuredObject value={subscription} />
-      <JsonViewer title="个人订阅原始 JSON" value={subscriptionSnapshot} />
+      <SubscriptionSummary value={subscriptionSnapshot} />
 
       <Typography.Title level={4}>账单与支付</Typography.Title>
-      <StructuredObject value={billing?.summary} />
-      <Table
-        rowKey={(row) => String(row.id ?? row.externalId ?? row.number)}
-        dataSource={billing?.invoices ?? []}
-        scroll={{ x: 700 }}
-        columns={[
-          {
-            title: "发票",
-            render: (_, row) =>
-              row.number ??
-              row.externalId ??
-              String(row.payload.number ?? row.id),
-          },
-          { title: "金额", dataIndex: "amount" },
-          { title: "状态", dataIndex: "status" },
-          {
-            title: "时间",
-            render: (_, row) => formatTime(row.occurredAt ?? row.createdAt),
-          },
-          {
-            title: "原文",
-            render: (_, row) => (
-              <JsonViewer title="发票原文" value={row.payload} />
-            ),
-          },
-        ]}
-      />
-      <Table
-        rowKey="id"
-        pagination={false}
-        dataSource={paymentMethods}
-        scroll={{ x: 600 }}
-        columns={[
-          { title: "品牌", dataIndex: "brand" },
-          { title: "尾号", dataIndex: "last4" },
-          {
-            title: "到期",
-            render: (_, row) =>
-              row.expMonth && row.expYear
-                ? `${row.expMonth}/${row.expYear}`
-                : "—",
-          },
-          {
-            title: "默认",
-            dataIndex: "isDefault",
-            render: (value) => (value ? <Tag color="green">是</Tag> : "否"),
-          },
-        ]}
-      />
-      <JsonViewer
-        title="个人账单原始 JSON"
-        value={billing?.raw ?? billing?.payload ?? billing}
-      />
+      <BillingSummary value={billing}/>
 
       <Typography.Title level={4}>额度窗口与额度项目</Typography.Title>
       <Table
@@ -676,17 +588,13 @@ function PersonalPanel({
           },
         ]}
       />
-      <JsonViewer
-        title="个人额度原始 JSON"
-        value={personal?.quota?.raw ?? quotaPayload ?? personal?.quota}
-      />
 
       <Typography.Title level={4}>资料与设置</Typography.Title>
       {Boolean(asRecord(settingsPayload?.profile)?.error) && (
         <Alert
           type="warning"
           showIcon
-          message="Profile 上游读取失败，详情保留在下方完整 JSON 中。"
+          message="Profile 上游读取失败，请刷新个人空间后重试。"
         />
       )}
       <Form
@@ -737,10 +645,6 @@ function PersonalPanel({
           保存个人设置
         </Button>
       </Form>
-      <JsonViewer
-        title="个人设置原始 JSON"
-        value={personal?.settings?.raw ?? settingsPayload ?? personal?.settings}
-      />
     </Space>
   );
 }
@@ -762,10 +666,6 @@ function CredentialsPanel({
     "create-workspace-credential",
     ["workspaceId", "kind", "poolGroup", "name"],
   );
-  const [view, setView] = useState<{
-    credential: WorkspaceCredentialView;
-    content: unknown;
-  }>();
   const [viewError, setViewError] = useState("");
   const [oauth, setOauth] = useState<{
     sessionId: string;
@@ -773,10 +673,6 @@ function CredentialsPanel({
     poolGroup?: string;
   }>();
   const [oauthCallback, setOauthCallback] = useState("");
-  const [replacement, setReplacement] = useState<{
-    credential: WorkspaceCredentialView;
-    json: string;
-  }>();
   const create = async (
     kind: "pat" | "oauth",
     value: Record<string, string>,
@@ -797,17 +693,6 @@ function CredentialsPanel({
       );
       setOauth({ ...auth, poolGroup: value.poolGroup });
       window.open(auth.authUrl, "_blank", "noopener,noreferrer");
-    } catch (e) {
-      setViewError((e as Error).message);
-    }
-  };
-  const show = async (row: WorkspaceCredentialView) => {
-    setViewError("");
-    try {
-      setView({
-        credential: row,
-        content: await unifiedApi.credentialContent(row.id),
-      });
     } catch (e) {
       setViewError((e as Error).message);
     }
@@ -866,16 +751,13 @@ function CredentialsPanel({
         dataSource={account.credentials}
         scroll={{ x: 1050 }}
         columns={[
-          { title: "Workspace", dataIndex: "workspaceId" },
+          { title: "Workspace", render:(_,row)=>row.workspaceName??row.workspaceId },
           { title: "类型", dataIndex: "kind" },
           { title: "号池组", render: (_, row) => row.poolGroup?.name ?? "—" },
           { title: "状态", dataIndex: "status" },
           {
             title: "额度",
-            render: (_, row) =>
-              row.latestQuota
-                ? `${row.latestQuota.status} · ${row.latestQuota.windows.map((w) => `${w.label} ${w.usedPercent ?? "?"}%`).join(" / ")}`
-                : "未刷新",
+            render: (_, row) => row.latestQuota?<Space direction="vertical" size={1}><Tag color={row.latestQuota.status==='success'?'green':row.latestQuota.status==='error'?'red':'default'}>{row.latestQuota.status==='success'?'正常':row.latestQuota.status==='error'?'错误':'不可用'}</Tag>{row.latestQuota.windows.map(w=><Typography.Text key={w.id} type="secondary">{w.label}：{w.usedPercent??'—'}% · 重置 {formatTime(w.resetAt??undefined)}</Typography.Text>)}<Typography.Text type="secondary">快照 {formatTime(row.quotaObservedAt)}</Typography.Text></Space>:"未刷新",
           },
           {
             title: "操作",
@@ -891,32 +773,6 @@ function CredentialsPanel({
                   }
                 >
                   刷新额度
-                </Button>
-                <Button
-                  size="small"
-                  icon={<EyeOutlined />}
-                  onClick={() => void show(row)}
-                >
-                  完整 JSON
-                </Button>
-                <Button
-                  size="small"
-                  onClick={async () => {
-                    setViewError("");
-                    try {
-                      const content = await unifiedApi.credentialContent(
-                        row.id,
-                      );
-                      setReplacement({
-                        credential: row,
-                        json: JSON.stringify(content, null, 2),
-                      });
-                    } catch (e) {
-                      setViewError((e as Error).message);
-                    }
-                  }}
-                >
-                  替换 JSON
                 </Button>
                 {row.kind === "oauth" && (
                   <Button
@@ -1003,76 +859,6 @@ function CredentialsPanel({
           },
         ]}
       />
-      <Drawer
-        title="完整凭证 JSON"
-        open={Boolean(view)}
-        onClose={() => setView(undefined)}
-        width={680}
-        extra={
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={() =>
-              downloadJson(
-                `${view?.credential.accountEmail}-${view?.credential.workspaceId}.json`,
-                view?.content,
-              )
-            }
-          >
-            下载 JSON
-          </Button>
-        }
-      >
-        <Alert
-          type="info"
-          showIcon
-          message="管理员调试视图完整展示凭证，不做脱敏。"
-        />
-        <JsonViewer title="凭证正文" value={view?.content} />
-      </Drawer>
-      <Modal
-        title="替换凭证 JSON"
-        open={Boolean(replacement)}
-        onCancel={() => setReplacement(undefined)}
-        footer={null}
-        width={720}
-      >
-        <Alert
-          type="warning"
-          showIcon
-          message="提交后会创建新凭证版本并停用当前凭证；JSON 中的 account_id 必须匹配当前 Workspace。"
-        />
-        <Input.TextArea
-          className="raw-json"
-          autoSize={{ minRows: 14, maxRows: 30 }}
-          value={replacement?.json}
-          onChange={(event) =>
-            setReplacement((current) =>
-              current ? { ...current, json: event.target.value } : current,
-            )
-          }
-        />
-        <Button
-          type="primary"
-          loading={busy === "replace-credential"}
-          onClick={() => {
-            if (!replacement) return;
-            try {
-              const content = parseCredentialReplacement(replacement.json);
-              void run("replace-credential", () =>
-                unifiedApi.replaceCredential(
-                  replacement.credential.id,
-                  content,
-                ),
-              ).then(() => setReplacement(undefined));
-            } catch (e) {
-              setViewError((e as Error).message);
-              message.error((e as Error).message);
-            }
-          }}
-        >
-          创建替换版本
-        </Button>
-      </Modal>
       <Modal
         title="完成 OAuth 授权"
         open={Boolean(oauth)}
@@ -1197,24 +983,6 @@ function PaymentModal({
     </Modal>
   );
 }
-function StructuredObject({ value }: { value?: unknown }) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return <Typography.Text type="secondary">暂无结构化数据</Typography.Text>;
-  return (
-    <Descriptions
-      bordered
-      size="small"
-      column={{ xs: 1, sm: 2 }}
-      items={Object.entries(value)
-        .filter(([, v]) => typeof v !== "object")
-        .map(([key, item]) => ({
-          key,
-          label: key,
-          children: String(item ?? "—"),
-        }))}
-    />
-  );
-}
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1229,10 +997,6 @@ function asTime(value: unknown): string | number | undefined {
   return typeof value === "string" || typeof value === "number"
     ? value
     : undefined;
-}
-function snapshotPayload(value: unknown): Record<string, unknown> | undefined {
-  const record = asRecord(value);
-  return asRecord(record?.payload) ?? record;
 }
 function deriveSettingsValues(
   personal: PersonalSpaceDetailView | undefined,
@@ -1273,16 +1037,6 @@ function notificationChannel(
   const options = asRecordArray(value?.options) ?? [];
   const option = options.find((item) => item.channel === channel);
   return typeof option?.enabled === "boolean" ? option.enabled : undefined;
-}
-function downloadJson(name: string, value: unknown) {
-  const url = URL.createObjectURL(
-    new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 function mergeOperations<T extends { id: string; updatedAt: number }>(
   local: T[],
