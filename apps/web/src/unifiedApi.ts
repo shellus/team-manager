@@ -25,7 +25,6 @@ import type {
 } from '@team-manager/shared';
 import { ApiError, expireAuthentication, getToken } from './api.js';
 
-export type TriState = 'true' | 'false';
 export interface PageResult<T> {
   items: T[];
   total?: number;

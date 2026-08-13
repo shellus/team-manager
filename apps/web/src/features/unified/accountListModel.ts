@@ -7,13 +7,14 @@ type GroupedAccount = Pick<UnifiedAccountSummaryView, "group">;
 export function accountListRequestQuery(
   params: URLSearchParams,
 ): URLSearchParams {
-  const query = new URLSearchParams(params);
-  query.delete("groupId");
-  query.delete("modal");
-  query.delete("actionAccountId");
-  query.delete("operationId");
-  query.delete(SHOW_BANNED_PARAM);
-  query.delete("isBanned");
+  const query = new URLSearchParams();
+  for (const key of ["query", "primaryPlan"] as const) {
+    const value = params.get(key);
+    if (value) query.set(key, value);
+  }
+  for (const key of ["hasGamBinding", "hasRunningProfile"] as const) {
+    if (params.get(key) === "true") query.set(key, "true");
+  }
   if (!showsBannedAccounts(params)) query.set("isBanned", "false");
   return query;
 }

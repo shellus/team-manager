@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -24,7 +25,6 @@ import { unifiedApi } from "../../unifiedApi.js";
 import {
   LoadBoundary,
   PageHeader,
-  TriStateSelect,
 } from "../../components/ProductPrimitives.js";
 import {
   accountListRequestQuery,
@@ -46,13 +46,9 @@ import {
   type AccountActionSummary,
 } from "./accountActionsModel.js";
 
-const BOOL_FILTERS = [
-  ["hasManageableWorkspace", "可管理空间"],
-  ["isWorkspaceMember", "普通成员"],
-  ["hasWorkspaceCredential", "有凭证"],
+const CHECKBOX_FILTERS = [
   ["hasGamBinding", "GAM"],
   ["hasRunningProfile", "Profile 运行"],
-  ["hasSession", "Session"],
 ] as const;
 
 export function AccountsPage() {
@@ -136,11 +132,16 @@ export function AccountsPage() {
       width: 250,
       render: (_, row) => (
         <div>
-          <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
-            <Typography.Text strong className="account-email-link">
-              {row.email}
-            </Typography.Text>
-          </Link>
+          <Space size={8}>
+            <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
+              <Typography.Text strong className="account-email-link">
+                {row.email}
+              </Typography.Text>
+            </Link>
+            {row.isBanned && (
+              <Badge status="error" text="封号" title="人工封号" />
+            )}
+          </Space>
           <br />
           <Typography.Text type="secondary">
             {accountRemarkLabel(row.remark)}
@@ -161,24 +162,8 @@ export function AccountsPage() {
     },
     {
       title: "能力",
-      width: 300,
-      render: (_, row) => (
-        <Space wrap>
-          {row.hasManageableWorkspace && <Tag color="green">可管理空间</Tag>}
-          {row.isWorkspaceMember && <Tag>普通成员</Tag>}
-          {row.hasWorkspaceCredential && <Tag color="purple">凭证</Tag>}
-          {row.hasSession && <Tag color="cyan">Session</Tag>}
-          {row.isBanned && <Tag color="red">人工封号</Tag>}
-        </Space>
-      ),
-    },
-    { title: "Workspace", dataIndex: "workspaceCount", width: 110 },
-    { title: "凭证", dataIndex: "credentialCount", width: 80 },
-    {
-      title: "GAM",
-      dataIndex: "hasGamBinding",
-      width: 100,
-      render: (value) => (value ? "已关联" : "未关联"),
+      width: 90,
+      render: (_, row) => row.hasGamBinding && <Tag color="green">GAM</Tag>,
     },
     {
       title: "操作",
@@ -207,7 +192,7 @@ export function AccountsPage() {
       <Space direction="vertical" size={16} className="panel-stack">
         <PageHeader
           title="账号"
-          description="个人能力与 Workspace 关系统一从账号进入"
+          description="账号运营与 Workspace 关系统一从账号进入"
           actions={
             <>
               <Button onClick={() => set("modal", "groups")}>管理分组</Button>
@@ -266,13 +251,17 @@ export function AccountsPage() {
             onChange={(value) => set("primaryPlan", value)}
             options={[...PRIMARY_PLAN_OPTIONS]}
           />
-          {BOOL_FILTERS.map(([key, label]) => (
-            <TriStateSelect
+          {CHECKBOX_FILTERS.map(([key, label]) => (
+            <Checkbox
               key={key}
-              placeholder={label}
-              value={params.get(key) ?? undefined}
-              onChange={(value) => set(key, value)}
-            />
+              className="account-boolean-filter"
+              checked={params.get(key) === "true"}
+              onChange={(event) =>
+                set(key, event.target.checked ? "true" : undefined)
+              }
+            >
+              {label}
+            </Checkbox>
           ))}
           <Checkbox
             className="show-banned-filter"
@@ -297,7 +286,7 @@ export function AccountsPage() {
           <Table<UnifiedAccountSummaryView>
             rowKey="id"
             dataSource={accounts}
-            scroll={{ x: 1480 }}
+            scroll={{ x: 1000 }}
             columns={columns}
           />
         </LoadBoundary>

@@ -14,11 +14,11 @@ const account = (id: string, groupId: string) => ({
 describe("account list filters", () => {
   test("defaults to hiding banned accounts and leaves group selection to the UI", () => {
     const params = new URLSearchParams(
-      "groupId=group-a&query=alice&modal=session&actionAccountId=account-1&operationId=op-1",
+      "groupId=group-a&query=alice&modal=session&actionAccountId=account-1&operationId=op-1&hasGamBinding=true",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
-      "query=alice&isBanned=false",
+      "query=alice&hasGamBinding=true&isBanned=false",
     );
     expect(showsBannedAccounts(params)).toBe(false);
   });
@@ -32,6 +32,16 @@ describe("account list filters", () => {
       "primaryPlan=plus",
     );
     expect(showsBannedAccounts(params)).toBe(true);
+  });
+
+  test("drops removed and negative boolean filters from old URLs", () => {
+    const params = new URLSearchParams(
+      "hasManageableWorkspace=true&isWorkspaceMember=true&hasWorkspaceCredential=true&hasSession=true&hasGamBinding=false&hasRunningProfile=true",
+    );
+
+    expect(accountListRequestQuery(params).toString()).toBe(
+      "hasRunningProfile=true&isBanned=false",
+    );
   });
 
   test("derives group counts and the selected table from one filtered result", () => {

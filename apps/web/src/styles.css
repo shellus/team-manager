@@ -121,6 +121,7 @@ body {
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-shell));
 }
+.account-boolean-filter,
 .show-banned-filter { min-height: 32px; padding-inline: 4px; align-items: center; }
 .account-email-link { color: var(--color-primary); }
 .account-action-buttons { min-width: max-content; }
@@ -146,6 +147,7 @@ body {
   .page-header { flex-direction: column; }
   .page-header > .ant-space { width: 100%; }
   .filter-bar > .ant-input-group-wrapper, .filter-bar > .ant-select { width: 100% !important; }
+  .account-boolean-filter,
   .show-banned-filter { min-height: 40px; }
   .account-action-buttons .ant-btn { min-height: 36px; }
   .ant-tabs-nav-wrap { overflow-x: auto; }
@@ -168,6 +170,7 @@ body {
 
 @media (pointer: coarse) {
   .account-group-selector .ant-radio-button-wrapper { height: 44px; line-height: 42px; }
+  .account-boolean-filter,
   .show-banned-filter { min-height: 44px; }
   .account-action-buttons .ant-btn { min-height: 44px; }
 }
