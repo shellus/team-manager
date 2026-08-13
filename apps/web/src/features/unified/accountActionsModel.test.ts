@@ -5,24 +5,24 @@ import {
   parseSessionEditorInput,
   primaryPlanLabel,
   setAccountActionInParams,
-  shouldStopProfile,
+  profileAction,
   selectUpgradeableWorkspaces,
 } from "./accountActionsModel.js";
 
 describe("account action UI model", () => {
   test("labels every primary plan without exposing its source", () => {
-    expect(primaryPlanLabel("business_two_seat", "free")).toBe("双席位");
-    expect(primaryPlanLabel("business_usage_based", "plus")).toBe("0.52");
-    expect(primaryPlanLabel("team_member", "free")).toBe("Team 子号");
-    expect(primaryPlanLabel(undefined, "pro_5x")).toBe("Pro 5x");
+    expect(primaryPlanLabel("business_two_seat")).toBe("双席位");
+    expect(primaryPlanLabel("business_usage_based")).toBe("0.52");
+    expect(primaryPlanLabel("team_member")).toBe("Team 子号");
+    expect(primaryPlanLabel("pro_5x")).toBe("Pro 5x");
   });
 
   test("uses the profile lifecycle to choose the single start or stop action", () => {
-    expect(shouldStopProfile("queued", false)).toBe(true);
-    expect(shouldStopProfile("running", false)).toBe(true);
-    expect(shouldStopProfile("stopping", false)).toBe(true);
-    expect(shouldStopProfile("stopped", true)).toBe(false);
-    expect(shouldStopProfile(undefined, true)).toBe(true);
+    expect(profileAction("queued", false)).toBe("pending");
+    expect(profileAction("running", false)).toBe("stop");
+    expect(profileAction("stopping", false)).toBe("pending");
+    expect(profileAction("stopped", true)).toBe("stop");
+    expect(profileAction("unknown", false)).toBe("start");
   });
 
   test("persists and clears an account modal in URL parameters", () => {

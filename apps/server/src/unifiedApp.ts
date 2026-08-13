@@ -369,6 +369,9 @@ async function wrapPublic(c: any, fn: () => Promise<unknown>) {
 }
 
 function accountFilters(c: any): AccountListFilters {
+  if (c.req.query('personalPlan') !== undefined) {
+    throw new ServiceError(400, 'personalPlan 列表筛选已删除，请使用 primaryPlan');
+  }
   return {
     ...(c.req.query('groupId') ? { groupId: c.req.query('groupId') } : {}),
     ...booleanQuery(c.req.query('hasManageableWorkspace'), 'hasManageableWorkspace'),

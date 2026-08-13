@@ -153,9 +153,9 @@ export function AccountsPage() {
       title: "主套餐",
       dataIndex: "primaryPlan",
       width: 120,
-      render: (_, row: AccountActionSummary) => (
-        <Tag color={(row.primaryPlan ?? row.personalPlan) === "free" ? "default" : "blue"}>
-          {primaryPlanLabel(row.primaryPlan, row.personalPlan)}
+      render: (_, row) => (
+        <Tag color={row.primaryPlan === "free" ? "default" : "blue"}>
+          {primaryPlanLabel(row.primaryPlan)}
         </Tag>
       ),
     },

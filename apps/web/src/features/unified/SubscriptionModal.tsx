@@ -101,6 +101,14 @@ export function SubscriptionModal({
       .finally(() => setLoadingAccount(false));
   }, [accountId, open]);
 
+  useEffect(() => {
+    if (!detail || form.isFieldTouched("personalMode")) return;
+    form.setFieldValue(
+      "personalMode",
+      detail.personalPlan === "free" ? "start_new" : "change_existing",
+    );
+  }, [detail, form]);
+
   const initial = useMemo<Partial<SubscriptionValues>>(
     () => ({
       target: "personal",
@@ -167,6 +175,7 @@ export function SubscriptionModal({
         initialValues={initial}
         onFinish={submit}
         className="account-action-form"
+        disabled={loadingAccount}
       >
         <Form.Item name="target" label="套餐类型">
           <Radio.Group
@@ -278,7 +287,12 @@ export function SubscriptionModal({
           <PaymentCardFields prefix="card" />
         </details>
         {error && <Alert className="modal-error" type="error" showIcon message={error} />}
-        <Button type="primary" htmlType="submit" loading={busy}>
+        <Button
+          type="primary"
+          htmlType="submit"
+          loading={busy || loadingAccount}
+          disabled={!detail}
+        >
           创建套餐操作
         </Button>
       </Form>

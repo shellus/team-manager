@@ -1,15 +1,8 @@
-import type { PersonalPlan, UnifiedAccountSummaryView } from "@team-manager/shared";
-
-export type PrimaryPlan =
-  | "free"
-  | "go"
-  | "plus"
-  | "pro_5x"
-  | "pro_20x"
-  | "business_two_seat"
-  | "business_usage_based"
-  | "team_member"
-  | "unknown";
+import type {
+  PersonalPlan,
+  PrimaryPlan,
+  UnifiedAccountSummaryView,
+} from "@team-manager/shared";
 
 export type AccountActionModal =
   | "profile"
@@ -17,13 +10,8 @@ export type AccountActionModal =
   | "subscription"
   | "session";
 
-export type AccountActionSummary = Omit<
-  UnifiedAccountSummaryView,
-  "personalPlan"
-> & {
+export type AccountActionSummary = UnifiedAccountSummaryView & {
   personalPlan?: PersonalPlan;
-  primaryPlan?: PrimaryPlan;
-  profileStatus?: string;
 };
 
 export const PRIMARY_PLAN_OPTIONS: ReadonlyArray<{
@@ -46,10 +34,9 @@ const PRIMARY_PLAN_LABEL = new Map(
 );
 
 export function primaryPlanLabel(
-  primaryPlan: PrimaryPlan | undefined,
-  personalPlan?: PersonalPlan,
+  primaryPlan: PrimaryPlan,
 ): string {
-  return PRIMARY_PLAN_LABEL.get(primaryPlan ?? personalPlan ?? "unknown") ?? "未知";
+  return PRIMARY_PLAN_LABEL.get(primaryPlan) ?? "未知";
 }
 
 export function accountRemarkLabel(remark?: string): string {
@@ -79,13 +66,15 @@ export function parseSessionEditorInput(value: string): Record<string, unknown> 
   return parsed as Record<string, unknown>;
 }
 
-export function shouldStopProfile(
-  profileStatus: string | undefined,
+export type ProfileAction = "start" | "stop" | "pending";
+
+export function profileAction(
+  profileStatus: UnifiedAccountSummaryView["profileStatus"],
   hasRunningProfile: boolean,
-): boolean {
-  return profileStatus
-    ? ["queued", "running", "stopping"].includes(profileStatus)
-    : hasRunningProfile;
+): ProfileAction {
+  if (profileStatus === "queued" || profileStatus === "stopping") return "pending";
+  if (profileStatus === "running") return "stop";
+  return hasRunningProfile ? "stop" : "start";
 }
 
 export function actionModalFromParams(

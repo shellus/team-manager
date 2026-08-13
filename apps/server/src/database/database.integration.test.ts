@@ -145,6 +145,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(primaryPlanAccounts[0].personalPlan, undefined, '列表摘要不暴露个人套餐事实字段');
       assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
+      assert.equal((await app.request('/api/accounts?personalPlan=pro_5x', { headers })).status, 400,
+        '旧列表筛选不做静默兼容');
       assert.equal((await app.request('/api/parents', { headers })).status, 404);
       assert.equal((await app.request('/api/subaccounts', { headers })).status, 404);
       assert.equal((await app.request('/api/not-a-real-endpoint', { headers })).status, 404);

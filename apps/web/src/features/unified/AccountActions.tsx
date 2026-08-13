@@ -2,13 +2,14 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { Alert, Button, Form, Input, Modal, Space, Tooltip, message } from "antd";
 import type {
   AccountManagerOperationView,
+  AccountProfileStatus,
   AccountManagerStateView,
   ResidentialProxyConfig,
 } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
 import { ApiError } from "../../api.js";
 import {
-  shouldStopProfile,
+  profileAction,
   parseSessionEditorInput,
   type AccountActionModal,
   type AccountActionSummary,
@@ -21,14 +22,15 @@ export function AccountActionButtons({
   onOpen,
 }: {
   account: AccountActionSummary;
-  profileStatus?: string;
+  profileStatus?: AccountProfileStatus;
   onOpen: (action: AccountActionModal) => void;
 }) {
-  const stopProfile = shouldStopProfile(
+  const nextProfileAction = profileAction(
     profileStatus ?? account.profileStatus,
     account.hasRunningProfile,
   );
   const gamDisabled = !account.hasGamBinding;
+  const profilePending = nextProfileAction === "pending";
   const stopPropagation = (event: MouseEvent<HTMLElement>) =>
     event.stopPropagation();
 
@@ -60,17 +62,31 @@ export function AccountActionButtons({
       className="account-action-buttons"
       onClick={stopPropagation}
     >
-      <Tooltip title={gamDisabled ? "请先绑定 GAM 账号引用" : undefined}>
+      <Tooltip
+        title={
+          gamDisabled
+            ? "请先绑定 GAM 账号引用"
+            : profilePending
+              ? "Profile 状态正在切换，请稍后再操作"
+              : undefined
+        }
+      >
         <span>
           <Button
             size="small"
-            disabled={gamDisabled}
+            disabled={gamDisabled || profilePending}
             onClick={(event) => {
               stopPropagation(event);
               onOpen("profile");
             }}
           >
-            {stopProfile ? "停止" : "启动"}
+            {profilePending
+              ? account.profileStatus === "stopping"
+                ? "停止中"
+                : "启动中"
+              : nextProfileAction === "stop"
+                ? "停止"
+                : "启动"}
           </Button>
         </span>
       </Tooltip>
@@ -140,11 +156,12 @@ function ProfileModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const stopProfile = shouldStopProfile(
+  const nextProfileAction = profileAction(
     account.profileStatus,
     account.hasRunningProfile,
   );
-  const verb = stopProfile ? "停止" : "启动";
+  const pending = nextProfileAction === "pending";
+  const verb = nextProfileAction === "stop" ? "停止" : "启动";
   return (
     <Modal
       title={`${verb} Profile`}
@@ -154,7 +171,7 @@ function ProfileModal({
       destroyOnHidden
     >
       <Alert
-        type={stopProfile ? "warning" : "info"}
+        type={nextProfileAction === "stop" ? "warning" : "info"}
         showIcon
         message={`账号：${account.email}`}
         description={`当前状态：${account.profileStatus ?? (account.hasRunningProfile ? "运行中" : "已停止")}`}
@@ -163,13 +180,14 @@ function ProfileModal({
       <Button
         className="account-action-submit"
         type="primary"
-        danger={stopProfile}
+        danger={nextProfileAction === "stop"}
         loading={busy}
+        disabled={pending}
         onClick={async () => {
           setBusy(true);
           setError("");
           try {
-            if (stopProfile) await unifiedApi.stopProfile(account.id);
+            if (nextProfileAction === "stop") await unifiedApi.stopProfile(account.id);
             else await unifiedApi.startProfile(account.id);
             message.success(`Profile 已${verb}`);
             await onChanged();
@@ -181,7 +199,7 @@ function ProfileModal({
           }
         }}
       >
-        确认{verb}
+        {pending ? "状态切换中" : `确认${verb}`}
       </Button>
     </Modal>
   );
