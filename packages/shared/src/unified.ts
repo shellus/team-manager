@@ -52,11 +52,13 @@ export interface SnapshotView<T = Record<string, unknown>> {
 
 export interface BillingInvoiceView {
   id: string;
+  number?: string;
   externalId?: string;
   amount?: string;
   currency?: string;
   status?: string;
   occurredAt?: string;
+  createdAt?: string;
   payload: Record<string, unknown>;
 }
 
@@ -68,6 +70,7 @@ export interface BillingDetailView extends SnapshotView {
     billingInfo?: unknown;
     upcomingInvoice?: unknown;
   };
+  raw?: unknown;
 }
 
 export interface AccountActivityView {
@@ -144,6 +147,50 @@ export interface ArtifactIndexView {
   recordedAt: string;
   expiresAt?: string;
   metadata: Record<string, unknown>;
+}
+
+export interface PersonalSpaceDetailView {
+  subscription?: SnapshotView | PersonalSubscriptionSnapshotView;
+  billing?: BillingDetailView;
+  quota?: SnapshotView & { windows?: Array<Record<string, unknown>>; raw?: unknown };
+  settings?: SnapshotView & { values?: Record<string, unknown>; profile?: Record<string, unknown>; raw?: unknown };
+}
+
+export interface OperationEventView {
+  id: string;
+  phase?: string;
+  status: string;
+  payload: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export interface PaymentAttemptSummaryView {
+  id: string;
+  targetPlan?: string;
+  resultCode: string;
+  cardBrand?: string;
+  cardLast4?: string;
+  amount?: string;
+  currency?: string;
+  submittedAt?: string;
+  createdAt: string;
+}
+
+export interface OperationDetailView extends AccountManagerOperationView {
+  events: OperationEventView[];
+  payment?: PaymentAttemptSummaryView;
+  effectiveAt?: string;
+}
+
+export interface NotificationDeliveryView {
+  id: string;
+  kind: string;
+  status: string;
+  summary: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  error?: string;
+  deliveredAt?: string;
+  createdAt: string;
 }
 
 export interface AccountWorkspaceLinkView {

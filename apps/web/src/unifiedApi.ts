@@ -1,12 +1,22 @@
 import type {
+  AccountActivityView,
   AccountGroupView,
   AccountManagerStateView,
   AccountManagerOperationView,
   AddPersonalPaymentMethodRequest,
+  ArtifactIndexView,
+  BillingDetailView,
   ChangePersonalSubscriptionRequest,
+  CodexAuthStart,
+  CredentialPoolGroupView,
+  NotificationDeliveryView,
   OpenBusinessSubscriptionRequest,
+  OperationControl,
+  OperationDetailView,
+  PersonalSpaceDetailView,
   RegisterAccountRequest,
   ResidentialProxyConfig,
+  SeatSlotMutationInput,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
@@ -17,19 +27,9 @@ import { ApiError, expireAuthentication, getToken } from './api.js';
 export type TriState = 'true' | 'false';
 export interface PageResult<T> { items: T[]; total?: number }
 export interface JsonSnapshot { payload: Record<string, unknown>; observedAt?: string; raw?: unknown }
-export interface AccountActivityView { id: string; kind: string; payload?: unknown; occurredAt: string }
-export interface PersonalSpaceDetailView {
-  subscription?: Record<string, unknown>;
-  billing?: { summary?: Record<string, unknown>; invoices?: Record<string, unknown>[]; payments?: Record<string, unknown>[]; raw?: unknown };
-  quota?: { status?: string; windows?: Array<Record<string, unknown>>; raw?: unknown; observedAt?: string };
-  settings?: { profile?: Record<string, unknown>; values?: Record<string, unknown>; raw?: unknown; observedAt?: string };
-}
-export interface OperationDetail extends AccountManagerOperationView { events?: Array<Record<string, unknown>> }
-export interface SeatSlotInput { email?: string; contact?: string; remark?: string; price?: string; expiresOn?: string; expireReminder?: boolean; expireRemove?: boolean; seatType: 'default' | 'usage_based'; status?: string }
-export interface CredentialPoolGroupView { id: string; name: string; sortOrder: number; credentialCount?: number }
-export interface ArtifactView { id: string; kind: string; storageKey?: string; contentSha256?: string; byteSize?: number; status?: string; recordedAt?: string; metadata?: Record<string, unknown> }
-export interface NotificationDeliveryView { id: string; kind: string; status: string; error?: string; createdAt: string; payload?: unknown }
-export interface CodexAuthStartView { sessionId:string; authUrl:string; expiresAt:number }
+export type SeatSlotInput = SeatSlotMutationInput;
+export type ArtifactView = ArtifactIndexView;
+export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, PersonalSpaceDetailView };
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
@@ -85,9 +85,9 @@ export const unifiedApi = {
   addPaymentMethod: (id: string, body: AddPersonalPaymentMethodRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-payment-methods`, body),
   registerAccount: (body: RegisterAccountRequest) => request<AccountManagerOperationView>('POST', '/operations/registrations', body),
   registration: (id: string) => request<{ operation: AccountManagerOperationView; accountId?: string }>('GET', `/operations/registrations/${id}`),
-  operation: (id: string) => request<OperationDetail>('GET', `/operations/${id}`),
-  controlOperation: (id: string, control: string) => request<OperationDetail>('POST', `/operations/${id}/controls/${encodeURIComponent(control)}`),
-  supplyOperationCard: (id: string, body: Record<string, unknown>) => request<OperationDetail>('PUT', `/operations/${id}/payment-card`, body),
+  operation: (id: string) => request<OperationDetailView>('GET', `/operations/${id}`),
+  controlOperation: (id: string, control: OperationControl) => request<AccountManagerOperationView>('POST', `/operations/${id}/controls/${encodeURIComponent(control)}`),
+  supplyOperationCard: (id: string, body: Record<string, unknown>) => request<AccountManagerOperationView>('PUT', `/operations/${id}/payment-card`, body),
   deleteOperation: (id: string) => request<boolean>('DELETE', `/operations/${id}`),
   workspaces: (query = '') => request<WorkspaceSummaryView[]>('GET', `/workspaces${query ? `?query=${encodeURIComponent(query)}` : ''}`),
   workspace: (id: string) => request<WorkspaceDetailView>('GET', `/workspaces/${id}`),
@@ -99,7 +99,7 @@ export const unifiedApi = {
   patchWorkspaceSettings: (id: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/workspaces/${id}/settings`, body),
   removeMember: (id: string, remoteUserId: string, executorAccountId: string) =>
     request<unknown>('DELETE', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId }),
-  workspaceBilling: (id: string, executorAccountId?: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+  workspaceBilling: (id: string, executorAccountId?: string) => request<(BillingDetailView & Record<string, unknown>) | undefined>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
   workspaceInvoice: (id:string, invoiceId:string) => request<Record<string,unknown>>('GET',`/workspaces/${id}/billing/invoices/${encodeURIComponent(invoiceId)}`),
   workspaceSubscription: (id: string, executorAccountId?: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
   createSeatSlot: (workspaceId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, body),
@@ -122,8 +122,8 @@ export const unifiedApi = {
   systemSettings: () => request<Array<{key:string;value?:Record<string,unknown>}>>('GET', '/settings/system'),
   saveSystemSetting: (key:string, value: Record<string, unknown>) => request<Record<string, unknown>>('PUT', `/settings/system/${encodeURIComponent(key)}`, value),
   createPatCredential: (accountId: string, workspaceId: string, body: Record<string, unknown>) => request<{ id: string }>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/pat`, body),
-  createOauthCredential: (accountId: string, workspaceId: string) => request<CodexAuthStartView>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/oauth`),
-  completeOauthCredential: (sessionId:string, callbackUrl:string, poolGroup?:string) => request<{id:string}>('PUT',`/credentials/oauth/${sessionId}`,{callbackUrl,poolGroup}),
+  createOauthCredential: (accountId: string, workspaceId: string) => request<CodexAuthStart>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/oauth`),
+  completeOauthCredential: (sessionId:string, callbackUrl:string, poolGroupId?:string) => request<{id:string}>('PUT',`/credentials/oauth/${sessionId}`,{callbackUrl,poolGroupId}),
   credentialContent: (credentialId: string) => request<Record<string, unknown>>('GET', `/credentials/${credentialId}/content`),
   updateCredential: (credentialId: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/credentials/${credentialId}`, body),
   replaceCredential: (credentialId: string, body: Record<string, unknown>) => request<unknown>('PUT', `/credentials/${credentialId}/content`, body),
