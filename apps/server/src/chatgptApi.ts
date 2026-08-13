@@ -156,8 +156,7 @@ export class ChatGptApi {
   }
 
   private canRefreshAfterAuthFailure(res: { status: number; body: string }): boolean {
-    if (!this.account.refreshWebAccessToken || res.status !== 401) return false;
-    return isTokenInvalidatedResponse(res.body);
+    return Boolean(this.account.refreshWebAccessToken && res.status === 401);
   }
 
   /** 当前 ChatGPT session 可见的账号 / workspace 列表。 */
@@ -548,20 +547,6 @@ function isMissingUpcomingInvoice(error: unknown): boolean {
   }
 }
 
-function isTokenInvalidatedResponse(body: string): boolean {
-  try {
-    const data = JSON.parse(body) as { error?: { code?: unknown; message?: unknown } };
-    const code = typeof data.error?.code === 'string' ? data.error.code : '';
-    const message = typeof data.error?.message === 'string' ? data.error.message : '';
-    return (
-      code === 'token_invalidated' ||
-      code === 'token_revoked' ||
-      /authentication token has been invalidated|invalidated oauth token|token has been revoked/i.test(message)
-    );
-  } catch {
-    return /authentication token has been invalidated|invalidated oauth token|token has been revoked|token_invalidated|token_revoked/i.test(body);
-  }
-}
 
 /** 解 JWT exp，判断是否需要刷新（剩余 ≤ 24h） */
 export function tokenNeedsRefresh(accessToken: string): boolean {

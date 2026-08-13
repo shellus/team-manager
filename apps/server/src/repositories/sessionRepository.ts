@@ -75,9 +75,17 @@ export class SessionRepository {
       ? query.where('personal_space_id', '=', context.personalSpaceId).where('workspace_id', 'is', null)
       : query.where('workspace_id', '=', context.workspaceId).where('personal_space_id', 'is', null);
     const row = await query.executeTakeFirst();
-    if (!row) return undefined;
+    if (!row || row.status === 'invalid' || (row.expires_at && new Date(row.expires_at).getTime() <= Date.now())) return undefined;
     const contextKey = context.kind === 'personal' ? `personal:${context.personalSpaceId}` : `workspace:${context.workspaceId}`;
     return this.cipher.decrypt(toEncrypted(row), `access-context:${accountId}:${contextKey}`);
+  }
+
+  async invalidateWorkspaceAccessTokens(accountId: string): Promise<number> {
+    const result = await this.db.updateTable('account_access_contexts').set({
+      status: 'invalid',
+      checked_at: new Date()
+    }).where('account_id', '=', accountId).where('workspace_id', 'is not', null).executeTakeFirst();
+    return Number(result.numUpdatedRows);
   }
 
   private async insertRevision(db: Kysely<Database>, input: SaveSessionRevisionInput, plaintext: string, digest: string): Promise<string> {

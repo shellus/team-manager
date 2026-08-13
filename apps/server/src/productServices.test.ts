@@ -37,6 +37,23 @@ test('个人账单只请求个人账号支持的三类接口', async () => {
   ]);
 });
 
+test('Workspace API 任意 401 都用当前 Session 换取新 Token 并只重试一次', async () => {
+  const tokens:string[]=[];let refreshes=0;
+  const transport={fetch:async(request:any)=>{tokens.push(request.headers.Authorization);return tokens.length===1?{status:401,body:'{"detail":"Unauthorized"}'}:{status:200,body:'{"items":[]}'};}};
+  const api=new ChatGptApi({accountId:'workspace-account',accessToken:'stale',refreshWebAccessToken:async()=>{refreshes+=1;return'fresh';}},transport);
+  assert.deepEqual(await api.listMembers(),[]);
+  assert.deepEqual(tokens,['Bearer stale','Bearer fresh']);
+  assert.equal(refreshes,1);
+});
+
+test('Workspace API 新 Token 仍返回 401 时不循环刷新', async () => {
+  let requests=0;let refreshes=0;
+  const transport={fetch:async()=>{requests+=1;return{status:401,body:'{"detail":"Unauthorized"}'};}};
+  const api=new ChatGptApi({accountId:'workspace-account',accessToken:'stale',refreshWebAccessToken:async()=>{refreshes+=1;return'fresh';}},transport);
+  await assert.rejects(()=>api.listMembers(),/backend-api 401/);
+  assert.equal(requests,2);assert.equal(refreshes,1);
+});
+
 test('手动 Team 订单立即执行，仅定时维护采用错峰', () => {
   const now=new Date('2026-08-13T00:00:00Z');assert.equal(teamOrderScheduledFor('manual','workspace-1',now).getTime(),now.getTime());assert.equal(teamOrderScheduledFor('manual_all','workspace-1',now).getTime(),now.getTime());
   const scheduled=teamOrderScheduledFor('scheduled','workspace-1',now).getTime();assert.ok(scheduled>=now.getTime());assert.ok(scheduled<now.getTime()+10*60_000);

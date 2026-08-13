@@ -172,6 +172,7 @@ export class AccountManagerService {
       observedPersonalAccountId: session.account.id
     });
     await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId: personal.id }, session.accessToken);
+    await this.sessions.invalidateWorkspaceAccessTokens(accountId);
     return session;
   }
 

@@ -126,6 +126,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const sessions = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
       await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'secret' }, source: 'test' });
       assert.equal((await sessions.currentSession(first.account.id) as any).accessToken, 'secret');
+      await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'stale-workspace-token',{status:'valid'});
+      assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),'stale-workspace-token');
+      assert.equal(await sessions.invalidateWorkspaceAccessTokens(first.account.id),1);
+      assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),undefined,'新 Session 保存后不能继续使用旧 Workspace Token');
       await accounts.bindGamAccount(first.account.id, first.account.email);
 
       const app = await buildUnifiedApp({

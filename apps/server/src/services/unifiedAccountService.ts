@@ -151,6 +151,7 @@ export class UnifiedAccountService {
       observedPersonalAccountId: session.account.id
     });
     await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId }, session.accessToken, { status: 'unknown' });
+    await this.sessions.invalidateWorkspaceAccessTokens(accountId);
   }
 }
 
