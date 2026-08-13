@@ -24,6 +24,8 @@ import {
   PageHeader,
   formatTime,
 } from "../../components/ProductPrimitives.js";
+import { notificationDeliveryPresentation } from "./unifiedUiModels.js";
+import { setWebPreferences } from "../../webPreferences.js";
 
 type SystemSetting = { key: string; value?: Record<string, unknown> };
 
@@ -130,11 +132,7 @@ export function SettingsPage() {
                           "web.preferences",
                           value,
                         );
-                        window.dispatchEvent(
-                          new CustomEvent("team-manager:web-preferences", {
-                            detail: value,
-                          }),
-                        );
+                        setWebPreferences(value);
                         return saved;
                       })
                     }
@@ -359,8 +357,17 @@ function NotificationDeliveries({
         { title: "策略", dataIndex: "kind" },
         {
           title: "状态",
-          dataIndex: "status",
-          render: (value) => <Tag>{value}</Tag>,
+          render: (_, row) => {
+            const state = notificationDeliveryPresentation(row);
+            return (
+              <Space direction="vertical" size={0}>
+                <Tag color={state.color}>{state.label}</Tag>
+                <Typography.Text type="secondary">
+                  {state.detail}
+                </Typography.Text>
+              </Space>
+            );
+          },
         },
         { title: "错误", dataIndex: "error" },
         {
@@ -370,8 +377,9 @@ function NotificationDeliveries({
         },
         {
           title: "操作",
-          render: (_, row) =>
-            row.status === "failed" ? (
+          render: (_, row) => {
+            const state = notificationDeliveryPresentation(row);
+            return state.canRetry ? (
               <Button
                 size="small"
                 loading={busy === `delivery-${row.id}`}
@@ -383,9 +391,13 @@ function NotificationDeliveries({
               >
                 重试投递
               </Button>
+            ) : row.status === "exhausted" ||
+              row.attemptCount >= row.maxAttempts ? (
+              <Typography.Text type="secondary">有限重试已耗尽</Typography.Text>
             ) : (
               "—"
-            ),
+            );
+          },
         },
       ]}
     />
@@ -405,7 +417,7 @@ function CredentialPoolGroups({
         <Form
           key={group.id}
           layout="inline"
-          initialValues={{ name: group.name }}
+          initialValues={{ name: group.name, sortOrder: group.sortOrder }}
           onFinish={(value) =>
             run(`group-${group.id}`, () =>
               unifiedApi.updateCredentialPoolGroup(group.id, value),
@@ -415,7 +427,10 @@ function CredentialPoolGroups({
           <Form.Item name="name">
             <Input />
           </Form.Item>
-          <Button htmlType="submit">重命名</Button>
+          <Form.Item name="sortOrder" label="排序">
+            <InputNumber precision={0} />
+          </Form.Item>
+          <Button htmlType="submit">保存分组</Button>
           <Button
             danger
             disabled={Boolean(group.credentialCount)}

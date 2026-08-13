@@ -152,8 +152,15 @@ export interface ArtifactIndexView {
 export interface PersonalSpaceDetailView {
   subscription?: SnapshotView | PersonalSubscriptionSnapshotView;
   billing?: BillingDetailView;
-  quota?: SnapshotView & { windows?: Array<Record<string, unknown>>; raw?: unknown };
-  settings?: SnapshotView & { values?: Record<string, unknown>; profile?: Record<string, unknown>; raw?: unknown };
+  quota?: SnapshotView & {
+    windows?: Array<Record<string, unknown>>;
+    raw?: unknown;
+  };
+  settings?: SnapshotView & {
+    values?: Record<string, unknown>;
+    profile?: Record<string, unknown>;
+    raw?: unknown;
+  };
 }
 
 export interface OperationEventView {
@@ -188,9 +195,19 @@ export interface NotificationDeliveryView {
   status: string;
   summary: Record<string, unknown>;
   payload?: Record<string, unknown>;
+  attemptCount: number;
+  maxAttempts: number;
+  nextRetryAt?: string;
   error?: string;
   deliveredAt?: string;
   createdAt: string;
+}
+
+export interface QuarantinedCredentialClaimInput {
+  accountId: string;
+  workspaceId: string;
+  kind: 'oauth' | 'pat';
+  poolGroupId?: string;
 }
 
 export interface AccountWorkspaceLinkView {
@@ -366,9 +383,13 @@ export interface OpenBusinessSubscriptionRequest {
   card?: PaymentCardInput;
 }
 
-export const PERSONAL_PLAN_OPTIONS: ReadonlyArray<{ plan: Exclude<PersonalPlan, 'free' | 'unknown'>; label: string; planName: string }> = [
+export const PERSONAL_PLAN_OPTIONS: ReadonlyArray<{
+  plan: Exclude<PersonalPlan, 'free' | 'unknown'>;
+  label: string;
+  planName: string;
+}> = [
   { plan: 'go', label: 'Go', planName: 'chatgptgoplan' },
   { plan: 'plus', label: 'Plus', planName: 'chatgptplusplan' },
   { plan: 'pro_5x', label: 'Pro 5x', planName: 'chatgptprolite' },
-  { plan: 'pro_20x', label: 'Pro 20x', planName: 'chatgptpro' }
+  { plan: 'pro_20x', label: 'Pro 20x', planName: 'chatgptpro' },
 ];

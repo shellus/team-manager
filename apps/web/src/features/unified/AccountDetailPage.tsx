@@ -45,6 +45,8 @@ import {
 } from "../../components/ProductPrimitives.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
+import { parseCredentialReplacement } from "./unifiedUiModels.js";
+import { useRememberedForm } from "../../webPreferences.js";
 
 export function AccountDetailPage() {
   const { accountId } = useParams();
@@ -320,7 +322,8 @@ export function AccountDetailPage() {
           />
           <OperationDrawer
             operation={selectedOperation}
-            open={Boolean(selectedOperation)}
+            operationId={params.get("operationId") ?? undefined}
+            open={Boolean(params.get("operationId"))}
             onClose={() => setUrl("operationId")}
             onChanged={load}
           />
@@ -838,6 +841,12 @@ function CredentialsPanel({
   busy: string;
   run: (k: string, a: () => Promise<unknown>) => Promise<void>;
 }) {
+  const [credentialForm] = Form.useForm();
+  const rememberCredentialForm = useRememberedForm(
+    credentialForm,
+    "create-workspace-credential",
+    ["workspaceId", "kind", "poolGroup", "name"],
+  );
   const [view, setView] = useState<{
     credential: WorkspaceCredentialView;
     content: unknown;
@@ -849,10 +858,15 @@ function CredentialsPanel({
     poolGroup?: string;
   }>();
   const [oauthCallback, setOauthCallback] = useState("");
+  const [replacement, setReplacement] = useState<{
+    credential: WorkspaceCredentialView;
+    json: string;
+  }>();
   const create = async (
     kind: "pat" | "oauth",
     value: Record<string, string>,
   ) => {
+    rememberCredentialForm(value);
     if (kind === "pat")
       return run(kind, () =>
         unifiedApi.createPatCredential(account.id, value.workspaceId, {
@@ -861,6 +875,7 @@ function CredentialsPanel({
         }),
       );
     try {
+      setOauthCallback("");
       const auth = await unifiedApi.createOauthCredential(
         account.id,
         value.workspaceId,
@@ -886,6 +901,7 @@ function CredentialsPanel({
     <Space direction="vertical" className="panel-stack">
       {viewError && <Alert type="error" showIcon message={viewError} />}
       <Form
+        form={credentialForm}
         layout="inline"
         onFinish={(v) => create(v.kind, v)}
         initialValues={{ kind: "pat" }}
@@ -968,6 +984,38 @@ function CredentialsPanel({
                 >
                   完整 JSON
                 </Button>
+                <Button
+                  size="small"
+                  onClick={async () => {
+                    setViewError("");
+                    try {
+                      const content = await unifiedApi.credentialContent(
+                        row.id,
+                      );
+                      setReplacement({
+                        credential: row,
+                        json: JSON.stringify(content, null, 2),
+                      });
+                    } catch (e) {
+                      setViewError((e as Error).message);
+                    }
+                  }}
+                >
+                  替换 JSON
+                </Button>
+                {row.kind === "oauth" && (
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      void create("oauth", {
+                        workspaceId: row.workspaceId,
+                        poolGroup: row.poolGroup?.id ?? "",
+                      })
+                    }
+                  >
+                    OAuth 重新授权
+                  </Button>
+                )}
                 <Button
                   size="small"
                   onClick={() =>
@@ -1066,6 +1114,50 @@ function CredentialsPanel({
         />
         <JsonViewer title="凭证正文" value={view?.content} />
       </Drawer>
+      <Modal
+        title="替换凭证 JSON"
+        open={Boolean(replacement)}
+        onCancel={() => setReplacement(undefined)}
+        footer={null}
+        width={720}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="提交后会创建新凭证版本并停用当前凭证；JSON 中的 account_id 必须匹配当前 Workspace。"
+        />
+        <Input.TextArea
+          className="raw-json"
+          autoSize={{ minRows: 14, maxRows: 30 }}
+          value={replacement?.json}
+          onChange={(event) =>
+            setReplacement((current) =>
+              current ? { ...current, json: event.target.value } : current,
+            )
+          }
+        />
+        <Button
+          type="primary"
+          loading={busy === "replace-credential"}
+          onClick={() => {
+            if (!replacement) return;
+            try {
+              const content = parseCredentialReplacement(replacement.json);
+              void run("replace-credential", () =>
+                unifiedApi.replaceCredential(
+                  replacement.credential.id,
+                  content,
+                ),
+              ).then(() => setReplacement(undefined));
+            } catch (e) {
+              setViewError((e as Error).message);
+              message.error((e as Error).message);
+            }
+          }}
+        >
+          创建替换版本
+        </Button>
+      </Modal>
       <Modal
         title="完成 OAuth 授权"
         open={Boolean(oauth)}

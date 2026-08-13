@@ -40,6 +40,12 @@ import {
 } from "../../labels.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import type { AccountManagerOperationView } from "@team-manager/shared";
+import {
+  workspaceSettingsFormValues,
+  workspaceSettingsPatch,
+  type WorkspaceSettingsFormValues,
+} from "./unifiedUiModels.js";
+import { useRememberedForm } from "../../webPreferences.js";
 
 export function WorkspaceDetailPage() {
   const { workspaceId } = useParams();
@@ -450,13 +456,22 @@ export function WorkspaceDetailPage() {
             onClose={() => set("modal")}
             onCreated={(op) => {
               setBusinessOperation(op);
-              set("modal");
+              const next = new URLSearchParams(params);
+              next.delete("modal");
+              next.set("operationId", op.id);
+              setParams(next);
             }}
           />
           <OperationDrawer
             operation={businessOperation}
-            open={Boolean(businessOperation)}
-            onClose={() => setBusinessOperation(undefined)}
+            operationId={params.get("operationId") ?? undefined}
+            open={Boolean(params.get("operationId"))}
+            onClose={() => {
+              setBusinessOperation(undefined);
+              const next = new URLSearchParams(params);
+              next.delete("operationId");
+              setParams(next);
+            }}
             onChanged={load}
           />
         </Space>
@@ -477,7 +492,9 @@ function WorkspaceSettings({
   run: (k: string, a: () => Promise<unknown>) => Promise<void>;
 }) {
   const payload = workspace.latestSettings?.payload ?? {};
-  const names = [
+  const names: Array<
+    [Exclude<keyof WorkspaceSettingsFormValues, "name" | "defaultSeat">, string]
+  > = [
     ["workspaceReferralsEnabled", "推荐"],
     ["autoAcceptRequests", "自动接受邀请"],
     ["personalAccessTokensEnabled", "允许 PAT"],
@@ -485,28 +502,28 @@ function WorkspaceSettings({
     ["codexRemoteControlEnabled", "远程控制"],
     ["automaticReloadEnabled", "Automatic reload"],
   ];
+  const initialValues = workspaceSettingsFormValues(payload, workspace.name);
   return (
     <Space direction="vertical" className="panel-stack">
       <Form
         layout="vertical"
-        initialValues={{
-          name: workspace.name,
-          defaultSeat: payload.defaultSeat,
-          ...Object.fromEntries(names.map(([key]) => [key, payload[key]])),
-        }}
-        onFinish={(v) =>
+        key={workspace.latestSettings?.observedAt ?? workspace.updatedAt}
+        initialValues={initialValues}
+        onFinish={(v: WorkspaceSettingsFormValues) =>
           run("settings", async () => {
-            if (v.name !== workspace.name)
+            if (typeof v.name === "string" && v.name !== workspace.name)
               await unifiedApi.renameWorkspace(
                 workspace.id,
                 executorAccountId,
                 v.name,
               );
-            const { name, ...settings } = v;
-            await unifiedApi.patchWorkspaceSettings(workspace.id, {
-              executorAccountId,
-              ...settings,
-            });
+            const settings = workspaceSettingsPatch(v);
+            if (Object.keys(settings).length) {
+              await unifiedApi.patchWorkspaceSettings(workspace.id, {
+                executorAccountId,
+                ...settings,
+              });
+            }
           })
         }
       >
@@ -525,13 +542,15 @@ function WorkspaceSettings({
         </div>
         <div className="switch-grid">
           {names.map(([name, label]) => (
-            <Form.Item
-              key={name}
-              name={name}
-              label={label}
-              valuePropName="checked"
-            >
-              <Switch />
+            <Form.Item key={name} name={name} label={label}>
+              <Select
+                allowClear
+                placeholder="未知（快照未提供）"
+                options={[
+                  { value: true, label: "明确开启" },
+                  { value: false, label: "明确关闭" },
+                ]}
+              />
             </Form.Item>
           ))}
         </div>
@@ -882,6 +901,15 @@ function BusinessModal({
   onCreated: (op: AccountManagerOperationView) => void;
 }) {
   const [form] = Form.useForm();
+  const remember = useRememberedForm(form, "business-subscription", [
+    "mode",
+    "accountId",
+    "workspaceId",
+    "country",
+    "currency",
+    "promoCode",
+    "autoPay",
+  ]);
   const mode = Form.useWatch("mode", form);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -907,6 +935,7 @@ function BusinessModal({
         onFinish={async (
           v: OpenBusinessSubscriptionRequest & { accountId: string },
         ) => {
+          remember(v);
           setBusy(true);
           setError("");
           try {

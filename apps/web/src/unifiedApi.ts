@@ -14,19 +14,27 @@ import type {
   OperationControl,
   OperationDetailView,
   PersonalSpaceDetailView,
+  QuarantinedCredentialClaimInput,
   RegisterAccountRequest,
   ResidentialProxyConfig,
   SeatSlotMutationInput,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
-  WorkspaceSummaryView
+  WorkspaceSummaryView,
 } from '@team-manager/shared';
 import { ApiError, expireAuthentication, getToken } from './api.js';
 
 export type TriState = 'true' | 'false';
-export interface PageResult<T> { items: T[]; total?: number }
-export interface JsonSnapshot { payload: Record<string, unknown>; observedAt?: string; raw?: unknown }
+export interface PageResult<T> {
+  items: T[];
+  total?: number;
+}
+export interface JsonSnapshot {
+  payload: Record<string, unknown>;
+  observedAt?: string;
+  raw?: unknown;
+}
 export type SeatSlotInput = SeatSlotMutationInput;
 export type ArtifactView = ArtifactIndexView;
 export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, PersonalSpaceDetailView };
@@ -37,11 +45,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const payload = await response.json().catch(() => ({})) as { ok?: boolean; data?: T; error?: string };
+  const payload = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    data?: T;
+    error?: string;
+  };
   if (!response.ok || payload.ok !== true) {
     if (response.status === 401) expireAuthentication();
     throw new ApiError(response.status, payload.error ?? `请求失败 ${response.status}`, path);
@@ -49,10 +61,36 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return payload.data as T;
 }
 
-async function requestBytes(method: string, path: string, body: Uint8Array, headers: Record<string,string>): Promise<{ id: string }> {
-  const token=getToken(); const response=await fetch(`/api${path}`,{method,headers:{...(token?{Authorization:`Bearer ${token}`} : {}),...headers},body:new Blob([body as Uint8Array<ArrayBuffer>])}); const payload=await response.json().catch(()=>({})) as {ok?:boolean;data?:string|{id:string};error?:string}; if(!response.ok||payload.ok!==true){if(response.status===401)expireAuthentication();throw new ApiError(response.status,payload.error??`请求失败 ${response.status}`,path);} return typeof payload.data==='string'?{id:payload.data}:payload.data!;
+async function requestBytes(method: string, path: string, body: Uint8Array, headers: Record<string, string>): Promise<{ id: string }> {
+  const token = getToken();
+  const response = await fetch(`/api${path}`, {
+    method,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headers,
+    },
+    body: new Blob([body as Uint8Array<ArrayBuffer>]),
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    data?: string | { id: string };
+    error?: string;
+  };
+  if (!response.ok || payload.ok !== true) {
+    if (response.status === 401) expireAuthentication();
+    throw new ApiError(response.status, payload.error ?? `请求失败 ${response.status}`, path);
+  }
+  return typeof payload.data === 'string' ? { id: payload.data } : payload.data!;
 }
-async function requestRaw(path:string):Promise<Blob>{const token=getToken();const response=await fetch(`/api${path}`,{headers:token?{Authorization:`Bearer ${token}`}:{}});if(response.status===401)expireAuthentication();if(!response.ok)throw new ApiError(response.status,await response.text(),path);return response.blob();}
+async function requestRaw(path: string): Promise<Blob> {
+  const token = getToken();
+  const response = await fetch(`/api${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (response.status === 401) expireAuthentication();
+  if (!response.ok) throw new ApiError(response.status, await response.text(), path);
+  return response.blob();
+}
 
 export const unifiedApi = {
   groups: () => request<AccountGroupView[]>('GET', '/account-groups'),
@@ -65,11 +103,9 @@ export const unifiedApi = {
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),
   updateAccount: (id: string, body: Record<string, unknown>) => request<UnifiedAccountDetailView>('PATCH', `/accounts/${id}`, body),
   deleteAccount: (id: string) => request<boolean>('DELETE', `/accounts/${id}`),
-  changePersonalSubscription: (id: string, body: ChangePersonalSubscriptionRequest) =>
-    request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-subscription`, body),
+  changePersonalSubscription: (id: string, body: ChangePersonalSubscriptionRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-subscription`, body),
   cancelPersonalRenewal: (id: string) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-subscription/cancel-renewal`),
-  openBusiness: (id: string, body: OpenBusinessSubscriptionRequest) =>
-    request<AccountManagerOperationView>('POST', `/accounts/${id}/business-subscription`, body),
+  openBusiness: (id: string, body: OpenBusinessSubscriptionRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/business-subscription`, body),
   accountManagerState: (id: string) => request<AccountManagerStateView>('GET', `/accounts/${id}/account-manager`),
   syncAccountManager: (id: string) => request<AccountManagerStateView>('POST', `/accounts/${id}/account-manager/sync`),
   startProfile: (id: string) => request<unknown>('POST', `/accounts/${id}/account-manager/profile/start`),
@@ -79,7 +115,7 @@ export const unifiedApi = {
   accountSession: (id: string) => request<Record<string, unknown>>('GET', `/accounts/${id}/session`),
   updateAccountSession: (id: string, session: Record<string, unknown>) => request<unknown>('PUT', `/accounts/${id}/session`, { session }),
   personalSpace: (id: string) => request<PersonalSpaceDetailView>('GET', `/accounts/${id}/personal-space`),
-  updatePersonalSettings: (id:string, body:Record<string,unknown>) => request<PersonalSpaceDetailView>('PATCH',`/accounts/${id}/personal-space/settings`,body),
+  updatePersonalSettings: (id: string, body: Record<string, unknown>) => request<PersonalSpaceDetailView>('PATCH', `/accounts/${id}/personal-space/settings`, body),
   refreshPersonalSpace: (id: string, resource?: string) => request<PersonalSpaceDetailView>('POST', `/accounts/${id}/personal-space/refresh`, resource ? { resources: [resource] } : {}),
   accountActivity: (id: string) => request<AccountActivityView[]>('GET', `/accounts/${id}/personal-space/activity`),
   addPaymentMethod: (id: string, body: AddPersonalPaymentMethodRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-payment-methods`, body),
@@ -91,22 +127,31 @@ export const unifiedApi = {
   deleteOperation: (id: string) => request<boolean>('DELETE', `/operations/${id}`),
   workspaces: (query = '') => request<WorkspaceSummaryView[]>('GET', `/workspaces${query ? `?query=${encodeURIComponent(query)}` : ''}`),
   workspace: (id: string) => request<WorkspaceDetailView>('GET', `/workspaces/${id}`),
-  refreshWorkspace: (id: string, executorAccountId: string) => request<unknown>('POST', `/workspaces/${id}/refresh`, { executorAccountId }),
+  refreshWorkspace: (id: string, executorAccountId: string) =>
+    request<unknown>('POST', `/workspaces/${id}/refresh`, {
+      executorAccountId,
+    }),
   renameWorkspace: (id: string, executorAccountId: string, name: string) => request<unknown>('PATCH', `/workspaces/${id}`, { executorAccountId, name }),
   invite: (id: string, body: Record<string, unknown>) => request<unknown>('POST', `/workspaces/${id}/invitations`, body),
-  revokeInvitation: (id: string, executorAccountId: string, email: string) => request<unknown>('DELETE', `/workspaces/${id}/invitations`, { executorAccountId, email }),
+  revokeInvitation: (id: string, executorAccountId: string, email: string) =>
+    request<unknown>('DELETE', `/workspaces/${id}/invitations`, {
+      executorAccountId,
+      email,
+    }),
   patchMember: (id: string, remoteUserId: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, body),
   patchWorkspaceSettings: (id: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/workspaces/${id}/settings`, body),
-  removeMember: (id: string, remoteUserId: string, executorAccountId: string) =>
-    request<unknown>('DELETE', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId }),
-  workspaceBilling: (id: string, executorAccountId?: string) => request<(BillingDetailView & Record<string, unknown>) | undefined>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
-  workspaceInvoice: (id:string, invoiceId:string) => request<Record<string,unknown>>('GET',`/workspaces/${id}/billing/invoices/${encodeURIComponent(invoiceId)}`),
-  workspaceSubscription: (id: string, executorAccountId?: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+  removeMember: (id: string, remoteUserId: string, executorAccountId: string) => request<unknown>('DELETE', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId }),
+  workspaceBilling: (id: string, executorAccountId?: string) =>
+    request<(BillingDetailView & Record<string, unknown>) | undefined>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
+  workspaceInvoice: (id: string, invoiceId: string) => request<Record<string, unknown>>('GET', `/workspaces/${id}/billing/invoices/${encodeURIComponent(invoiceId)}`),
+  workspaceSubscription: (id: string, executorAccountId?: string) =>
+    request<Record<string, unknown>>('GET', `/workspaces/${id}/subscription${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),
   createSeatSlot: (workspaceId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, body),
   updateSeatSlot: (workspaceId: string, slotId: string, body: Partial<SeatSlotInput>) => request<unknown>('PATCH', `/workspaces/${workspaceId}/seat-slots/${slotId}`, body),
   deleteSeatSlot: (workspaceId: string, slotId: string) => request<boolean>('DELETE', `/workspaces/${workspaceId}/seat-slots/${slotId}`),
   releaseSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/release`, { executorAccountId }),
-  swapSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, email: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/swap`, { executorAccountId, email }),
+  swapSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, email: string) =>
+    request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/swap`, { executorAccountId, email }),
   teamOrders: () => request<Record<string, unknown>>('GET', '/team-orders'),
   saveTeamOrderConfiguration: (body: Record<string, unknown>) => request<void>('PUT', '/team-orders/configuration', body),
   saveTeamOrderMaintenance: (workspaceId: string, body: Record<string, unknown>) => request<void>('PUT', `/team-orders/maintenances/${workspaceId}`, body),
@@ -118,28 +163,41 @@ export const unifiedApi = {
   saveNotificationPolicy: (kind: string, body: Record<string, unknown>) => request<Array<Record<string, unknown>>>('PUT', `/settings/notification-policies/${encodeURIComponent(kind)}`, body),
   testNotificationPolicy: (kind: string) => request<NotificationDeliveryView>('POST', `/settings/notification-policies/${encodeURIComponent(kind)}/test`),
   notificationDeliveries: () => request<NotificationDeliveryView[]>('GET', '/settings/notification-deliveries'),
-  retryNotificationDelivery: (id:string) => request<NotificationDeliveryView>('POST',`/settings/notification-deliveries/${id}/retry`),
-  systemSettings: () => request<Array<{key:string;value?:Record<string,unknown>}>>('GET', '/settings/system'),
-  saveSystemSetting: (key:string, value: Record<string, unknown>) => request<Record<string, unknown>>('PUT', `/settings/system/${encodeURIComponent(key)}`, value),
-  createPatCredential: (accountId: string, workspaceId: string, body: Record<string, unknown>) => request<{ id: string }>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/pat`, body),
+  retryNotificationDelivery: (id: string) => request<NotificationDeliveryView>('POST', `/settings/notification-deliveries/${id}/retry`),
+  systemSettings: () => request<Array<{ key: string; value?: Record<string, unknown> }>>('GET', '/settings/system'),
+  saveSystemSetting: (key: string, value: Record<string, unknown>) => request<Record<string, unknown>>('PUT', `/settings/system/${encodeURIComponent(key)}`, value),
+  createPatCredential: (accountId: string, workspaceId: string, body: Record<string, unknown>) =>
+    request<{ id: string }>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/pat`, body),
   createOauthCredential: (accountId: string, workspaceId: string) => request<CodexAuthStart>('POST', `/accounts/${accountId}/workspaces/${workspaceId}/credentials/oauth`),
-  completeOauthCredential: (sessionId:string, callbackUrl:string, poolGroupId?:string) => request<{id:string}>('PUT',`/credentials/oauth/${sessionId}`,{callbackUrl,poolGroupId}),
+  completeOauthCredential: (sessionId: string, callbackUrl: string, poolGroupId?: string) =>
+    request<{ id: string }>('PUT', `/credentials/oauth/${sessionId}`, {
+      callbackUrl,
+      poolGroupId,
+    }),
   credentialContent: (credentialId: string) => request<Record<string, unknown>>('GET', `/credentials/${credentialId}/content`),
   updateCredential: (credentialId: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/credentials/${credentialId}`, body),
   replaceCredential: (credentialId: string, body: Record<string, unknown>) => request<unknown>('PUT', `/credentials/${credentialId}/content`, body),
-  deployCredential: (credentialId:string, body:Record<string,unknown>) => request<unknown>('POST',`/credentials/${credentialId}/deploy`,body),
+  deployCredential: (credentialId: string, body: Record<string, unknown>) => request<unknown>('POST', `/credentials/${credentialId}/deploy`, body),
   deleteCredential: (credentialId: string) => request<boolean>('DELETE', `/credentials/${credentialId}`),
   refreshCredentialQuota: (credentialId: string) => request<unknown>('POST', `/credentials/${credentialId}/quota/refresh`),
   credentialPoolGroups: () => request<CredentialPoolGroupView[]>('GET', '/credential-pool-groups'),
-  createCredentialPoolGroup: (name: string) => request<CredentialPoolGroupView[]>('POST', '/credential-pool-groups', { name }),
+  createCredentialPoolGroup: (name: string) =>
+    request<CredentialPoolGroupView[]>('POST', '/credential-pool-groups', {
+      name,
+    }),
   updateCredentialPoolGroup: (id: string, body: Record<string, unknown>) => request<CredentialPoolGroupView[]>('PATCH', `/credential-pool-groups/${id}`, body),
   deleteCredentialPoolGroup: (id: string) => request<CredentialPoolGroupView[]>('DELETE', `/credential-pool-groups/${id}`),
   overviewWorkspaces: () => request<Array<Record<string, unknown>>>('GET', '/overview/workspaces'),
   overviewSeats: () => request<Array<Record<string, unknown>>>('GET', '/overview/seats'),
   artifacts: (query: URLSearchParams) => request<ArtifactView[]>('GET', `/artifacts?${query}`),
-  uploadRrweb: (body: Uint8Array, fileName: string, recordedAt: string) => requestBytes('POST','/artifacts/rrweb',body,{'Content-Type':'application/gzip','x-artifact-file-name':fileName,'x-recorded-at':recordedAt}),
+  uploadRrweb: (body: Uint8Array, fileName: string, recordedAt: string) =>
+    requestBytes('POST', '/artifacts/rrweb', body, {
+      'Content-Type': 'application/gzip',
+      'x-artifact-file-name': fileName,
+      'x-recorded-at': recordedAt,
+    }),
   artifactContent: (kind: string, id: string) => requestRaw(`/artifacts/${encodeURIComponent(kind)}/${id}`),
   deleteArtifact: (kind: string, id: string) => request<boolean>('DELETE', `/artifacts/${encodeURIComponent(kind)}/${id}`),
-  claimQuarantinedCredential: (id: string, body: Record<string, unknown>) => request<unknown>('POST', `/artifacts/quarantine/${id}/claim`, body),
-  discardQuarantinedCredential: (id: string) => request<unknown>('DELETE', `/artifacts/quarantine/${id}`)
+  claimQuarantinedCredential: (id: string, body: QuarantinedCredentialClaimInput) => request<unknown>('POST', `/artifacts/quarantine/${id}/claim`, body),
+  discardQuarantinedCredential: (id: string) => request<unknown>('DELETE', `/artifacts/quarantine/${id}`),
 };

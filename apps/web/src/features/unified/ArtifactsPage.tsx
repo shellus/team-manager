@@ -14,7 +14,12 @@ import {
 } from "antd";
 import { DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
-import { unifiedApi, type ArtifactView } from "../../unifiedApi.js";
+import type { QuarantinedCredentialClaimInput } from "@team-manager/shared";
+import {
+  unifiedApi,
+  type ArtifactView,
+  type CredentialPoolGroupView,
+} from "../../unifiedApi.js";
 import {
   JsonViewer,
   LoadBoundary,
@@ -26,6 +31,7 @@ import { RrwebReplay } from "../../components/RrwebReplay.js";
 export function ArtifactsPage() {
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<ArtifactView[]>([]);
+  const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
   const [selected, setSelected] = useState<{
     artifact: ArtifactView;
     content: unknown;
@@ -38,7 +44,12 @@ export function ArtifactsPage() {
     setLoading(true);
     setError("");
     try {
-      setRows(await unifiedApi.artifacts(params));
+      const [artifacts, groups] = await Promise.all([
+        unifiedApi.artifacts(params),
+        unifiedApi.credentialPoolGroups(),
+      ]);
+      setRows(artifacts);
+      setPoolGroups(groups);
     } catch (reason) {
       setError((reason as Error).message);
     } finally {
@@ -277,7 +288,8 @@ export function ArtifactsPage() {
       >
         <Form
           layout="vertical"
-          onFinish={(value) =>
+          initialValues={{ kind: "oauth" }}
+          onFinish={(value: QuarantinedCredentialClaimInput) =>
             run("claim", () =>
               unifiedApi.claimQuarantinedCredential(
                 selected!.artifact.id,
@@ -292,6 +304,23 @@ export function ArtifactsPage() {
             rules={[{ required: true }]}
           >
             <Input />
+          </Form.Item>
+          <Form.Item name="kind" label="凭证类型" rules={[{ required: true }]}>
+            <Select
+              options={[
+                { value: "oauth", label: "OAuth" },
+                { value: "pat", label: "PAT" },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="poolGroupId" label="号池分组 ID（可选）">
+            <Select
+              allowClear
+              options={poolGroups.map((group) => ({
+                value: group.id,
+                label: group.name,
+              }))}
+            />
           </Form.Item>
           <Form.Item
             name="workspaceId"

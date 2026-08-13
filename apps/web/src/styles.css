@@ -401,15 +401,6 @@ body {
   align-items: stretch;
 }
 
-.sensitive-text {
-  transition: filter 160ms ease;
-}
-
-.sensitive-text-masked {
-  filter: blur(5px);
-  user-select: none;
-}
-
 .seat-position-card {
   min-width: 0;
   border-color: var(--color-border-subtle);

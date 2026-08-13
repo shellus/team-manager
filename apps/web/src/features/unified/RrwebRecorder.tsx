@@ -7,6 +7,7 @@ import {
 } from "@ant-design/icons";
 import { unifiedApi } from "../../unifiedApi.js";
 import { RrwebReplay } from "../../components/RrwebReplay.js";
+import { useWebPreferences } from "../../webPreferences.js";
 
 type RrEvent = { timestamp?: number } & Record<string, unknown>;
 type RecordFn = (options: {
@@ -32,46 +33,30 @@ interface RecordingFile {
 export function RrwebRecorder() {
   const events = useRef<RrEvent[]>([]);
   const stop = useRef<(() => void) | undefined>();
-  const [enabled, setEnabled] = useState(false);
+  const { rrwebEnabled: enabled } = useWebPreferences();
   const [recording, setRecording] = useState(false);
   const [eventCount, setEventCount] = useState(0);
   const [preview, setPreview] = useState<RecordingFile>();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    const onPreferences = (event: Event) => {
-      const preferences = (event as CustomEvent<Record<string, unknown>>)
-        .detail;
-      const nextEnabled = preferences?.rrwebEnabled === true;
-      if (!nextEnabled && stop.current) {
-        stop.current();
-        stop.current = undefined;
-        events.current = [];
-        setEventCount(0);
-        setRecording(false);
-        message.info("rrweb 已按 Web 偏好关闭，未完成的录制未上传");
-      }
-      setEnabled(nextEnabled);
-    };
-    window.addEventListener("team-manager:web-preferences", onPreferences);
-    void unifiedApi
-      .systemSettings()
-      .then((settings) => {
-        if (!active) return;
-        const preferences = settings.find(
-          (row) => row.key === "web.preferences",
-        )?.value;
-        setEnabled(preferences?.rrwebEnabled === true);
-      })
-      .catch(() => setEnabled(false));
-    return () => {
-      active = false;
-      window.removeEventListener("team-manager:web-preferences", onPreferences);
+    if (!enabled && stop.current) {
+      stop.current();
+      stop.current = undefined;
+      events.current = [];
+      setEventCount(0);
+      setRecording(false);
+      message.info("rrweb 已按 Web 偏好关闭，未完成的录制未上传");
+    }
+  }, [enabled]);
+
+  useEffect(
+    () => () => {
       stop.current?.();
       stop.current = undefined;
-    };
-  }, []);
+    },
+    [],
+  );
 
   const start = async () => {
     try {
