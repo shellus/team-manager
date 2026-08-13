@@ -12,7 +12,6 @@ import {
   Table,
   Tag,
 } from "antd";
-import { DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import { useSearchParams } from "react-router-dom";
 import type { QuarantinedCredentialClaimInput } from "@team-manager/shared";
 import {
@@ -20,12 +19,7 @@ import {
   type ArtifactView,
   type CredentialPoolGroupView,
 } from "../../unifiedApi.js";
-import {
-  JsonViewer,
-  LoadBoundary,
-  PageHeader,
-  formatTime,
-} from "../../components/ProductPrimitives.js";
+import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { RrwebReplay } from "../../components/RrwebReplay.js";
 
 export function ArtifactsPage() {
@@ -34,7 +28,7 @@ export function ArtifactsPage() {
   const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
   const [selected, setSelected] = useState<{
     artifact: ArtifactView;
-    content: unknown;
+    recording?: unknown;
   }>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -93,28 +87,20 @@ export function ArtifactsPage() {
     }
   };
 
-  const view = async (row: ArtifactView) => {
+  const replay = async (row: ArtifactView) => {
     try {
       const blob = await unifiedApi.artifactContent(row.kind, row.id);
-      let content: unknown = blob;
-      try {
-        const response = row.storageKey.endsWith(".gz")
-          ? new Response(
-              blob.stream().pipeThrough(new DecompressionStream("gzip")),
-            )
-          : new Response(blob);
-        content = JSON.parse(await response.text());
-      } catch {
-        content = blob;
-      }
-      setSelected({ artifact: row, content });
+      const response = row.storageKey.endsWith(".gz")
+        ? new Response(blob.stream().pipeThrough(new DecompressionStream("gzip")))
+        : new Response(blob);
+      setSelected({ artifact: row, recording: JSON.parse(await response.text()) });
     } catch (reason) {
       setError((reason as Error).message);
     }
   };
 
   const openClaim = (row: ArtifactView) => {
-    setSelected({ artifact: row, content: undefined });
+    setSelected({ artifact: row });
     set("modal", "claim");
   };
 
@@ -128,7 +114,7 @@ export function ArtifactsPage() {
       <Card>
         <PageHeader
           title="文件制品"
-          description="HTTP trace、rrweb、凭证与隔离文件保持原文存储，页面完整读取，不做脱敏"
+          description="查看 HTTP 请求日志、rrweb 录制和凭证文件的索引、状态与生命周期"
         />
       </Card>
       {error && <Alert type="error" showIcon message={error} />}
@@ -189,13 +175,11 @@ export function ArtifactsPage() {
                 fixed: "right",
                 render: (_, row) => (
                   <Space>
-                    <Button
-                      size="small"
-                      icon={<EyeOutlined />}
-                      onClick={() => void view(row)}
-                    >
-                      读取原文
-                    </Button>
+                    {row.kind === "rrweb" && (
+                      <Button size="small" onClick={() => void replay(row)}>
+                        回放录制
+                      </Button>
+                    )}
                     {row.kind === "quarantine" && (
                       <>
                         <Button size="small" onClick={() => openClaim(row)}>
@@ -251,34 +235,14 @@ export function ArtifactsPage() {
         </LoadBoundary>
       </Card>
       <Drawer
-        title="完整制品原文"
+        title="rrweb 录制回放"
         open={Boolean(selected) && params.get("modal") !== "claim"}
         onClose={() => setSelected(undefined)}
         width="min(900px, 94vw)"
-        extra={
-          selected && (
-            <Button
-              icon={<DownloadOutlined />}
-              onClick={() =>
-                download(fileName(selected.artifact), selected.content)
-              }
-            >
-              下载原文
-            </Button>
-          )
-        }
       >
-        <Alert
-          type="info"
-          showIcon
-          message="管理员调试入口完整展示原始内容，不做脱敏或截断。"
-        />
-        {selected?.artifact.kind === "rrweb" &&
-          !(selected.content instanceof Blob) && (
-            <RrwebReplay recording={selected.content} />
-          )}
-        <JsonViewer title="原始内容" value={selected?.content} />
-        <JsonViewer title="制品元数据" value={selected?.artifact} />
+        {selected?.recording !== undefined && (
+          <RrwebReplay recording={selected.recording} />
+        )}
       </Drawer>
       <Modal
         title="认领隔离凭证"
@@ -351,24 +315,4 @@ export function ArtifactsPage() {
       </Modal>
     </Space>
   );
-}
-
-function fileName(artifact: ArtifactView) {
-  const storageName = artifact.storageKey.split("/").pop();
-  return storageName || `${artifact.kind}-${artifact.id}`;
-}
-
-function download(name: string, value: unknown) {
-  const blob =
-    value instanceof Blob
-      ? value
-      : new Blob([
-          typeof value === "string" ? value : JSON.stringify(value, null, 2),
-        ]);
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = name;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }

@@ -17,7 +17,7 @@ import type {
   OperationDetailView,
 } from "@team-manager/shared";
 import { unifiedApi } from "../unifiedApi.js";
-import { JsonViewer, LoadBoundary, formatTime } from "./ProductPrimitives.js";
+import { LoadBoundary, formatTime } from "./ProductPrimitives.js";
 import { PaymentCardFields } from "./PaymentCardFields.js";
 import { useWebPreferences } from "../webPreferences.js";
 
@@ -223,25 +223,33 @@ export function OperationDrawer({
                     { title: "阶段", dataIndex: "phase" },
                     { title: "状态", dataIndex: "status" },
                     {
-                      title: "原始事件",
+                      title: "说明",
                       dataIndex: "payload",
-                      render: (payload) => (
-                        <JsonViewer title="查看" value={payload} />
-                      ),
+                      render: operationEventSummary,
                     },
                   ]}
                 />
               )}
-              <JsonViewer
-                title="完整请求、响应、支付与结果"
-                value={{
-                  requestSummary: value.requestSummary,
-                  result: value.result,
-                  payment: detail?.payment,
-                  effectiveAt: detail?.effectiveAt,
-                  control: value.control,
-                }}
-              />
+              {(detail?.payment || detail?.effectiveAt) && (
+                <Descriptions
+                  bordered
+                  size="small"
+                  column={2}
+                  items={[
+                    ...(detail?.payment
+                      ? [
+                          { key: "payment-status", label: "支付结果", children: detail.payment.resultCode },
+                          { key: "payment-card", label: "支付卡", children: [detail.payment.cardBrand, detail.payment.cardLast4 && `•••• ${detail.payment.cardLast4}`].filter(Boolean).join(" ") || "—" },
+                          { key: "payment-amount", label: "支付金额", children: [detail.payment.currency, detail.payment.amount].filter(Boolean).join(" ") || "—" },
+                          { key: "payment-time", label: "支付时间", children: formatTime(detail.payment.submittedAt ?? detail.payment.createdAt) },
+                        ]
+                      : []),
+                    ...(detail?.effectiveAt
+                      ? [{ key: "effective", label: "生效时间", children: formatTime(detail.effectiveAt) }]
+                      : []),
+                  ]}
+                />
+              )}
             </Space>
           )}
         </LoadBoundary>
@@ -274,4 +282,15 @@ export function OperationDrawer({
       </Modal>
     </>
   );
+}
+
+function operationEventSummary(payload: Record<string, unknown>): string {
+  const candidates = [payload.message, payload.detail, payload.reason, payload.error, payload.result];
+  const text = candidates.find((item) => typeof item === "string" && item.trim());
+  if (typeof text === "string") return text;
+  const entries = Object.entries(payload)
+    .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value))
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${String(value)}`);
+  return entries.join(" · ") || "—";
 }
