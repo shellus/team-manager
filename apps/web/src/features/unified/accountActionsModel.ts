@@ -42,6 +42,16 @@ export function accountRemarkLabel(remark?: string): string {
   return remark?.trim() || "—";
 }
 
+export function lifecycleLabel(lifecycle?: UnifiedAccountSummaryView["primaryPlanLifecycle"]): string {
+  if (!lifecycle) return "—";
+  const label = lifecycle.kind === "renews" ? "续费" : lifecycle.kind === "expires" ? "到期" : lifecycle.kind === "expired" ? "已过期" : "有效至";
+  return `${label} ${new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(lifecycle.at))}`;
+}
+
+export function operationStatusLabel(status: import("@team-manager/shared").AccountManagerOperationStatus): string {
+  return ({ queued: "等待开始", running: "进行中", waiting_for_otp: "等待验证码", waiting_manual: "等待处理", succeeded: "已完成", failed: "失败", interrupted: "已中断" } as const)[status];
+}
+
 export function selectUpgradeableWorkspaces<
   T extends {
     manageable: boolean;

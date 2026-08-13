@@ -310,6 +310,8 @@ export interface AccountOperationalSummaryTable {
   primary_plan: string;
   limit_type: string;
   profile_status: string;
+  lifecycle_at: NullableTimestamp;
+  lifecycle_will_renew: boolean | null;
 }
 
 export interface PaymentMethodSummaryTable {

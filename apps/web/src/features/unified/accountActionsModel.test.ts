@@ -7,6 +7,7 @@ import {
   setAccountActionInParams,
   profileAction,
   executeProfileAction,
+  lifecycleLabel,
   selectUpgradeableWorkspaces,
 } from "./accountActionsModel.js";
 
@@ -16,6 +17,12 @@ describe("account action UI model", () => {
     expect(primaryPlanLabel("business_usage_based")).toBe("0.52");
     expect(primaryPlanLabel("team_member")).toBe("Team 子号");
     expect(primaryPlanLabel("pro_5x")).toBe("Pro 5x");
+  });
+
+  test("labels primary plan renewal and expiration semantics", () => {
+    expect(lifecycleLabel({ kind: "renews", at: "2030-02-03T00:00:00Z" })).toContain("续费");
+    expect(lifecycleLabel({ kind: "expires", at: "2030-02-03T00:00:00Z" })).toContain("到期");
+    expect(lifecycleLabel()).toBe("—");
   });
 
   test("uses the profile lifecycle to choose the single start or stop action", () => {

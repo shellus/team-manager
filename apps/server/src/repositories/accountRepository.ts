@@ -22,6 +22,8 @@ export interface AccountListItem extends AccountRow {
   primary_plan: string;
   limit_type: string;
   profile_status: string;
+  lifecycle_at: Date | null;
+  lifecycle_will_renew: boolean | null;
   workspace_count: number;
   credential_count: number;
 }
@@ -187,6 +189,8 @@ export class AccountRepository {
         'aos.primary_plan',
         'aos.limit_type',
         'aos.profile_status',
+        'aos.lifecycle_at',
+        'aos.lifecycle_will_renew',
         sql<number>`(select count(distinct wm.workspace_id)::int from workspace_memberships wm where wm.account_id = a.id and wm.status = 'active')`.as('workspace_count'),
         sql<number>`(select count(*)::int from workspace_credentials wc where wc.account_id = a.id and wc.status = 'active')`.as('credential_count')
       ]);
@@ -194,7 +198,7 @@ export class AccountRepository {
     if (filters.isBanned !== undefined) query = query.where('a.is_banned', '=', filters.isBanned);
     if (filters.query?.trim()) {
       const pattern = `%${filters.query.trim()}%`;
-      query = query.where((eb) => eb.or([eb('a.email', 'ilike', pattern), eb('a.remark', 'ilike', pattern)]));
+      query = query.where((eb) => eb.or([eb('a.email', 'ilike', pattern), eb('a.remark', 'ilike', pattern), eb('a.display_name', 'ilike', pattern)]));
     }
     if (filters.hasManageableWorkspace !== undefined) {
       query = query.where(sql<boolean>`exists (

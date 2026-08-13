@@ -1,6 +1,8 @@
 import { sql, type Kysely } from 'kysely';
 import type {
   AccountProfileStatus,
+  AccountAccessContextHealthView,
+  AccountRegistrationSummaryView,
   AccountGroupView,
   AccountLimitType,
   PersonalPlan,
@@ -37,11 +39,28 @@ export class UnifiedProjectionRepository {
     const ids = rows.map((row) => row.id);
     const extras = ids.length === 0 ? [] : (await sql<{
       id: string; group_id: string; gam_ref: string | null; has_member: boolean; has_credential: boolean; has_running_profile: boolean;
+      account_manager_synced_at: Date | null; access_status: string; access_checked_at: Date | null;
+      access_expires_at: Date | null; invalid_context_count: number;
     }>`select a.id, a.group_id, gb.external_account_ref gam_ref,
           exists(select 1 from workspace_memberships wm where wm.account_id=a.id and wm.status='active' and wm.normalized_role not in ('owner','admin')) has_member,
           exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential,
-          exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile
-        from accounts a left join gam_bindings gb on gb.account_id=a.id where a.id = any(${ids}::uuid[])`.execute(this.db)).rows;
+          exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile,
+          op.account_manager_synced_at,
+          case when count(ac.id)=0 then 'missing'
+            when count(ac.id) filter(where ac.status='invalid' or (ac.expires_at is not null and ac.expires_at<=now()))>0 then 'invalid'
+            when count(ac.id) filter(where ac.status='valid')=count(ac.id) then 'valid' else 'unknown' end access_status,
+          max(ac.checked_at) access_checked_at,min(ac.expires_at) filter(where ac.expires_at is not null) access_expires_at,
+          count(ac.id) filter(where ac.status='invalid' or (ac.expires_at is not null and ac.expires_at<=now()))::int invalid_context_count
+        from accounts a left join gam_bindings gb on gb.account_id=a.id
+        join account_operational_profiles op on op.account_id=a.id
+        left join account_access_contexts ac on ac.account_id=a.id
+        where a.id = any(${ids}::uuid[]) group by a.id,gb.external_account_ref,op.account_manager_synced_at`.execute(this.db)).rows;
+    const operations = ids.length === 0 ? [] : (await sql<any>`
+      select distinct on (ao.account_id) ao.* from automation_operations ao
+      where ao.account_id=any(${ids}::uuid[])
+        and (ao.status<>'succeeded' or ao.updated_at>=now()-interval '10 minutes')
+      order by ao.account_id,ao.updated_at desc,ao.created_at desc`.execute(this.db)).rows;
+    const operationByAccount = new Map(operations.map((row) => [row.account_id as string, operationSummary(row)]));
     const extraById = new Map(extras.map((row) => [row.id, row]));
     return rows.map((row) => {
       const extra = extraById.get(row.id);
@@ -60,6 +79,17 @@ export class UnifiedProjectionRepository {
         isWorkspaceMember: extra?.has_member ?? false,
         hasWorkspaceCredential: extra?.has_credential ?? false,
         primaryPlan: normalizePrimaryPlan(row.primary_plan),
+        ...(row.lifecycle_at ? { primaryPlanLifecycle: {
+          kind: lifecycleKind(row.lifecycle_at, row.lifecycle_will_renew), at: iso(row.lifecycle_at)
+        } } : {}),
+        accessHealth: {
+          status: normalizeAccessHealth(extra?.access_status),
+          ...(extra?.access_checked_at ? { checkedAt: iso(extra.access_checked_at) } : {}),
+          ...(extra?.access_expires_at ? { expiresAt: iso(extra.access_expires_at) } : {}),
+          invalidContextCount: Number(extra?.invalid_context_count ?? 0)
+        },
+        ...(operationByAccount.get(row.id) ? { latestOperation: operationByAccount.get(row.id) } : {}),
+        ...(extra?.account_manager_synced_at ? { lastSyncedAt: iso(extra.account_manager_synced_at) } : {}),
         limitType: normalizeLimitType(row.limit_type),
         workspaceCount: row.workspace_count,
         credentialCount: row.credential_count,
@@ -67,6 +97,21 @@ export class UnifiedProjectionRepository {
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at)
       };
+    });
+  }
+
+  async registrations(filters: AccountListFilters = {}): Promise<AccountRegistrationSummaryView[]> {
+    if (filters.primaryPlan || filters.hasGamBinding === true || filters.hasRunningProfile === true || filters.isBanned === true) return [];
+    const query = filters.query?.trim().toLowerCase();
+    const rows = await sql<any>`select ao.*,g.name group_name
+      from automation_operations ao join account_groups g on g.id=ao.target_group_id
+      where ao.kind='register_account' and ao.account_id is null and ao.status<>'succeeded'
+      order by ao.updated_at desc`.execute(this.db);
+    return rows.rows.flatMap((row) => {
+      const email = text(row.safe_request_summary?.email);
+      if (query && !email?.includes(query) && !String(row.group_name).toLowerCase().includes(query)) return [];
+      return [{ kind: 'registration' as const, id: row.id, ...(email ? { email } : {}),
+        group: { id: row.target_group_id, name: row.group_name }, operation: operationSummary(row) }];
     });
   }
 
@@ -101,6 +146,9 @@ export class UnifiedProjectionRepository {
     const paymentMethods = await this.db.selectFrom('payment_method_summaries').selectAll()
       .where('personal_space_id', '=', base.personal_space_id).orderBy('observed_at', 'desc').execute();
     const operations = await new AutomationOperationRepository(this.db).listForAccount(id);
+    const accessContexts = await sql<any>`select ac.*,w.name workspace_name from account_access_contexts ac
+      left join workspaces w on w.id=ac.workspace_id where ac.account_id=${id}::uuid
+      order by ac.personal_space_id nulls last,w.name nulls last`.execute(this.db);
     return {
       ...summary,
       ...(base.remote_user_id ? { remoteUserId: base.remote_user_id } : {}),
@@ -139,7 +187,8 @@ export class UnifiedProjectionRepository {
         ...(row.expiry_year ? { expYear: row.expiry_year } : {}),
         isDefault: row.is_default
       })),
-      operations
+      operations,
+      accessContexts: accessContexts.rows.map(accessContextHealth)
     };
   }
 
@@ -215,6 +264,34 @@ function workspaceConsistencyRisks(members:any[],invitations:any[],seats:any[],c
   return risks;
 }
 
+function accessContextHealth(row: any): AccountAccessContextHealthView {
+  const expired = row.expires_at && new Date(row.expires_at).getTime() <= Date.now();
+  return { kind: row.personal_space_id ? 'personal' : 'workspace',
+    ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}),
+    status: expired ? 'invalid' : normalizeAccessHealth(row.status),
+    ...(row.checked_at ? { checkedAt: iso(row.checked_at) } : {}),
+    ...(row.expires_at ? { expiresAt: iso(row.expires_at) } : {}) };
+}
+
+function operationSummary(row: any) {
+  return { id: row.id, ...(row.account_id ? { accountId: row.account_id } : {}), type: row.kind,
+    status: normalizeOperationStatus(row.status), phase: row.phase ?? row.status, progress: Number(row.progress ?? 0),
+    ...(row.error_code ? { errorCode: row.error_code } : {}), ...(row.error_message ? { errorMessage: row.error_message } : {}),
+    createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime(),
+    ...(row.completed_at ? { completedAt: new Date(row.completed_at).getTime() } : {}) };
+}
+
+function normalizeOperationStatus(value: string): import('@team-manager/shared').AccountManagerOperationView['status'] {
+  return ['queued','running','waiting_for_otp','waiting_manual','succeeded','failed','interrupted'].includes(value) ? value as any : 'running';
+}
+function normalizeAccessHealth(value?: string): import('@team-manager/shared').AccountAccessHealthStatus {
+  return value && ['valid','invalid','unknown','missing'].includes(value) ? value as any : 'missing';
+}
+function lifecycleKind(at: Date, willRenew: boolean | null): import('@team-manager/shared').AccountLifecycleKind {
+  if (new Date(at).getTime() < Date.now()) return 'expired';
+  return willRenew === true ? 'renews' : willRenew === false ? 'expires' : 'valid_until';
+}
+function text(value: unknown): string | undefined { return typeof value==='string' && value.trim() ? value.trim().toLowerCase() : undefined; }
 async function credentialViews(db: Kysely<Database>, predicate: ReturnType<typeof sql>) {
   const result = await sql<any>`select wc.*,a.email account_email,w.name workspace_name,w.external_id workspace_external_id,cpg.id pool_id,cpg.name pool_name,
     cqs.payload latest_quota,cqs.observed_at quota_observed_at

@@ -18,6 +18,7 @@ import {
 import { DownOutlined, PlusOutlined, UpOutlined } from "@ant-design/icons";
 import type {
   AccountGroupView,
+  AccountRegistrationSummaryView,
   UnifiedAccountSummaryView,
 } from "@team-manager/shared";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -41,12 +42,18 @@ import {
 import {
   PRIMARY_PLAN_OPTIONS,
   accountRemarkLabel,
+  lifecycleLabel,
   actionModalFromParams,
   primaryPlanLabel,
   setAccountActionInParams,
   type AccountActionModal,
   type AccountActionSummary,
 } from "./accountActionsModel.js";
+import { AccountOperationSummary, isActiveOperation } from "./AccountOperationSummary.js";
+import { OperationDrawer } from "../../components/OperationDrawer.js";
+
+type AccountListRow = UnifiedAccountSummaryView | AccountRegistrationSummaryView;
+function isRegistration(row: AccountListRow): row is AccountRegistrationSummaryView { return "kind" in row && row.kind === "registration"; }
 
 const TRI_STATE_FILTERS = [
   ["hasGamBinding", "GAM"],
@@ -60,6 +67,7 @@ export function AccountsPage() {
   const [matchingAccounts, setMatchingAccounts] = useState<
     UnifiedAccountSummaryView[]
   >([]);
+  const [registrations, setRegistrations] = useState<AccountRegistrationSummaryView[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const latestRequest = useRef(0);
@@ -75,9 +83,13 @@ export function AccountsPage() {
     () => selectAccountsByGroup(matchingAccounts, selectedGroupId),
     [matchingAccounts, selectedGroupId],
   );
+  const rows = useMemo<AccountListRow[]>(() => {
+    const pending = selectedGroupId ? registrations.filter((item) => item.group.id === selectedGroupId) : registrations;
+    return [...pending, ...accounts];
+  }, [accounts, registrations, selectedGroupId]);
   const groupCounts = useMemo(
-    () => countAccountsByGroup(matchingAccounts),
-    [matchingAccounts],
+    () => countAccountsByGroup([...matchingAccounts, ...registrations]),
+    [matchingAccounts, registrations],
   );
   const actionAccount = useMemo(
     () =>
@@ -92,13 +104,15 @@ export function AccountsPage() {
     setLoading(true);
     setError("");
     try {
-      const [nextGroups, nextAccounts] = await Promise.all([
+      const [nextGroups, nextAccounts, nextRegistrations] = await Promise.all([
         unifiedApi.groups(),
         unifiedApi.accounts(query),
+        unifiedApi.accountRegistrations(query),
       ]);
       if (requestId === latestRequest.current) {
         setGroups(nextGroups);
         setMatchingAccounts(nextAccounts);
+        setRegistrations(nextRegistrations);
       }
     } catch (cause) {
       if (requestId === latestRequest.current) {
@@ -114,6 +128,11 @@ export function AccountsPage() {
   useEffect(() => {
     void fetchAccounts(new URLSearchParams(accountRequestKey));
   }, [accountRequestKey]);
+  useEffect(() => {
+    if (![...matchingAccounts.map((item) => item.latestOperation), ...registrations.map((item) => item.operation)].some(isActiveOperation)) return;
+    const timer = window.setInterval(load, 5_000);
+    return () => window.clearInterval(timer);
+  }, [matchingAccounts, registrations, accountRequestKey]);
 
   const set = (key: string, value?: string) => {
     const next = new URLSearchParams(params);
@@ -127,27 +146,27 @@ export function AccountsPage() {
   const closeAccountAction = () =>
     setParams(setAccountActionInParams(params));
 
-  const columns: TableColumnsType<UnifiedAccountSummaryView> = [
+  const columns: TableColumnsType<AccountListRow> = [
     {
       title: "账号",
       fixed: "left",
-      width: 250,
+      width: 370,
       render: (_, row) => (
         <div>
           <Space size={8}>
-            <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
-              <Typography.Text strong className="account-email-link">
-                {row.email}
-              </Typography.Text>
-            </Link>
-            {row.isBanned && (
+            {isRegistration(row) ? <Typography.Text strong>{row.email ?? "邮箱分配中"}</Typography.Text> : <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
+              <Typography.Text strong className="account-email-link">{row.email}</Typography.Text>
+            </Link>}
+            {!isRegistration(row) && row.isBanned && (
               <Badge status="error" text="封号" title="人工封号" />
             )}
+            {!isRegistration(row) && row.accessHealth.status === "invalid" && <Badge status="error" text="登录无效" />}
+            {!isRegistration(row) && row.lastError && <Badge status="error" text="同步失败" title={row.lastError} />}
+            {!isRegistration(row) && ["failed", "interrupted"].includes(row.latestOperation?.status ?? "") && <Badge status="error" text="操作失败" />}
           </Space>
           <br />
-          <Typography.Text type="secondary">
-            {accountRemarkLabel(row.remark)}
-          </Typography.Text>
+          <Typography.Text type="secondary">{isRegistration(row) ? "注册中的临时账号" : accountRemarkLabel(row.remark)}</Typography.Text>
+          {(isRegistration(row) ? row.operation : row.latestOperation) && <AccountOperationSummary operation={isRegistration(row) ? row.operation : row.latestOperation!} onOpen={(id) => set("operationId", id)} />}
         </div>
       ),
     },
@@ -156,24 +175,25 @@ export function AccountsPage() {
       title: "主套餐",
       dataIndex: "primaryPlan",
       width: 120,
-      render: (_, row) => (
+      render: (_, row) => isRegistration(row) ? "—" : (
         <Tag color={row.primaryPlan === "free" ? "default" : "blue"}>
           {primaryPlanLabel(row.primaryPlan)}
         </Tag>
       ),
     },
+    { title: "续费/到期", width: 150, render: (_, row) => isRegistration(row) ? "—" : lifecycleLabel(row.primaryPlanLifecycle) },
     {
       title: "能力",
       width: 90,
-      render: (_, row) => row.hasGamBinding && <Tag color="green">GAM</Tag>,
+      render: (_, row) => !isRegistration(row) && row.hasGamBinding && <Tag color="green">GAM</Tag>,
     },
     {
       title: "操作",
       fixed: "right",
       width: 270,
-      render: (_, row: AccountActionSummary) => (
+      render: (_, row) => isRegistration(row) ? <Button size="small" onClick={() => set("operationId", row.operation.id)}>查看进度</Button> : (
         <AccountActionButtons
-          account={row}
+          account={row as AccountActionSummary}
           onOpen={(action) => openAccountAction(row, action)}
           onChanged={load}
         />
@@ -222,7 +242,7 @@ export function AccountsPage() {
               <span className="account-group-option">
                 全部
                 <span className="account-group-count">
-                  {matchingAccounts.length}
+                  {matchingAccounts.length + registrations.length}
                 </span>
               </span>
             </Radio.Button>
@@ -279,13 +299,13 @@ export function AccountsPage() {
         <LoadBoundary
           loading={loading}
           error={error}
-          empty={!accounts.length}
+          empty={!rows.length}
           onRetry={load}
         >
-          <Table<UnifiedAccountSummaryView>
+          <Table<AccountListRow>
             rowKey="id"
-            dataSource={accounts}
-            scroll={{ x: 1000 }}
+            dataSource={rows}
+            scroll={{ x: 1160 }}
             columns={columns}
           />
         </LoadBoundary>
@@ -363,7 +383,14 @@ export function AccountsPage() {
         action={accountAction}
         onClose={closeAccountAction}
         onChanged={load}
+        onOperationCreated={(operation) => {
+          const next = setAccountActionInParams(params);
+          next.set("operationId", operation.id);
+          setParams(next);
+          void load();
+        }}
       />
+      <OperationDrawer operationId={params.get("operationId") ?? undefined} open={Boolean(params.get("operationId"))} onClose={() => set("operationId")} onChanged={load} />
     </Card>
   );
 }

@@ -6,6 +6,28 @@ export type PrimaryPlan = PersonalPlan | 'business_two_seat' | 'business_usage_b
 export type PersonalSubscriptionMode = 'start_new' | 'change_existing';
 export type BusinessSubscriptionMode = 'create_workspace' | 'upgrade_existing_workspace';
 export type NormalizedWorkspaceRole = 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown';
+export type AccountLifecycleKind = 'renews' | 'expires' | 'valid_until' | 'expired';
+export type AccountAccessHealthStatus = 'valid' | 'invalid' | 'unknown' | 'missing';
+
+export interface AccountPlanLifecycleView {
+  kind: AccountLifecycleKind;
+  at: string;
+}
+
+export interface AccountAccessHealthView {
+  status: AccountAccessHealthStatus;
+  checkedAt?: string;
+  expiresAt?: string;
+  invalidContextCount: number;
+}
+
+export interface AccountAccessContextHealthView {
+  kind: 'personal' | 'workspace';
+  workspaceName?: string;
+  status: AccountAccessHealthStatus;
+  checkedAt?: string;
+  expiresAt?: string;
+}
 
 export interface AccountGroupView {
   id: string;
@@ -30,12 +52,24 @@ export interface UnifiedAccountSummaryView {
   isWorkspaceMember: boolean;
   hasWorkspaceCredential: boolean;
   primaryPlan: PrimaryPlan;
+  primaryPlanLifecycle?: AccountPlanLifecycleView;
+  accessHealth: AccountAccessHealthView;
+  latestOperation?: AccountManagerOperationView;
+  lastSyncedAt?: string;
   limitType: AccountLimitType;
   workspaceCount: number;
   credentialCount: number;
   lastError?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AccountRegistrationSummaryView {
+  kind: 'registration';
+  id: string;
+  email?: string;
+  group: Pick<AccountGroupView, 'id' | 'name'>;
+  operation: AccountManagerOperationView;
 }
 
 export interface PersonalSubscriptionSnapshotView {
@@ -292,6 +326,7 @@ export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
   credentials: WorkspaceCredentialView[];
   paymentMethods: PersonalPaymentMethodView[];
   operations: AccountManagerOperationView[];
+  accessContexts: AccountAccessContextHealthView[];
   accountManager?: {
     profile?: AccountManagerProfileView;
     operations: AccountManagerOperationView[];

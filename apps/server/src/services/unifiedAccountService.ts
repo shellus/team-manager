@@ -31,6 +31,8 @@ export class UnifiedAccountService {
     return this.projections.accounts(filters);
   }
 
+  registrations(filters: AccountListFilters) { return this.projections.registrations(filters); }
+
   groups() { return this.projections.groups(); }
 
   async detail(id: string): Promise<UnifiedAccountDetailView> {

@@ -126,6 +126,10 @@ body {
 .tri-state-checkbox-filter > .ant-typography { font-weight: 600; }
 .account-email-link { color: var(--color-primary); }
 .account-action-buttons { min-width: max-content; }
+.account-operation-summary { max-width: 520px; margin-top: 6px; padding: 7px 9px; border-radius: 8px; background: var(--color-control-track-hover); }
+.account-operation-summary.is-error { background: color-mix(in srgb, var(--color-error) 9%, var(--color-bg-shell)); }
+.account-operation-summary .ant-progress { margin: 2px 0 0; }
+.account-operation-summary .ant-typography-danger { display: block; }
 .account-action-form { margin-top: 16px; }
 .account-session-editor { display: block; margin: 16px 0 12px; }
 .responsive-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }

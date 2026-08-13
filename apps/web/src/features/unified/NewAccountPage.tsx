@@ -110,7 +110,7 @@ export function NewAccountPage() {
           rememberRegistration(value);
           try {
             const operation = await unifiedApi.registerAccount(value);
-            navigate(`/operations/registrations/${operation.id}`);
+            navigate(`/accounts?operationId=${encodeURIComponent(operation.id)}`);
           } catch (reason) {
             setError((reason as Error).message);
           }

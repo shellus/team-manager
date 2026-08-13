@@ -40,9 +40,13 @@ import {
   setAccountActionInParams,
   type AccountActionModal,
   type AccountActionSummary,
+  lifecycleLabel,
+  operationStatusLabel,
+  primaryPlanLabel,
 } from "./accountActionsModel.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
+import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
 import { useRememberedForm } from "../../webPreferences.js";
@@ -186,7 +190,7 @@ export function AccountDetailPage() {
                 {
                   key: "overview",
                   label: "概览",
-                  children: <Overview account={account} manager={manager} />,
+                  children: <Overview account={account} manager={manager} openOperation={(id) => setUrl("operationId", id)} />,
                 },
                 {
                   key: "management",
@@ -330,20 +334,30 @@ export function AccountDetailPage() {
 function Overview({
   account,
   manager,
+  openOperation,
 }: {
   account: UnifiedAccountDetailView;
   manager?: AccountManagerStateView;
+  openOperation: (id: string) => void;
 }) {
+  const invalidContexts = account.accessContexts.filter((item) => item.status === "invalid");
   return (
-    <Descriptions
-      bordered
-      column={{ xs: 1, sm: 2 }}
-      items={[
+    <Space direction="vertical" size={16} className="panel-stack">
+      {(account.isBanned || account.lastError || invalidContexts.length > 0) && <Alert type="error" showIcon message="账号需要处理" description={[
+        account.isBanned ? "人工封号" : "",
+        account.lastError,
+        invalidContexts.length ? `${invalidContexts.length} 个登录上下文无效` : "",
+      ].filter(Boolean).join("；")} />}
+      {account.latestOperation && <AccountOperationSummary operation={account.latestOperation} onOpen={openOperation} />}
+      <Descriptions
+        bordered
+        column={{ xs: 1, sm: 2 }}
+        items={[
         { key: "group", label: "分组", children: account.group.name },
         {
           key: "plan",
-          label: "个人套餐",
-          children: <Tag color="blue">{account.personalPlan}</Tag>,
+          label: "主套餐",
+          children: <Space><Tag color="blue">{primaryPlanLabel(account.primaryPlan)}</Tag><Typography.Text type="secondary">{lifecycleLabel(account.primaryPlanLifecycle)}</Typography.Text></Space>,
         },
         {
           key: "gam",
@@ -355,30 +369,24 @@ function Overview({
           label: "Profile",
           children: manager?.profile?.status ?? "未知",
         },
-        {
-          key: "session",
-          label: "Session",
-          children: account.hasSession ? "已保存" : "无",
-        },
-        {
-          key: "cap",
-          label: "可管理空间",
-          children: account.hasManageableWorkspace ? "是" : "否",
-        },
-        {
-          key: "member",
-          label: "普通成员",
-          children: account.isWorkspaceMember ? "是" : "否",
-        },
-        { key: "credential", label: "凭证", children: account.credentialCount },
+        { key: "health", label: "登录健康", children: account.accessHealth.status === "invalid" ? <Tag color="error">无效</Tag> : account.accessHealth.status === "valid" ? <Tag color="success">有效</Tag> : "未验证" },
+        { key: "sync", label: "最近 GAM 同步", children: account.lastSyncedAt ? formatTime(account.lastSyncedAt) : "未同步" },
         { key: "limit", label: "限额类型", children: account.limitType },
         {
           key: "banned",
           label: "人工封号",
           children: account.isBanned ? <Tag color="red">是</Tag> : "否",
         },
-      ]}
-    />
+        ]}
+      />
+      <Table pagination={false} rowKey={(row) => `${row.kind}:${row.workspaceName ?? "personal"}`} dataSource={account.accessContexts}
+        columns={[
+          { title: "登录上下文", render: (_, row) => row.kind === "personal" ? "个人空间" : row.workspaceName ?? "Workspace" },
+          { title: "状态", dataIndex: "status", render: (value) => <Tag color={value === "invalid" ? "error" : value === "valid" ? "success" : "default"}>{value === "invalid" ? "无效" : value === "valid" ? "有效" : "未知"}</Tag> },
+          { title: "检查时间", dataIndex: "checkedAt", render: (value) => value ? formatTime(value) : "—" },
+          { title: "过期时间", dataIndex: "expiresAt", render: (value) => value ? formatTime(value) : "—" },
+        ]} />
+    </Space>
   );
 }
 
@@ -913,9 +921,9 @@ function Operations({
       scroll={{ x: 1000 }}
       columns={[
         { title: "时间", dataIndex: "updatedAt", render: formatTime },
-        { title: "类型", dataIndex: "type" },
-        { title: "状态", dataIndex: "status", render: (v) => <Tag>{v}</Tag> },
-        { title: "阶段", dataIndex: "phase" },
+        { title: "类型", dataIndex: "type", render: operationTypeLabel },
+        { title: "状态", dataIndex: "status", render: (v) => <Tag>{operationStatusLabel(v)}</Tag> },
+        { title: "阶段", dataIndex: "phase", render: readableCode },
         { title: "进度", dataIndex: "progress", render: (v) => `${v ?? 0}%` },
         { title: "错误", dataIndex: "errorMessage" },
         {
@@ -930,6 +938,14 @@ function Operations({
       ]}
     />
   );
+}
+
+function readableCode(value: unknown): string {
+  return String(value ?? "—").replaceAll("_", " ");
+}
+
+function operationTypeLabel(value: string): string {
+  return ({ register_account: "注册账号", change_personal_subscription: "个人套餐", cancel_personal_subscription_renewal: "取消续费", open_business_subscription: "Business 套餐", add_personal_payment_method: "绑定支付方式" } as Record<string, string>)[value] ?? readableCode(value);
 }
 
 function PaymentModal({

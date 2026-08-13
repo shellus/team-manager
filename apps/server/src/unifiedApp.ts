@@ -160,6 +160,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.delete('/account-groups/:id', (c) => wrap(c, () => accounts.deleteGroup(c.req.param('id'))));
 
   api.get('/accounts', (c) => wrap(c, () => accounts.list(accountFilters(c))));
+  api.get('/account-registrations', (c) => wrap(c, () => accounts.registrations(accountFilters(c))));
   api.post('/accounts', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => accounts.create(body));

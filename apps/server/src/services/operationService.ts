@@ -16,7 +16,10 @@ export class OperationService {
 
   async get(id: string): Promise<OperationDetailView> {
     const row = await this.requireRow(id);
-    if (row.external_operation_id && this.manager?.operation && !terminal(row.status)) {
+    if (row.kind === 'register_account' && !row.account_id) {
+      await this.accountManagerService.registration(row.id);
+    }
+    if (row.kind !== 'register_account' && row.external_operation_id && this.manager?.operation && !terminal(row.status)) {
       const remote = await this.manager.operation(row.external_operation_id);
       await this.#operations.updateFromExternal(row.id, remote, row.account_id ?? undefined);
     }

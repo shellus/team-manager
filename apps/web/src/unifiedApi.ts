@@ -1,5 +1,6 @@
 import type {
   AccountActivityView,
+  AccountRegistrationSummaryView,
   AccountGroupView,
   AccountManagerStateView,
   AccountManagerOperationView,
@@ -99,6 +100,7 @@ export const unifiedApi = {
   deleteGroup: (id: string) => request<AccountGroupView[]>('DELETE', `/account-groups/${id}`),
   reorderGroups: (ids: string[]) => request<AccountGroupView[]>('PUT', '/account-groups/order', { ids }),
   accounts: (query: URLSearchParams) => request<UnifiedAccountSummaryView[]>('GET', `/accounts?${query}`),
+  accountRegistrations: (query: URLSearchParams) => request<AccountRegistrationSummaryView[]>('GET', `/account-registrations?${query}`),
   account: (id: string) => request<UnifiedAccountDetailView>('GET', `/accounts/${id}`),
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),
   updateAccount: (id: string, body: Record<string, unknown>) => request<UnifiedAccountDetailView>('PATCH', `/accounts/${id}`, body),

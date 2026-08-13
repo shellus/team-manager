@@ -31,7 +31,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -66,7 +66,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const billingOwner = await createPlanAccount('primary-billing');
       await db.insertInto('personal_subscription_snapshots').values({
         personal_space_id: paidOwner.personalSpace.id, normalized_plan: 'plus', raw_plan_code: 'chatgptplusplan',
-        status: 'active', will_renew: true, effective_at: null, ends_at: null, payload: {}, observed_at: new Date()
+        status: 'active', will_renew: true, effective_at: null, ends_at: new Date('2030-02-03T00:00:00Z'), payload: {}, observed_at: new Date()
       }).execute();
       const fixedWorkspace = await workspaces.upsert({ externalId: 'primary-fixed', normalizedPlan: 'business' });
       const usageWorkspace = await workspaces.upsert({ externalId: 'primary-usage', normalizedPlan: 'business_usage_based' });
@@ -106,6 +106,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(plans.get(removedMember.account.id), 'free', 'removed Membership 不参与判定');
       assert.equal(plans.get(inactiveMember.account.id), 'free', 'inactive Workspace 不参与判定');
       assert.equal(plans.get(billingOwner.account.id), 'business_two_seat', '固定席位账单证据优先于 usage-based Workspace plan');
+      const paidLifecycle = await db.selectFrom('account_operational_summaries').select(['primary_plan','lifecycle_at','lifecycle_will_renew']).where('account_id','=',paidOwner.account.id).executeTakeFirstOrThrow();
+      assert.equal(paidLifecycle.primary_plan,'plus');assert.equal(new Date(paidLifecycle.lifecycle_at!).toISOString(),'2030-02-03T00:00:00.000Z');assert.equal(paidLifecycle.lifecycle_will_renew,true);
       assert.deepEqual((await accounts.list({ primaryPlan: 'team_member' })).map((item) => item.email).sort(),
         ['member@example.com', 'primary-admin@example.com', 'primary-member@example.com']);
 
@@ -145,6 +147,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(primaryPlanAccounts[0].personalPlan, undefined, '列表摘要不暴露个人套餐事实字段');
       assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
+      assert.equal(typeof primaryPlanAccounts[0].accessHealth.status, 'string');
       assert.equal((await app.request('/api/accounts?personalPlan=pro_5x', { headers })).status, 400,
         '旧列表筛选不做静默兼容');
       assert.equal((await app.request('/api/parents', { headers })).status, 404);
@@ -183,6 +186,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
 
       const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-payment-methods`,{method:'POST',headers,body:JSON.stringify({country:'US',currency:'USD',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}})});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
+      const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
+      await accounts.update(first.account.id,{displayName:'Visible Operator'});const displaySearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await displaySearch.json() as any).data[0].id,first.account.id);
 
       const operationRow = await db.selectFrom('automation_operations').select('id').where('external_operation_id', '=', 'business-operation').executeTakeFirstOrThrow();
       assert.equal((await app.request(`/api/operations/${operationRow.id}`, { headers })).status, 200);
