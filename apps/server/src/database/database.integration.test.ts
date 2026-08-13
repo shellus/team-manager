@@ -17,6 +17,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TeamOrderService } from '../services/teamOrderService.js';
+import { NotificationService } from '../services/notificationService.js';
 
 const adminUrl = process.env.TEAMMGR_TEST_ADMIN_DATABASE_URL;
 
@@ -28,7 +29,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
 
@@ -113,6 +114,17 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const artifactId=await artifactIndexes.save('rrweb',{fileName:'recording.json.gz',content:Buffer.from('raw-rrweb'),recordedAt:new Date('2020-01-01')});
       const artifactService=new ArtifactService(db,artifactStore,artifactRoot);await artifactService.markDelete('rrweb',artifactId,1);
       assert.equal((await artifactService.cleanup(new Date(Date.now()+1000))).removed,1);
+
+      const orphan=await artifactStore.writeImmutable('traces','orphan.json',Buffer.from('{"raw":"orphan"}'));const orphanDiscoveredAt=new Date('2031-01-01T00:00:00Z');
+      assert.equal((await artifactService.cleanup(orphanDiscoveredAt)).discovered,1);assert.equal((await artifactService.list('orphan'))[0].status,'pending_delete');assert.deepEqual(await artifactStore.read(orphan.storageKey,orphan.contentSha256),Buffer.from('{"raw":"orphan"}'));
+      assert.equal((await artifactService.cleanup(new Date('2031-01-02T01:00:00Z'))).removed,1);assert.equal((await artifactService.list('orphan'))[0].status,'deleted');await assert.rejects(()=>artifactStore.read(orphan.storageKey,orphan.contentSha256));
+
+      const policy=await db.insertInto('notification_policies').values({kind:'reliable-test',enabled:true,configuration:{webhookUrl:'https://notify.test'}}).returning('id').executeTakeFirstOrThrow();const notifications=new NotificationService(db,async()=>new Response('{}',{status:500}));const rawPayload={type:'test',secret:'raw-unredacted'};
+      await assert.rejects(()=>notifications.send('reliable-test',rawPayload));const delivery=await db.selectFrom('notification_deliveries').selectAll().where('policy_id','=',policy.id).executeTakeFirstOrThrow();await assert.rejects(()=>notifications.retry(delivery.id));await assert.rejects(()=>notifications.retry(delivery.id));
+      const finalDeliveries=await db.selectFrom('notification_deliveries').selectAll().where('policy_id','=',policy.id).execute();assert.equal(finalDeliveries.length,1);assert.equal(finalDeliveries[0].attempt_count,3);assert.equal(finalDeliveries[0].status,'exhausted');assert.deepEqual(finalDeliveries[0].payload,rawPayload);
+
+      for(const [status,email] of [['member','member-expiry@example.com'],['invited','invited-expiry@example.com'],['empty',null],['unknown','unknown-expiry@example.com'],['disabled','disabled-expiry@example.com']] as const)await db.insertInto('seat_slots').values({workspace_id:workspace.id,seat_key:`reminder-${status}`,remote_user_id:null,current_email:email,normalized_current_email:email,contact:null,remark:null,price:null,expires_on:'2032-01-05',expire_reminder:true,expire_remove:false,seat_type:'default',status}).execute();
+      let reminderItems:Record<string,unknown>[]=[];const reminderService=new SeatSlotService(db,{} as any,{} as any,{notifySeatExpiry:async(items:Record<string,unknown>[])=>(reminderItems=items)} as any);const reminderResult=await reminderService.runExpirations(new Date('2032-01-01T00:00:00Z'));assert.equal(reminderResult.reminders,2);assert.deepEqual(reminderItems.map(item=>item.email).sort(),['invited-expiry@example.com','member-expiry@example.com']);
     } finally { await db.destroy(); }
   } finally {
     await admin.query(`drop database if exists ${quoteIdentifier(databaseName)} with (force)`).catch(() => undefined);

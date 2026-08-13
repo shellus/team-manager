@@ -55,7 +55,9 @@ export class SeatSlotService {
 
   async runExpirations(now = new Date()) {
     const today = now.toISOString().slice(0, 10); const reminderEnd = new Date(now.getTime()+7*86400_000).toISOString().slice(0,10);
-    const reminders=await this.db.selectFrom('seat_slots').selectAll().where('expire_reminder','=',true).where('expires_on','>=',today).where('expires_on','<=',reminderEnd).execute();
+    const reminders=await this.db.selectFrom('seat_slots').selectAll().where('expire_reminder','=',true)
+      .where('status','in',['invited','member']).where('current_email','is not',null)
+      .where('expires_on','>=',today).where('expires_on','<=',reminderEnd).execute();
     const reminderKey=`seat-expiry-reminder:${today}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
     if(reminders.length&&!already){await this.notifications?.notifySeatExpiry(reminders.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})));await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:reminders.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();}
     const rows = await this.db.selectFrom('seat_slots').selectAll().where('expires_on', '<', today).execute();

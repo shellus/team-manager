@@ -341,7 +341,24 @@ export interface NotificationPolicyTable extends AuditedTable {
 
 export interface NotificationDeliveryTable {
   id: Generated<string>; policy_id: string; status: string; safe_summary: JsonObject;
-  error_message: string | null; delivered_at: NullableTimestamp; created_at: Generated<Timestamp>;
+  payload: JsonObject; error_message: string | null; delivered_at: NullableTimestamp;
+  attempt_count: Generated<number>; max_attempts: Generated<number>;
+  next_retry_at: NullableTimestamp; last_attempt_at: NullableTimestamp;
+  created_at: Generated<Timestamp>;
+}
+
+export interface ArtifactOrphanTable {
+  id: Generated<string>;
+  storage_key: string;
+  content_sha256: string;
+  byte_size: number;
+  status: string;
+  discovered_at: Timestamp;
+  delete_after: Timestamp;
+  deleted_at: NullableTimestamp;
+  metadata: JsonObject;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface AccountActivityLogTable {
@@ -425,6 +442,7 @@ export interface Database {
   system_settings: SystemSettingTable;
   notification_policies: NotificationPolicyTable;
   notification_deliveries: NotificationDeliveryTable;
+  artifact_orphans: ArtifactOrphanTable;
   account_activity_logs: AccountActivityLogTable;
   codex_oauth_sessions: CodexOauthSessionTable;
   team_order_configurations: TeamOrderConfigurationTable;
