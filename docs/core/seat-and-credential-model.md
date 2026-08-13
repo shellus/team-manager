@@ -34,6 +34,22 @@
 
 完整卡号和 CVC 只在当前请求内交给 GAM；Team Manager 只保存品牌、尾号、有效期、默认标记和安全操作摘要。
 
+## 账号运营主套餐
+
+账号运营主套餐是列表使用的单一运营称呼，不是 `Account`、`PersonalSpace`、`Workspace` 或 `WorkspaceMembership` 上的新事实字段。它由普通 PostgreSQL View `account_operational_summaries` 查询时投影，不缓存或双写回账号表。
+
+投影只使用各关系的最新有效事实，按以下优先级返回第一个命中值：
+
+1. 个人空间当前付费套餐：Go、Plus、Pro 5x、Pro 20x；
+2. 账号以 owner 身份管理的活动双席位 Workspace；
+3. 账号以 owner 身份管理的活动 0.52 Workspace；
+4. 账号存在活动 Workspace Membership，且所有活动关系都不是 owner：Team 子号；
+5. Free。
+
+证据不足时返回 `unknown`，不得把未知伪装成 Free。Workspace Invitation、已移除关系和非活动 Workspace 不参与投影。admin 在授权和“拥有可管理空间”能力中仍属于管理员，但在主套餐称呼中不是 owner，因此满足其他条件时归为 Team 子号；账号同时存在 owner 和非 owner 活动关系时，不归为 Team 子号。
+
+“双席位”和“0.52”只描述活动 owner Workspace 的运营套餐信号；完整 Workspace 套餐、角色和来源仍由各自事实对象表达。账号列表只展示并筛选主套餐，不额外展开其来源或命中原因，详情页继续展示个人空间和 Workspace 的完整事实。
+
 ## Session 与访问上下文
 
 账号完整 Web Session 使用不可变 `AccountSessionRevision` 保存，并在应用层加密。Access Token 按以下上下文隔离：

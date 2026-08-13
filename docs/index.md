@@ -10,4 +10,5 @@ Team Manager 使用统一账号模型：所有受管 ChatGPT 登录身份都是�
 - [Team 升级订单维护](./guide/team-order-maintenance)
 - [凭证号池填充](./guide/fill-credential-pool)
 - [状态与排错](./guide/status-and-errors)
+- [账号运营主套餐和共享操作计划](./plans/account-operational-primary-plan-and-actions)
 - [统一账号与 PostgreSQL 重构实施台账](./plans/unified-account-postgresql-refactor)

@@ -72,6 +72,14 @@ _Avoid_: 账号分组、Workspace 分组
 账号个人空间首次开通或变更 Go、Plus、Pro 5x、Pro 20x 的统一操作。目标套餐、当前套餐和生效方式必须由上游确认。
 _Avoid_: Pro 5x 专用开通、Business 开通
 
+**账号运营主套餐（Account Operational Primary Plan）**:
+根据账号个人空间和活动 Workspace 成员关系给出的单一运营称呼。它用于账号列表展示和筛选，不改变个人套餐、Workspace 套餐或成员关系事实。
+_Avoid_: 账号套餐、缓存套餐、账号类型
+
+**Team 子号**:
+账号运营主套餐的一种称呼，表示账号存在活动 Workspace 成员关系，但所有活动关系都不是 owner。admin 也属于此称呼；它不表示账号类型或从属关系。
+_Avoid_: 子账号类型、Workspace 所有者、普通成员角色
+
 **Business 开通**:
 为账号创建新的 Business Workspace，或把账号可管理的既有 Workspace 升级为 Business 的操作。
 _Avoid_: 增加成员、个人套餐变更、Workspace 设置

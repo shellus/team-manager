@@ -8,6 +8,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 2. [`CONTEXT.md`](./CONTEXT.md)：统一领域术语。
 3. [`docs/core/seat-and-credential-model.md`](./docs/core/seat-and-credential-model.md)：账号、Workspace、席位和凭证规则。
 4. [`docs/plans/unified-account-postgresql-refactor.md`](./docs/plans/unified-account-postgresql-refactor.md)：本次重构实施与验收台账。
+5. [`docs/plans/account-operational-primary-plan-and-actions.md`](./docs/plans/account-operational-primary-plan-and-actions.md)：账号运营主套餐和共享操作实施计划。
 
 开始和结束任务时检查 `git status --short --branch`。
 
@@ -95,6 +96,7 @@ corepack pnpm --filter @team-manager/server db:migrate
 - [使用手册](./docs/guide/)
 - [账号、Workspace、席位与凭证模型](./docs/core/seat-and-credential-model.md)
 - [PostgreSQL 数据模型](./docs/dev-spec/data-model.md)
+- [账号运营主套餐和共享操作计划](./docs/plans/account-operational-primary-plan-and-actions.md)
 - [Team 升级订单维护](./docs/guide/team-order-maintenance.md)
 - [凭证号池填充](./docs/guide/fill-credential-pool.md)
 - [ChatGPT Web 协议样本](./docs/dev-spec/chatgpt-backend-api/README.md)
