@@ -19,7 +19,7 @@ import type {
   AccountGroupView,
   UnifiedAccountSummaryView,
 } from "@team-manager/shared";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { unifiedApi } from "../../unifiedApi.js";
 import {
   LoadBoundary,
@@ -32,6 +32,19 @@ import {
   selectAccountsByGroup,
   showsBannedAccounts,
 } from "./accountListModel.js";
+import {
+  AccountActionButtons,
+  AccountActionModals,
+} from "./AccountActions.js";
+import {
+  PRIMARY_PLAN_OPTIONS,
+  accountRemarkLabel,
+  actionModalFromParams,
+  primaryPlanLabel,
+  setAccountActionInParams,
+  type AccountActionModal,
+  type AccountActionSummary,
+} from "./accountActionsModel.js";
 
 const BOOL_FILTERS = [
   ["hasManageableWorkspace", "可管理空间"],
@@ -53,6 +66,8 @@ export function AccountsPage() {
   const [error, setError] = useState("");
   const latestRequest = useRef(0);
   const modal = params.get("modal");
+  const accountAction = actionModalFromParams(params);
+  const actionAccountId = params.get("actionAccountId");
   const selectedGroupId = params.get("groupId") ?? undefined;
   const showBanned = showsBannedAccounts(params);
   const accountRequestQuery = accountListRequestQuery(params);
@@ -65,6 +80,13 @@ export function AccountsPage() {
   const groupCounts = useMemo(
     () => countAccountsByGroup(matchingAccounts),
     [matchingAccounts],
+  );
+  const actionAccount = useMemo(
+    () =>
+      matchingAccounts.find((account) => account.id === actionAccountId) as
+        | AccountActionSummary
+        | undefined,
+    [actionAccountId, matchingAccounts],
   );
 
   const fetchAccounts = async (query: URLSearchParams) => {
@@ -100,6 +122,12 @@ export function AccountsPage() {
     value ? next.set(key, value) : next.delete(key);
     setParams(next);
   };
+  const openAccountAction = (
+    account: Pick<UnifiedAccountSummaryView, "id">,
+    action: AccountActionModal,
+  ) => setParams(setAccountActionInParams(params, action, account.id));
+  const closeAccountAction = () =>
+    setParams(setAccountActionInParams(params));
 
   const columns: TableColumnsType<UnifiedAccountSummaryView> = [
     {
@@ -108,21 +136,27 @@ export function AccountsPage() {
       width: 250,
       render: (_, row) => (
         <div>
-          <Typography.Text strong>{row.email}</Typography.Text>
+          <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
+            <Typography.Text strong className="account-email-link">
+              {row.email}
+            </Typography.Text>
+          </Link>
           <br />
           <Typography.Text type="secondary">
-            {row.displayName ?? row.remark ?? "—"}
+            {accountRemarkLabel(row.remark)}
           </Typography.Text>
         </div>
       ),
     },
     { title: "分组", dataIndex: ["group", "name"], width: 140 },
     {
-      title: "套餐",
-      dataIndex: "personalPlan",
-      width: 110,
-      render: (value) => (
-        <Tag color={value === "free" ? "default" : "blue"}>{value}</Tag>
+      title: "主套餐",
+      dataIndex: "primaryPlan",
+      width: 120,
+      render: (_, row: AccountActionSummary) => (
+        <Tag color={(row.primaryPlan ?? row.personalPlan) === "free" ? "default" : "blue"}>
+          {primaryPlanLabel(row.primaryPlan, row.personalPlan)}
+        </Tag>
       ),
     },
     {
@@ -145,6 +179,17 @@ export function AccountsPage() {
       dataIndex: "hasGamBinding",
       width: 100,
       render: (value) => (value ? "已关联" : "未关联"),
+    },
+    {
+      title: "操作",
+      fixed: "right",
+      width: 270,
+      render: (_, row: AccountActionSummary) => (
+        <AccountActionButtons
+          account={row}
+          onOpen={(action) => openAccountAction(row, action)}
+        />
+      ),
     },
   ];
 
@@ -216,12 +261,10 @@ export function AccountsPage() {
           />
           <Select
             allowClear
-            placeholder="个人套餐"
-            value={params.get("personalPlan") ?? undefined}
-            onChange={(value) => set("personalPlan", value)}
-            options={["free", "go", "plus", "pro_5x", "pro_20x", "unknown"].map(
-              (value) => ({ value, label: value }),
-            )}
+            placeholder="主套餐"
+            value={params.get("primaryPlan") ?? undefined}
+            onChange={(value) => set("primaryPlan", value)}
+            options={[...PRIMARY_PLAN_OPTIONS]}
           />
           {BOOL_FILTERS.map(([key, label]) => (
             <TriStateSelect
@@ -254,11 +297,7 @@ export function AccountsPage() {
           <Table<UnifiedAccountSummaryView>
             rowKey="id"
             dataSource={accounts}
-            scroll={{ x: 1200 }}
-            onRow={(row) => ({
-              onClick: () => navigate(`/accounts/${row.id}`),
-              style: { cursor: "pointer" },
-            })}
+            scroll={{ x: 1480 }}
             columns={columns}
           />
         </LoadBoundary>
@@ -331,6 +370,12 @@ export function AccountsPage() {
           </Form>
         </Space>
       </Modal>
+      <AccountActionModals
+        account={actionAccount}
+        action={accountAction}
+        onClose={closeAccountAction}
+        onChanged={load}
+      />
     </Card>
   );
 }

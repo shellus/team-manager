@@ -36,7 +36,16 @@ import {
   type CredentialPoolGroupView,
   type PersonalSpaceDetailView,
 } from "../../unifiedApi.js";
-import { SubscriptionModal } from "./SubscriptionModal.js";
+import {
+  AccountActionButtons,
+  AccountActionModals,
+} from "./AccountActions.js";
+import {
+  actionModalFromParams,
+  setAccountActionInParams,
+  type AccountActionModal,
+  type AccountActionSummary,
+} from "./accountActionsModel.js";
 import {
   JsonViewer,
   LoadBoundary,
@@ -108,6 +117,7 @@ export function AccountDetailPage() {
   };
   const tab = params.get("tab") ?? "overview";
   const modal = params.get("modal");
+  const accountAction = actionModalFromParams(params);
   const selectedOperation = useMemo(
     () =>
       mergeOperations(
@@ -119,6 +129,15 @@ export function AccountDetailPage() {
   const setUrl = (key: string, value?: string) => {
     const next = new URLSearchParams(params);
     value ? next.set(key, value) : next.delete(key);
+    setParams(next);
+  };
+  const openAccountAction = (action: AccountActionModal) =>
+    setParams(setAccountActionInParams(params, action, account?.id));
+  const closeAccountAction = () =>
+    setParams(setAccountActionInParams(params));
+  const showCreatedOperation = (operation: AccountManagerOperationView) => {
+    const next = setAccountActionInParams(params);
+    next.set("operationId", operation.id);
     setParams(next);
   };
   return (
@@ -144,9 +163,11 @@ export function AccountDetailPage() {
               description={`账号 · ${account.group.name}`}
               actions={
                 <>
-                  <Button onClick={() => setUrl("modal", "subscription")}>
-                    套餐操作
-                  </Button>
+                  <AccountActionButtons
+                    account={account as AccountActionSummary}
+                    profileStatus={manager?.profile?.status}
+                    onOpen={openAccountAction}
+                  />
                   <Button
                     danger
                     onClick={() =>
@@ -300,14 +321,17 @@ export function AccountDetailPage() {
               ]}
             />
           </Card>
-          <SubscriptionModal
-            accountId={account.id}
-            currentPlan={account.personalPlan}
-            open={modal === "subscription"}
-            onClose={() => {
-              setUrl("modal");
-              void load();
-            }}
+          <AccountActionModals
+            account={
+              {
+                ...account,
+                profileStatus: manager?.profile?.status,
+              } as AccountActionSummary
+            }
+            action={accountAction}
+            onClose={closeAccountAction}
+            onChanged={load}
+            onOperationCreated={showCreatedOperation}
           />
           <PaymentModal
             open={modal === "payment"}
@@ -414,31 +438,6 @@ function Management({
         >
           同步 GAM 与 Workspace
         </Button>
-        <Button
-          disabled={!account.gamAccountRef}
-          loading={busy === "start"}
-          onClick={() =>
-            run("start", () => unifiedApi.startProfile(account.id))
-          }
-        >
-          启动 Profile
-        </Button>
-        <Button
-          disabled={!account.gamAccountRef}
-          loading={busy === "stop"}
-          onClick={() => run("stop", () => unifiedApi.stopProfile(account.id))}
-        >
-          停止 Profile
-        </Button>
-        <Button
-          disabled={!account.gamAccountRef}
-          loading={busy === "session"}
-          onClick={() =>
-            run("session", () => unifiedApi.importGamSession(account.id))
-          }
-        >
-          从 GAM 更新 Session
-        </Button>
       </Space>
       <Descriptions
         bordered
@@ -468,46 +467,6 @@ function Management({
           },
         ]}
       />
-      <Form
-        layout="vertical"
-        initialValues={manager?.proxy}
-        onFinish={(value) =>
-          run("proxy", () =>
-            unifiedApi.configureProxy(account.id, {
-              sid: value.sid,
-              country: value.country,
-              asn: value.asn || null,
-              state: value.state || null,
-              city: value.city || null,
-            }),
-          )
-        }
-      >
-        <div className="responsive-form-grid">
-          <Form.Item name="sid" label="代理 SID" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="country" label="国家" rules={[{ required: true }]}>
-            <Input maxLength={2} />
-          </Form.Item>
-          <Form.Item name="asn" label="ASN">
-            <Input />
-          </Form.Item>
-          <Form.Item name="state" label="州/省">
-            <Input />
-          </Form.Item>
-          <Form.Item name="city" label="城市">
-            <Input />
-          </Form.Item>
-        </div>
-        <Button
-          htmlType="submit"
-          loading={busy === "proxy"}
-          disabled={!account.gamAccountRef}
-        >
-          保存 GAM 代理
-        </Button>
-      </Form>
     </Space>
   );
 }
@@ -523,13 +482,6 @@ function AccountSettings({
   busy: string;
   run: (k: string, a: () => Promise<unknown>) => Promise<void>;
 }) {
-  const [session, setSession] = useState("");
-  const [sessionLoaded, setSessionLoaded] = useState(false);
-  const loadSession = async () => {
-    const value = await unifiedApi.accountSession(account.id);
-    setSession(JSON.stringify(value, null, 2));
-    setSessionLoaded(true);
-  };
   return (
     <Space direction="vertical" size={20} className="panel-stack">
       <Form
@@ -581,41 +533,6 @@ function AccountSettings({
           保存账号资料
         </Button>
       </Form>
-      <section>
-        <Typography.Title level={4}>完整 ChatGPT Session</Typography.Title>
-        <Space direction="vertical" className="panel-stack">
-          <Alert
-            type="info"
-            showIcon
-            message="这是管理员调试入口，读取和保存完整 Session，不做脱敏。"
-          />
-          {!sessionLoaded ? (
-            <Button onClick={() => void loadSession()}>读取完整 Session</Button>
-          ) : (
-            <>
-              <Input.TextArea
-                value={session}
-                onChange={(e) => setSession(e.target.value)}
-                autoSize={{ minRows: 10, maxRows: 30 }}
-                className="raw-json"
-              />
-              <Button
-                type="primary"
-                onClick={() =>
-                  run("save-session", () =>
-                    unifiedApi.updateAccountSession(
-                      account.id,
-                      JSON.parse(session),
-                    ),
-                  )
-                }
-              >
-                保存完整 Session
-              </Button>
-            </>
-          )}
-        </Space>
-      </section>
     </Space>
   );
 }
@@ -660,9 +577,6 @@ function PersonalPanel({
           }
         >
           刷新个人空间
-        </Button>
-        <Button type="primary" onClick={() => open("subscription")}>
-          开通或变更套餐
         </Button>
         <Button
           onClick={() =>

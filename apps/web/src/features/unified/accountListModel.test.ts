@@ -14,7 +14,7 @@ const account = (id: string, groupId: string) => ({
 describe("account list filters", () => {
   test("defaults to hiding banned accounts and leaves group selection to the UI", () => {
     const params = new URLSearchParams(
-      "groupId=group-a&query=alice&modal=groups",
+      "groupId=group-a&query=alice&modal=session&actionAccountId=account-1&operationId=op-1",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
@@ -25,11 +25,11 @@ describe("account list filters", () => {
 
   test("showBanned removes the banned-state restriction", () => {
     const params = new URLSearchParams(
-      "showBanned=true&groupId=group-a&isBanned=false&personalPlan=plus",
+      "showBanned=true&groupId=group-a&isBanned=false&primaryPlan=plus",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
-      "personalPlan=plus",
+      "primaryPlan=plus",
     );
     expect(showsBannedAccounts(params)).toBe(true);
   });

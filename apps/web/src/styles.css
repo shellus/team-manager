@@ -122,6 +122,11 @@ body {
   background: color-mix(in srgb, var(--color-primary) 12%, var(--color-bg-shell));
 }
 .show-banned-filter { min-height: 32px; padding-inline: 4px; align-items: center; }
+.account-email-link { color: var(--color-primary); }
+.account-action-buttons { min-width: max-content; }
+.account-action-form { margin-top: 16px; }
+.account-action-submit { margin-top: 16px; }
+.account-session-editor { display: block; margin: 16px 0 12px; }
 .responsive-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
 .switch-grid { display: flex; flex-wrap: wrap; gap: 0 24px; }
 .switch-grid .ant-form-item { min-width: 180px; }
@@ -142,6 +147,7 @@ body {
   .page-header > .ant-space { width: 100%; }
   .filter-bar > .ant-input-group-wrapper, .filter-bar > .ant-select { width: 100% !important; }
   .show-banned-filter { min-height: 40px; }
+  .account-action-buttons .ant-btn { min-height: 36px; }
   .ant-tabs-nav-wrap { overflow-x: auto; }
 }
 
@@ -163,6 +169,7 @@ body {
 @media (pointer: coarse) {
   .account-group-selector .ant-radio-button-wrapper { height: 44px; line-height: 42px; }
   .show-banned-filter { min-height: 44px; }
+  .account-action-buttons .ant-btn { min-height: 44px; }
 }
 
 .global-alert {

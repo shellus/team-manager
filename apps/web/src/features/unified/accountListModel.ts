@@ -10,6 +10,8 @@ export function accountListRequestQuery(
   const query = new URLSearchParams(params);
   query.delete("groupId");
   query.delete("modal");
+  query.delete("actionAccountId");
+  query.delete("operationId");
   query.delete(SHOW_BANNED_PARAM);
   query.delete("isBanned");
   if (!showsBannedAccounts(params)) query.set("isBanned", "false");
