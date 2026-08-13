@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
-import { ChatGptApi } from '../chatgptApi.js';
+import { ChatGptApi, ChatGptApiError } from '../chatgptApi.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 import { BillingRepository } from '../repositories/billingRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
@@ -36,10 +36,15 @@ export class PersonalSpaceService {
     }
     if (resources.includes('settings')) {
       const me = await api.getMe(); const remoteUserId = typeof me.id === 'string' ? me.id : undefined;
+      const [profile, notifications] = await Promise.all([
+        remoteUserId ? captureUpstream(() => api.getPersonalProfile(remoteUserId)) : Promise.resolve(undefined),
+        captureUpstream(() => api.getNotificationSettings())
+      ]);
       const payload = {
         me,
-        ...(remoteUserId ? { profile: await api.getPersonalProfile(remoteUserId) } : {}),
-        notifications: await api.getNotificationSettings()
+        ...(profile !== undefined ? { profile } : {}),
+        notifications,
+        memory: { readable: false, reason: '上游仅验证了 PATCH 写入协议；GET 实测返回 405' }
       };
       await this.db.insertInto('personal_setting_snapshots').values({ personal_space_id: personalSpaceId, payload, observed_at: observedAt }).execute();
     }
@@ -92,3 +97,13 @@ export class PersonalSpaceService {
 }
 function snapshot(row: { payload: Record<string, unknown>; observed_at: unknown }) { return { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString() }; }
 function normalizePlan(value: string): 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown' { const key = value.toLowerCase(); if (key.includes('prolite')) return 'pro_5x'; if (key.includes('pro')) return 'pro_20x'; if (key.includes('plus')) return 'plus'; if (key.includes('go')) return 'go'; if (key.includes('free')) return 'free'; return 'unknown'; }
+async function captureUpstream<T extends Record<string, unknown>>(action: () => Promise<T>): Promise<T | { error: Record<string, unknown> }> {
+  try { return await action(); }
+  catch (error) {
+    if (error instanceof ChatGptApiError) {
+      return { error: { name: error.name, message: error.message, status: error.status, context: error.context, body: error.body } };
+    }
+    const value = error as Error;
+    return { error: { name: value?.name ?? 'Error', message: value?.message ?? String(error), stack: value?.stack } };
+  }
+}

@@ -114,8 +114,21 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}`);
   }
 
-  syncAccount(accountId: string): Promise<ManagedAccountSummary> {
-    return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
+  async syncAccount(accountId: string): Promise<ManagedAccountSummary> {
+    const operation = toOperation(await this.request<RawOperation>(
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {}
+    ));
+    const deadline = Date.now() + 5 * 60_000;
+    let current = operation;
+    while (!['succeeded', 'failed', 'interrupted'].includes(current.status)) {
+      if (Date.now() >= deadline) throw new AccountManagerError(504, 'GAM 账号同步超时');
+      await wait(1_000);
+      current = await this.operation(operation.id);
+    }
+    if (current.status !== 'succeeded') {
+      throw new AccountManagerError(502, current.errorMessage || `GAM 账号同步失败：${current.status}`);
+    }
+    return this.account(accountId);
   }
 
   async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
@@ -218,4 +231,8 @@ function normalizeOperationStatus(status: string): AccountManagerOperationStatus
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

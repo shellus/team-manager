@@ -166,7 +166,11 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   });
   api.get('/accounts/:id', (c) => wrap(c, () => accounts.detail(c.req.param('id'))));
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
-  api.put('/accounts/:id/session', async (c) => { const body=await c.req.json(); return wrap(c, () => accounts.replaceSession(c.req.param('id'), body)); });
+  api.put('/accounts/:id/session', async (c) => {
+    const body = await c.req.json().catch(() => undefined) as { session?: unknown } | undefined;
+    if (!body || !Object.hasOwn(body, 'session')) return c.json({ ok: false, error: '缺少 session' }, 400);
+    return wrap(c, () => accounts.replaceSession(c.req.param('id'), body.session));
+  });
   api.patch('/accounts/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => accounts.update(c.req.param('id'), body));
@@ -228,11 +232,11 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     }));
   });
   api.post('/accounts/:accountId/workspaces/:workspaceId/credentials/pat', async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { name?: string; ttl?: number; poolGroup?: string };
+    const body = await c.req.json().catch(() => ({})) as { name?: string; ttl?: number; poolGroupId?: string };
     return wrap(c, () => credentials.createPat(c.req.param('accountId'), c.req.param('workspaceId'), body));
   });
   api.post('/accounts/:accountId/workspaces/:workspaceId/credentials/oauth', async (c) => wrap(c, () => credentials.startOauth(c.req.param('accountId'), c.req.param('workspaceId'))));
-  api.put('/credentials/oauth/:sessionId', async (c) => { const body=await c.req.json().catch(()=>({})) as any; return wrap(c,()=>credentials.completeOauth(c.req.param('sessionId'),body.callbackUrl,body.poolGroup)); });
+  api.put('/credentials/oauth/:sessionId', async (c) => { const body=await c.req.json().catch(()=>({})) as {callbackUrl?:string;poolGroupId?:string}; if(!body.callbackUrl)return c.json({ok:false,error:'缺少 callbackUrl'},400); return wrap(c,()=>credentials.completeOauth(c.req.param('sessionId'),body.callbackUrl!,body.poolGroupId)); });
   api.get('/credentials/:credentialId/content', (c) => wrap(c, () => credentials.content(c.req.param('credentialId'))));
   api.get('/credentials/:credentialId/download', (c) => wrap(c, () => credentials.content(c.req.param('credentialId'))));
   api.put('/credentials/:credentialId/content', async (c) => { const body=await c.req.json().catch(()=>({})); return wrap(c,()=>credentials.replace(c.req.param('credentialId'),body)); });

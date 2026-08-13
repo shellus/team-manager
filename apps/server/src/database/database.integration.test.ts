@@ -80,6 +80,12 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const sessionResponse = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
       assert.equal(sessionResponse.status, 200);
       assert.equal((await sessionResponse.json() as any).data.accessToken, 'secret');
+      const replaceSession = await app.request(`/api/accounts/${first.account.id}/session`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret' } })
+      });
+      assert.equal(replaceSession.status, 200, await replaceSession.clone().text());
+      assert.equal((await replaceSession.json() as any).data.accessToken, 'replacement-secret');
       const syncResponse = await app.request(`/api/accounts/${first.account.id}/sync`, { method: 'POST', headers });
       assert.equal(syncResponse.status, 200);
       assert.equal((await db.selectFrom('personal_subscription_snapshots').selectAll().where('personal_space_id', '=', first.personalSpace.id).execute()).length, 1);
@@ -88,6 +94,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(personal.status, 200, await personal.clone().text());
       const personalOperationId=(await personal.clone().json() as any).data.id;assert.match(personalOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${personalOperationId}`,{headers})).status,200);
       const stored = await db.selectFrom('automation_operations').selectAll().where('external_operation_id', '=', 'personal-operation').executeTakeFirstOrThrow();
+      assert.equal(stored.id,personalOperationId);assert.equal(stored.progress,0);
       assert.equal(JSON.stringify(stored).includes('4242424242424242'), false);
       assert.equal(JSON.stringify(stored).includes('123'), false);
 
