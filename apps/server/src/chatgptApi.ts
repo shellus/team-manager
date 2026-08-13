@@ -4,6 +4,7 @@ import { fetchWithRawTrace, type Transport } from './transport.js';
 
 interface AccountFingerprint { deviceId?: string; sessionId?: string; userAgent?: string }
 interface BillingRaw extends Record<string, unknown> { invoices: unknown; upcomingInvoice: unknown; paymentMethods: unknown; billingInfo: unknown; seatTypeCounts: unknown }
+interface PersonalBillingRaw extends Record<string, unknown> { invoices: unknown; paymentMethods: unknown; billingInfo: unknown }
 
 const OAUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const OAUTH_CLIENT_ID = 'app_2SKx67EdpoN0G6j64rFvigXD';
@@ -383,6 +384,16 @@ export class ChatGptApi {
       `/backend-api/accounts/${this.account.accountId}/users/seat_type_counts`
     );
     return { invoices, upcomingInvoice, paymentMethods, billingInfo, seatTypeCounts };
+  }
+
+  async getPersonalBillingSnapshotRaw(): Promise<PersonalBillingRaw> {
+    const personalAccountId = encodeURIComponent(this.account.accountId);
+    const [invoices, paymentMethods, billingInfo] = await Promise.all([
+      this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${personalAccountId}`),
+      this.request<unknown>('GET', `/backend-api/payments/payment_methods?account_id=${personalAccountId}`),
+      this.request<unknown>('GET', `/backend-api/payments/billing_info?account_id=${personalAccountId}`)
+    ]);
+    return { invoices, paymentMethods, billingInfo };
   }
 
   async hasTeamSubscription(): Promise<boolean> {

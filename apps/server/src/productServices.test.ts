@@ -7,6 +7,7 @@ import { createCodexAuthSession } from './codexAuth.js';
 import { TeamCodeClient } from './teamCodeClient.js';
 import { NotificationService } from './services/notificationService.js';
 import { teamOrderScheduledFor } from './services/teamOrderService.js';
+import { ChatGptApi } from './chatgptApi.js';
 
 test('Codex OAuth 会话使用 PKCE 且固定回调', () => {
   const session=createCodexAuthSession('account@example.com');const url=new URL(session.authUrl);
@@ -23,6 +24,16 @@ test('ArtifactStore 保持原始正文并校验哈希', async () => {
 
 test('TeamCode 未配置时明确拒绝生成', async () => {
   const client=new TeamCodeClient();await assert.rejects(()=>client.generateOrder({account:{email:'a@example.com',accountId:'w',accessToken:'t'},workspaceName:'W',config:{promoCode:'',country:'US',currency:'USD'}}),/尚未配置/);
+});
+
+test('个人账单只请求个人账号支持的三类接口', async () => {
+  const paths:string[]=[];const transport={fetch:async(request:any)=>{paths.push(request.path);return{status:200,body:'{}'};}};
+  await new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport).getPersonalBillingSnapshotRaw();
+  assert.deepEqual(paths.sort(),[
+    '/backend-api/invoices?limit=10&account_id=personal-account',
+    '/backend-api/payments/billing_info?account_id=personal-account',
+    '/backend-api/payments/payment_methods?account_id=personal-account'
+  ]);
 });
 
 test('手动 Team 订单立即执行，仅定时维护采用错峰', () => {

@@ -28,7 +28,7 @@ export class PersonalSpaceService {
       }).execute();
     }
     if (resources.includes('billing')) {
-      const payload = await api.getBillingSnapshotRaw();
+      const payload = await api.getPersonalBillingSnapshotRaw();
       await this.#billing.saveSnapshot({ kind: 'personal', personalSpaceId }, payload, observedAt);
     }
     if (resources.includes('quota')) {
