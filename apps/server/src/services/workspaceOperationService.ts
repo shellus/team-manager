@@ -165,18 +165,23 @@ export class WorkspaceOperationService {
     return {workspace:await this.refreshMembers(workspaceId, executorAccountId),summary};
   }
 
-  async setMemberSeat(workspaceId: string, executorAccountId: string, remoteUserId: string, seat: SeatType) {
+  async updateMemberStatus(workspaceId: string, executorAccountId: string, remoteUserId: string, input: { seat?: SeatType; role?: EditableMemberRole }) {
+    if (!input.seat && !input.role) throw new ServiceError(400, '没有可更新的成员状态');
     const { api } = await this.context(workspaceId, executorAccountId);
-    await api.setMemberSeat(remoteUserId, seat);
-    await this.activity(executorAccountId,workspaceId,'workspace_member_seat_changed',{remoteUserId,seat});
-    return this.refreshMembers(workspaceId, executorAccountId);
-  }
-
-  async setMemberRole(workspaceId: string, executorAccountId: string, remoteUserId: string, role: EditableMemberRole) {
-    const { api } = await this.context(workspaceId, executorAccountId);
-    await api.setMemberRole(remoteUserId, role);
-    await this.activity(executorAccountId,workspaceId,'workspace_member_role_changed',{remoteUserId,role});
-    return this.refreshMembers(workspaceId, executorAccountId);
+    const member = input.seat ? await this.db.selectFrom('workspace_memberships').select('normalized_email')
+      .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
+      .where('status', '=', 'active').executeTakeFirst() : undefined;
+    if (input.role) await api.setMemberRole(remoteUserId, input.role);
+    if (input.seat) await api.setMemberSeat(remoteUserId, input.seat);
+    await this.activity(executorAccountId,workspaceId,'workspace_member_status_changed',{remoteUserId,...input});
+    const result = await this.refreshMembers(workspaceId, executorAccountId);
+    if (input.seat) {
+      await this.db.updateTable('seat_slots').set({ seat_type: input.seat })
+        .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId).execute();
+      if (member?.normalized_email) await this.db.updateTable('seat_slots').set({ seat_type: input.seat })
+        .where('workspace_id', '=', workspaceId).where('normalized_current_email', '=', member.normalized_email).execute();
+    }
+    return result;
   }
 
   async rename(workspaceId: string, executorAccountId: string, name: string) {

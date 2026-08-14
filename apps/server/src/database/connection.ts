@@ -1,6 +1,8 @@
 import { Kysely, PostgresDialect } from 'kysely';
-import { Pool, type PoolConfig } from 'pg';
+import { Pool, types, type PoolConfig } from 'pg';
 import type { Database } from './schema.js';
+
+types.setTypeParser(1082, (value) => value);
 
 export interface DatabaseConnectionOptions {
   connectionString: string;

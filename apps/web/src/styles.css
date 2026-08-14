@@ -729,6 +729,38 @@ body {
   gap: 2px;
 }
 
+.member-list-toolbar {
+  width: 100%;
+}
+
+.member-list-toolbar > .ant-space-item:first-child {
+  margin-inline-end: auto;
+}
+
+.workspace-person-cell {
+  gap: 5px;
+}
+
+.workspace-person-line {
+  min-width: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-person-line.secondary {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.workspace-person-line .ant-btn-link {
+  height: 24px;
+  padding: 0;
+}
+
 .profile-cell {
   align-items: flex-start;
   gap: 4px;

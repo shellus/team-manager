@@ -17,8 +17,8 @@ describe("account workspace model", () => {
     expect(resolveAccountWorkspaceId(workspaces, "second")).toBe("second");
   });
 
-  it("切换 Workspace 时清理子列表分页并保留子标签", () => {
-    const input = new URLSearchParams("tab=workspaces&workspaceTab=billing&peoplePage=4&credentialsPage=2&modal=unused&operationId=old");
+  it("切换 Workspace 时清理凭证分页和弹窗状态并保留子标签", () => {
+    const input = new URLSearchParams("tab=workspaces&workspaceTab=billing&credentialsPage=2&modal=unused&personId=old&operationId=old");
     expect(selectAccountWorkspaceParams(input, "second").toString()).toBe(
       "tab=workspaces&workspaceTab=billing&workspaceId=second",
     );

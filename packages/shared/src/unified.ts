@@ -212,6 +212,12 @@ export interface SeatSlotMutationInput {
   status?: 'empty' | 'invited' | 'member' | 'disabled' | 'unknown';
 }
 
+export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationInput, 'contact' | 'remark' | 'price' | 'expiresOn' | 'expireRemove'> {
+  email: string;
+  seat: SeatType;
+  role?: string;
+}
+
 export interface CredentialPoolGroupView {
   id: string;
   name: string;

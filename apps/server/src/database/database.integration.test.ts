@@ -238,6 +238,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
 
       const unauthorizedSlot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:outsider.account.id,email: 'customer@example.com', seatType: 'usage_based' }) });
       assert.equal(unauthorizedSlot.status,409,'普通成员不能维护客户资料');
+      const invitedWithTenant=new SeatSlotService(db,{invite:async(_workspaceId:string,_executorId:string,input:any)=>{await db.insertInto('workspace_invitations').values({workspace_id:workspace.id,account_id:null,remote_invitation_id:'tenant-invite',email:input.email,normalized_email:input.email.toLowerCase(),raw_role:input.role??'standard-user',normalized_role:'member',seat_type:input.seat,status:'pending',invited_at:new Date(),observed_at:new Date()}).execute();}} as any);
+      await invitedWithTenant.invite(workspace.id,first.account.id,{email:'tenant-invite@example.com',seat:'usage_based',role:'standard-user',contact:'tenant-contact',remark:'tenant-remark',price:'52',expiresOn:'2032-08-14'});
+      const invitedTenantSlot=await db.selectFrom('seat_slots').selectAll().where('workspace_id','=',workspace.id).where('normalized_current_email','=','tenant-invite@example.com').executeTakeFirstOrThrow();
+      assert.equal(invitedTenantSlot.status,'invited');assert.equal(invitedTenantSlot.contact,'tenant-contact');assert.equal(invitedTenantSlot.remark,'tenant-remark');assert.equal(invitedTenantSlot.price,'52');assert.equal(invitedTenantSlot.expires_on,'2032-08-14');
       await db.updateTable('workspace_memberships').set({remote_user_id:'owner-remote',email:first.account.email,normalized_email:first.account.email,seat_type:'default'})
         .where('workspace_id','=',workspace.id).where('account_id','=',first.account.id).where('status','=','active').execute();
       const slot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:first.account.id,email: first.account.email, seatType: 'usage_based', contact: 'contact', expiresOn: '2030-01-01' }) });

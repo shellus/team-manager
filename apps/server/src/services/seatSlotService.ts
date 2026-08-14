@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import type { SeatSlotMutationInput, SeatType } from '@team-manager/shared';
+import type { SeatSlotMutationInput, SeatType, WorkspaceInvitationMutationInput } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 import { SeatSlotRepository } from '../repositories/seatSlotRepository.js';
@@ -21,6 +21,26 @@ export class SeatSlotService {
     this.#repository = new SeatSlotRepository(db);
     this.#activity = new ActivityLogRepository(db);
     this.#workspaces = new WorkspaceRepository(db);
+  }
+
+  async invite(workspaceId: string, executorAccountId: string, input: WorkspaceInvitationMutationInput) {
+    await this.requireManageableBy(workspaceId, executorAccountId);
+    const existing = await this.db.selectFrom('seat_slots').selectAll()
+      .where('workspace_id', '=', workspaceId)
+      .where('normalized_current_email', '=', normalizeEmail(input.email)).executeTakeFirst();
+    if (existing && ['member', 'invited'].includes(existing.status)) throw new ServiceError(409, '该邮箱已有生效中的客户资料');
+    await this.workspaceOperations.invite(workspaceId, executorAccountId, {
+      email: input.email, seat: input.seat, role: input.role
+    });
+    const hasCustomerData = [input.contact, input.remark, input.price, input.expiresOn]
+      .some((value) => typeof value === 'string' && value.trim()) || input.expireRemove === true;
+    const customerInput: SeatSlotMutationInput = {
+      email: input.email, seatType: input.seat, contact: input.contact, remark: input.remark,
+      price: input.price, expiresOn: input.expiresOn, expireRemove: input.expireRemove
+    };
+    if (existing) await this.update(workspaceId, existing.id, executorAccountId,
+      hasCustomerData ? customerInput : { email: input.email, seatType: input.seat });
+    else if (hasCustomerData) await this.create(workspaceId, executorAccountId, customerInput);
   }
 
   async create(workspaceId: string, executorAccountId: string, input: SeatSlotMutationInput) {

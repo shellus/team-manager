@@ -26,6 +26,7 @@ import type {
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
+  WorkspaceInvitationMutationInput,
   WorkspaceMemberRemovalResult,
   WorkspaceOperationalOverviewView,
   SeatOperationalOverviewView,
@@ -144,7 +145,7 @@ export const unifiedApi = {
   refreshWorkspacePeople: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/people/refresh`, { executorAccountId }),
   refreshWorkspaceSettings: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/settings/refresh`, { executorAccountId }),
   renameWorkspace: (id: string, executorAccountId: string, name: string) => request<unknown>('PATCH', `/workspaces/${id}`, { executorAccountId, name }),
-  invite: (id: string, body: Record<string, unknown>) => request<unknown>('POST', `/workspaces/${id}/invitations`, body),
+  invite: (id: string, body: WorkspaceInvitationMutationInput & { executorAccountId: string }) => request<unknown>('POST', `/workspaces/${id}/invitations`, body),
   revokeInvitation: (id: string, executorAccountId: string, email: string) =>
     request<unknown>('DELETE', `/workspaces/${id}/invitations`, {
       executorAccountId,

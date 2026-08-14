@@ -22,13 +22,11 @@ export type AccountWorkspacePersonRow = {
 };
 
 const CHILD_QUERY_KEYS = [
-  "peoplePage",
-  "peoplePageSize",
   "credentialsPage",
   "credentialsPageSize",
   "modal",
   "operationId",
-  "seatSlotId",
+  "personId",
 ];
 
 export function resolveAccountWorkspaceId(

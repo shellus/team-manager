@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -25,6 +25,7 @@ import type {
   WorkspaceDetailView,
   WorkspaceMemberRemovalResult,
   SeatSlotView,
+  WorkspaceInvitationMutationInput,
 } from "@team-manager/shared";
 import { unifiedApi, type SeatSlotInput } from "../../unifiedApi.js";
 import { BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
@@ -162,7 +163,7 @@ export function AccountWorkspacePanel({
           {
             key: "members",
             label: `成员 (${accountWorkspacePeople(workspace).length})`,
-            children: <PeoplePanel workspace={workspace} accountId={account.id} canManage={canManage} loading={loading} busy={busy} lastRemoval={lastRemoval} setLastRemoval={setLastRemoval} run={run} modal={params.get("modal")} seatSlotId={params.get("seatSlotId")} setParams={setPanelParams} />,
+            children: <PeoplePanel workspace={workspace} accountId={account.id} canManage={canManage} loading={loading} busy={busy} lastRemoval={lastRemoval} setLastRemoval={setLastRemoval} run={run} modal={params.get("modal")} personId={params.get("personId")} setParams={setPanelParams} />,
           },
           {
             key: "billing",
@@ -199,7 +200,7 @@ function PeoplePanel({
   setLastRemoval,
   run,
   modal,
-  seatSlotId,
+  personId,
   setParams,
 }: {
   workspace?: WorkspaceDetailView;
@@ -211,73 +212,68 @@ function PeoplePanel({
   setLastRemoval: (value: WorkspaceMemberRemovalResult["summary"]) => void;
   run: (key: string, action: () => Promise<unknown>) => Promise<boolean>;
   modal: string | null;
-  seatSlotId: string | null;
+  personId: string | null;
   setParams: (values: Record<string, string | undefined>) => void;
 }) {
   const rows = useMemo(() => accountWorkspacePeople(workspace), [workspace]);
-  const pagination = useUrlPagination({ total: rows.length, pageKey: "peoplePage", pageSizeKey: "peoplePageSize" });
   if (!workspace) return <LoadingEmpty loading={loading} />;
-  const selectedSeatSlot = workspace.seatSlots.find((slot) => slot.id === seatSlotId);
-  const selectedPerson = rows.find((row) => row.rowKey === seatSlotId || row.seatSlot?.id === seatSlotId);
+  const selectedPerson = rows.find((row) => row.rowKey === personId);
+  const selectedSeatSlot = selectedPerson?.seatSlot;
   const refresh = () => run("people-refresh", () => unifiedApi.refreshWorkspacePeople(workspace.id, accountId));
+  const closeModal = () => setParams({ modal: undefined, personId: undefined });
+  const saveStatus = async (value:MemberStatusValues) => {
+    if(selectedPerson?.kind==="member") {
+      await unifiedApi.patchMember(workspace.id,selectedPerson.remoteUserId!,{...value,executorAccountId:accountId});
+      return;
+    }
+    await unifiedApi.updateSeatSlot(workspace.id,selectedSeatSlot!.id,accountId,{seatType:value.seat});
+  };
   return (
     <Space direction="vertical" className="panel-stack">
-      <Space wrap>
-        <Typography.Text type="secondary">关系快照：{formatTime(latestTime(rows.map((row) => row.observedAt).filter((value): value is string => Boolean(value))))}</Typography.Text>
-        <Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "people-refresh"} onClick={() => void refresh()}>刷新成员与邀请</Button>
+      <Space wrap className="member-list-toolbar">
+        <Typography.Text type="secondary">最后刷新：{formatTime(latestTime(rows.map((row) => row.observedAt).filter((value): value is string => Boolean(value))))}</Typography.Text>
+        <Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "people-refresh"} onClick={() => void refresh()}>刷新成员</Button>
+        <Button type="primary" disabled={!canManage} onClick={() => setParams({ modal: "invite", personId: undefined })}>邀请成员</Button>
       </Space>
       {!canManage && <Alert type="info" showIcon message="当前账号不是 Workspace 所有者或管理员，空间级操作已禁用。" />}
       {lastRemoval && <Alert type={lastRemoval.hasBillingNotice ? "warning" : "info"} showIcon message={`最近移除成员：${lastRemoval.email ?? lastRemoval.remoteUserId}`} description={removalSummaryText(lastRemoval)} />}
-      <InviteForm disabled={!canManage} busy={busy === "invite"} onFinish={(value) => run("invite", () => unifiedApi.invite(workspace.id, { ...value, executorAccountId: accountId }))} />
       <Table<AccountWorkspacePersonRow>
         rowKey="rowKey"
         dataSource={rows}
-        pagination={pagination}
-        scroll={{ x: 1450 }}
+        pagination={false}
+        scroll={{ x: 980 }}
         columns={[
-          { title: "成员 / 邀请", render: (_, row) => <div>{row.email ?? (row.kind === "member" ? row.accountEmail ?? row.remoteUserId : "—")}<br/><Typography.Text type="secondary">{row.kind === "member" ? row.displayName ?? row.remoteUserId : row.kind === "invitation" ? "等待接受邀请" : "仅保留客户资料"}</Typography.Text></div> },
-          { title: "关系", render: (_, row) => <Tag color={row.kind === "member" ? "green" : row.kind === "invitation" ? "blue" : "default"}>{row.kind === "member" ? "成员" : row.kind === "invitation" ? "邀请中" : "未关联资料"}</Tag> },
-          { title: "角色", dataIndex: "role", render: (value) => value ? roleLabel(value) : "—" },
-          { title: "席位", dataIndex: "seatType", render: seatLabel },
-          { title: "联系方式", render: (_, row) => row.seatSlot?.contact ?? "—" },
-          { title: "备注", render: (_, row) => row.seatSlot?.remark ?? "—" },
-          { title: "价格", render: (_, row) => row.seatSlot?.price ?? "—" },
-          { title: "到期", render: (_, row) => row.seatSlot?.expiresOn ? <Space direction="vertical" size={1}><span>{row.seatSlot.expiresOn}</span><Typography.Text type="secondary">到期提醒 · {row.seatSlot.expireRemove ? "到期后移除远端关系" : "到期后停用资料"}</Typography.Text></Space> : "—" },
-          { title: "快照时间", dataIndex: "observedAt", render: formatTime },
+          { title: "成员", width: 290, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark ?? "暂无备注"} /> },
+          { title: "状态", width: 310, render: (_, row) => <TwoLineCell primary={<Space size={[4, 4]} wrap><Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag>{row.role && <Tag>{roleLabel(row.role)}</Tag>}<Tag>{seatLabel(row.seatType)}</Tag></Space>} secondary={canManage && canEditStatus(row) ? <Button type="link" size="small" onClick={() => setParams({ modal: "status", personId: row.rowKey })}>编辑状态</Button> : "状态来自远端关系"} /> },
+          { title: "租客信息", width: 300, render: (_, row) => <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
           {
             title: "操作",
             fixed: "right",
-            render: (_, row) => <Space wrap>
-              <Button size="small" disabled={!canManage || (!row.email && !row.seatSlot)} onClick={() => setParams({ seatSlotId: row.seatSlot?.id ?? row.rowKey, modal: "customer-data" })}>{row.seatSlot ? "编辑资料" : "添加资料"}</Button>
-              {row.seatSlot && row.seatSlot.status !== "empty" && <Button size="small" disabled={!canManage} onClick={() => Modal.confirm({ title: "释放客户资料占用？", content: ["member", "invited"].includes(row.seatSlot!.status) ? "会移除对应成员或撤销邀请，并保留联系方式、备注、价格和到期设置。" : "会清空失效的邮箱关联，并保留联系方式、备注、价格和到期设置。", okText: "释放占用", onOk: () => run(`release-${row.seatSlot!.id}`, () => unifiedApi.releaseSeatSlot(workspace.id, row.seatSlot!.id, accountId)) })}>释放占用</Button>}
-              {row.seatSlot?.status === "empty" && <Button size="small" danger disabled={!canManage} onClick={() => Modal.confirm({ title: "删除空置客户资料？", content: "联系方式、备注、价格和到期设置会被删除。", okText: "删除资料", onOk: () => run(`delete-seat-${row.seatSlot!.id}`, () => unifiedApi.deleteSeatSlot(workspace.id, row.seatSlot!.id, accountId)) })}>删除资料</Button>}
-              {row.kind === "invitation" ? (
-                <Button size="small" danger disabled={!canManage} onClick={() => void run(`revoke-${row.id}`, () => unifiedApi.revokeInvitation(workspace.id, accountId, row.email!))}>撤销邀请</Button>
-              ) : row.kind === "member" ? (
-              <Space wrap>
-                <Select size="small" value={row.role} disabled={!canManage || !row.remoteUserId} onChange={(role) => void run(`role-${row.id}`, () => unifiedApi.patchMember(workspace.id, row.remoteUserId!, { executorAccountId: accountId, role }))} options={editableMemberRoleOptions(row.rawRole ?? row.role!)} />
-                <Select size="small" value={row.seatType} disabled={!canManage || !row.remoteUserId} onChange={(seat) => void run(`seat-${row.id}`, () => unifiedApi.patchMember(workspace.id, row.remoteUserId!, { executorAccountId: accountId, seat }))} options={[{ value: "default", label: "ChatGPT" }, { value: "usage_based", label: "Codex" }]} />
-                <Button size="small" danger disabled={!canManage || !row.remoteUserId} onClick={() => Modal.confirm({ title: "移除成员？", content: "成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。", onOk: () => run(`remove-${row.id}`, async () => { const result = await unifiedApi.removeMember(workspace.id, row.remoteUserId!, accountId); setLastRemoval(result.summary); }) })}>移除</Button>
-              </Space>
-              ) : null}
-            </Space>,
+            width: 120,
+            render: (_, row) => <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />,
           },
         ]}
       />
-      <CustomerDataModal
-        open={modal === "customer-data"}
+      <TenantDataModal
+        open={modal === "tenant" && Boolean(selectedPerson)}
         workspaceId={workspace.id}
         initial={selectedSeatSlot}
         person={selectedPerson}
-        busy={busy === "customer-data"}
-        onClose={() => setParams({ modal: undefined, seatSlotId: undefined })}
-        onSubmit={(value) => run("customer-data", () => selectedSeatSlot ? unifiedApi.updateSeatSlot(workspace.id, selectedSeatSlot.id, accountId, value) : unifiedApi.createSeatSlot(workspace.id, accountId, value))}
+        busy={busy === "tenant"}
+        onClose={closeModal}
+        onSubmit={(value) => run("tenant", () => selectedSeatSlot ? unifiedApi.updateSeatSlot(workspace.id, selectedSeatSlot.id, accountId, value) : unifiedApi.createSeatSlot(workspace.id, accountId, value))}
       />
+      <MemberStatusModal open={modal === "status" && Boolean(selectedPerson)} person={selectedPerson} busy={busy === "status"} onClose={closeModal} onSubmit={(value) => run("status", () => saveStatus(value))} />
+      <InviteMemberModal open={modal === "invite"} busy={busy === "invite"} onClose={closeModal} onSubmit={(value) => run("invite", () => unifiedApi.invite(workspace.id, { ...value, executorAccountId: accountId }))} />
     </Space>
   );
 }
 
-function CustomerDataModal({ open, workspaceId, initial, person, busy, onClose, onSubmit }: {
+type TenantDataValues = Pick<SeatSlotInput, "contact" | "remark" | "price" | "expiresOn" | "expireRemove">;
+type MemberStatusValues = { role?: string; seat: "default" | "usage_based" };
+type InviteMemberValues = WorkspaceInvitationMutationInput;
+
+function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, onSubmit }: {
   open: boolean;
   workspaceId: string;
   initial?: SeatSlotView;
@@ -288,32 +284,101 @@ function CustomerDataModal({ open, workspaceId, initial, person, busy, onClose, 
 }) {
   const email = initial?.email ?? person?.email ?? person?.accountEmail;
   const seatType = initial?.seatType ?? person?.seatType ?? "usage_based";
-  const hasRemoteRelation = person?.kind === "member" || person?.kind === "invitation";
-  return <Modal title={initial ? "编辑客户资料" : "添加客户资料"} open={open} onCancel={onClose} footer={null} destroyOnHidden>
-    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ email, contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireRemove: initial?.expireRemove ?? false, seatType }} onFinish={async (value) => { if (await onSubmit(value)) onClose(); }} disabled={busy}>
+  return <Modal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose} footer={null} destroyOnHidden>
+    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues) => { if (await onSubmit({ ...tenantDataInput(value), email, seatType })) onClose(); }} disabled={busy}>
       <Descriptions size="small" bordered column={1} items={[{ key: "email", label: "关联邮箱", children: email ?? "—" }]} />
-      <div className="responsive-form-grid">
-        <Form.Item name="contact" label="联系方式"><Input /></Form.Item>
-        <Form.Item name="price" label="价格"><Input /></Form.Item>
-        <Form.Item name="expiresOn" label="到期日" extra="设置到期日后自动参与到期提醒；清空后不提醒。"><Input type="date" /></Form.Item>
-        {hasRemoteRelation ? <Form.Item label="席位类型"><Input value={seatLabel(seatType)} disabled /></Form.Item> : <Form.Item name="seatType" label="席位类型"><Select options={[{ value: "usage_based", label: "Codex" }, { value: "default", label: "ChatGPT" }]} /></Form.Item>}
-      </div>
-      <Form.Item name="remark" label="备注"><Input.TextArea rows={3} /></Form.Item>
-      <Form.Item name="expireRemove" label="到期后自动移除远端关系" valuePropName="checked" extra="关闭时，到期后只停用本地客户资料。"><Switch /></Form.Item>
-      <Form.Item name="email" hidden><Input /></Form.Item>
-      <Button type="primary" htmlType="submit" loading={busy}>保存客户资料</Button>
+      <TenantDataFields />
+      <Button type="primary" htmlType="submit" loading={busy}>保存租客信息</Button>
     </Form>
   </Modal>;
 }
 
-function InviteForm({ disabled, busy, onFinish }: { disabled: boolean; busy: boolean; onFinish: (value: Record<string, unknown>) => Promise<boolean> }) {
-  return <Form layout="inline" onFinish={onFinish} initialValues={{ role: "standard-user", seat: "usage_based" }}>
-    <Form.Item name="email" rules={[{ required: true, type: "email" }]}><Input placeholder="邀请邮箱" /></Form.Item>
-    <Form.Item name="role"><Select style={{ width: 150 }} options={editableMemberRoleOptions("standard-user")} /></Form.Item>
-    <Form.Item name="seat"><Select style={{ width: 150 }} options={[{ value: "usage_based", label: "Codex 席位" }, { value: "default", label: "ChatGPT 席位" }]} /></Form.Item>
-    <Button htmlType="submit" disabled={disabled} loading={busy}>发送邀请</Button>
-  </Form>;
+function TenantDataFields() {
+  return <>
+    <div className="responsive-form-grid">
+      <Form.Item name="contact" label="联系方式"><Input /></Form.Item>
+      <Form.Item name="price" label="价格"><Input /></Form.Item>
+      <Form.Item name="expiresOn" label="到期日" extra="设置到期日后自动参与到期提醒；清空后不提醒。"><Input type="date" /></Form.Item>
+    </div>
+    <Form.Item name="remark" label="备注"><Input.TextArea rows={3} /></Form.Item>
+    <Form.Item name="expireRemove" label="到期后自动移除远端关系" valuePropName="checked" extra="关闭时，到期后只停用本地租客资料。"><Switch /></Form.Item>
+  </>;
 }
+
+function MemberStatusModal({ open, person, busy, onClose, onSubmit }: {
+  open:boolean;
+  person?:AccountWorkspacePersonRow;
+  busy:boolean;
+  onClose:()=>void;
+  onSubmit:(value:MemberStatusValues)=>Promise<boolean>;
+}) {
+  const currentRole=person?.rawRole??person?.role??"standard-user";
+  return <Modal title="编辑状态" open={open} onCancel={onClose} footer={null} destroyOnHidden>
+    <Form key={person?.rowKey??"status"} layout="vertical" initialValues={{role:currentRole,seat:person?.seatType??"usage_based"}} onFinish={async(value:MemberStatusValues)=>{if(await onSubmit(value))onClose();}} disabled={busy}>
+      <Descriptions size="small" bordered column={1} items={[{key:"relation",label:"关系",children:person?relationLabel(person.kind):"—"}]} />
+      {person?.kind==="member"&&<Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions(currentRole)} /></Form.Item>}
+      <Form.Item name="seat" label="席位"><Select options={[{value:"usage_based",label:"Codex 席位"},{value:"default",label:"ChatGPT 席位"}]} /></Form.Item>
+      <Button type="primary" htmlType="submit" loading={busy}>保存状态</Button>
+    </Form>
+  </Modal>;
+}
+
+function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boolean;onClose:()=>void;onSubmit:(value:InviteMemberValues)=>Promise<boolean>}) {
+  return <Modal title="邀请成员" open={open} onCancel={onClose} footer={null} destroyOnHidden>
+    <Form layout="vertical" initialValues={{role:"standard-user",seat:"usage_based",expireRemove:false}} onFinish={async(value:InviteMemberValues)=>{if(await onSubmit({...value,...inviteTenantDataInput(value)}))onClose();}} disabled={busy}>
+      <Form.Item name="email" label="账号邮箱" rules={[{required:true,type:"email",message:"请输入有效邮箱"}]}><Input /></Form.Item>
+      <div className="responsive-form-grid">
+        <Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions("standard-user")} /></Form.Item>
+        <Form.Item name="seat" label="席位"><Select options={[{value:"usage_based",label:"Codex 席位"},{value:"default",label:"ChatGPT 席位"}]} /></Form.Item>
+      </div>
+      <Typography.Title level={5}>租客信息</Typography.Title>
+      <TenantDataFields />
+      <Button type="primary" htmlType="submit" loading={busy}>发送邀请</Button>
+    </Form>
+  </Modal>;
+}
+
+function TwoLineCell({primary,secondary}:{primary:ReactNode;secondary:ReactNode}) {
+  return <div className="table-main-cell workspace-person-cell"><div className="workspace-person-line">{primary}</div><div className="workspace-person-line secondary">{secondary}</div></div>;
+}
+
+function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}:{
+  row:AccountWorkspacePersonRow;
+  canManage:boolean;
+  workspaceId:string;
+  accountId:string;
+  run:(key:string,action:()=>Promise<unknown>)=>Promise<boolean>;
+  setLastRemoval:(value:WorkspaceMemberRemovalResult["summary"])=>void;
+}) {
+  if(!canManage)return <Typography.Text type="secondary">—</Typography.Text>;
+  if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>Modal.confirm({title:"删除空置租客资料？",content:"联系方式、备注、价格和到期设置会被删除。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
+  if(row.seatSlot)return <Button size="small" danger onClick={()=>Modal.confirm({title:"释放租客占用？",content:["member","invited"].includes(row.seatSlot!.status)?"会移除对应成员或撤销邀请，并保留租客信息。":"会清空失效的邮箱关联，并保留租客信息。",okText:"释放占用",onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>释放占用</Button>;
+  if(row.kind==="invitation")return <Button size="small" danger onClick={()=>Modal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销邀请",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销邀请</Button>;
+  if(row.kind==="member"&&row.remoteUserId)return <Button size="small" danger onClick={()=>Modal.confirm({title:"移除成员？",content:"成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。",okText:"移除成员",onOk:()=>run(`remove-${row.id}`,async()=>{const result=await unifiedApi.removeMember(workspaceId,row.remoteUserId!,accountId);setLastRemoval(result.summary);})})}>移除成员</Button>;
+  return <Typography.Text type="secondary">—</Typography.Text>;
+}
+
+function tenantDataInput(value: TenantDataValues): TenantDataValues {
+  return {
+    contact: optionalText(value.contact), remark: optionalText(value.remark), price: optionalText(value.price),
+    expiresOn: optionalText(value.expiresOn), expireRemove: value.expireRemove === true
+  };
+}
+function inviteTenantDataInput(value: TenantDataValues): TenantDataValues {
+  const contact = optionalText(value.contact), remark = optionalText(value.remark);
+  const price = optionalText(value.price), expiresOn = optionalText(value.expiresOn);
+  return {
+    ...(contact ? { contact } : {}), ...(remark ? { remark } : {}), ...(price ? { price } : {}),
+    ...(expiresOn ? { expiresOn } : {}), expireRemove: value.expireRemove === true
+  };
+}
+function optionalText(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
+function personAccount(row: AccountWorkspacePersonRow) { return row.email ?? row.accountEmail ?? row.remoteUserId ?? "空置租客资料"; }
+function relationLabel(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "成员" : kind === "invitation" ? "邀请中" : "未关联"; }
+function relationColor(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "green" : kind === "invitation" ? "blue" : "default"; }
+function canEditStatus(row: AccountWorkspacePersonRow) { return (row.kind === "member" && Boolean(row.remoteUserId)) || (row.kind === "customer" && Boolean(row.seatSlot)); }
+function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
+function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
 
 function BillingPanel({ workspace, accountId, canManage, value, subscription, busy, run, reload }: {
   workspace?: WorkspaceDetailView;

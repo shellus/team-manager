@@ -26,7 +26,8 @@ import type {
   ChangePersonalSubscriptionRequest,
   OpenBusinessSubscriptionRequest,
   RegisterAccountRequest,
-  ResidentialProxyConfig
+  ResidentialProxyConfig,
+  WorkspaceInvitationMutationInput
 } from '@team-manager/shared';
 import { AccountManagerClient, type AccountManagerGateway } from './accountManagerClient.js';
 import { SubscriptionService } from './services/subscriptionService.js';
@@ -315,9 +316,12 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/workspaces/:id/invitations/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshInvitations(c.req.param('id'), accountId)));
   api.post('/workspaces/:id/people/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshPeople(c.req.param('id'), accountId)));
   api.post('/workspaces/:id/invitations', async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; email?: string; seat?: 'default' | 'usage_based'; role?: string };
+    const body = await c.req.json().catch(() => ({})) as Partial<WorkspaceInvitationMutationInput> & { executorAccountId?: string };
     if (!body.executorAccountId || !body.email || !body.seat) return c.json({ ok: false, error: '缺少 executorAccountId、email 或 seat' }, 400);
-    return wrap(c, () => workspaceOperations.invite(c.req.param('id'), body.executorAccountId!, { email: body.email!, seat: body.seat!, role: body.role }));
+    return wrap(c, () => seatSlots.invite(c.req.param('id'), body.executorAccountId!, {
+      email: body.email!, seat: body.seat!, role: body.role, contact: body.contact,
+      remark: body.remark, price: body.price, expiresOn: body.expiresOn, expireRemove: body.expireRemove
+    }));
   });
   api.delete('/workspaces/:id/invitations', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; email?: string };
@@ -328,11 +332,10 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.patch('/workspaces/:id/members/:remoteUserId', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; seat?: 'default' | 'usage_based'; role?: unknown };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
-    if (body.seat) return wrap(c, () => workspaceOperations.setMemberSeat(c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), body.seat!));
-    if (isEditableMemberRole(body.role)) {
-      const role = body.role;
-      return wrap(c, () => workspaceOperations.setMemberRole(c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), role));
-    }
+    const role = isEditableMemberRole(body.role) ? body.role : undefined;
+    if (body.seat || role) return wrap(c, () => workspaceOperations.updateMemberStatus(
+      c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), { seat: body.seat, role }
+    ));
     return c.json({ ok: false, error: '缺少有效 seat 或 role' }, 400);
   });
   api.post('/workspaces/:id/settings/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshSettings(c.req.param('id'), accountId)));
