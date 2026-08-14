@@ -4,7 +4,6 @@ import {
   accountListRequestQuery,
   countAccountsByGroup,
   selectAccountsByGroup,
-  showsBannedAccounts,
 } from "./accountListModel.js";
 
 const account = (id: string, groupId: string) => ({
@@ -18,28 +17,27 @@ describe("account list filters", () => {
     expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=true"), "hasGamBinding")).toBe("true");
     expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=false"), "hasGamBinding")).toBe("false");
     expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=all"), "hasGamBinding")).toBeUndefined();
+    expect(accountListBooleanFilter(new URLSearchParams("isBanned=true"), "isBanned")).toBe("true");
   });
 
-  test("defaults to hiding banned accounts and leaves group selection to the UI", () => {
+  test("defaults every boolean filter to all and leaves group selection to the UI", () => {
     const params = new URLSearchParams(
       "groupId=group-a&query=alice&modal=edit&actionAccountId=account-1&operationId=op-1&hasGamBinding=true",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
-      "query=alice&hasGamBinding=true&isBanned=false",
+      "query=alice&hasGamBinding=true",
     );
-    expect(showsBannedAccounts(params)).toBe(false);
   });
 
-  test("showBanned removes the banned-state restriction", () => {
+  test("preserves the explicit banned-state filter", () => {
     const params = new URLSearchParams(
-      "showBanned=true&groupId=group-a&isBanned=false&primaryPlan=plus",
+      "groupId=group-a&isBanned=false&primaryPlan=plus",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
-      "primaryPlan=plus",
+      "primaryPlan=plus&isBanned=false",
     );
-    expect(showsBannedAccounts(params)).toBe(true);
   });
 
   test("drops removed filters and preserves every tri-state boolean value", () => {
@@ -48,7 +46,7 @@ describe("account list filters", () => {
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(
-      "hasGamBinding=false&hasRunningProfile=true&isBanned=false",
+      "hasGamBinding=false&hasRunningProfile=true",
     );
   });
 

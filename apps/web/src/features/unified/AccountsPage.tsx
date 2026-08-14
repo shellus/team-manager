@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   Form,
   Input,
   Modal,
@@ -33,7 +32,6 @@ import {
   accountListRequestQuery,
   countAccountsByGroup,
   selectAccountsByGroup,
-  showsBannedAccounts,
 } from "./accountListModel.js";
 import {
   AccountActionButtons,
@@ -59,11 +57,14 @@ function isRegistration(row: AccountListRow): row is AccountRegistrationSummaryV
 const TRI_STATE_FILTERS = [
   ["hasGamBinding", "GAM"],
   ["hasRunningProfile", "Profile 运行"],
+  ["isBanned", "封号"],
 ] as const;
 
 export function AccountsPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
+  const committedQuery = params.get("query") ?? "";
+  const [queryInput, setQueryInput] = useState(committedQuery);
   const [groups, setGroups] = useState<AccountGroupView[]>([]);
   const [matchingAccounts, setMatchingAccounts] = useState<
     UnifiedAccountSummaryView[]
@@ -76,7 +77,6 @@ export function AccountsPage() {
   const accountAction = actionModalFromParams(params);
   const actionAccountId = params.get("actionAccountId");
   const selectedGroupId = params.get("groupId") ?? undefined;
-  const showBanned = showsBannedAccounts(params);
   const accountRequestQuery = accountListRequestQuery(params);
   const accountRequestKey = accountRequestQuery.toString();
 
@@ -131,6 +131,9 @@ export function AccountsPage() {
     void fetchAccounts(new URLSearchParams(accountRequestKey));
   }, [accountRequestKey]);
   useEffect(() => {
+    setQueryInput(committedQuery);
+  }, [committedQuery]);
+  useEffect(() => {
     if (![...matchingAccounts.map((item) => item.latestOperation), ...registrations.map((item) => item.operation)].some(isActiveOperation)) return;
     const timer = window.setInterval(load, 5_000);
     return () => window.clearInterval(timer);
@@ -141,6 +144,16 @@ export function AccountsPage() {
     value ? next.set(key, value) : next.delete(key);
     setParams(next);
   };
+  const commitQuery = (value: string) => {
+    const nextQuery = value.trim();
+    setQueryInput(nextQuery);
+    if (nextQuery === committedQuery) return;
+    set("query", nextQuery || undefined);
+  };
+  const resetFilters = () => {
+    setQueryInput("");
+    setParams(new URLSearchParams());
+  };
   const openAccountAction = (
     account: Pick<UnifiedAccountSummaryView, "id">,
     action: AccountActionModal,
@@ -149,6 +162,12 @@ export function AccountsPage() {
     setParams(setAccountActionInParams(params));
 
   const columns: TableColumnsType<AccountListRow> = [
+    {
+      title: "分组",
+      dataIndex: ["group", "name"],
+      fixed: "left",
+      width: 140,
+    },
     {
       title: "账号",
       fixed: "left",
@@ -172,7 +191,6 @@ export function AccountsPage() {
         </div>
       ),
     },
-    { title: "分组", dataIndex: ["group", "name"], width: 140 },
     {
       title: "主套餐",
       dataIndex: "primaryPlan",
@@ -262,12 +280,13 @@ export function AccountsPage() {
         </div>
 
         <div className="filter-bar">
-          <Input.Search
+          <Input
             placeholder="邮箱、备注、名称"
             allowClear
-            value={params.get("query") ?? ""}
-            onChange={(event) => set("query", event.target.value)}
-            onSearch={(value) => set("query", value)}
+            value={queryInput}
+            onChange={(event) => setQueryInput(event.target.value)}
+            onPressEnter={(event) => commitQuery(event.currentTarget.value)}
+            onBlur={(event) => commitQuery(event.currentTarget.value)}
           />
           <Select
             allowClear
@@ -284,18 +303,8 @@ export function AccountsPage() {
               onChange={(value) => set(key, value)}
             />
           ))}
-          <Checkbox
-            className="show-banned-filter"
-            checked={showBanned}
-            onChange={(event) =>
-              set("showBanned", event.target.checked ? "true" : undefined)
-            }
-          >
-            显示封号
-          </Checkbox>
-          <Button onClick={() => setParams(new URLSearchParams())}>
-            清除筛选
-          </Button>
+          <Button loading={loading} onClick={load}>刷新</Button>
+          <Button onClick={resetFilters}>重置</Button>
         </div>
 
         <LoadBoundary

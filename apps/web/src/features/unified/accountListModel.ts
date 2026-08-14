@@ -1,13 +1,12 @@
 import type { UnifiedAccountSummaryView } from "@team-manager/shared";
 
-export const SHOW_BANNED_PARAM = "showBanned";
 export type AccountListBooleanFilter = "true" | "false" | undefined;
 
 type GroupedAccount = Pick<UnifiedAccountSummaryView, "group">;
 
 export function accountListBooleanFilter(
   params: URLSearchParams,
-  key: "hasGamBinding" | "hasRunningProfile",
+  key: "hasGamBinding" | "hasRunningProfile" | "isBanned",
 ): AccountListBooleanFilter {
   const value = params.get(key);
   return value === "true" || value === "false" ? value : undefined;
@@ -21,16 +20,11 @@ export function accountListRequestQuery(
     const value = params.get(key);
     if (value) query.set(key, value);
   }
-  for (const key of ["hasGamBinding", "hasRunningProfile"] as const) {
+  for (const key of ["hasGamBinding", "hasRunningProfile", "isBanned"] as const) {
     const value = accountListBooleanFilter(params, key);
     if (value) query.set(key, value);
   }
-  if (!showsBannedAccounts(params)) query.set("isBanned", "false");
   return query;
-}
-
-export function showsBannedAccounts(params: URLSearchParams): boolean {
-  return params.get(SHOW_BANNED_PARAM) === "true";
 }
 
 export function countAccountsByGroup(
