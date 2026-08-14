@@ -64,8 +64,8 @@ describe("account action UI model", () => {
 
   test("shows only the explicit account remark below the email", () => {
     expect(accountRemarkLabel("Team1")).toBe("Team1");
-    expect(accountRemarkLabel("  ")).toBe("—");
-    expect(accountRemarkLabel(undefined)).toBe("—");
+    expect(accountRemarkLabel("  ")).toBe("");
+    expect(accountRemarkLabel(undefined)).toBe("");
   });
 
   test("offers only active owner or admin workspaces for Business upgrade", () => {

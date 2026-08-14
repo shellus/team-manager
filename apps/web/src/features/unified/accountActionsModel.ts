@@ -39,7 +39,7 @@ export function primaryPlanLabel(
 }
 
 export function accountRemarkLabel(remark?: string): string {
-  return remark?.trim() || "—";
+  return remark?.trim() || "";
 }
 
 export function lifecycleLabel(lifecycle?: UnifiedAccountSummaryView["primaryPlanLifecycle"]): string {

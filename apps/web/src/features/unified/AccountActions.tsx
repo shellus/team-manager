@@ -309,7 +309,14 @@ function AccountEditorModal({
       title={`编辑账号 · ${account.email}`}
       open={open}
       onCancel={onClose}
-      footer={null}
+      footer={(
+        <Space>
+          <Button onClick={onClose} disabled={saving}>取消</Button>
+          <Button type="primary" loading={saving} disabled={loading} onClick={() => form.submit()}>
+            保存账号资料
+          </Button>
+        </Space>
+      )}
       destroyOnHidden
       width={760}
     >
@@ -384,9 +391,6 @@ function AccountEditorModal({
             wrap="soft"
           />
         </Form.Item>
-        <Button type="primary" htmlType="submit" loading={saving} disabled={loading}>
-          保存账号资料
-        </Button>
       </Form>
     </Modal>
   );
