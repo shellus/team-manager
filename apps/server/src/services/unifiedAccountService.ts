@@ -1,6 +1,8 @@
 import type { Kysely } from 'kysely';
 import {
   parseChatGptSessionInput,
+  type BulkUpdateAccountsRequest,
+  type BulkUpdateAccountsResult,
   type ChatGptSessionInput,
   type UnifiedAccountDetailView,
   type UnifiedAccountSummaryView
@@ -100,6 +102,59 @@ export class UnifiedAccountService {
       }
       await this.#activity.log({accountId:id,kind:'account_updated',payload:{fields:Object.keys(input)}});
       return this.detail(id);
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  async bulkUpdate(input: BulkUpdateAccountsRequest): Promise<BulkUpdateAccountsResult> {
+    try {
+      if (!input || !Array.isArray(input.accountIds)) throw new ServiceError(400, '账号列表无效');
+      const accountIds = [...new Set(input.accountIds)];
+      if (accountIds.length === 0) throw new ServiceError(400, '请至少选择一个账号');
+      if (accountIds.some((id) => typeof id !== 'string' || !id.trim())) {
+        throw new ServiceError(400, '账号列表无效');
+      }
+      if (accountIds.length > 10_000) throw new ServiceError(400, '单次批量操作最多支持 10000 个账号');
+
+      const hasGroupUpdate = input.groupId !== undefined;
+      const hasBannedUpdate = input.isBanned !== undefined;
+      if (!hasGroupUpdate && !hasBannedUpdate) throw new ServiceError(400, '没有可更新的账号字段');
+      if (hasGroupUpdate && (typeof input.groupId !== 'string' || !input.groupId.trim())) {
+        throw new ServiceError(400, '目标分组无效');
+      }
+      if (hasBannedUpdate && typeof input.isBanned !== 'boolean') {
+        throw new ServiceError(400, '封号状态无效');
+      }
+
+      await this.db.transaction().execute(async (trx) => {
+        const existingAccounts = await trx.selectFrom('accounts').select('id').where('id', 'in', accountIds).execute();
+        if (existingAccounts.length !== accountIds.length) throw new ServiceError(404, '部分账号不存在，请刷新后重试');
+
+        if (hasGroupUpdate) {
+          const group = await trx.selectFrom('account_groups').select('id').where('id', '=', input.groupId!).executeTakeFirst();
+          if (!group) throw new ServiceError(404, '目标分组不存在，请刷新后重试');
+        }
+
+        const patch: { group_id?: string; is_banned?: boolean } = {};
+        if (hasGroupUpdate) patch.group_id = input.groupId!;
+        if (hasBannedUpdate) patch.is_banned = input.isBanned!;
+        const result = await trx.updateTable('accounts').set(patch).where('id', 'in', accountIds).executeTakeFirst();
+        if (Number(result.numUpdatedRows) !== accountIds.length) {
+          throw new ServiceError(409, '账号批量更新未完整生效');
+        }
+
+        await new ActivityLogRepository(trx).log({
+          kind: 'accounts_bulk_updated',
+          payload: {
+            accountIds,
+            count: accountIds.length,
+            ...(hasGroupUpdate ? { groupId: input.groupId } : {}),
+            ...(hasBannedUpdate ? { isBanned: input.isBanned } : {})
+          }
+        });
+      });
+      return { updatedCount: accountIds.length };
     } catch (error) {
       throw asServiceError(error);
     }

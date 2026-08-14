@@ -1,8 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
+  ACCOUNT_LIST_FILTER_STORAGE_KEY,
   accountListBooleanFilter,
   accountListRequestQuery,
+  accountListPersistedFilterQuery,
+  accountSelectionState,
   countAccountsByGroup,
+  persistAccountListFilters,
+  restorePersistedAccountListFilters,
   selectAccountsByGroup,
 } from "./accountListModel.js";
 
@@ -69,5 +74,69 @@ describe("account list filters", () => {
       "account-2",
       "account-3",
     ]);
+  });
+
+  test("derives selection state from the complete filtered result", () => {
+    expect(accountSelectionState([], ["a", "b"])).toEqual({
+      allSelected: false,
+      partiallySelected: false,
+    });
+    expect(accountSelectionState(["a"], ["a", "b"])).toEqual({
+      allSelected: false,
+      partiallySelected: true,
+    });
+    expect(accountSelectionState(["a", "b", "outside"], ["a", "b"])).toEqual({
+      allSelected: true,
+      partiallySelected: false,
+    });
+    expect(accountSelectionState(["outside"], [])).toEqual({
+      allSelected: false,
+      partiallySelected: false,
+    });
+  });
+
+  test("persists only account filters and restores them for a filterless URL", () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    const filtered = new URLSearchParams(
+      "query=alice&groupId=group-a&primaryPlan=plus&hasGamBinding=true&hasRunningProfile=false&isBanned=true&page=3&modal=groups&operationId=operation-a",
+    );
+
+    persistAccountListFilters(filtered, storage);
+    expect(values.get(ACCOUNT_LIST_FILTER_STORAGE_KEY)).toBe(
+      "query=alice&primaryPlan=plus&hasGamBinding=true&hasRunningProfile=false&isBanned=true&groupId=group-a",
+    );
+    expect(accountListPersistedFilterQuery(filtered).has("page")).toBe(false);
+
+    expect(
+      restorePersistedAccountListFilters(
+        new URLSearchParams("page=2"),
+        storage,
+      )?.toString(),
+    ).toBe(
+      "page=2&query=alice&primaryPlan=plus&hasGamBinding=true&hasRunningProfile=false&isBanned=true&groupId=group-a",
+    );
+  });
+
+  test("keeps explicit URL filters authoritative and reset clears storage", () => {
+    const values = new Map([[ACCOUNT_LIST_FILTER_STORAGE_KEY, "query=remembered&groupId=old"]]);
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+
+    expect(
+      restorePersistedAccountListFilters(
+        new URLSearchParams("primaryPlan=pro_5x"),
+        storage,
+      ),
+    ).toBeUndefined();
+    persistAccountListFilters(new URLSearchParams(), storage);
+    expect(values.has(ACCOUNT_LIST_FILTER_STORAGE_KEY)).toBe(false);
   });
 });

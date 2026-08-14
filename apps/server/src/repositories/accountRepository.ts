@@ -20,6 +20,8 @@ export interface AccountListItem extends AccountRow {
   has_manageable_workspace: boolean;
   personal_plan: string;
   primary_plan: string;
+  primary_workspace_id: string | null;
+  primary_chatgpt_seat_count: number | null;
   limit_type: string;
   profile_status: string;
   lifecycle_at: Date | null;
@@ -179,6 +181,8 @@ export class AccountRepository {
         )`.as('has_manageable_workspace'),
         'aos.personal_plan',
         'aos.primary_plan',
+        'aos.primary_workspace_id',
+        'aos.primary_chatgpt_seat_count',
         'aos.limit_type',
         'aos.profile_status',
         'aos.lifecycle_at',
@@ -225,8 +229,8 @@ export class AccountRepository {
     }
     if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', filters.primaryPlan);
     return query
-      .orderBy(sql<number>`case when aos.profile_status in ('queued','running','stopping') then 0 else 1 end`)
-      .orderBy('a.updated_at', 'desc')
+      .orderBy('a.created_at', 'desc')
+      .orderBy('a.id', 'desc')
       .execute() as Promise<AccountListItem[]>;
   }
 

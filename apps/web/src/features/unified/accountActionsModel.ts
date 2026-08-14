@@ -42,6 +42,11 @@ export function accountRemarkLabel(remark?: string): string {
   return remark?.trim() || "";
 }
 
+export function seatUsageColor(occupied: number, capacity: number): "gold" | "green" | "red" {
+  if (occupied < capacity) return "gold";
+  return occupied === capacity ? "green" : "red";
+}
+
 export function lifecycleLabel(lifecycle?: UnifiedAccountSummaryView["primaryPlanLifecycle"]): string {
   if (!lifecycle) return "—";
   const label = lifecycle.kind === "renews" ? "续费" : lifecycle.kind === "expires" ? "到期" : lifecycle.kind === "expired" ? "已过期" : "有效至";

@@ -306,6 +306,8 @@ export interface AccountOperationalSummaryTable {
   account_id: string;
   personal_plan: string;
   primary_plan: string;
+  primary_workspace_id: string | null;
+  primary_chatgpt_seat_count: number | null;
   limit_type: string;
   profile_status: string;
   lifecycle_at: NullableTimestamp;

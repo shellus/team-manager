@@ -51,6 +51,7 @@ export interface UnifiedAccountSummaryView {
   isWorkspaceMember: boolean;
   hasWorkspaceCredential: boolean;
   primaryPlan: PrimaryPlan;
+  primaryPlanSeatUsage?: { occupied: number; capacity: number };
   primaryPlanLifecycle?: AccountPlanLifecycleView;
   accessHealth: AccountAccessHealthView;
   latestOperation?: AccountManagerOperationView;
@@ -61,6 +62,16 @@ export interface UnifiedAccountSummaryView {
   lastError?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BulkUpdateAccountsRequest {
+  accountIds: string[];
+  groupId?: string;
+  isBanned?: boolean;
+}
+
+export interface BulkUpdateAccountsResult {
+  updatedCount: number;
 }
 
 export interface AccountRegistrationSummaryView {

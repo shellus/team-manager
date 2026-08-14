@@ -23,6 +23,7 @@ import { createTransport, type Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
   AddPersonalPaymentMethodRequest,
+  BulkUpdateAccountsRequest,
   ChangePersonalSubscriptionRequest,
   OpenBusinessSubscriptionRequest,
   RegisterAccountRequest,
@@ -166,6 +167,10 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/accounts', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => accounts.create(body));
+  });
+  api.patch('/accounts/bulk', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as BulkUpdateAccountsRequest;
+    return wrap(c, () => accounts.bulkUpdate(body));
   });
   api.get('/accounts/:id', (c) => wrap(c, () => accounts.detail(c.req.param('id'))));
   api.get('/accounts/:accountId/workspaces/:workspaceId', (c) =>

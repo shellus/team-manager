@@ -100,6 +100,22 @@ body {
 .filter-bar > .ant-input,
 .filter-bar > .ant-input-group-wrapper { width: 260px; }
 .filter-bar > .ant-select { width: 160px; }
+.filter-bar > .account-query-filter.ant-input-affix-wrapper {
+  width: 300px;
+  max-width: 100%;
+  flex: 0 0 300px;
+}
+.account-batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-control-track);
+}
+.primary-plan-tag { white-space: nowrap; }
 .account-group-filter { display: flex; flex-direction: column; gap: 8px; }
 .account-group-selector.ant-radio-group { padding: 6px; gap: 8px; }
 .account-group-selector .ant-radio-button-wrapper { height: 36px; padding-inline: 12px; line-height: 34px; }
@@ -153,6 +169,11 @@ body {
 .optional-fields[open] > summary { margin-bottom: 10px; }
 .raw-json textarea, textarea.raw-json { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
 .group-row { width: 100%; }
+.group-sortable-list { display: flex; flex-direction: column; gap: 6px; }
+.group-sortable-item { padding: 8px; border-radius: 8px; transition: background-color 160ms ease-out; }
+.group-sortable-item.is-dragging { position: relative; z-index: 1; background: var(--color-control-track-hover); }
+.group-drag-handle { cursor: grab; touch-action: none; }
+.group-drag-handle:active { cursor: grabbing; }
 .ant-table-wrapper { min-width: 0; }
 .ant-drawer-content-wrapper { max-width: 94vw; }
 

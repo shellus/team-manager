@@ -50,6 +50,8 @@
 
 “双席位”和“0.52”只描述活动 owner Workspace 的运营套餐信号；完整 Workspace 套餐、角色和来源仍由各自事实对象表达。账号列表只展示并筛选主套餐，不额外展开其来源或命中原因，详情页继续展示个人空间和 Workspace 的完整事实。
 
+当主套餐为“双席位”时，列表附带显示该主套餐 Workspace 的 ChatGPT 席位占用。存在多个双席位 owner Workspace 时，选择规则与主套餐生命周期一致：优先最早的未来续费，其次最近的历史续费，最后以 Workspace ID 稳定排序。占用数只统计该 Workspace 中活动 `default` Membership 与待接受的 `default` Invitation；不跨 Workspace 汇总，也不写回账号字段。
+
 ## Session 与访问上下文
 
 账号完整 Web Session 使用不可变 `AccountSessionRevision` 保存，并在应用层加密。Access Token 按以下上下文隔离：

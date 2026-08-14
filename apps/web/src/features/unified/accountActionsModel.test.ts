@@ -4,6 +4,7 @@ import {
   accountRemarkLabel,
   parseSessionEditorInput,
   primaryPlanLabel,
+  seatUsageColor,
   setAccountActionInParams,
   profileAction,
   executeProfileAction,
@@ -66,6 +67,12 @@ describe("account action UI model", () => {
     expect(accountRemarkLabel("Team1")).toBe("Team1");
     expect(accountRemarkLabel("  ")).toBe("");
     expect(accountRemarkLabel(undefined)).toBe("");
+  });
+
+  test("colors two-seat usage by capacity", () => {
+    expect(seatUsageColor(1, 2)).toBe("gold");
+    expect(seatUsageColor(2, 2)).toBe("green");
+    expect(seatUsageColor(3, 2)).toBe("red");
   });
 
   test("offers only active owner or admin workspaces for Business upgrade", () => {

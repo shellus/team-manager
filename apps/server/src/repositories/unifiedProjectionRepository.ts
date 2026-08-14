@@ -64,6 +64,7 @@ export class UnifiedProjectionRepository {
     const extraById = new Map(extras.map((row) => [row.id, row]));
     return rows.map((row) => {
       const extra = extraById.get(row.id);
+      const primaryPlan = normalizePrimaryPlan(row.primary_plan);
       return {
         id: row.id,
         email: row.email,
@@ -77,7 +78,10 @@ export class UnifiedProjectionRepository {
         hasManageableWorkspace: row.has_manageable_workspace,
         isWorkspaceMember: extra?.has_member ?? false,
         hasWorkspaceCredential: extra?.has_credential ?? false,
-        primaryPlan: normalizePrimaryPlan(row.primary_plan),
+        primaryPlan,
+        ...(primaryPlan === 'business_two_seat' ? { primaryPlanSeatUsage: {
+          occupied: Number(row.primary_chatgpt_seat_count ?? 0), capacity: 2
+        } } : {}),
         ...(row.lifecycle_at ? { primaryPlanLifecycle: {
           kind: lifecycleKind(row.lifecycle_at, row.lifecycle_will_renew), at: iso(row.lifecycle_at)
         } } : {}),
