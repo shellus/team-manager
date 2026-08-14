@@ -21,6 +21,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 ## 约束
 
 - 规范化账号邮箱唯一；账号分组外键必填。
+- Account 以邮箱标识，账号备注承担人工运营称呼，不保存重复的账号显示名。
 - 每个账号恰有一个个人空间、一个运营资料和至多一个 GAM 绑定。
 - Workspace 外部 ID 唯一。
 - 活动 owner/admin Membership 派生可管理能力。

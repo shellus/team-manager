@@ -1,6 +1,8 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Alert, Button, Form, Input, Modal, Space, Tooltip, message } from "antd";
+import { Alert, Button, Form, Input, Modal, Select, Space, Switch, Tooltip, message } from "antd";
 import type {
+  AccountGroupView,
+  AccountLimitType,
   AccountManagerOperationView,
   AccountProfileStatus,
   AccountManagerStateView,
@@ -114,7 +116,7 @@ export function AccountActionButtons({
       </Tooltip>
       {actionButton("proxy", "换 IP", gamDisabled)}
       {actionButton("subscription", "开通", gamDisabled)}
-      {actionButton("session", "编辑")}
+      {actionButton("edit", "编辑")}
     </Space>
   );
 }
@@ -149,9 +151,9 @@ export function AccountActionModals({
         onChanged={onChanged}
         onOperationCreated={onOperationCreated}
       />
-      <SessionEditorModal
-        accountId={account.id}
-        open={action === "session"}
+      <AccountEditorModal
+        account={account}
+        open={action === "edit"}
         onClose={onClose}
         onSaved={onChanged}
       />
@@ -240,83 +242,108 @@ function ProxyModal({
   );
 }
 
-function SessionEditorModal({
-  accountId,
+type AccountEditorValues = {
+  groupId: string;
+  remark?: string;
+  limitType: AccountLimitType;
+  isBanned: boolean;
+  session: string;
+};
+
+function AccountEditorModal({
+  account,
   open,
   onClose,
   onSaved,
 }: {
-  accountId: string;
+  account: AccountActionSummary;
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
-  const [session, setSession] = useState("");
+  const [form] = Form.useForm<AccountEditorValues>();
+  const [groups, setGroups] = useState<Array<Pick<AccountGroupView, "id" | "name">>>([]);
+  const [initialSession, setInitialSession] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setLoading(true);
     setError("");
-    void unifiedApi
-      .accountSession(accountId)
-      .then((value) => setSession(JSON.stringify(value, null, 2)))
-      .catch((reason) => {
-        if (reason instanceof ApiError && reason.status === 404) {
-          setSession("{}");
-          return;
-        }
-        setError((reason as Error).message);
-      })
-      .finally(() => setLoading(false));
-  }, [accountId, open]);
+    setGroups([account.group]);
+    setInitialSession(undefined);
+    form.setFieldsValue({
+      groupId: account.group.id,
+      remark: account.remark,
+      limitType: account.limitType,
+      isBanned: account.isBanned,
+      session: "",
+    });
+    const sessionRequest = unifiedApi.accountSession(account.id).catch((reason) => {
+      if (reason instanceof ApiError && reason.status === 404) return {};
+      throw reason;
+    });
+    void Promise.allSettled([unifiedApi.groups(), sessionRequest]).then((results) => {
+      if (cancelled) return;
+      const errors: string[] = [];
+      if (results[0].status === "fulfilled") setGroups(results[0].value);
+      else errors.push(`分组读取失败：${(results[0].reason as Error).message}`);
+      if (results[1].status === "fulfilled") {
+        const session = JSON.stringify(results[1].value, null, 2);
+        setInitialSession(session);
+        form.setFieldValue("session", session);
+      } else {
+        errors.push(`Session 读取失败：${(results[1].reason as Error).message}`);
+      }
+      setError(errors.join("；"));
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [account, form, open]);
 
   return (
     <Modal
-      title="编辑 Session"
+      title={`编辑账号 · ${account.email}`}
       open={open}
       onCancel={onClose}
       footer={null}
       destroyOnHidden
       width={760}
     >
-      <Alert
-        type="info"
-        showIcon
-        message="此处完整显示并保存 ChatGPT Session，不做脱敏。"
-      />
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}
-      <Input.TextArea
-        aria-label="完整 ChatGPT Session JSON"
-        className="raw-json account-session-editor"
-        autoSize={{ minRows: 14, maxRows: 28 }}
+      <Form<AccountEditorValues>
+        form={form}
+        layout="vertical"
         disabled={loading}
-        value={session}
-        onChange={(event) => setSession(event.target.value)}
-      />
-      <Button
-        type="primary"
-        loading={saving}
-        disabled={loading}
-        onClick={async () => {
-          let parsed: Record<string, unknown>;
-          try {
-            parsed = parseSessionEditorInput(session);
-          } catch (reason) {
-            setError(
-              reason instanceof SyntaxError
-                ? "Session 必须是有效的 JSON 对象"
-                : (reason as Error).message,
-            );
-            return;
+        className="account-action-form"
+        onFinish={async (values) => {
+          let parsedSession: Record<string, unknown> | undefined;
+          if (initialSession !== undefined && values.session !== initialSession) {
+            try {
+              parsedSession = parseSessionEditorInput(values.session);
+            } catch (reason) {
+              setError(
+                reason instanceof SyntaxError
+                  ? "Session 必须是有效的 JSON 对象"
+                  : (reason as Error).message,
+              );
+              return;
+            }
           }
           setSaving(true);
           setError("");
           try {
-            await unifiedApi.updateAccountSession(accountId, parsed);
-            message.success("Session 已保存");
+            await unifiedApi.updateAccount(account.id, {
+              groupId: values.groupId,
+              remark: values.remark?.trim() || null,
+              limitType: values.limitType,
+              isBanned: values.isBanned,
+              ...(parsedSession ? { session: parsedSession } : {}),
+            });
+            message.success("账号资料已保存");
             await onSaved();
             onClose();
           } catch (reason) {
@@ -326,8 +353,41 @@ function SessionEditorModal({
           }
         }}
       >
-        保存 Session
-      </Button>
+        <div className="responsive-form-grid">
+          <Form.Item name="groupId" label="分组" rules={[{ required: true, message: "请选择分组" }]}>
+            <Select options={groups.map((group) => ({ value: group.id, label: group.name }))} />
+          </Form.Item>
+          <Form.Item name="limitType" label="限额类型" rules={[{ required: true, message: "请选择限额类型" }]}>
+            <Select options={[
+              { value: "unknown", label: "未知" },
+              { value: "weekly", label: "周限" },
+              { value: "monthly", label: "月限" },
+            ]} />
+          </Form.Item>
+        </div>
+        <Form.Item name="remark" label="账号备注">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+        <Form.Item name="isBanned" label="封号标记" valuePropName="checked">
+          <Switch checkedChildren="已封号" unCheckedChildren="正常" />
+        </Form.Item>
+        <Form.Item
+          name="session"
+          label="Session JSON"
+          extra="完整显示且不做脱敏；内容没有变化时不会重复写入。"
+        >
+          <Input.TextArea
+            aria-label="完整 ChatGPT Session JSON"
+            className="raw-json account-session-editor"
+            autoSize={{ minRows: 14, maxRows: 28 }}
+            disabled={loading || initialSession === undefined}
+            wrap="soft"
+          />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" loading={saving} disabled={loading}>
+          保存账号资料
+        </Button>
+      </Form>
     </Modal>
   );
 }

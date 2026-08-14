@@ -19,7 +19,6 @@ import {
 import { ReloadOutlined } from "@ant-design/icons";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
-  AccountGroupView,
   AccountManagerOperationView,
   AccountManagerStateView,
   UnifiedAccountDetailView,
@@ -57,7 +56,6 @@ export function AccountDetailPage() {
   const [params, setParams] = useSearchParams();
   const [account, setAccount] = useState<UnifiedAccountDetailView>();
   const [manager, setManager] = useState<AccountManagerStateView>();
-  const [groups, setGroups] = useState<AccountGroupView[]>([]);
   const [personal, setPersonal] = useState<PersonalSpaceDetailView>();
   const [activity, setActivity] = useState<AccountActivityView[]>([]);
   const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
@@ -70,12 +68,8 @@ export function AccountDetailPage() {
     setLoading(true);
     setError("");
     try {
-      const [nextAccount, nextGroups] = await Promise.all([
-        unifiedApi.account(accountId),
-        unifiedApi.groups(),
-      ]);
+      const nextAccount = await unifiedApi.account(accountId);
       setAccount(nextAccount);
-      setGroups(nextGroups);
       const optional = await Promise.allSettled([
         nextAccount.gamAccountRef
           ? unifiedApi.accountManagerState(accountId)
@@ -204,18 +198,6 @@ export function AccountDetailPage() {
                     <Management
                       account={account}
                       manager={manager}
-                      busy={busy}
-                      run={run}
-                    />
-                  ),
-                },
-                {
-                  key: "settings",
-                  label: "账号设置",
-                  children: (
-                    <AccountSettings
-                      account={account}
-                      groups={groups}
                       busy={busy}
                       run={run}
                     />
@@ -427,72 +409,6 @@ function Management({
           },
         ]}
       />
-    </Space>
-  );
-}
-
-function AccountSettings({
-  account,
-  groups,
-  busy,
-  run,
-}: {
-  account: UnifiedAccountDetailView;
-  groups: AccountGroupView[];
-  busy: string;
-  run: (k: string, a: () => Promise<unknown>) => Promise<void>;
-}) {
-  return (
-    <Space direction="vertical" size={20} className="panel-stack">
-      <Form
-        layout="vertical"
-        initialValues={{
-          groupId: account.group.id,
-          remark: account.remark,
-          displayName: account.displayName,
-          gamAccountRef: account.gamAccountRef,
-          isBanned: account.isBanned,
-          limitType: account.limitType,
-        }}
-        onFinish={(value) =>
-          run("settings", () => unifiedApi.updateAccount(account.id, value))
-        }
-      >
-        <div className="responsive-form-grid">
-          <Form.Item name="groupId" label="分组">
-            <Select
-              options={groups.map((group) => ({
-                value: group.id,
-                label: group.name,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item name="displayName" label="显示名">
-            <Input />
-          </Form.Item>
-          <Form.Item name="gamAccountRef" label="GAM 账号引用">
-            <Input allowClear />
-          </Form.Item>
-          <Form.Item name="limitType" label="限额类型">
-            <Select
-              options={[
-                { value: "unknown", label: "未知" },
-                { value: "weekly", label: "周限" },
-                { value: "monthly", label: "月限" },
-              ]}
-            />
-          </Form.Item>
-        </div>
-        <Form.Item name="remark" label="备注">
-          <Input.TextArea />
-        </Form.Item>
-        <Form.Item name="isBanned" label="人工封号" valuePropName="checked">
-          <Switch />
-        </Form.Item>
-        <Button htmlType="submit" type="primary" loading={busy === "settings"}>
-          保存账号资料
-        </Button>
-      </Form>
     </Space>
   );
 }

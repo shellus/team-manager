@@ -37,7 +37,7 @@
 | 启动/停止 | 根据 Profile 状态只显示当前可执行动作；点击后直接执行，不弹确认框，执行中禁用重复提交并显示进度 |
 | 换 IP | 打开完整代理编辑弹窗，统一编辑 SID、国家、ASN、州/省和城市，不拆分简单与高级模式 |
 | 开通 | 打开统一套餐弹窗，支持个人 Go、Plus、Pro 5x、Pro 20x 的全新开通或变更，以及 Business 创建新 Workspace 或升级既有 Workspace |
-| 编辑 | 打开完整 Session 编辑弹窗；打开即读取内容，可编辑并保存，不脱敏，不再设置查看或下载入口 |
+| 编辑 | 打开单页账号编辑弹窗，铺开分组、账号备注、限额类型、封号标记和完整 Session；Session 可编辑并保存，不脱敏，不再设置查看或下载入口 |
 
 列表与账号详情必须复用同一组操作按钮、弹窗、忙碌状态、错误处理和成功后刷新逻辑。依赖 GAM 的动作在未绑定时禁用并说明原因。弹窗由 URL 参数表示，刷新后恢复；操作按钮必须阻止账号链接或其他导航事件。
 
@@ -53,9 +53,9 @@
 | `packages/shared/src/unified.ts` | 新增主套餐联合类型和 `primaryPlan` 列表字段；`personalPlan` 只用于个人空间事实 |
 | `apps/web/src/features/unified/AccountsPage.tsx` | 账号邮箱链接、备注副标题、主套餐列与筛选、平铺操作列；移除整行跳转和列表个人套餐筛选 |
 | `apps/web/src/features/unified/accountListModel.ts` | 主套餐参与 URL 可恢复查询与分组动态计数 |
-| `apps/web/src/features/unified/AccountDetailPage.tsx` | 详情入口切换为共享账号操作组件，移除重复的代理和 Session 表单实现 |
+| `apps/web/src/features/unified/AccountDetailPage.tsx` | 详情入口切换为共享账号操作组件，移除重复的账号设置、代理和 Session 表单实现 |
 | `apps/web/src/features/unified/SubscriptionModal.tsx` | 收敛为个人与 Business 共用的“开通”弹窗或由新的共享弹窗替代 |
-| `apps/web/src/features/unified/components/` | 建立列表和详情共用的账号操作栏及 Profile、代理、开通、Session 弹窗 |
+| `apps/web/src/features/unified/components/` | 建立列表和详情共用的账号操作栏及 Profile、代理、开通、账号编辑弹窗 |
 
 ## 实施步骤
 
@@ -63,9 +63,9 @@
 2. 用 migration 建立普通 View；以最新个人订阅、活动 Workspace、活动 Membership 和 Workspace 套餐信号计算主套餐，并建立支持列表筛选的索引。
 3. Repository 与 `/api/accounts` 改为直接查询和筛选 `primaryPlan`，删除 JavaScript 结果集二次筛选与旧参数兼容。
 4. 为全部优先级、admin、owner 与非 owner 混合关系、移除关系、邀请和未知证据编写 PostgreSQL 集成测试。
-5. 提取共享账号操作组件与四个入口；Profile 使用单一状态动作，代理、开通和 Session 统一使用共享弹窗。
+5. 提取共享账号操作组件与四个入口；Profile 使用单一状态动作，代理、开通和账号资料统一使用共享弹窗。
 6. 账号列表改为邮箱链接、备注副标题、主套餐列/筛选和平铺操作；详情使用相同操作组件，删除重复表单和冗余入口。
-7. 为 URL 恢复、操作事件隔离、忙碌状态、GAM 禁用提示、Session 原文编辑和成功刷新编写 Web 行为测试。
+7. 为 URL 恢复、操作事件隔离、忙碌状态、GAM 禁用提示、账号资料与 Session 原文编辑和成功刷新编写 Web 行为测试。
 8. 运行类型检查、后端测试、数据库集成测试、Web 测试、生产构建和文档构建，再对开发实例做无扣费冒烟。
 
 ## 验收清单
@@ -91,10 +91,10 @@
 - [x] 列表不显示 Workspace/凭证数量，也不提供可管理空间、普通成员、凭证和 Session 筛选。
 - [x] GAM 与 Profile 运行使用“是/否”两枚互斥 Checkbox 表达所有/是/否三态。
 - [x] 操作列平铺“启动/停止、换 IP、开通、编辑”，没有下拉菜单。
-- [x] 列表与详情使用相同组件和 API，不保留第二套代理、开通或 Session 表单。
+- [x] 列表与详情使用相同组件和 API，不保留第二套账号设置、代理、开通或 Session 表单。
 - [x] 换 IP 弹窗包含 SID、国家、ASN、州/省和城市全部字段。
 - [x] 开通弹窗涵盖个人四档套餐及 Business 两种模式。
-- [x] 编辑弹窗打开即加载完整 Session，可保存且不脱敏；没有单独查看或下载入口。
+- [x] 编辑弹窗单页铺开分组、账号备注、限额类型、封号标记和完整 Session；Session 自动换行、可保存且不脱敏，没有单独查看或下载入口。
 - [x] 未绑定 GAM、动作执行中、上游失败和成功刷新均有一致反馈。
 
 ## 验证

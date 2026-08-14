@@ -34,7 +34,6 @@ export interface CreateAccountInput {
   remark?: string | null;
   isBanned?: boolean;
   remoteUserId?: string | null;
-  displayName?: string | null;
   remotePersonalAccountId?: string | null;
 }
 
@@ -88,7 +87,6 @@ export class AccountRepository {
         remark: input.remark?.trim() || null,
         is_banned: input.isBanned ?? false,
         remote_user_id: input.remoteUserId ?? null,
-        display_name: input.displayName ?? null,
         last_error: null,
         current_session_revision_id: null
       }).returningAll().executeTakeFirstOrThrow();
@@ -125,14 +123,12 @@ export class AccountRepository {
     groupId?: string;
     remark?: string | null;
     isBanned?: boolean;
-    displayName?: string | null;
     lastError?: string | null;
   }): Promise<AccountRow> {
     const patch: Record<string, unknown> = {};
     if (input.groupId !== undefined) patch.group_id = input.groupId;
     if (input.remark !== undefined) patch.remark = input.remark?.trim() || null;
     if (input.isBanned !== undefined) patch.is_banned = input.isBanned;
-    if (input.displayName !== undefined) patch.display_name = input.displayName?.trim() || null;
     if (input.lastError !== undefined) patch.last_error = input.lastError?.trim() || null;
     if (Object.keys(patch).length === 0) {
       const existing = await this.findById(id);
@@ -155,10 +151,6 @@ export class AccountRepository {
       external_account_ref: externalAccountRef.trim(),
       normalized_external_account_ref: normalized
     })).execute();
-  }
-
-  async clearGamAccount(accountId: string): Promise<void> {
-    await this.db.deleteFrom('gam_bindings').where('account_id', '=', accountId).execute();
   }
 
   async remove(id: string): Promise<void> {
@@ -198,7 +190,7 @@ export class AccountRepository {
     if (filters.isBanned !== undefined) query = query.where('a.is_banned', '=', filters.isBanned);
     if (filters.query?.trim()) {
       const pattern = `%${filters.query.trim()}%`;
-      query = query.where((eb) => eb.or([eb('a.email', 'ilike', pattern), eb('a.remark', 'ilike', pattern), eb('a.display_name', 'ilike', pattern)]));
+      query = query.where((eb) => eb.or([eb('a.email', 'ilike', pattern), eb('a.remark', 'ilike', pattern)]));
     }
     if (filters.hasManageableWorkspace !== undefined) {
       query = query.where(sql<boolean>`exists (

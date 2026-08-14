@@ -28,7 +28,6 @@ export interface AccountTable extends AuditedTable {
   remark: string | null;
   is_banned: Generated<boolean>;
   remote_user_id: string | null;
-  display_name: string | null;
   last_error: string | null;
   current_session_revision_id: string | null;
 }

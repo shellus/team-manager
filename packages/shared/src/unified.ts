@@ -40,7 +40,6 @@ export interface AccountGroupView {
 export interface UnifiedAccountSummaryView {
   id: string;
   email: string;
-  displayName?: string;
   remark?: string;
   group: Pick<AccountGroupView, 'id' | 'name'>;
   isBanned: boolean;

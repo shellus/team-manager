@@ -2,8 +2,8 @@
 
 ## 账号
 
-- 无 Session：在账号设置粘贴 Session JSON，或绑定 GAM 后使用“从 GAM 更新 Session”。
-- GAM 未关联：账号管理与支付操作会返回 409；先填写规范邮箱引用。
+- 无 Session：使用账号列表或详情的“编辑”弹窗粘贴 Session JSON，或关联 GAM 后使用“从 GAM 更新 Session”。
+- GAM 未关联：账号管理与支付操作会返回 409；通过 GAM 纳管或注册流程建立自动关联，界面不手工填写 GAM 引用。
 - Profile/代理不可用：检查 GAM 健康、账号引用和运行环境 Token。
 - Session 邮箱不一致：系统拒绝导入，不能覆盖账号身份。
 

@@ -22,7 +22,7 @@ describe("account list filters", () => {
 
   test("defaults to hiding banned accounts and leaves group selection to the UI", () => {
     const params = new URLSearchParams(
-      "groupId=group-a&query=alice&modal=session&actionAccountId=account-1&operationId=op-1&hasGamBinding=true",
+      "groupId=group-a&query=alice&modal=edit&actionAccountId=account-1&operationId=op-1&hasGamBinding=true",
     );
 
     expect(accountListRequestQuery(params).toString()).toBe(

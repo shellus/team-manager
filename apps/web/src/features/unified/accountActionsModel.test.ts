@@ -47,18 +47,19 @@ describe("account action UI model", () => {
   test("persists and clears an account modal in URL parameters", () => {
     const opened = setAccountActionInParams(
       new URLSearchParams("query=alice"),
-      "session",
+      "edit",
       "account-1",
     );
     expect(opened.toString()).toBe(
-      "query=alice&modal=session&actionAccountId=account-1",
+      "query=alice&modal=edit&actionAccountId=account-1",
     );
-    expect(actionModalFromParams(opened)).toBe("session");
+    expect(actionModalFromParams(opened)).toBe("edit");
 
     const closed = setAccountActionInParams(opened);
     expect(closed.toString()).toBe("query=alice");
     expect(actionModalFromParams(closed)).toBeUndefined();
     expect(actionModalFromParams(new URLSearchParams("modal=profile"))).toBeUndefined();
+    expect(actionModalFromParams(new URLSearchParams("modal=session"))).toBeUndefined();
   });
 
   test("shows only the explicit account remark below the email", () => {

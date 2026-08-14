@@ -82,9 +82,6 @@ export function NewAccountPage() {
         <Form.Item name="remark" label="备注">
           <Input />
         </Form.Item>
-        <Form.Item name="gamAccountRef" label="GAM账号引用">
-          <Input />
-        </Form.Item>
         <Form.Item name="proxy" label="账号代理">
           <Input.Password />
         </Form.Item>

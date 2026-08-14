@@ -43,7 +43,7 @@ export class UnifiedAccountService {
 
   async create(input: {
     email?: unknown; groupId?: unknown; remark?: unknown; isBanned?: unknown;
-    session?: unknown; gamAccountRef?: unknown; proxy?: unknown;
+    session?: unknown; proxy?: unknown;
   }): Promise<UnifiedAccountDetailView> {
     try {
       const parsed = input.session === undefined ? undefined : parseChatGptSessionInput(input.session);
@@ -61,11 +61,9 @@ export class UnifiedAccountService {
         remotePersonalAccountId: parsed?.account.id ?? null
       });
       if (parsed) await this.saveSession(created.account.id, created.personalSpace.id, parsed, 'manual_create');
-      const gamAccountRef = string(input.gamAccountRef);
-      if (gamAccountRef) await this.#accounts.bindGamAccount(created.account.id, gamAccountRef);
       const proxy = string(input.proxy);
       if (proxy) await this.operational.setProxy(created.account.id, proxy);
-      await this.#activity.log({accountId:created.account.id,kind:'account_created',payload:{groupId:created.account.group_id,email:created.account.email,hasSession:Boolean(parsed),hasGamBinding:Boolean(gamAccountRef)}});
+      await this.#activity.log({accountId:created.account.id,kind:'account_created',payload:{groupId:created.account.group_id,email:created.account.email,hasSession:Boolean(parsed)}});
       return this.detail(created.account.id);
     } catch (error) {
       throw asServiceError(error);
@@ -73,33 +71,32 @@ export class UnifiedAccountService {
   }
 
   async update(id: string, input: {
-    groupId?: unknown; remark?: unknown; isBanned?: unknown; displayName?: unknown;
-    limitType?: unknown; proxy?: unknown; session?: unknown; gamAccountRef?: unknown;
+    groupId?: unknown; remark?: unknown; isBanned?: unknown;
+    limitType?: unknown; proxy?: unknown; session?: unknown;
   }): Promise<UnifiedAccountDetailView> {
     try {
       const existing = await this.#accounts.findById(id);
       if (!existing) throw new ServiceError(404, '账号不存在');
+      if (input.limitType !== undefined && !['unknown', 'weekly', 'monthly'].includes(String(input.limitType))) {
+        throw new ServiceError(400, '无效的额度周期');
+      }
+      const parsedSession = input.session === undefined ? undefined : parseChatGptSessionInput(input.session);
+      if (parsedSession && 'error' in parsedSession) throw new ServiceError(400, parsedSession.error);
+      if (parsedSession && normalizeEmail(parsedSession.user.email) !== existing.normalized_email) {
+        throw new ServiceError(409, 'Session 邮箱与账号邮箱不匹配');
+      }
       await this.#accounts.update(id, {
         ...(typeof input.groupId === 'string' ? { groupId: input.groupId } : {}),
         ...(typeof input.remark === 'string' || input.remark === null ? { remark: input.remark } : {}),
-        ...(typeof input.isBanned === 'boolean' ? { isBanned: input.isBanned } : {}),
-        ...(typeof input.displayName === 'string' || input.displayName === null ? { displayName: input.displayName } : {})
+        ...(typeof input.isBanned === 'boolean' ? { isBanned: input.isBanned } : {})
       });
       if (input.limitType !== undefined) {
-        if (!['unknown', 'weekly', 'monthly'].includes(String(input.limitType))) throw new ServiceError(400, '无效的额度周期');
         await this.operational.updateLimitType(id, input.limitType as 'unknown' | 'weekly' | 'monthly');
       }
       if (typeof input.proxy === 'string' || input.proxy === null) await this.operational.setProxy(id, input.proxy);
-      if (typeof input.gamAccountRef === 'string') {
-        if (input.gamAccountRef.trim()) await this.#accounts.bindGamAccount(id, input.gamAccountRef);
-        else await this.#accounts.clearGamAccount(id);
-      }
-      if (input.session !== undefined) {
-        const parsed = parseChatGptSessionInput(input.session);
-        if ('error' in parsed) throw new ServiceError(400, parsed.error);
-        if (normalizeEmail(parsed.user.email) !== existing.normalized_email) throw new ServiceError(409, 'Session 邮箱与账号邮箱不匹配');
+      if (parsedSession) {
         const personal = await this.db.selectFrom('personal_spaces').select('id').where('account_id', '=', id).executeTakeFirstOrThrow();
-        await this.saveSession(id, personal.id, parsed, 'manual_replace');
+        await this.saveSession(id, personal.id, parsedSession, 'manual_replace');
       }
       await this.#activity.log({accountId:id,kind:'account_updated',payload:{fields:Object.keys(input)}});
       return this.detail(id);
@@ -117,11 +114,6 @@ export class UnifiedAccountService {
     const session = await this.sessions.currentSession(id);
     if (!session) throw new ServiceError(404, '账号没有 Session');
     return session;
-  }
-
-  async replaceSession(id: string, input: unknown) {
-    await this.update(id, { session: input });
-    return this.session(id);
   }
 
   async createGroup(name: string) {

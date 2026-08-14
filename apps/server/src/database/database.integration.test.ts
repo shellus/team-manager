@@ -31,7 +31,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -162,6 +162,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         ['member@example.com', 'primary-admin@example.com', 'primary-member@example.com']);
       assert.equal(primaryPlanAccounts[0].primaryPlan, 'team_member');
       assert.equal(primaryPlanAccounts[0].personalPlan, undefined, '列表摘要不暴露个人套餐事实字段');
+      assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'displayName'), false, '账号摘要不保留无业务用途的显示名');
       assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
       assert.equal(typeof primaryPlanAccounts[0].accessHealth.status, 'string');
@@ -174,12 +175,21 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const sessionResponse = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
       assert.equal(sessionResponse.status, 200);
       assert.equal((await sessionResponse.json() as any).data.accessToken, 'secret');
-      const replaceSession = await app.request(`/api/accounts/${first.account.id}/session`, {
-        method: 'PUT', headers,
-        body: JSON.stringify({ session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret' } })
+      const editAccount = await app.request(`/api/accounts/${first.account.id}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ remark: 'Edited with session', session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret' } })
       });
-      assert.equal(replaceSession.status, 200, await replaceSession.clone().text());
-      assert.equal((await replaceSession.json() as any).data.accessToken, 'replacement-secret');
+      assert.equal(editAccount.status, 200, await editAccount.clone().text());
+      const replacedSession = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
+      assert.equal((await replacedSession.json() as any).data.accessToken, 'replacement-secret');
+      assert.equal((await app.request(`/api/accounts/${first.account.id}/session`, { method: 'PUT', headers, body: '{}' })).status, 404,
+        'Session 更新只保留账号 PATCH 入口');
+      const mismatchedEdit = await app.request(`/api/accounts/${first.account.id}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ remark: 'must-not-apply', session: { user: { email: 'mismatch@example.com' }, account: { id: 'personal-remote' }, accessToken: 'invalid' } })
+      });
+      assert.equal(mismatchedEdit.status, 409);
+      assert.equal((await accounts.findById(first.account.id))?.remark, 'Edited with session', 'Session 校验失败时不提前写入账号字段');
       const syncResponse = await app.request(`/api/accounts/${first.account.id}/sync`, { method: 'POST', headers });
       assert.equal(syncResponse.status, 200);
       assert.equal((await db.selectFrom('personal_subscription_snapshots').selectAll().where('personal_space_id', '=', first.personalSpace.id).execute()).length, 1);
@@ -230,7 +240,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-payment-methods`,{method:'POST',headers,body:JSON.stringify({country:'US',currency:'USD',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}})});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
       const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
-      await accounts.update(first.account.id,{displayName:'Visible Operator'});const displaySearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await displaySearch.json() as any).data[0].id,first.account.id);
+      await accounts.update(first.account.id,{remark:'Visible Operator'});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);
 
       const operationRow = await db.selectFrom('automation_operations').select('id').where('external_operation_id', '=', 'business-operation').executeTakeFirstOrThrow();
       assert.equal((await app.request(`/api/operations/${operationRow.id}`, { headers })).status, 200);

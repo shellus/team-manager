@@ -35,7 +35,7 @@
 - `POST /accounts/:id/sync`：同步 GAM 账号、个人订阅、支付摘要和可见 Workspace，并收敛 Membership。
 - `GET /operations/:id`、`POST /operations/:id/controls/:control`、`PUT /operations/:id/payment-card`、`DELETE /operations/:id`：统一操作查询、重试、换 IP、终止、补卡和清理。
 - `POST /accounts/:id/personal-space/refresh`：刷新个人订阅、账单、额度和设置；各子资源允许单独刷新。
-- `GET /accounts/:id/session`、`PUT /accounts/:id/session`：管理员读取和更新完整 Session。
+- `GET /accounts/:id/session`：管理员读取完整 Session；更新与账号资料统一使用 `PATCH /accounts/:id`。
 - `GET /workspaces/:id/billing`、`GET /workspaces/:id/billing/invoices/:invoiceId`：结构化账单和发票；普通页面合同不透传原始载荷。
 - `GET/POST/PATCH/DELETE /workspaces/:id/seat-slots`：客户席位管理；公开换号仍使用 `/public/seat-slots/:seatKey`。
 - `GET/POST/PATCH/DELETE /credential-pool-groups` 与凭证停用、重新授权、替换、投放和删除 API；正文不进入 Web UI。
@@ -60,7 +60,7 @@
 ### 阶段 B：账号与个人空间
 
 - [x] B1. 账号列表实现展开的分组快捷筛选；每个分组数量基于当前关键词、主套餐、GAM、Profile 运行与封号可见性等其他筛选条件实时计算，切换分组不会改变计数基准。主套餐保持 URL 可恢复选择；GAM 与 Profile 运行各使用“是/否”两枚互斥 Checkbox，均不选表示所有，URL 保存最终三态。可管理空间、普通成员、凭证、Session 及 Workspace/凭证数量不再出现在列表筛选或字段中。“显示封号”默认不勾选并隐藏人工封号账号，勾选后同时显示正常与封号账号，并在账号字段使用错误状态徽标标识。
-- [x] B2. 账号设置可编辑分组、备注、显示名、封号、限额类型、GAM 绑定、账号代理和完整 Session。
+- [x] B2. 列表与详情共用单页账号编辑弹窗，可编辑分组、账号备注、封号、限额类型和完整 Session；GAM 绑定由关联流程自动维护，代理使用独立“换 IP”弹窗，账号不保存独立显示名。
 - [x] B3. 个人订阅显示实时套餐、续费、有效期、生效时间、规范化上游代码和操作结果。
 - [x] B4. 个人账单显示摘要、Upcoming invoice、发票、支付方式与账单主体，不用原始 JSON 替代页面。
 - [x] B5. 个人额度显示窗口和刷新结果。

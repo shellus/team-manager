@@ -127,7 +127,6 @@ export const unifiedApi = {
   importGamSession: (id: string) => request<unknown>('POST', `/accounts/${id}/account-manager/session/import`),
   personalPaymentMethodDefaults: (id: string) => request<PersonalPaymentMethodDefaults>('GET', `/accounts/${id}/personal-payment-method-defaults`),
   accountSession: (id: string) => request<Record<string, unknown>>('GET', `/accounts/${id}/session`),
-  updateAccountSession: (id: string, session: Record<string, unknown>) => request<unknown>('PUT', `/accounts/${id}/session`, { session }),
   personalSpace: (id: string) => request<PersonalSpaceDetailView>('GET', `/accounts/${id}/personal-space`),
   updatePersonalSettings: (id: string, body: Record<string, unknown>) => request<PersonalSpaceDetailView>('PATCH', `/accounts/${id}/personal-space/settings`, body),
   refreshPersonalSpace: (id: string, resource?: string) => request<PersonalSpaceDetailView>('POST', `/accounts/${id}/personal-space/refresh`, resource ? { resources: [resource] } : {}),

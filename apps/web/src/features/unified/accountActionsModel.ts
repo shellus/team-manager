@@ -7,7 +7,7 @@ import type {
 export type AccountActionModal =
   | "proxy"
   | "subscription"
-  | "session";
+  | "edit";
 
 export type AccountActionSummary = UnifiedAccountSummaryView & {
   personalPlan?: PersonalPlan;
@@ -103,7 +103,7 @@ export function actionModalFromParams(
   const modal = params.get("modal");
   return modal === "proxy" ||
     modal === "subscription" ||
-    modal === "session"
+    modal === "edit"
     ? modal
     : undefined;
 }

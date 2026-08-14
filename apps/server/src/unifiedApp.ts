@@ -172,11 +172,6 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     wrap(c, () => workspaces.detailForAccount(c.req.param('workspaceId'), c.req.param('accountId')))
   );
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
-  api.put('/accounts/:id/session', async (c) => {
-    const body = await c.req.json().catch(() => undefined) as { session?: unknown } | undefined;
-    if (!body || !Object.hasOwn(body, 'session')) return c.json({ ok: false, error: '缺少 session' }, 400);
-    return wrap(c, () => accounts.replaceSession(c.req.param('id'), body.session));
-  });
   api.patch('/accounts/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => accounts.update(c.req.param('id'), body));

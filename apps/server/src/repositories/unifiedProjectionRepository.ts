@@ -67,7 +67,6 @@ export class UnifiedProjectionRepository {
       return {
         id: row.id,
         email: row.email,
-        ...(row.display_name ? { displayName: row.display_name } : {}),
         ...(row.remark ? { remark: row.remark } : {}),
         group: { id: row.group_id, name: row.group_name },
         isBanned: row.is_banned,
