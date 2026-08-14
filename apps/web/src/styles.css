@@ -761,6 +761,25 @@ body {
   padding: 0;
 }
 
+.warning-action-button.ant-btn {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 58%, var(--color-border-subtle));
+  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-surface));
+}
+
+.warning-action-button.ant-btn:not(:disabled):not(.ant-btn-disabled):hover,
+.warning-action-button.ant-btn:not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface));
+}
+
+.warning-action-button.ant-btn:not(:disabled):not(.ant-btn-disabled):active {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 20%, var(--color-surface));
+}
+
 .profile-cell {
   align-items: flex-start;
   gap: 4px;

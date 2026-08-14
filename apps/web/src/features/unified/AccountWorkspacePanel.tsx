@@ -243,19 +243,19 @@ function PeoplePanel({
         pagination={false}
         scroll={{ x: 980 }}
         columns={[
-          { title: "成员", width: 290, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark ?? "暂无备注"} /> },
+          { title: "成员", width: 290, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark} /> },
           { title: "状态", width: 310, render: (_, row) => <TwoLineCell primary={<Space size={[4, 4]} wrap><Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag>{row.role && <Tag>{roleLabel(row.role)}</Tag>}<Tag>{seatLabel(row.seatType)}</Tag></Space>} secondary={canManage && canEditStatus(row) ? <Button type="link" size="small" onClick={() => setParams({ modal: "status", personId: row.rowKey })}>编辑状态</Button> : "状态来自远端关系"} /> },
-          { title: "租客信息", width: 300, render: (_, row) => <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
+          { title: "租客信息", width: 300, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
           {
             title: "操作",
             fixed: "right",
             width: 120,
-            render: (_, row) => <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />,
+            render: (_, row) => isWorkspaceOwner(row) ? null : <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />,
           },
         ]}
       />
       <TenantDataModal
-        open={modal === "tenant" && Boolean(selectedPerson)}
+        open={modal === "tenant" && Boolean(selectedPerson) && !isWorkspaceOwner(selectedPerson)}
         workspaceId={workspace.id}
         initial={selectedSeatSlot}
         person={selectedPerson}
@@ -339,7 +339,8 @@ function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boole
 }
 
 function TwoLineCell({primary,secondary}:{primary:ReactNode;secondary:ReactNode}) {
-  return <div className="table-main-cell workspace-person-cell"><div className="workspace-person-line">{primary}</div><div className="workspace-person-line secondary">{secondary}</div></div>;
+  const hasSecondary = secondary !== undefined && secondary !== null && secondary !== "" && secondary !== false;
+  return <div className="table-main-cell workspace-person-cell"><div className="workspace-person-line">{primary}</div>{hasSecondary && <div className="workspace-person-line secondary">{secondary}</div>}</div>;
 }
 
 function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}:{
@@ -350,10 +351,11 @@ function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}
   run:(key:string,action:()=>Promise<unknown>)=>Promise<boolean>;
   setLastRemoval:(value:WorkspaceMemberRemovalResult["summary"])=>void;
 }) {
+  if(isWorkspaceOwner(row))return null;
   if(!canManage)return <Typography.Text type="secondary">—</Typography.Text>;
   if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>Modal.confirm({title:"删除空置租客资料？",content:"联系方式、备注、价格和到期设置会被删除。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
-  if(row.seatSlot)return <Button size="small" danger onClick={()=>Modal.confirm({title:"释放租客占用？",content:["member","invited"].includes(row.seatSlot!.status)?"会移除对应成员或撤销邀请，并保留租客信息。":"会清空失效的邮箱关联，并保留租客信息。",okText:"释放占用",onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>释放占用</Button>;
-  if(row.kind==="invitation")return <Button size="small" danger onClick={()=>Modal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销邀请",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销邀请</Button>;
+  if(row.seatSlot)return <Button size="small" className="warning-action-button" onClick={()=>Modal.confirm({title:"释放租客占用？",content:["member","invited"].includes(row.seatSlot!.status)?"会移除对应成员或撤销邀请，并保留租客信息。":"会清空失效的邮箱关联，并保留租客信息。",okText:"释放",onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>释放</Button>;
+  if(row.kind==="invitation")return <Button size="small" className="warning-action-button" onClick={()=>Modal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销</Button>;
   if(row.kind==="member"&&row.remoteUserId)return <Button size="small" danger onClick={()=>Modal.confirm({title:"移除成员？",content:"成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。",okText:"移除成员",onOk:()=>run(`remove-${row.id}`,async()=>{const result=await unifiedApi.removeMember(workspaceId,row.remoteUserId!,accountId);setLastRemoval(result.summary);})})}>移除成员</Button>;
   return <Typography.Text type="secondary">—</Typography.Text>;
 }
@@ -376,6 +378,7 @@ function optionalText(value: unknown): string | null { return typeof value === "
 function personAccount(row: AccountWorkspacePersonRow) { return row.email ?? row.accountEmail ?? row.remoteUserId ?? "空置租客资料"; }
 function relationLabel(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "成员" : kind === "invitation" ? "邀请中" : "未关联"; }
 function relationColor(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "green" : kind === "invitation" ? "blue" : "default"; }
+function isWorkspaceOwner(row?: AccountWorkspacePersonRow) { return row?.role === "owner"; }
 function canEditStatus(row: AccountWorkspacePersonRow) { return (row.kind === "member" && Boolean(row.remoteUserId)) || (row.kind === "customer" && Boolean(row.seatSlot)); }
 function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
 function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
