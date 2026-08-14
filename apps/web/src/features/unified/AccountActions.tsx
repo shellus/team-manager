@@ -379,8 +379,8 @@ function AccountEditorModal({
           <Input.TextArea
             aria-label="完整 ChatGPT Session JSON"
             className="raw-json account-session-editor"
-            autoSize={{ minRows: 14, maxRows: 28 }}
             disabled={loading || initialSession === undefined}
+            rows={15}
             wrap="soft"
           />
         </Form.Item>

@@ -133,8 +133,13 @@ body {
 .account-action-form { margin-top: 16px; }
 .account-session-editor { display: block; margin: 16px 0 12px; }
 .account-session-editor.raw-json {
+  height: 260px;
+  min-height: 260px;
+  max-height: 260px;
   overflow-x: hidden;
+  overflow-y: auto;
   overflow-wrap: anywhere;
+  resize: none;
   white-space: pre-wrap;
   word-break: break-word;
 }
