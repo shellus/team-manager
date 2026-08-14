@@ -57,7 +57,7 @@ export function OverviewPage() {
 function seatMatches(row:SeatOperationalOverviewView,type:string,includeOwners:boolean){if(!includeOwners&&row.role==="owner")return false;if(type==="chatgpt")return row.seatType==="default";if(type==="codex")return row.seatType==="usage_based";return true;}
 
 function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) {
-  const pagination=useUrlPagination({total:rows.length});
+  const pagination=useUrlPagination({total:rows.length,pageSizeStorageKey:"overview-workspaces"});
   return <Table rowKey="id" dataSource={rows} pagination={pagination} scroll={{ x: 1250 }} columns={[
     { title: "Workspace", render: (_, row) => <div>{row.name ?? "未命名"}<br/><Typography.Text type="secondary">{row.externalId}</Typography.Text></div> },
     { title: "套餐", dataIndex: "plan", render: value => <Tag color="blue">{planLabel(value)}</Tag> },
@@ -70,7 +70,7 @@ function WorkspaceTable({ rows }: { rows: WorkspaceOperationalOverviewView[] }) 
 }
 
 function SeatTable({ rows }: { rows: SeatOperationalOverviewView[] }) {
-  const pagination=useUrlPagination({total:rows.length});
+  const pagination=useUrlPagination({total:rows.length,pageSizeStorageKey:"overview-seats"});
   return <Table rowKey="id" dataSource={rows} pagination={pagination} scroll={{ x: 1350 }} columns={[
     { title: "Workspace", render: (_, row) => row.workspaceName ?? row.workspaceExternalId },
     { title: "来源", render:(_,row)=>(row.sources??[row.source]).map(value=>sourceLabels[value]).join(" + ") },

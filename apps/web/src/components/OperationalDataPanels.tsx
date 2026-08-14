@@ -57,8 +57,8 @@ function InvoiceTable({ invoices, empty, upcoming=false }: { invoices: BillingIn
   ]}/>;
 }
 
-export function ActivityTimeline({ value, pageKey='activityPage', pageSizeKey='activityPageSize' }: { value: AccountActivityView[]; pageKey?:string; pageSizeKey?:string }) {
-  const pagination=useUrlPagination({total:value.length,pageKey,pageSizeKey,defaultPageSize:30});
+export function ActivityTimeline({ value, pageKey='activityPage' }: { value: AccountActivityView[]; pageKey?:string }) {
+  const pagination=useUrlPagination({total:value.length,pageKey,pageSizeStorageKey:"account-activity",defaultPageSize:30});
   return <Table rowKey="id" size="small" pagination={pagination} dataSource={value} locale={{emptyText:'暂无活动记录'}} columns={[
     {title:'时间',dataIndex:'occurredAt',width:190,render:formatTime},
     {title:'事件',dataIndex:'title',width:220},

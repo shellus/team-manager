@@ -82,7 +82,7 @@ export function SettingsPage() {
     settings.find((row) => row.key === key)?.value;
   const tabs = ["notifications", "deliveries", "pools", "preferences", "retention"];
   const activeTab = tabs.includes(params.get("tab") ?? "") ? params.get("tab")! : "notifications";
-  const deliveryPagination = useUrlPagination({ total: deliveries.length, pageKey: "deliveriesPage", pageSizeKey: "deliveriesPageSize" });
+  const deliveryPagination = useUrlPagination({ total: deliveries.length, pageKey: "deliveriesPage", pageSizeStorageKey: "notification-deliveries" });
   const selectTab = (value: string) => { const next = new URLSearchParams(params); value === "notifications" ? next.delete("tab") : next.set("tab", value); setParams(next); };
   useEffect(()=>{const tab=params.get("tab");if(tab&&!tabs.includes(tab)){const next=new URLSearchParams(params);next.delete("tab");setParams(next,{replace:true});}},[params,setParams]);
   useEffect(()=>{const policy=params.get("policy");if(policy&&policy!=="new"&&policies.length&&!policies.some(row=>row.kind===policy)){const next=new URLSearchParams(params);next.delete("policy");setParams(next,{replace:true});}},[params,policies,setParams]);

@@ -460,7 +460,7 @@ function CredentialsPanel({ accountId, workspace, poolGroups, busy, run }: {
   const [oauth, setOauth] = useState<{ sessionId: string; authUrl: string; poolGroup?: string }>();
   const [callback, setCallback] = useState("");
   const [error, setError] = useState("");
-  const pagination = useUrlPagination({ total: workspace.credentials.length, pageKey: "credentialsPage", pageSizeKey: "credentialsPageSize" });
+  const pagination = useUrlPagination({ total: workspace.credentials.length, pageKey: "credentialsPage", pageSizeStorageKey: "workspace-credentials" });
   const create = async (values: Record<string, string>) => {
     remember(values);
     if (values.kind === "pat") return run("pat", () => unifiedApi.createPatCredential(accountId, workspace.id, { name: values.name, poolGroupId: values.poolGroup }));

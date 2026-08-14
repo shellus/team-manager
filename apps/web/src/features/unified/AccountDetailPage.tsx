@@ -437,7 +437,7 @@ function PersonalPanel({
     asRecordArray(quotaPayload?.windows) ??
     asRecordArray(quotaPayload?.credits) ??
     [];
-  const quotaPagination=useUrlPagination({total:quotaWindows.length,pageKey:"quotaPage",pageSizeKey:"quotaPageSize"});
+  const quotaPagination=useUrlPagination({total:quotaWindows.length,pageKey:"quotaPage",pageSizeStorageKey:"account-quota"});
   const paidSubscription = Boolean(subscriptionSnapshot && !['free', 'unknown'].includes(subscriptionSnapshot.plan));
   const renewalCancelled = subscriptionSnapshot?.willRenew === false;
   const renewalEnd = subscriptionSnapshot?.endsAt ? formatTime(subscriptionSnapshot.endsAt) : '当前计费周期结束';
@@ -575,7 +575,7 @@ function Operations({
   operations: AccountManagerOperationView[];
   open: (id: string) => void;
 }) {
-  const pagination=useUrlPagination({total:operations.length,pageKey:"operationsPage",pageSizeKey:"operationsPageSize"});
+  const pagination=useUrlPagination({total:operations.length,pageKey:"operationsPage",pageSizeStorageKey:"account-operations"});
   return (
     <Table
       rowKey="id"

@@ -74,7 +74,7 @@ export function ArtifactsPage() {
       }),
     [params, rows],
   );
-  const pagination = useUrlPagination({ total: filteredRows.length });
+  const pagination = useUrlPagination({ total: filteredRows.length, pageSizeStorageKey: "artifacts" });
 
   const run = async (key: string, action: () => Promise<unknown>) => {
     setBusy(key);

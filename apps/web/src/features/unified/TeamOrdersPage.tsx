@@ -25,9 +25,9 @@ export function TeamOrdersPage() {
   const maintenance = useMemo(() => data.maintenances.filter(row => match(row, query) && (status === "all" || row.status === status)), [data.maintenances, query, status]);
   const orders = useMemo(() => data.orders.filter(row => match(row, query) && (status === "all" || row.status === status)), [data.orders, query, status]);
   const edit = data.maintenances.find(row => row.workspaceId === editWorkspaceId); const history = data.orders.filter(row => row.workspaceId === historyWorkspaceId);
-  const maintenancePagination=useUrlPagination({total:maintenance.length,pageKey:"maintenancePage",pageSizeKey:"maintenancePageSize"});
-  const ordersPagination=useUrlPagination({total:orders.length,pageKey:"ordersPage",pageSizeKey:"ordersPageSize"});
-  const historyPagination=useUrlPagination({total:history.length,pageKey:"historyPage",pageSizeKey:"historyPageSize"});
+  const maintenancePagination=useUrlPagination({total:maintenance.length,pageKey:"maintenancePage",pageSizeStorageKey:"team-order-maintenance"});
+  const ordersPagination=useUrlPagination({total:orders.length,pageKey:"ordersPage",pageSizeStorageKey:"team-orders"});
+  const historyPagination=useUrlPagination({total:history.length,pageKey:"historyPage",pageSizeStorageKey:"team-order-history"});
 
   return <Space direction="vertical" size={16} className="panel-stack">
     <Card><PageHeader title="Team 升级订单" description="按 Workspace 管理执行关系、Checkout 链接和历史订单" actions={<><Button onClick={()=>void load()} loading={loading}>立即刷新</Button><Button disabled={!data.configured} loading={busy === "all"} onClick={() => run("all", () => unifiedApi.runTeamOrders({ all: true, source: "manual_all" }))}>生成全部订单</Button><Button disabled={!data.configured} type="primary" loading={busy === "due"} onClick={() => run("due", () => unifiedApi.runTeamOrders({ source: "manual_maintenance" }))}>运行维护池</Button></>} /></Card>

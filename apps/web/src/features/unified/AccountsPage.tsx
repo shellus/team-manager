@@ -88,7 +88,7 @@ export function AccountsPage() {
     const pending = selectedGroupId ? registrations.filter((item) => item.group.id === selectedGroupId) : registrations;
     return [...pending, ...accounts];
   }, [accounts, registrations, selectedGroupId]);
-  const pagination = useUrlPagination({ total: rows.length });
+  const pagination = useUrlPagination({ total: rows.length, pageSizeStorageKey: "accounts" });
   const groupCounts = useMemo(
     () => countAccountsByGroup([...matchingAccounts, ...registrations]),
     [matchingAccounts, registrations],
