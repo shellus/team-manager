@@ -229,8 +229,8 @@ export class AccountRepository {
     }
     if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', filters.primaryPlan);
     return query
-      .orderBy('a.created_at', 'desc')
-      .orderBy('a.id', 'desc')
+      .orderBy('a.created_at', 'asc')
+      .orderBy('a.id', 'asc')
       .execute() as Promise<AccountListItem[]>;
   }
 

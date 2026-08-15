@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Alert, Button, Form, Input, Modal, Select, Space, Switch, Tooltip, message } from "antd";
+import { Alert, Button, Form, Input, Select, Space, Switch, Tooltip } from "antd";
 import type {
   AccountGroupView,
   AccountLimitType,
@@ -19,6 +19,7 @@ import {
   type AccountActionSummary,
 } from "./accountActionsModel.js";
 import { SubscriptionModal } from "./SubscriptionModal.js";
+import { ProductModal, useProductMessage } from "../../components/ProductOverlays.js";
 
 export function AccountActionButtons({
   account,
@@ -31,6 +32,7 @@ export function AccountActionButtons({
   onOpen: (action: AccountActionModal) => void;
   onChanged: () => void | Promise<void>;
 }) {
+  const productMessage = useProductMessage();
   const [profileBusy, setProfileBusy] = useState(false);
   const currentProfileStatus = profileStatus ?? account.profileStatus;
   const nextProfileAction = profileAction(
@@ -93,10 +95,10 @@ export function AccountActionButtons({
                   start: unifiedApi.startProfile,
                   stop: unifiedApi.stopProfile,
                 });
-                message.success(`Profile 已${nextProfileAction === "stop" ? "停止" : "启动"}`);
+                productMessage.success(`Profile 已${nextProfileAction === "stop" ? "停止" : "启动"}`);
                 await onChanged();
               } catch (reason) {
-                message.error((reason as Error).message);
+                productMessage.error((reason as Error).message);
               } finally {
                 setProfileBusy(false);
               }
@@ -172,6 +174,7 @@ function ProxyModal({
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
+  const productMessage = useProductMessage();
   const [form] = Form.useForm<ResidentialProxyConfig>();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -193,12 +196,10 @@ function ProxyModal({
   }, [accountId, form, open]);
 
   return (
-    <Modal
+    <ProductModal
       title="换 IP"
       open={open}
       onCancel={onClose}
-      footer={null}
-      destroyOnHidden
       width={640}
     >
       <Alert
@@ -223,7 +224,7 @@ function ProxyModal({
               state: values.state || null,
               city: values.city || null,
             });
-            message.success("代理配置已保存");
+            productMessage.success("代理配置已保存");
             await onSaved();
             onClose();
           } catch (reason) {
@@ -238,7 +239,7 @@ function ProxyModal({
           保存代理配置
         </Button>
       </Form>
-    </Modal>
+    </ProductModal>
   );
 }
 
@@ -261,6 +262,7 @@ function AccountEditorModal({
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
+  const productMessage = useProductMessage();
   const [form] = Form.useForm<AccountEditorValues>();
   const [groups, setGroups] = useState<Array<Pick<AccountGroupView, "id" | "name">>>([]);
   const [initialSession, setInitialSession] = useState<string>();
@@ -305,7 +307,7 @@ function AccountEditorModal({
   }, [account, form, open]);
 
   return (
-    <Modal
+    <ProductModal
       title={`编辑账号 · ${account.email}`}
       open={open}
       onCancel={onClose}
@@ -317,7 +319,6 @@ function AccountEditorModal({
           </Button>
         </Space>
       )}
-      destroyOnHidden
       width={760}
     >
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}
@@ -350,7 +351,7 @@ function AccountEditorModal({
               isBanned: values.isBanned,
               ...(parsedSession ? { session: parsedSession } : {}),
             });
-            message.success("账号资料已保存");
+            productMessage.success("账号资料已保存");
             await onSaved();
             onClose();
           } catch (reason) {
@@ -392,6 +393,6 @@ function AccountEditorModal({
           />
         </Form.Item>
       </Form>
-    </Modal>
+    </ProductModal>
   );
 }

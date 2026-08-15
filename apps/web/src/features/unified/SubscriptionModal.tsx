@@ -4,12 +4,11 @@ import {
   Button,
   Form,
   Input,
-  Modal,
   Radio,
   Select,
   Switch,
-  message,
 } from "antd";
+import { ProductModal, useProductMessage } from "../../components/ProductOverlays.js";
 import {
   PERSONAL_PLAN_OPTIONS,
   type AccountManagerOperationView,
@@ -68,6 +67,7 @@ export function SubscriptionModal({
   onChanged?: () => void | Promise<void>;
   onOperationCreated?: (operation: AccountManagerOperationView) => void;
 }) {
+  const productMessage = useProductMessage();
   const [form] = Form.useForm<SubscriptionValues>();
   const remember = useRememberedForm(
     form,
@@ -156,7 +156,7 @@ export function SubscriptionModal({
                 : {}),
             } satisfies OpenBusinessSubscriptionRequest);
       await onChanged?.();
-      message.success("套餐操作已创建");
+      productMessage.success("套餐操作已创建");
       onClose();
       onOperationCreated?.(operation);
     } catch (reason) {
@@ -167,12 +167,10 @@ export function SubscriptionModal({
   };
 
   return (
-    <Modal
+    <ProductModal
       title="开通套餐"
       open={open}
       onCancel={onClose}
-      footer={null}
-      destroyOnHidden
       width={680}
     >
       <Form
@@ -304,6 +302,6 @@ export function SubscriptionModal({
           创建套餐操作
         </Button>
       </Form>
-    </Modal>
+    </ProductModal>
   );
 }

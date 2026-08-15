@@ -5,13 +5,11 @@ import { unifiedApi } from "./unifiedApi.js";
 export interface WebPreferences {
   rememberFormValues: boolean;
   autoRefreshOperations: boolean;
-  rrwebEnabled: boolean;
 }
 
 const DEFAULT_PREFERENCES: WebPreferences = {
   rememberFormValues: false,
   autoRefreshOperations: false,
-  rrwebEnabled: false,
 };
 
 let cached: WebPreferences | undefined;
@@ -24,7 +22,6 @@ export function normalizeWebPreferences(
   return {
     rememberFormValues: value?.rememberFormValues === true,
     autoRefreshOperations: value?.autoRefreshOperations === true,
-    rrwebEnabled: value?.rrwebEnabled === true,
   };
 }
 

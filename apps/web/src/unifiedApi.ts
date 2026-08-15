@@ -30,7 +30,7 @@ import type {
   WorkspaceDetailView,
   WorkspaceInvitationMutationInput,
   WorkspaceMemberRemovalResult,
-  WorkspaceOperationalOverviewView,
+  RenewalOperationalOverviewView,
   SeatOperationalOverviewView,
   TeamOrderDashboardView,
   WorkspaceSummaryView,
@@ -199,7 +199,7 @@ export const unifiedApi = {
     }),
   updateCredentialPoolGroup: (id: string, body: Record<string, unknown>) => request<CredentialPoolGroupView[]>('PATCH', `/credential-pool-groups/${id}`, body),
   deleteCredentialPoolGroup: (id: string) => request<CredentialPoolGroupView[]>('DELETE', `/credential-pool-groups/${id}`),
-  overviewWorkspaces: () => request<WorkspaceOperationalOverviewView[]>('GET', '/overview/workspaces'),
+  overviewRenewals: () => request<RenewalOperationalOverviewView[]>('GET', '/overview/renewals'),
   overviewSeats: () => request<SeatOperationalOverviewView[]>('GET', '/overview/seats'),
   artifacts: (query: URLSearchParams) => request<ArtifactView[]>('GET', `/artifacts?${query}`),
   uploadRrweb: (body: Uint8Array, fileName: string, recordedAt: string) =>

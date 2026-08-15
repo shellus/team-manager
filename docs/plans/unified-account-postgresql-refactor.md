@@ -306,8 +306,8 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 /accounts/:accountId/workspaces/:workspaceId
 /workspaces
 /workspaces/:workspaceId
-/overview/workspaces
-/overview/seats
+/parent-overview
+/seat-overview
 /team-orders
 ```
 
@@ -334,7 +334,7 @@ Workspace 详情包含：
 
 - `/parents`、`/parents/*`；
 - `/subaccounts`、`/subaccounts/*`；
-- 母号概览命名；
+- Parent/Subaccount 数据结构和旧母号类型；界面保留“母号概览”运营称呼，数据继续使用个人空间或 Workspace 订阅事实，不重新引入母号实体；
 - Parent/Subaccount 两套 Route、List、Detail、Settings 和注册任务组件；
 - 以历史角色决定可见性的前端 helper 和筛选偏好。
 

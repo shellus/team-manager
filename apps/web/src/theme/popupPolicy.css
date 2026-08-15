@@ -1,0 +1,48 @@
+/*
+ * 全局弹层策略的一部分。
+ *
+ * @rc-component/trigger 会先把 Select 弹层放到 -1000vw/-1000vh 再测量。
+ * 部分浏览器会错误绘制这个中间态。ThemeProvider 已把弹层挂到 .ant-select
+ * 内部，因此这里按 placement 直接锚定；所有页面和 Pagination 内部 Select
+ * 都自动生效，业务样式中不得再出现 ant-select-dropdown 定位补丁。
+ */
+.ant-select > .ant-select-dropdown {
+  max-width: min(420px, calc(100vw - 24px));
+}
+
+/*
+ * motion token 只会把动画时长降为 0，rc-motion 仍会短暂添加 appear/enter
+ * 类。明确固定可见弹层的绘制状态，避免这些 10–20ms 的生命周期形成闪帧。
+ * hidden 类仍由 Ant Design 负责 display/pointer-events，不受这里影响。
+ */
+:where(
+  .ant-select-dropdown,
+  .ant-dropdown,
+  .ant-tooltip,
+  .ant-popover,
+  .ant-picker-dropdown,
+  .ant-cascader-menus,
+  .ant-menu-submenu-popup,
+  .ant-tabs-dropdown
+):not([class*="-hidden"]) {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+  animation: none !important;
+}
+
+.ant-select > .ant-select-dropdown-placement-bottomLeft {
+  inset: calc(100% + 4px) auto auto 0 !important;
+}
+
+.ant-select > .ant-select-dropdown-placement-bottomRight {
+  inset: calc(100% + 4px) 0 auto auto !important;
+}
+
+.ant-select > .ant-select-dropdown-placement-topLeft {
+  inset: auto auto calc(100% + 4px) 0 !important;
+}
+
+.ant-select > .ant-select-dropdown-placement-topRight {
+  inset: auto 0 calc(100% + 4px) auto !important;
+}

@@ -62,6 +62,9 @@ export function buildAntdTheme(mode: ThemeMode): ThemeConfig {
   return {
     algorithm: mode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
+      // 后台管理界面优先保证弹层定位稳定。统一关闭 rc-motion，避免各页面分别
+      // 覆盖 Select、Tooltip、Dropdown、Modal 等组件的进出场动画。
+      motion: false,
       colorPrimary: tokens.colorPrimary,
       colorError: tokens.colorDanger,
       colorWarning: tokens.colorWarning,

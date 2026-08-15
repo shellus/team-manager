@@ -1,5 +1,6 @@
 import { Form, Input, Select } from 'antd';
-import { CHECKOUT_COUNTRY_CODES, type ResidentialProxyConfig } from '@team-manager/shared';
+import type { ResidentialProxyConfig } from '@team-manager/shared';
+import { CHECKOUT_COUNTRY_OPTIONS } from './selectOptions.js';
 
 export function ProxyConfigurationFields({ form }: { form: ReturnType<typeof Form.useForm<ResidentialProxyConfig>>[0] }) {
   const asn = Form.useWatch('asn', form);
@@ -11,7 +12,7 @@ export function ProxyConfigurationFields({ form }: { form: ReturnType<typeof For
         <Input autoComplete="off" />
       </Form.Item>
       <Form.Item name="country" label="国家" rules={[{ required: true, message: '请选择国家' }]}>
-        <Select showSearch optionFilterProp="label" options={CHECKOUT_COUNTRY_CODES.map((value) => ({ value, label: value }))} />
+        <Select showSearch optionFilterProp="label" options={CHECKOUT_COUNTRY_OPTIONS} />
       </Form.Item>
       <Form.Item name="asn" label="ASN" rules={[{ validator: async (_, value) => { if (value && (state || city)) throw new Error('ASN 不能与州/省或城市同时使用'); } }]}>
         <Input allowClear disabled={Boolean(state || city)} autoComplete="off" placeholder={state || city ? '已使用地区定位' : '例如 AS7922'} />

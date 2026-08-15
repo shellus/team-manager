@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import type { TablePaginationConfig } from "antd";
 import { useSearchParams } from "react-router-dom";
+import { productPageSizeChanger } from "../theme/uiPolicy.js";
 
 const DEFAULT_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
-
 export interface UrlPaginationOptions {
   total: number;
   pageKey?: string;
@@ -39,7 +39,7 @@ export function useUrlPagination({
     current,
     pageSize: state.pageSize,
     total,
-    showSizeChanger: true,
+    showSizeChanger: productPageSizeChanger,
     pageSizeOptions: [...new Set([...PAGE_SIZE_OPTIONS, defaultPageSize, state.pageSize])].sort((a, b) => a - b),
     showTotal: (count) => `共 ${count} 条`,
     onChange: (nextPage, nextPageSize) => {

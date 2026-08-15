@@ -3,15 +3,12 @@ import {
   Alert,
   Button,
   Descriptions,
-  Drawer,
   Form,
-  Modal,
   Progress,
   Space,
   Table,
   Tag,
   Typography,
-  message,
 } from "antd";
 import type {
   AccountManagerOperationView,
@@ -27,6 +24,7 @@ import {
 } from "../features/unified/operationUiModel.js";
 import type { ResidentialProxyConfig } from "@team-manager/shared";
 import { ProxyConfigurationFields } from "./ProxyConfigurationFields.js";
+import { ProductDrawer, ProductModal, useProductMessage, useProductModal } from "./ProductOverlays.js";
 
 export function OperationDrawer({
   operation,
@@ -41,6 +39,7 @@ export function OperationDrawer({
   onClose: () => void;
   onChanged?: () => void;
 }) {
+  const productModal = useProductModal();
   const [detail, setDetail] = useState<OperationDetailView>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -96,12 +95,11 @@ export function OperationDrawer({
   const actions = value ? operationDrawerActions(value) : undefined;
   return (
     <>
-      <Drawer
+      <ProductDrawer
         title="操作详情与恢复"
         open={open}
         onClose={onClose}
         width={720}
-        destroyOnHidden
         extra={<Button onClick={() => void load()}>刷新状态</Button>}
       >
         <LoadBoundary
@@ -177,7 +175,7 @@ export function OperationDrawer({
                 {actions?.rotateIp && <Button
                   loading={busy === "proxy"}
                   onClick={() =>
-                    Modal.confirm({
+                    productModal.confirm({
                       title: "轮换代理 IP 并重试？",
                       content: "GAM 会切换住宅代理会话并从当前步骤继续。",
                       okText: "轮换 IP",
@@ -191,7 +189,7 @@ export function OperationDrawer({
                   loading={busy === "terminate"}
                   danger
                   onClick={() =>
-                    Modal.confirm({
+                    productModal.confirm({
                       title: "终止当前操作？",
                       content: "终止后任务不会自动继续，已经发生的上游行为不会回滚。",
                       okText: "终止操作",
@@ -208,7 +206,7 @@ export function OperationDrawer({
                   loading={busy === "delete"}
                   danger
                   onClick={() =>
-                    Modal.confirm({
+                    productModal.confirm({
                       title: "清理操作记录？",
                       content: "只清理操作记录，不回滚已经发生的上游行为。",
                       onOk: () =>
@@ -266,13 +264,11 @@ export function OperationDrawer({
             </Space>
           )}
         </LoadBoundary>
-      </Drawer>
-      <Modal
+      </ProductDrawer>
+      <ProductModal
         title="补充支付卡"
         open={cardOpen}
         onCancel={() => setCardOpen(false)}
-        footer={null}
-        destroyOnHidden
       >
         <Alert
           type="info"
@@ -292,7 +288,7 @@ export function OperationDrawer({
             提交支付卡
           </Button>
         </Form>
-      </Modal>
+      </ProductModal>
     </>
   );
 }
@@ -315,6 +311,7 @@ function RegistrationProxyButton({
   operationId: string;
   onChanged: () => void;
 }) {
+  const productMessage = useProductMessage();
   const [form] = Form.useForm<ResidentialProxyConfig>();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -334,7 +331,7 @@ function RegistrationProxyButton({
   return (
     <>
       <Button onClick={() => setOpen(true)}>编辑注册代理</Button>
-      <Modal title="编辑注册任务代理" open={open} footer={null} destroyOnHidden onCancel={() => setOpen(false)} width={640}>
+      <ProductModal title="编辑注册任务代理" open={open} onCancel={() => setOpen(false)} width={640}>
         <Alert type="info" showIcon message="修改的是当前注册任务使用的住宅代理，不影响其他账号。" />
         {error && <Alert className="modal-error" type="error" showIcon message={error} />}
         <Form
@@ -353,7 +350,7 @@ function RegistrationProxyButton({
                 state: values.state || null,
                 city: values.city || null,
               });
-              message.success('注册任务代理已保存');
+              productMessage.success('注册任务代理已保存');
               setOpen(false);
               onChanged();
             } catch (reason) {
@@ -366,7 +363,7 @@ function RegistrationProxyButton({
           <ProxyConfigurationFields form={form} />
           <Button type="primary" htmlType="submit" loading={saving}>保存注册代理</Button>
         </Form>
-      </Modal>
+      </ProductModal>
     </>
   );
 }

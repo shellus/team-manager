@@ -166,19 +166,7 @@ export function SettingsPage() {
                       >
                         <Switch />
                       </Form.Item>
-                      <Form.Item
-                        name="rrwebEnabled"
-                        label="启用 rrweb 录制工具"
-                        valuePropName="checked"
-                      >
-                        <Switch />
-                      </Form.Item>
                     </div>
-                    <Alert
-                      type="warning"
-                      showIcon
-                      message="rrweb 开启后由管理员手动开始录制；所有输入值（包括密码）均按原文记录。"
-                    />
                     <Button
                       htmlType="submit"
                       type="primary"

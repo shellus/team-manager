@@ -53,9 +53,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await accounts.update(olderSortAccount.account.id, { remark: '最近编辑但创建更早' });
       await db.updateTable('account_operational_profiles').set({ profile_status: 'running' }).where('account_id', '=', olderSortAccount.account.id).execute();
       assert.deepEqual((await accounts.list({ query: 'sort-order' })).map((item) => item.id), [
-        newerSortAccount.account.id,
-        olderSortAccount.account.id
-      ], '账号列表严格按创建时间倒序，不受更新时间或 Profile 运行状态影响');
+        olderSortAccount.account.id,
+        newerSortAccount.account.id
+      ], '账号列表默认按创建时间正序，不受更新时间或 Profile 运行状态影响');
       const workspace = await workspaces.upsert({ externalId: 'workspace-external', name: 'Business', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: first.account.id, remoteUserId:'owner-remote',email: first.account.email, normalizedRole: 'owner', seatType: 'default', observedAt: new Date(), source: 'test' });
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, remoteUserId:'member-remote',email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
@@ -271,8 +271,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const personalOperationId=(await personal.clone().json() as any).data.id;assert.match(personalOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${personalOperationId}`,{headers})).status,200);
       const stored = await db.selectFrom('automation_operations').selectAll().where('external_operation_id', '=', 'personal-operation').executeTakeFirstOrThrow();
       assert.equal(stored.id,personalOperationId);assert.equal(stored.progress,0);
-      assert.equal(JSON.stringify(stored).includes('4242424242424242'), false);
-      assert.equal(JSON.stringify(stored).includes('123'), false);
+      const serializedStoredOperation = JSON.stringify(stored);
+      assert.equal(serializedStoredOperation.includes('4242424242424242'), false);
+      assert.equal(serializedStoredOperation.includes('"cvc":"123"'), false);
 
       const blocked = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'pro_20x', mode: 'change_existing', country: 'US', currency: 'USD', autoPay: false }) });
       assert.equal(blocked.status, 409);
@@ -283,7 +284,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-payment-methods`,{method:'POST',headers,body:JSON.stringify({country:'US',currency:'USD',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}})});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
       const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
-      await accounts.update(first.account.id,{remark:'Visible Operator'});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);
+      await accounts.update(first.account.id,{remark:'Visible Operator',isBanned:false});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);
 
       const operationRow = await db.selectFrom('automation_operations').select('id').where('external_operation_id', '=', 'business-operation').executeTakeFirstOrThrow();
       assert.equal((await app.request(`/api/operations/${operationRow.id}`, { headers })).status, 200);
@@ -308,7 +309,32 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:01:00Z'))).disabled, 0);
 
       assert.equal((await app.request('/api/credential-pool-groups', { method: 'POST', headers, body: JSON.stringify({ name: 'pool-a' }) })).status, 200);
-      assert.equal((await app.request('/api/overview/workspaces', { headers })).status, 200);
+      const overviewRenewalAt = new Date('2032-08-14T09:10:11Z');
+      await db.updateTable('workspaces').set({ next_renewal_at: overviewRenewalAt }).where('id', '=', workspace.id).execute();
+      const bannedOverviewManager = await accounts.create({ email: 'banned-overview@example.com', groupId: group.id, isBanned: true });
+      const bannedOverviewWorkspace = await workspaces.upsert({ externalId: 'banned-overview-workspace', normalizedPlan: 'business' });
+      await workspaces.upsertMembership({ workspaceId: bannedOverviewWorkspace.id, accountId: bannedOverviewManager.account.id, remoteUserId:'banned-overview-owner',email:bannedOverviewManager.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
+      const renewalOverviewResponse = await app.request('/api/overview/renewals', { headers });
+      assert.equal(renewalOverviewResponse.status, 200);
+      const renewalOverview = (await renewalOverviewResponse.json() as any).data;
+      const workspaceRenewalCard = renewalOverview.find((item: any) => item.workspaceId === workspace.id);
+      assert.equal(workspaceRenewalCard.subject, 'workspace');
+      assert.equal(workspaceRenewalCard.renewalAt, overviewRenewalAt.toISOString(), '续费概览保留精确到秒的时间');
+      assert.equal(workspaceRenewalCard.managingAccounts[0].email, first.account.email);
+      assert.equal(workspaceRenewalCard.managingAccounts[0].isBanned, false);
+      assert.equal(workspaceRenewalCard.operationalStatus, 'normal');
+      assert.equal(renewalOverview.every((item: any) => item.plan === 'business'), true, '母号概览只展示双席位 Business Workspace');
+      assert.equal(renewalOverview.some((item: any) => item.workspaceId === usageWorkspace.id), false, '母号概览不展示 Business 0.52');
+      assert.equal(renewalOverview.some((item: any) => item.workspaceId === billingWorkspace.id), true, '固定席位账单证据必须覆盖 usage-based Workspace plan');
+      assert.equal(renewalOverview.some((item: any) => item.workspaceId === bannedOverviewWorkspace.id), false, '母号概览不展示管理账号已封号的 Workspace');
+      const seatOverviewResponse = await app.request('/api/overview/seats', { headers });
+      assert.equal(seatOverviewResponse.status, 200);
+      const seatOverview = (await seatOverviewResponse.json() as any).data;
+      const invitedTenantCard = seatOverview.find((item: any) => item.id === invitedTenantSlot.id);
+      assert.equal(invitedTenantCard.email, 'tenant-invite@example.com');
+      assert.equal(invitedTenantCard.expiresOn, '2032-08-14');
+      assert.equal(Object.hasOwn(invitedTenantCard, 'source'), false, '租客席位概览不再混入成员或邀请来源');
+      assert.equal((await app.request('/api/overview/workspaces', { headers })).status, 404, '旧 Workspace 概览 API 不保留兼容入口');
       assert.equal((await app.request('/api/settings/system/form-preferences', { method: 'PUT', headers, body: JSON.stringify({ country: 'US' }) })).status, 200);
 
       await db.insertInto('team_order_maintenances').values({workspace_id:workspace.id,executor_account_id:first.account.id,enabled:true,last_run_at:null,promo_code:null,country:'US',currency:'USD',next_run_at:new Date(),pause_reason:null,last_success_at:null,last_error:null}).execute();

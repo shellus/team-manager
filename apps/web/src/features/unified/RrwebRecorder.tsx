@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Space, Tag, Typography, message } from "antd";
+import { FloatButton, Typography } from "antd";
 import {
-  PlayCircleOutlined,
+  BugOutlined,
+  LoadingOutlined,
   StopOutlined,
-  VideoCameraAddOutlined,
 } from "@ant-design/icons";
 import { unifiedApi } from "../../unifiedApi.js";
-import { RrwebReplay } from "../../components/RrwebReplay.js";
-import { useWebPreferences } from "../../webPreferences.js";
+import { useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 
 type RrEvent = { timestamp?: number } & Record<string, unknown>;
 type RecordFn = (options: {
@@ -33,23 +32,10 @@ interface RecordingFile {
 export function RrwebRecorder() {
   const events = useRef<RrEvent[]>([]);
   const stop = useRef<(() => void) | undefined>();
-  const { rrwebEnabled: enabled } = useWebPreferences();
+  const message = useProductMessage();
+  const modal = useProductModal();
   const [recording, setRecording] = useState(false);
-  const [eventCount, setEventCount] = useState(0);
-  const [preview, setPreview] = useState<RecordingFile>();
-  const [replayOpen, setReplayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!enabled && stop.current) {
-      stop.current();
-      stop.current = undefined;
-      events.current = [];
-      setEventCount(0);
-      setRecording(false);
-      message.info("rrweb 已按 Web 偏好关闭，未完成的录制未上传");
-    }
-  }, [enabled]);
 
   useEffect(
     () => () => {
@@ -64,11 +50,9 @@ export function RrwebRecorder() {
       const module = await import("rrweb");
       const record = (module as unknown as { record: RecordFn }).record;
       events.current = [];
-      setEventCount(0);
       stop.current = record({
         emit: (event) => {
           events.current.push(event);
-          setEventCount(events.current.length);
         },
         checkoutEveryNms: 30_000,
         // 此项目是个人管理工具，明确记录所有原始输入，包括 password。
@@ -101,8 +85,6 @@ export function RrwebRecorder() {
       },
       events: [...events.current],
     };
-    setPreview(content);
-    setReplayOpen(true);
     setBusy(true);
     try {
       const jsonBytes = new TextEncoder().encode(JSON.stringify(content));
@@ -115,7 +97,17 @@ export function RrwebRecorder() {
         `${Date.now()}.json.gz`,
         content.createdAt,
       );
-      message.success(`录制已保存：${result.id}`);
+      modal.success({
+        title: "前端录制已上报",
+        content: (
+          <div className="rrweb-upload-result">
+            <Typography.Text type="secondary">将此 UUID 提供给开发者即可定位并回放本次现场。</Typography.Text>
+            <Typography.Text code copyable>{result.id}</Typography.Text>
+          </div>
+        ),
+        okText: "关闭",
+      });
+      events.current = [];
     } catch (reason) {
       message.error(`上传失败：${(reason as Error).message}`);
     } finally {
@@ -123,57 +115,17 @@ export function RrwebRecorder() {
     }
   };
 
-  if (!enabled) return null;
-
   return (
-    <>
-      <div className="rrweb-dev-tools" data-rrweb-ignore>
-        <Space wrap>
-          <Tag color={recording ? "error" : "processing"}>rrweb 原文录制</Tag>
-          {recording ? (
-            <>
-              <Typography.Text>{eventCount} 个事件</Typography.Text>
-              <Button
-                danger
-                icon={<StopOutlined />}
-                onClick={() => void finish()}
-              >
-                停止并上传
-              </Button>
-            </>
-          ) : (
-            <Button
-              icon={<VideoCameraAddOutlined />}
-              loading={busy}
-              onClick={() => void start()}
-            >
-              开始录制
-            </Button>
-          )}
-          {preview && !recording && (
-            <Button
-              icon={<PlayCircleOutlined />}
-              onClick={() => setReplayOpen(true)}
-            >
-              回放最近录制
-            </Button>
-          )}
-        </Space>
-      </div>
-      <Modal
-        title="最近 rrweb 录制"
-        open={Boolean(preview) && replayOpen && !recording}
-        onCancel={() => setReplayOpen(false)}
-        footer={null}
-        width="min(1120px, 94vw)"
-      >
-        <Alert
-          type="warning"
-          showIcon
-          message="该录制包含所有输入原文，包括 password；页面不做脱敏。"
-        />
-        {preview && <RrwebReplay recording={preview} />}
-      </Modal>
-    </>
+    <FloatButton
+      className={`rrweb-debug-button rr-ignore${recording ? " is-recording" : ""}${busy ? " is-busy" : ""}`}
+      data-rrweb-ignore
+      icon={busy ? <LoadingOutlined spin /> : recording ? <StopOutlined /> : <BugOutlined />}
+      type="primary"
+      onClick={() => {
+        if (busy) return;
+        void (recording ? finish() : start());
+      }}
+      aria-label={busy ? "正在上报前端录制" : recording ? "结束前端录制并上报" : "开始录制前端现场"}
+    />
   );
 }

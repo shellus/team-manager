@@ -346,7 +346,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     return wrap(c, () => workspaceOperations.patchSettings(c.req.param('id'), executor, body));
   });
   api.post('/workspaces/:id/billing/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshBilling(c.req.param('id'), accountId)));
-  api.get('/overview/workspaces', (c)=>wrap(c,()=>system.overviewWorkspaces()));
+  api.get('/overview/renewals', (c)=>wrap(c,()=>system.overviewRenewals()));
   api.get('/overview/seats', (c)=>wrap(c,()=>system.overviewSeats()));
   api.get('/artifacts', (c)=>wrap(c,()=>artifacts.list(c.req.query('kind'),Number(c.req.query('limit')||500))));
   api.get('/artifacts/:kind/:id', async (c)=>{try{const content=await artifacts.read(c.req.param('kind'),c.req.param('id'));return new Response(new Uint8Array(content),{headers:{'content-type':'application/octet-stream'}});}catch(error){return wrap(c,()=>Promise.reject(error));}});

@@ -6,7 +6,6 @@ import {
   Empty,
   Form,
   Input,
-  Modal,
   Select,
   Space,
   Switch,
@@ -14,9 +13,9 @@ import {
   Tabs,
   Tag,
   Typography,
-  message,
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
+import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 import type {
   BillingDetailView,
   CredentialPoolGroupView,
@@ -32,7 +31,8 @@ import { BillingSummary, SubscriptionSummary } from "../../components/Operationa
 import { formatTime } from "../../components/ProductPrimitives.js";
 import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
-import { editableMemberRoleOptions, roleLabel, seatLabel, statusLabel } from "../../labels.js";
+import { editableMemberRoleOptions, roleLabel, seatLabel, statusLabel, SEAT_OPTIONS } from "../../labels.js";
+import { SNAPSHOT_BOOLEAN_OPTIONS } from "../../components/selectOptions.js";
 import { useRememberedForm } from "../../webPreferences.js";
 import {
   automaticReloadDetails,
@@ -57,6 +57,7 @@ export function AccountWorkspacePanel({
   poolGroups: CredentialPoolGroupView[];
   onAccountChanged: () => Promise<void>;
 }) {
+  const productMessage = useProductMessage();
   const [params, setParams] = useSearchParams();
   const workspaceId = resolveAccountWorkspaceId(account.workspaces, params.get("workspaceId"));
   const relationship = account.workspaces.find((item) => item.id === workspaceId);
@@ -105,7 +106,7 @@ export function AccountWorkspacePanel({
     setError("");
     try {
       await action();
-      message.success("操作已完成");
+      productMessage.success("操作已完成");
       await Promise.all([load(), onAccountChanged()]);
       return true;
     } catch (reason) {
@@ -284,13 +285,13 @@ function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, on
 }) {
   const email = initial?.email ?? person?.email ?? person?.accountEmail;
   const seatType = initial?.seatType ?? person?.seatType ?? "usage_based";
-  return <Modal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose} footer={null} destroyOnHidden>
+  return <ProductModal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose}>
     <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues) => { if (await onSubmit({ ...tenantDataInput(value), email, seatType })) onClose(); }} disabled={busy}>
       <Descriptions size="small" bordered column={1} items={[{ key: "email", label: "关联邮箱", children: email ?? "—" }]} />
       <TenantDataFields />
       <Button type="primary" htmlType="submit" loading={busy}>保存租客信息</Button>
     </Form>
-  </Modal>;
+  </ProductModal>;
 }
 
 function TenantDataFields() {
@@ -313,29 +314,29 @@ function MemberStatusModal({ open, person, busy, onClose, onSubmit }: {
   onSubmit:(value:MemberStatusValues)=>Promise<boolean>;
 }) {
   const currentRole=person?.rawRole??person?.role??"standard-user";
-  return <Modal title="编辑状态" open={open} onCancel={onClose} footer={null} destroyOnHidden>
+  return <ProductModal title="编辑状态" open={open} onCancel={onClose}>
     <Form key={person?.rowKey??"status"} layout="vertical" initialValues={{role:currentRole,seat:person?.seatType??"usage_based"}} onFinish={async(value:MemberStatusValues)=>{if(await onSubmit(value))onClose();}} disabled={busy}>
       <Descriptions size="small" bordered column={1} items={[{key:"relation",label:"关系",children:person?relationLabel(person.kind):"—"}]} />
       {person?.kind==="member"&&<Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions(currentRole)} /></Form.Item>}
-      <Form.Item name="seat" label="席位"><Select options={[{value:"usage_based",label:"Codex 席位"},{value:"default",label:"ChatGPT 席位"}]} /></Form.Item>
+      <Form.Item name="seat" label="席位"><Select options={SEAT_OPTIONS} /></Form.Item>
       <Button type="primary" htmlType="submit" loading={busy}>保存状态</Button>
     </Form>
-  </Modal>;
+  </ProductModal>;
 }
 
 function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boolean;onClose:()=>void;onSubmit:(value:InviteMemberValues)=>Promise<boolean>}) {
-  return <Modal title="邀请成员" open={open} onCancel={onClose} footer={null} destroyOnHidden>
+  return <ProductModal title="邀请成员" open={open} onCancel={onClose}>
     <Form layout="vertical" initialValues={{role:"standard-user",seat:"usage_based",expireRemove:false}} onFinish={async(value:InviteMemberValues)=>{if(await onSubmit({...value,...inviteTenantDataInput(value)}))onClose();}} disabled={busy}>
       <Form.Item name="email" label="账号邮箱" rules={[{required:true,type:"email",message:"请输入有效邮箱"}]}><Input /></Form.Item>
       <div className="responsive-form-grid">
         <Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions("standard-user")} /></Form.Item>
-        <Form.Item name="seat" label="席位"><Select options={[{value:"usage_based",label:"Codex 席位"},{value:"default",label:"ChatGPT 席位"}]} /></Form.Item>
+        <Form.Item name="seat" label="席位"><Select options={SEAT_OPTIONS} /></Form.Item>
       </div>
       <Typography.Title level={5}>租客信息</Typography.Title>
       <TenantDataFields />
       <Button type="primary" htmlType="submit" loading={busy}>发送邀请</Button>
     </Form>
-  </Modal>;
+  </ProductModal>;
 }
 
 function TwoLineCell({primary,secondary}:{primary:ReactNode;secondary:ReactNode}) {
@@ -351,12 +352,13 @@ function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}
   run:(key:string,action:()=>Promise<unknown>)=>Promise<boolean>;
   setLastRemoval:(value:WorkspaceMemberRemovalResult["summary"])=>void;
 }) {
+  const productModal = useProductModal();
   if(isWorkspaceOwner(row))return null;
   if(!canManage)return <Typography.Text type="secondary">—</Typography.Text>;
-  if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>Modal.confirm({title:"删除空置租客资料？",content:"联系方式、备注、价格和到期设置会被删除。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
-  if(row.seatSlot)return <Button size="small" className="warning-action-button" onClick={()=>Modal.confirm({title:"释放租客占用？",content:["member","invited"].includes(row.seatSlot!.status)?"会移除对应成员或撤销邀请，并保留租客信息。":"会清空失效的邮箱关联，并保留租客信息。",okText:"释放",onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>释放</Button>;
-  if(row.kind==="invitation")return <Button size="small" className="warning-action-button" onClick={()=>Modal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销</Button>;
-  if(row.kind==="member"&&row.remoteUserId)return <Button size="small" danger onClick={()=>Modal.confirm({title:"移除成员？",content:"成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。",okText:"移除成员",onOk:()=>run(`remove-${row.id}`,async()=>{const result=await unifiedApi.removeMember(workspaceId,row.remoteUserId!,accountId);setLastRemoval(result.summary);})})}>移除成员</Button>;
+  if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>productModal.confirm({title:"删除空置租客资料？",content:"联系方式、备注、价格和到期设置会被删除。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
+  if(row.seatSlot)return <Button size="small" className="warning-action-button" onClick={()=>productModal.confirm({title:"释放租客占用？",content:["member","invited"].includes(row.seatSlot!.status)?"会移除对应成员或撤销邀请，并保留租客信息。":"会清空失效的邮箱关联，并保留租客信息。",okText:"释放",onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>释放</Button>;
+  if(row.kind==="invitation")return <Button size="small" className="warning-action-button" onClick={()=>productModal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销</Button>;
+  if(row.kind==="member"&&row.remoteUserId)return <Button size="small" danger onClick={()=>productModal.confirm({title:"移除成员？",content:"成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。",okText:"移除成员",onOk:()=>run(`remove-${row.id}`,async()=>{const result=await unifiedApi.removeMember(workspaceId,row.remoteUserId!,accountId);setLastRemoval(result.summary);})})}>移除成员</Button>;
   return <Typography.Text type="secondary">—</Typography.Text>;
 }
 
@@ -413,6 +415,7 @@ function WorkspaceSettings({ workspace, accountId, canManage, busy, run }: {
   busy: string;
   run: (key: string, action: () => Promise<unknown>) => Promise<boolean>;
 }) {
+  const productModal = useProductModal();
   const payload = workspace.latestSettings?.payload ?? {};
   const initialValues = workspaceSettingsFormValues(payload, workspace.name);
   const reloadDetails = automaticReloadDetails(payload);
@@ -427,7 +430,7 @@ function WorkspaceSettings({ workspace, accountId, canManage, busy, run }: {
       if (Object.keys(settings).length) await unifiedApi.patchWorkspaceSettings(workspace.id, { executorAccountId: accountId, ...settings });
     });
     if (initialValues.automaticReloadEnabled !== true && settings.automaticReloadEnabled === true) {
-      Modal.confirm({ title: "开启 Automatic reload？", content: "余额低于远端阈值时可能立即使用默认支付方式补款。", okText: "开启自动补款", onOk: execute });
+      productModal.confirm({ title: "开启 Automatic reload？", content: "余额低于远端阈值时可能立即使用默认支付方式补款。", okText: "开启自动补款", onOk: execute });
       return;
     }
     void execute();
@@ -435,14 +438,14 @@ function WorkspaceSettings({ workspace, accountId, canManage, busy, run }: {
   return <Space direction="vertical" className="panel-stack">
     <Space wrap><Typography.Text type="secondary">设置快照：{formatTime(workspace.latestSettings?.observedAt)}</Typography.Text><Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "settings-refresh"} onClick={() => void run("settings-refresh", () => unifiedApi.refreshWorkspaceSettings(workspace.id, accountId))}>刷新设置</Button></Space>
     <Form form={form} key={workspace.latestSettings?.observedAt ?? workspace.updatedAt} layout="vertical" initialValues={initialValues} onFinish={submit} disabled={!canManage}>
-      <div className="responsive-form-grid"><Form.Item name="name" label="Workspace 名称"><Input /></Form.Item><Form.Item name="defaultSeat" label="默认席位"><Select options={[{ value: "usage_based", label: "Codex" }, { value: "default", label: "ChatGPT" }]} /></Form.Item></div>
+      <div className="responsive-form-grid"><Form.Item name="name" label="Workspace 名称"><Input /></Form.Item><Form.Item name="defaultSeat" label="默认席位"><Select options={SEAT_OPTIONS} /></Form.Item></div>
       <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} items={[
         { key: "local", label: "Codex Local 权限", children: initialValues.codexLocalAccessEnabled === undefined ? "快照未提供" : initialValues.codexLocalAccessEnabled ? "允许" : "关闭" },
         { key: "threshold", label: "自动补款阈值", children: reloadDetails.threshold ?? "快照未提供" },
         { key: "target", label: "自动补款目标", children: reloadDetails.target ?? "快照未提供" },
         { key: "monthly", label: "月度补款", children: reloadDetails.monthlyLimit ? `限额 ${reloadDetails.monthlyLimit} · 剩余 ${reloadDetails.monthlyRemaining ?? "未知"}` : "快照未提供" },
       ]} />
-      <div className="switch-grid">{switches.map(([name, label]) => <Form.Item key={name} name={name} label={label}><Select allowClear placeholder="未知（快照未提供）" options={[{ value: true, label: "明确开启" }, { value: false, label: "明确关闭" }]} /></Form.Item>)}</div>
+      <div className="switch-grid">{switches.map(([name, label]) => <Form.Item key={name} name={name} label={label}><Select allowClear placeholder="未知（快照未提供）" options={SNAPSHOT_BOOLEAN_OPTIONS} /></Form.Item>)}</div>
       <Button type="primary" htmlType="submit" loading={busy === "settings"}>保存全部设置</Button>
     </Form>
   </Space>;
@@ -485,12 +488,12 @@ function CredentialsPanel({ accountId, workspace, poolGroups, busy, run }: {
       { title: "额度", render: (_, row) => row.latestQuota ? <Space direction="vertical" size={1}><Tag color={row.latestQuota.status === "success" ? "green" : "red"}>{statusLabel(row.latestQuota.status)}</Tag>{row.latestQuota.windows.map((window) => <Typography.Text key={window.id} type="secondary">{window.label}：{window.usedPercent ?? "—"}% · 重置 {formatTime(window.resetAt)}</Typography.Text>)}</Space> : "未刷新" },
       { title: "操作", fixed: "right", render: (_, row) => <WorkspaceCredentialActions credential={row} run={run} /> },
     ]} />
-    <Modal title="完成 OAuth 授权" open={Boolean(oauth)} onCancel={() => setOauth(undefined)} footer={null} destroyOnHidden>
+    <ProductModal title="完成 OAuth 授权" open={Boolean(oauth)} onCancel={() => setOauth(undefined)}>
       <Alert type="info" showIcon message="在新窗口完成授权，再粘贴完整回调 URL。" />
       <Typography.Paragraph copyable={{ text: oauth?.authUrl }}>{oauth?.authUrl}</Typography.Paragraph>
       <Input.TextArea rows={4} value={callback} onChange={(event) => setCallback(event.target.value)} placeholder="完整 OAuth callback URL" />
       <Button type="primary" disabled={!callback.trim()} onClick={() => oauth && run("oauth-complete", () => unifiedApi.completeOauthCredential(oauth.sessionId, callback, oauth.poolGroup)).then(() => setOauth(undefined))}>完成 OAuth 凭证</Button>
-    </Modal>
+    </ProductModal>
   </Space>;
 }
 

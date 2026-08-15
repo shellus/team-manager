@@ -1,9 +1,17 @@
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
 import { TeamOrderRepository } from '../repositories/teamOrderRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError } from '../serviceError.js';
-import type { NotificationPolicyConfiguration, NotificationPolicyView, SeatOperationalOverviewView, WorkspaceOperationalOverviewView } from '@team-manager/shared';
+import type {
+  NotificationPolicyConfiguration,
+  NotificationPolicyView,
+  OperationalAccountReferenceView,
+  OperationalRiskLevel,
+  RenewalOperationalOverviewView,
+  RenewalOperationalStatus,
+  SeatOperationalOverviewView
+} from '@team-manager/shared';
 
 const SUPPORTED_NOTIFICATION_POLICY_KINDS = ['seat_expiration', 'workspace_renewal'] as const;
 
@@ -54,42 +62,74 @@ export class SystemService {
     return this.notificationPolicies();
   }
 
-  async overviewWorkspaces(): Promise<WorkspaceOperationalOverviewView[]> {
-    const rows = await this.db.selectFrom('workspaces as w').selectAll('w').select((eb) => [
-      eb.selectFrom('workspace_memberships as m').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('m.workspace_id', '=', 'w.id').where('m.status', '=', 'active').as('member_count'),
-      eb.selectFrom('workspace_invitations as i').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('i.workspace_id', '=', 'w.id').where('i.status', '=', 'pending').as('invitation_count'),
-      eb.selectFrom('seat_slots as s').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('s.workspace_id', '=', 'w.id').where('s.status', '!=', 'disabled').as('seat_slot_count'),
-      eb.selectFrom('workspace_memberships as m').select(({ fn }) => fn.countAll<number>().as('count')).whereRef('m.workspace_id', '=', 'w.id').where('m.status', '=', 'active').where('m.seat_type', '=', 'default').as('fixed_occupied')
-    ]).orderBy('w.updated_at', 'desc').execute();
-    const billing = await latestWorkspaceBilling(this.db);
-    return rows.map((row) => {
-      const bill = billing.get(row.id); const nextRenewalAt = row.next_renewal_at ? iso(row.next_renewal_at) : undefined;
-      const risks = workspaceRisks(row, nextRenewalAt); const fixedCapacity = row.normalized_plan === 'business' ? 2 : undefined;
-      const occupied = Number(row.fixed_occupied);
-      return { id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}), status: row.status,
-        plan: row.normalized_plan, ...(nextRenewalAt ? { nextRenewalAt } : {}), ...bill,
-        ...(fixedCapacity === undefined ? {} : { fixedSeatCapacity: fixedCapacity, fixedSeatAvailable: Math.max(fixedCapacity - occupied, 0) }),
-        fixedSeatOccupied: occupied, memberCount: Number(row.member_count), invitationCount: Number(row.invitation_count),
-        seatSlotCount: Number(row.seat_slot_count), riskLevel: riskLevel(risks), risks };
-    }).sort(compareWorkspaceRisk);
+  async overviewRenewals(): Promise<RenewalOperationalOverviewView[]> {
+    const [workspaces, workspaceSubscriptions, managers, billing] = await Promise.all([
+      this.db.selectFrom('workspaces as w').selectAll('w').select([
+        sql<number>`(
+          select count(*)::int from (
+            select member.id from workspace_memberships member
+            where member.workspace_id = w.id and member.status = 'active' and member.seat_type = 'default'
+            union all
+            select invitation.id from workspace_invitations invitation
+            where invitation.workspace_id = w.id and invitation.status = 'pending' and invitation.seat_type = 'default'
+          ) fixed_seats
+        )`.as('fixed_occupied')
+      ]).execute(),
+      this.db.selectFrom('workspace_subscription_snapshots').selectAll()
+        .distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at', 'desc').orderBy('created_at', 'desc').execute(),
+      manageableAccounts(this.db),
+      latestWorkspaceBilling(this.db)
+    ]);
+    const workspaceSubscription = new Map(workspaceSubscriptions.map((row) => [row.workspace_id, row]));
+    const result: RenewalOperationalOverviewView[] = [];
+    for (const row of workspaces) {
+      const subscription = workspaceSubscription.get(row.id);
+      const workspaceBilling = billing.get(row.id);
+      const plan = resolveWorkspacePlan(row.normalized_plan, subscription?.normalized_plan, workspaceBilling?.normalizedPlan);
+      if (plan !== 'business') continue;
+      const renewalAt = row.next_renewal_at ? iso(row.next_renewal_at) : subscription?.ends_at ? iso(subscription.ends_at) : undefined;
+      const managingAccounts = managers.get(row.id) ?? [];
+      const primaryManager = managingAccounts[0];
+      if (!primaryManager || primaryManager.isBanned) continue;
+      const fixedSeatCapacity = plan === 'business' ? 2 : undefined;
+      const fixedSeatOccupied = Number(row.fixed_occupied);
+      const riskInput = { renewalAt, willRenew: subscription?.will_renew, workspaceStatus: row.status,
+        fixedSeatCapacity, fixedSeatOccupied };
+      const risks = renewalRisks(riskInput);
+      result.push({
+        id: `workspace:${row.id}`, subject: 'workspace', workspaceId: row.id, workspaceExternalId: row.external_id,
+        ...(row.name ? { workspaceName: row.name } : {}), status: subscription?.status ?? row.status, plan,
+        ...(renewalAt ? { renewalAt } : {}), ...(subscription?.will_renew === null || subscription?.will_renew === undefined ? {} : { willRenew: subscription.will_renew }),
+        ...billingAmounts(workspaceBilling),
+        ...(fixedSeatCapacity === undefined ? {} : { fixedSeatCapacity, fixedSeatOccupied, fixedSeatAvailable: Math.max(fixedSeatCapacity - fixedSeatOccupied, 0) }),
+        managingAccounts, operationalStatus: renewalOperationalStatus(riskInput), riskLevel: operationalRiskLevel(risks), risks
+      });
+    }
+    return result.sort((left, right) => compareOptionalDate(left.renewalAt, right.renewalAt) || left.id.localeCompare(right.id));
   }
 
   async overviewSeats(): Promise<SeatOperationalOverviewView[]> {
-    const [workspaces, memberships, invitations, slots] = await Promise.all([
-      this.db.selectFrom('workspaces').selectAll().where('status', '=', 'active').execute(),
-      this.db.selectFrom('workspace_memberships').selectAll().where('status', '=', 'active').execute(),
-      this.db.selectFrom('workspace_invitations').selectAll().where('status', '=', 'pending').execute(),
-      this.db.selectFrom('seat_slots').selectAll().where('status', '!=', 'disabled').execute()
+    const [rows, managers] = await Promise.all([
+      this.db.selectFrom('seat_slots as s').innerJoin('workspaces as w', 'w.id', 's.workspace_id')
+        .select([
+          's.id', 's.workspace_id', 's.current_email', 's.seat_type', 's.status', 's.contact', 's.remark', 's.expires_on', 's.price',
+          'w.external_id as workspace_external_id', 'w.name as workspace_name', 'w.status as workspace_status'
+        ]).where('s.status', '!=', 'disabled').execute(),
+      manageableAccounts(this.db)
     ]);
-    const byWorkspace = new Map(workspaces.map((row) => [row.id, row])); const combined = new Map<string,{workspace:any;email?:string;membership?:any;invitation?:any;slot?:any}>();
-    const relation=(workspaceId:string,email:unknown,fallback:string)=>{const normalized=typeof email==='string'?email.trim().toLowerCase():'';const key=normalized?`${workspaceId}:email:${normalized}`:`${workspaceId}:${fallback}`;const current=combined.get(key)??{workspace:byWorkspace.get(workspaceId),...(normalized?{email:normalized}:{})};combined.set(key,current);return current;};
-    for(const row of memberships){if(!byWorkspace.has(row.workspace_id))continue;relation(row.workspace_id,row.email??undefined,`membership:${row.id}`).membership=row;}
-    for(const row of invitations){if(!byWorkspace.has(row.workspace_id))continue;relation(row.workspace_id,row.email,`invitation:${row.id}`).invitation=row;}
-    for(const row of slots){if(!byWorkspace.has(row.workspace_id))continue;relation(row.workspace_id,row.current_email,`seat-slot:${row.id}`).slot=row;}
-    const result: SeatOperationalOverviewView[]=[];
-    for(const [key,row] of combined){if(!row.workspace)continue;const sources=[row.membership?'membership':undefined,row.invitation?'invitation':undefined,row.slot?'seat_slot':undefined].filter(Boolean) as Array<'membership'|'invitation'|'seat_slot'>;const primary=sources[0]!;const status=row.membership?.status??row.invitation?.status??row.slot?.status??'unknown';const role=row.membership?.normalized_role??row.invitation?.normalized_role;const risks:string[]=[];if(row.slot&&!row.membership&&!row.invitation&&row.slot.current_email)risks.push('客户席位与远端关系失联');if(row.slot&&row.membership&&row.slot.status!=='member')risks.push('客户席位本地状态与成员关系不一致');if(row.slot&&row.invitation&&!row.membership&&row.slot.status!=='invited')risks.push('客户席位本地状态与邀请关系不一致');const expiresOn=row.slot?.expires_on?dateKey(row.slot.expires_on):undefined;if(expiresOn&&expiresOn<new Date().toISOString().slice(0,10))risks.push('客户席位已到期');result.push({id:key,workspaceId:row.workspace.id,...(row.workspace.name?{workspaceName:row.workspace.name}:{}),workspaceExternalId:row.workspace.external_id,source:primary,sources,...(row.email?{email:row.email}:{}),...(row.membership?.display_name?{displayName:row.membership.display_name}:{}),...(role?{role}:{}),seatType:(row.membership?.seat_type??row.invitation?.seat_type??row.slot?.seat_type)==='usage_based'?'usage_based':'default',status,...(row.slot?.contact?{contact:row.slot.contact}:{}),...(row.slot?.remark?{remark:row.slot.remark}:{}),...(expiresOn?{expiresOn}:{}),...(row.slot?.price?{price:row.slot.price}:{}),riskLevel:risks.some(item=>item.includes('到期'))?'critical':risks.length?'warning':'normal',risks});}
-    for (const workspace of workspaces.filter((item)=>item.normalized_plan==='business')) { const occupied=memberships.filter((item)=>item.workspace_id===workspace.id&&item.seat_type==='default').length;for(let i=occupied;i<2;i+=1)result.push(seatView(workspace,'fixed_vacancy',`${workspace.id}:fixed:${i}`, 'default','empty',{})); }
-    return result.sort((a,b)=>riskRank(a.riskLevel)-riskRank(b.riskLevel)||dateKey(a.expiresOn).localeCompare(dateKey(b.expiresOn)));
+    return rows.map((row): SeatOperationalOverviewView => {
+      const expiresOn = row.expires_on ? dateKey(row.expires_on) : undefined;
+      const managingAccounts = managers.get(row.workspace_id) ?? [];
+      const risks = seatRisks(expiresOn, row.workspace_status, managingAccounts.length === 0);
+      return {
+        id: row.id, workspaceId: row.workspace_id, workspaceExternalId: row.workspace_external_id,
+        ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}), ...(row.current_email ? { email: row.current_email } : {}),
+        seatType: row.seat_type === 'usage_based' ? 'usage_based' : 'default', status: row.status,
+        ...(row.contact ? { contact: row.contact } : {}), ...(row.remark ? { remark: row.remark } : {}),
+        ...(expiresOn ? { expiresOn } : {}), ...(row.price ? { price: row.price } : {}), managingAccounts,
+        riskLevel: operationalRiskLevel(risks), risks
+      };
+    }).sort((left, right) => compareOptionalDate(left.expiresOn, right.expiresOn) || left.id.localeCompare(right.id));
   }
 }
 
@@ -114,11 +154,17 @@ function time(value:unknown){const item=text(value);return item&&/^([01]\d|2[0-3
 function text(value:unknown){return typeof value==='string'&&value.trim()?value.trim():undefined;}
 function enabled(value:unknown,legacyValue:unknown){return typeof value==='boolean'?value:Boolean(legacyValue);}
 function iso(value:unknown){return value instanceof Date?value.toISOString():new Date(String(value)).toISOString();}
-function workspaceRisks(row:any,next?:string){const risks:string[]=[];if(row.status!=='active')risks.push('Workspace 非活动');if(row.normalized_plan==='unknown')risks.push('套餐未知');if(next&&new Date(next).getTime()<Date.now())risks.push('订阅已过期');else if(next&&new Date(next).getTime()<Date.now()+7*86400_000)risks.push('七天内续费');if(row.normalized_plan==='business'&&Number(row.fixed_occupied)>2)risks.push('固定席位超出双席位容量');return risks;}
-function riskLevel(risks:string[]):WorkspaceOperationalOverviewView['riskLevel']{return risks.some(item=>item.includes('过期')||item.includes('超出'))?'critical':risks.length?'warning':'normal';}
-function riskRank(level:string){return level==='critical'?0:level==='warning'?1:level==='normal'?2:3;}
-function compareWorkspaceRisk(a:WorkspaceOperationalOverviewView,b:WorkspaceOperationalOverviewView){return riskRank(a.riskLevel)-riskRank(b.riskLevel)||(a.nextRenewalAt??'9999').localeCompare(b.nextRenewalAt??'9999');}
 function dateKey(value:unknown){return value instanceof Date?value.toISOString().slice(0,10):typeof value==='string'?value.slice(0,10):'9999';}
-function seatView(workspace:any,source:SeatOperationalOverviewView['source'],id:string,seatType:unknown,status:string,extra:any):SeatOperationalOverviewView{const expiresOn=extra.expiresOn?dateKey(extra.expiresOn):undefined;const risks:string[]=[];if(source==='fixed_vacancy')risks.push('固定 ChatGPT 空位');if(expiresOn&&expiresOn<new Date().toISOString().slice(0,10))risks.push('客户席位已到期');return{id,workspaceId:workspace.id,...(workspace.name?{workspaceName:workspace.name}:{}),workspaceExternalId:workspace.external_id,source,...extra,...(expiresOn?{expiresOn}:{}),seatType:seatType==='usage_based'?'usage_based':'default',status,riskLevel:risks.some(item=>item.includes('到期'))?'critical':risks.length?'warning':'normal',risks};}
-async function latestWorkspaceBilling(db:Kysely<Database>){const rows=await db.selectFrom('billing_snapshots').select(['workspace_id','payload']).where('workspace_id','is not',null).distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at','desc').execute();const result=new Map<string,{expectedAmount?:string;expectedCurrency?:string}>();for(const row of rows){if(!row.workspace_id)continue;const upcoming=record(row.payload.upcomingInvoice??row.payload.upcoming_invoice);const invoice=record(upcoming?.upcoming_invoice)??upcoming;const amount=invoice?.amount_due??invoice?.amount_remaining;const currency=text(invoice?.currency);result.set(row.workspace_id,{...(amount!==undefined?{expectedAmount:String(amount)}:{}),...(currency?{expectedCurrency:currency}: {})});}return result;}
+function compareOptionalDate(left?:string,right?:string){if(!left||!right)return left?-1:right?1:0;return left.localeCompare(right);}
+function resolveWorkspacePlan(...plans:Array<string|undefined>){if(plans.includes('business'))return'business';if(plans.includes('business_usage_based'))return'business_usage_based';return'unknown';}
+function normalizedLimitType(value:string):'unknown'|'weekly'|'monthly'{return value==='weekly'||value==='monthly'?value:'unknown';}
+function renewalRisks(input:{renewalAt?:string;willRenew?:boolean|null;accountIsBanned?:boolean;workspaceStatus?:string;lacksManager?:boolean;fixedSeatCapacity?:number;fixedSeatOccupied?:number}){const risks:string[]=[];const now=Date.now();if(!input.renewalAt)risks.push('续费时间未知');else{const at=new Date(input.renewalAt).getTime();if(at<now)risks.push(input.willRenew===false?'订阅已到期':'续费时间已过');else if(at<now+7*86400_000)risks.push(input.willRenew===false?'七天内到期':'七天内续费');}if(input.accountIsBanned)risks.push('账号已封号');if(input.workspaceStatus&&input.workspaceStatus!=='active')risks.push('Workspace 非活动');if(input.lacksManager)risks.push('缺少可管理账号');if(input.fixedSeatCapacity!==undefined&&input.fixedSeatOccupied!==undefined&&input.fixedSeatOccupied>input.fixedSeatCapacity)risks.push('固定席位超出容量');return risks;}
+function renewalOperationalStatus(input:{renewalAt?:string;willRenew?:boolean|null;workspaceStatus?:string;fixedSeatCapacity?:number;fixedSeatOccupied?:number}):RenewalOperationalStatus{const now=Date.now();if(input.renewalAt&&new Date(input.renewalAt).getTime()<now)return'expired';if(input.fixedSeatCapacity!==undefined&&input.fixedSeatOccupied!==undefined&&input.fixedSeatOccupied>input.fixedSeatCapacity)return'seat_over_capacity';if(input.workspaceStatus&&input.workspaceStatus!=='active')return'inactive';if(input.renewalAt&&new Date(input.renewalAt).getTime()<now+7*86400_000)return input.willRenew===false?'expiring_soon':'renewing_soon';if(!input.renewalAt)return'renewal_unknown';return'normal';}
+function seatRisks(expiresOn:string|undefined,workspaceStatus:string,lacksManager:boolean){const risks:string[]=[];const today=new Date().toISOString().slice(0,10);const soon=new Date(Date.now()+7*86400_000).toISOString().slice(0,10);if(!expiresOn)risks.push('未设置到期日');else if(expiresOn<today)risks.push('客户席位已到期');else if(expiresOn<=soon)risks.push('七天内到期');if(workspaceStatus!=='active')risks.push('Workspace 非活动');if(lacksManager)risks.push('缺少可管理账号');return risks;}
+function operationalRiskLevel(risks:string[]):OperationalRiskLevel{if(risks.some(item=>item.includes('已到期')||item.includes('已过')||item.includes('超出')||item.includes('缺少可管理')))return'critical';if(risks.length===0)return'normal';if(risks.every(item=>item.includes('未知')||item.includes('未设置')))return'unknown';return'warning';}
+async function manageableAccounts(db:Kysely<Database>):Promise<Map<string,OperationalAccountReferenceView[]>>{const rows=await db.selectFrom('workspace_memberships as wm').innerJoin('accounts as a','a.id','wm.account_id').innerJoin('account_operational_profiles as op','op.account_id','a.id').select(['wm.workspace_id','wm.normalized_role','a.id','a.email','a.remark','a.is_banned','op.limit_type']).where('wm.status','=','active').where('wm.normalized_role','in',['owner','admin']).execute();const result=new Map<string,OperationalAccountReferenceView[]>();for(const row of rows){const list=result.get(row.workspace_id)??[];list.push({id:row.id,email:row.email,...(row.remark?{remark:row.remark}:{}),role:row.normalized_role as 'owner'|'admin',isBanned:row.is_banned,limitType:normalizedLimitType(row.limit_type)});result.set(row.workspace_id,list);}for(const list of result.values())list.sort((left,right)=>(left.role==='owner'?0:1)-(right.role==='owner'?0:1)||left.email.localeCompare(right.email));return result;}
+type BillingSummary={expectedAmount?:string;expectedCurrency?:string;normalizedPlan?:string};
+function billingAmounts(summary?:BillingSummary){return summary?{...(summary.expectedAmount?{expectedAmount:summary.expectedAmount}:{}),...(summary.expectedCurrency?{expectedCurrency:summary.expectedCurrency}:{})}:{};}
+async function latestWorkspaceBilling(db:Kysely<Database>){const rows=await db.selectFrom('billing_snapshots').select(['workspace_id','normalized_workspace_plan','payload']).where('workspace_id','is not',null).distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at','desc').orderBy('created_at','desc').execute();const result=new Map<string,BillingSummary>();for(const row of rows)if(row.workspace_id)result.set(row.workspace_id,billingSummary(row.payload,row.normalized_workspace_plan));return result;}
+function billingSummary(payload:Record<string,unknown>,normalizedPlan?:string|null):BillingSummary{const upcoming=record(payload.upcomingInvoice??payload.upcoming_invoice);const invoice=record(upcoming?.upcoming_invoice)??upcoming;const amount=invoice?.amount_due??invoice?.amount_remaining;const currency=text(invoice?.currency);return{...(amount!==undefined?{expectedAmount:String(amount)}:{}),...(currency?{expectedCurrency:currency}: {}),...(normalizedPlan?{normalizedPlan}:{})};}
 function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}

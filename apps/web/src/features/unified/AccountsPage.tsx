@@ -6,16 +6,17 @@ import {
   Checkbox,
   Form,
   Input,
-  Modal,
   Radio,
   Select,
   Space,
   Table,
   Tag,
   Typography,
-  message,
   type TableColumnsType,
+  type TableProps,
 } from "antd";
+import { ProductModal } from "../../components/ProductOverlays.js";
+import { useProductMessage } from "../../components/ProductOverlays.js";
 import { HolderOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   DndContext,
@@ -48,12 +49,15 @@ import {
 } from "../../components/ProductPrimitives.js";
 import {
   accountListBooleanFilter,
+  accountListSort,
   persistAccountListFilters,
   accountListRequestQuery,
   accountSelectionState,
   countAccountsByGroup,
   restorePersistedAccountListFilters,
   selectAccountsByGroup,
+  sortAccountList,
+  updateAccountListSortParams,
 } from "./accountListModel.js";
 import {
   AccountActionButtons,
@@ -84,6 +88,7 @@ const TRI_STATE_FILTERS = [
 ] as const;
 
 export function AccountsPage() {
+  const productMessage = useProductMessage();
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -112,12 +117,13 @@ export function AccountsPage() {
   const accountAction = actionModalFromParams(params);
   const actionAccountId = params.get("actionAccountId");
   const selectedGroupId = params.get("groupId") ?? undefined;
+  const explicitSort = accountListSort(params);
   const accountRequestQuery = accountListRequestQuery(params);
   const accountRequestKey = accountRequestQuery.toString();
 
   const accounts = useMemo(
-    () => selectAccountsByGroup(matchingAccounts, selectedGroupId),
-    [matchingAccounts, selectedGroupId],
+    () => sortAccountList(selectAccountsByGroup(matchingAccounts, selectedGroupId), explicitSort),
+    [explicitSort?.field, explicitSort?.order, matchingAccounts, selectedGroupId],
   );
   const rows = useMemo<AccountListRow[]>(() => {
     const pending = selectedGroupId ? registrations.filter((item) => item.group.id === selectedGroupId) : registrations;
@@ -242,12 +248,12 @@ export function AccountsPage() {
         accountIds: selectedAccountIds,
         ...patch,
       });
-      message.success(`${successMessage}，共 ${result.updatedCount} 个账号`);
+      productMessage.success(`${successMessage}，共 ${result.updatedCount} 个账号`);
       setSelectedAccountIds([]);
       if (modal === "batch-group") set("modal");
       void load();
     } catch (cause) {
-      message.error(`批量操作失败：${(cause as Error).message}`);
+      productMessage.error(`批量操作失败：${(cause as Error).message}`);
     } finally {
       setBatchAction(undefined);
     }
@@ -262,15 +268,21 @@ export function AccountsPage() {
   const columns: TableColumnsType<AccountListRow> = [
     {
       title: "分组",
+      key: "group",
       dataIndex: ["group", "name"],
       fixed: "left",
       width: 100,
       ellipsis: true,
+      sorter: true,
+      sortOrder: explicitSort?.field === "group" ? explicitSort.order : undefined,
     },
     {
       title: "账号",
+      key: "email",
       fixed: "left",
       width: 260,
+      sorter: true,
+      sortOrder: explicitSort?.field === "email" ? explicitSort.order : undefined,
       render: (_, row) => (
         <div>
           <Space size={8}>
@@ -292,8 +304,11 @@ export function AccountsPage() {
     },
     {
       title: "主套餐",
+      key: "primaryPlan",
       dataIndex: "primaryPlan",
       width: 180,
+      sorter: true,
+      sortOrder: explicitSort?.field === "primaryPlan" ? explicitSort.order : undefined,
       render: (_, row) => isRegistration(row) ? "—" : (
         <Tag
           className="primary-plan-tag"
@@ -307,10 +322,20 @@ export function AccountsPage() {
         </Tag>
       ),
     },
-    { title: "续费/到期", width: 150, render: (_, row) => isRegistration(row) ? "—" : lifecycleLabel(row.primaryPlanLifecycle) },
+    {
+      title: "续费/到期",
+      key: "lifecycle",
+      width: 150,
+      sorter: true,
+      sortOrder: explicitSort?.field === "lifecycle" ? explicitSort.order : undefined,
+      render: (_, row) => isRegistration(row) ? "—" : lifecycleLabel(row.primaryPlanLifecycle),
+    },
     {
       title: "能力",
+      key: "capability",
       width: 90,
+      sorter: true,
+      sortOrder: explicitSort?.field === "capability" ? explicitSort.order : undefined,
       render: (_, row) => !isRegistration(row) && row.hasGamBinding && <Tag color="green">GAM</Tag>,
     },
     {
@@ -327,6 +352,24 @@ export function AccountsPage() {
     },
   ];
 
+  const changeTable: NonNullable<TableProps<AccountListRow>["onChange"]> = (
+    _pagination,
+    _filters,
+    sorter,
+    extra,
+  ) => {
+    if (extra.action !== "sort" || Array.isArray(sorter)) return;
+    const field = sorter.columnKey;
+    const next = typeof field === "string" && sorter.order
+      ? updateAccountListSortParams(params, {
+        field: field as "group" | "email" | "primaryPlan" | "lifecycle" | "capability",
+        order: sorter.order,
+      })
+      : updateAccountListSortParams(params);
+    persistAccountListFilters(next, browserStorage());
+    setParams(next);
+  };
+
   const reorderGroups = async ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id || reorderingGroups) return;
     const oldIndex = groups.findIndex((group) => group.id === active.id);
@@ -340,7 +383,7 @@ export function AccountsPage() {
       setGroups(await unifiedApi.reorderGroups(nextGroups.map((group) => group.id)));
     } catch (cause) {
       setGroups(previousGroups);
-      message.error(`分组排序失败：${(cause as Error).message}`);
+      productMessage.error(`分组排序失败：${(cause as Error).message}`);
     } finally {
       setReorderingGroups(false);
     }
@@ -483,6 +526,8 @@ export function AccountsPage() {
             pagination={pagination}
             scroll={{ x: 1160 }}
             columns={columns}
+            onChange={changeTable}
+            showSorterTooltip={{ target: "sorter-icon" }}
             rowSelection={multiSelect ? {
               selectedRowKeys: selectedAccountIds,
               preserveSelectedRowKeys: true,
@@ -501,11 +546,10 @@ export function AccountsPage() {
         </LoadBoundary>
       </Space>
 
-      <Modal
+      <ProductModal
         title="账号分组"
         open={modal === "groups"}
         onCancel={() => set("modal")}
-        footer={null}
         width={700}
       >
         <Space direction="vertical" className="panel-stack">
@@ -546,13 +590,11 @@ export function AccountsPage() {
             </Button>
           </Form>
         </Space>
-      </Modal>
-      <Modal
+      </ProductModal>
+      <ProductModal
         title="批量更换分组"
         open={modal === "batch-group"}
         onCancel={() => set("modal")}
-        footer={null}
-        destroyOnHidden
         afterClose={() => batchGroupForm.resetFields()}
       >
         <Form
@@ -585,7 +627,7 @@ export function AccountsPage() {
             </Button>
           </Space>
         </Form>
-      </Modal>
+      </ProductModal>
       <AccountActionModals
         account={actionAccount}
         action={accountAction}

@@ -33,11 +33,11 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 - Business 创建新 Workspace，或升级账号当前可管理的既有 Workspace。
 - 账号详情内切换 Workspace；成员与邀请合并显示，账单集中呈现订阅、续费、金额、计费席位、支付方式和发票；凭证严格按 `Account × Workspace` 显示。
 - 客户联系方式、备注、价格和到期日合并显示在账号 Workspace 的成员与邀请列表；设置到期日即自动参与提醒，不设独立提醒开关。
-- Team 升级订单维护、有限重试通知、客户席位到期任务和跨空间运营总览。
+- Team 升级订单维护、有限重试通知、客户席位到期任务，以及独立的席位概览和母号概览页面。
 - OAuth/PAT 创建、替换、重新授权、号池排序与 CPA 原子投放。
 - HTTP trace、rrweb、凭证与隔离制品的文件索引、结构化日志、rrweb 回放、哈希复核和保留生命周期；Web UI 不展示或下载正文。
 
-个人 Memory 的 PATCH 写入协议已经验证；当前值读取在上游实测返回 405，因此界面保持三态未知，不把未知伪装为关闭。只有账号 Session 在专用编辑弹窗中完整显示和保存；其他 JSON 正文不进入 Web UI。rrweb 由管理员显式开启和启动，按本项目的私有管理边界记录完整输入原文，但只通过可视化回放使用。
+个人 Memory 的 PATCH 写入协议已经验证；当前值读取在上游实测返回 405，因此界面保持三态未知，不把未知伪装为关闭。只有账号 Session 在专用编辑弹窗中完整显示和保存；其他 JSON 正文不进入 Web UI。已登录管理界面右下角常驻 rrweb 调试按钮，由管理员手动开始和结束录制；录制按本项目的私有管理边界保留完整输入原文，只通过可视化回放使用。
 
 ## 数据与安全边界
 
@@ -72,6 +72,8 @@ PostgreSQL 是结构化业务数据的唯一事实源。应用启动只检查 mi
 | `docs` | 领域规则、操作手册、协议样本和实施计划 |
 
 ## 开发与验证
+
+前端的产品级组件行为集中维护：`theme/uiPolicy.ts` 负责弹层容器、视口边界、虚拟滚动和分页数量选择器，`theme/popupPolicy.css` 只保存全局弹层定位兜底；声明式弹窗/抽屉使用 `ProductModal`、`ProductDrawer`，非 Table 分页使用 `ProductPagination`，所有分页状态使用 `useUrlPagination`。页面可以直接使用 Ant Design `Select` 传递业务选项，但不得自行设置弹层容器、定位、动画、虚拟滚动或分页数量选择器策略。`theme/uiPolicy.test.ts` 会阻止这些旁路重新进入源码。
 
 ```bash
 corepack pnpm install

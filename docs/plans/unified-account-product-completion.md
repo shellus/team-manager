@@ -75,7 +75,7 @@
 - [x] C3. Workspace 设置提供全部已支持字段的结构化控件，允许一次更新多个字段并支持重命名。
 - [x] C4. 成员和邀请均可选择角色与席位；角色、席位、移除和撤销失败可恢复。
 - [x] C5. Account 内 Workspace 上下文路由可直接访问，Tab、执行账号和弹窗状态可刷新恢复。
-- [x] C6. `/overview/workspaces` 与 `/overview/seats` 提供跨空间运营总览。
+- [x] C6. `/parent-overview` 只展示管理账号未封号的双席位 Business Workspace；卡片标题单行显示直接状态、账号备注和管理账号，不显示 Workspace 名称。`/seat-overview` 以客户席位为卡片粒度提供席位概览。两者是顶部导航中的独立一级页面，使用可筛选、可分页的响应式 Grid；数据 API 分别为 `/api/overview/renewals` 和 `/api/overview/seats`。
 
 ### 阶段 D：客户席位
 
@@ -116,7 +116,7 @@
 - Team Manager Server 测试 16/16、Web 测试 34/34、随机临时 PostgreSQL 集成测试 1/1；
 - GAM 测试 214/214，Business 升级合同覆盖生产浏览器适配器到 `existing_workspace_id` 载荷边界；
 - 全仓类型检查、生产构建、VitePress 文档构建、migration 001–008、开发数据库状态检查和开发进程重启通过；
-- 运行实例的主要 API、历史账单 envelope、外部发票 ID，以及 Chromium 登录、账号列表/详情、Workspace、运营总览、订单、制品和设置冒烟通过；移动端深色 390px 页面无页面级横向溢出，浏览器无 console error 或 page error；
+- 运行实例的主要 API、历史账单 envelope、外部发票 ID，以及 Chromium 登录、账号列表/详情、Workspace、席位概览、母号概览、订单、制品和设置冒烟通过；移动端深色 390px 页面无页面级横向溢出，浏览器无 console error 或 page error；
 - 未执行真实付费、真实套餐变更或不可逆上游操作。
 
 ## 后续事项

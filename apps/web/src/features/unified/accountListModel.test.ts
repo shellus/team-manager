@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   ACCOUNT_LIST_FILTER_STORAGE_KEY,
   accountListBooleanFilter,
+  accountListSort,
   accountListRequestQuery,
   accountListPersistedFilterQuery,
   accountSelectionState,
@@ -9,6 +10,8 @@ import {
   persistAccountListFilters,
   restorePersistedAccountListFilters,
   selectAccountsByGroup,
+  sortAccountList,
+  updateAccountListSortParams,
 } from "./accountListModel.js";
 
 const account = (id: string, groupId: string) => ({
@@ -138,5 +141,29 @@ describe("account list filters", () => {
     ).toBeUndefined();
     persistAccountListFilters(new URLSearchParams(), storage);
     expect(values.has(ACCOUNT_LIST_FILTER_STORAGE_KEY)).toBe(false);
+  });
+
+  test("defaults to oldest accounts and supports explicit sortable fields", () => {
+    const sortable = [
+      { id: "new", email: "z@example.com", createdAt: "2026-01-02T00:00:00Z", group: { id: "b", name: "乙组" }, primaryPlan: "plus" as const, hasGamBinding: false },
+      { id: "old", email: "a@example.com", createdAt: "2026-01-01T00:00:00Z", group: { id: "a", name: "甲组" }, primaryPlan: "free" as const, hasGamBinding: true },
+      { id: "middle", email: "m@example.com", createdAt: "2026-01-01T12:00:00Z", group: { id: "b", name: "乙组" }, primaryPlan: "pro_20x" as const, hasGamBinding: false, primaryPlanLifecycle: { kind: "renews" as const, at: "2027-01-01T12:00:01Z" } },
+    ];
+
+    expect(sortAccountList(sortable).map(({ id }) => id)).toEqual(["old", "middle", "new"]);
+    expect(sortAccountList(sortable, { field: "email", order: "descend" }).map(({ id }) => id)).toEqual(["new", "middle", "old"]);
+    expect(sortAccountList(sortable, { field: "lifecycle", order: "ascend" }).map(({ id }) => id)).toEqual(["middle", "old", "new"]);
+    expect(sortAccountList(sortable, { field: "capability", order: "descend" }).map(({ id }) => id)).toEqual(["old", "middle", "new"]);
+  });
+
+  test("stores explicit sorting and cancellation returns to the default order", () => {
+    const sorted = updateAccountListSortParams(
+      new URLSearchParams("query=alice&page=4"),
+      { field: "lifecycle", order: "descend" },
+    );
+    expect(sorted.toString()).toBe("query=alice&sortBy=lifecycle&sortOrder=descend");
+    expect(accountListSort(sorted)).toEqual({ field: "lifecycle", order: "descend" });
+    expect(accountListPersistedFilterQuery(sorted).toString()).toBe("query=alice&sortBy=lifecycle&sortOrder=descend");
+    expect(updateAccountListSortParams(sorted).toString()).toBe("query=alice");
   });
 });

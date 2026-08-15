@@ -6,7 +6,6 @@ import {
   Descriptions,
   Form,
   Input,
-  Modal,
   Select,
   Space,
   Switch,
@@ -14,9 +13,9 @@ import {
   Tabs,
   Tag,
   Typography,
-  message,
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
+import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
   AccountManagerOperationView,
@@ -51,6 +50,8 @@ import { useUrlPagination } from "../../components/urlPagination.js";
 import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
 
 export function AccountDetailPage() {
+  const productModal = useProductModal();
+  const productMessage = useProductMessage();
   const { accountId } = useParams();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -97,7 +98,7 @@ export function AccountDetailPage() {
     setError("");
     try {
       await action();
-      message.success("操作已完成");
+      productMessage.success("操作已完成");
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -165,7 +166,7 @@ export function AccountDetailPage() {
                   <Button
                     danger
                     onClick={() =>
-                      Modal.confirm({
+                      productModal.confirm({
                         title: "删除账号？",
                         content: "有关联关系或历史时数据库会拒绝删除。",
                         onOk: async () => {
@@ -426,6 +427,7 @@ function PersonalPanel({
   run: (key: string, action: () => Promise<unknown>) => Promise<void>;
   open: (value: string) => void;
 }) {
+  const productModal = useProductModal();
   const subscriptionSnapshot =
     personal?.subscription ?? account.personalSpace.subscription;
   const billing = personal?.billing;
@@ -458,7 +460,7 @@ function PersonalPanel({
           danger={!renewalCancelled}
           disabled={renewalCancelled}
           loading={busy === 'cancel'}
-          onClick={() => Modal.confirm({
+          onClick={() => productModal.confirm({
             title: '取消个人套餐自动续费？',
             content: `仅关闭自动续费，不退款；套餐权益保留到 ${renewalEnd}。`,
             okText: '确认取消续费',
@@ -637,12 +639,10 @@ function PaymentModal({
       .finally(() => setDefaultsLoading(false));
   }, [accountId, form, open]);
   return (
-    <Modal
+    <ProductModal
       title="绑定个人支付方式"
       open={open}
       onCancel={onClose}
-      footer={null}
-      destroyOnHidden
     >
       <Alert
         type="info"
@@ -675,7 +675,7 @@ function PaymentModal({
           提交给 GAM
         </Button>
       </Form>
-    </Modal>
+    </ProductModal>
   );
 }
 

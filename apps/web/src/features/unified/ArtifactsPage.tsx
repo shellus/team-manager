@@ -3,10 +3,8 @@ import {
   Alert,
   Button,
   Card,
-  Drawer,
   Form,
   Input,
-  Modal,
   Select,
   Space,
   Table,
@@ -23,10 +21,12 @@ import {
 } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { RrwebReplay } from "../../components/RrwebReplay.js";
+import { ProductDrawer, ProductModal, useProductModal } from "../../components/ProductOverlays.js";
 import { normalizedArtifactParams, parseRrwebRecording } from "./unifiedUiModels.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 
 export function ArtifactsPage() {
+  const productModal = useProductModal();
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<ArtifactView[]>([]);
   const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
@@ -199,7 +199,7 @@ export function ArtifactsPage() {
                           danger
                           loading={busy === `discard-${row.id}`}
                           onClick={() =>
-                            Modal.confirm({
+                            productModal.confirm({
                               title: "明确丢弃隔离凭证？",
                               content:
                                 "此操作使用隔离区专用生命周期，不调用通用制品删除。",
@@ -222,7 +222,7 @@ export function ArtifactsPage() {
                         danger
                         loading={busy === `delete-${row.id}`}
                         onClick={() =>
-                          Modal.confirm({
+                          productModal.confirm({
                             title: "将制品标记为待删除？",
                             content:
                               "后端将按宽限期和引用规则执行，不直接绕过生命周期。",
@@ -243,7 +243,7 @@ export function ArtifactsPage() {
           />
         </LoadBoundary>
       </Card>
-      <Drawer
+      <ProductDrawer
         title="rrweb 录制回放"
         open={["replay","local-replay"].includes(params.get("modal")??"")}
         onClose={() => {setRecording(undefined);closeClaim();}}
@@ -252,12 +252,11 @@ export function ArtifactsPage() {
         {recording !== undefined && (
           <RrwebReplay recording={recording} />
         )}
-      </Drawer>
-      <Modal
+      </ProductDrawer>
+      <ProductModal
         title="认领隔离凭证"
         open={params.get("modal") === "claim"}
         onCancel={closeClaim}
-        footer={null}
       >
         <Form
           layout="vertical"
@@ -321,7 +320,7 @@ export function ArtifactsPage() {
             </Button>
           </Space>
         </Form>
-      </Modal>
+      </ProductModal>
     </Space>
   );
 }

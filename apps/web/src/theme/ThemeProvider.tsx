@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { App as AntdApp, ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { buildAntdTheme, semanticTokensForMode, type ThemeMode } from './tokens.js';
+import { productPopupContainer, productUiPolicy } from './uiPolicy.js';
 
 const THEME_STORAGE_KEY = 'teammgr_theme';
 
@@ -58,7 +59,12 @@ export function TeamManagerThemeProvider({ children }: { children: ReactNode }) 
 
   return (
     <ThemeContext.Provider value={value}>
-      <ConfigProvider locale={zhCN} theme={themeConfig}>
+      <ConfigProvider
+        locale={zhCN}
+        theme={themeConfig}
+        getPopupContainer={productPopupContainer}
+        {...productUiPolicy}
+      >
         <AntdApp>{children}</AntdApp>
       </ConfigProvider>
     </ThemeContext.Provider>

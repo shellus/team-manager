@@ -11,7 +11,6 @@ describe("web preferences", () => {
     ).toEqual({
       rememberFormValues: true,
       autoRefreshOperations: false,
-      rrwebEnabled: false,
     });
   });
 

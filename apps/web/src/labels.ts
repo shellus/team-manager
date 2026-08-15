@@ -11,6 +11,11 @@ export const SEAT_LABEL: Record<SeatType, string> = {
   usage_based: 'Codex 席位'
 };
 
+export const SEAT_OPTIONS: Array<{ value: SeatType; label: string }> = [
+  { value: 'usage_based', label: SEAT_LABEL.usage_based },
+  { value: 'default', label: SEAT_LABEL.default }
+];
+
 export const LIMIT_TYPE_LABEL: Record<AccountLimitType, string> = {
   unknown: '未知',
   weekly: '周限',
@@ -33,6 +38,10 @@ const ROLE_LABELS: Record<string, string> = {
 
 const PLAN_LABELS: Record<string, string> = {
   free: 'Free',
+  go: 'Go',
+  plus: 'Plus',
+  pro_5x: 'Pro 5x',
+  pro_20x: 'Pro 20x',
   business: 'Business 双席位',
   business_usage_based: 'Business 0.52',
   unknown: '未知套餐',

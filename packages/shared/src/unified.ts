@@ -337,43 +337,61 @@ export interface SaveNotificationPolicyRequest {
 
 export type OperationalRiskLevel = 'critical' | 'warning' | 'normal' | 'unknown';
 
-export interface WorkspaceOperationalOverviewView {
+export interface OperationalAccountReferenceView {
   id: string;
-  externalId: string;
-  name?: string;
+  email: string;
+  remark?: string;
+  role?: NormalizedWorkspaceRole;
+  isBanned: boolean;
+  limitType: AccountLimitType;
+}
+
+export type RenewalOperationalStatus =
+  | 'normal'
+  | 'renewing_soon'
+  | 'expiring_soon'
+  | 'expired'
+  | 'seat_over_capacity'
+  | 'renewal_unknown'
+  | 'inactive';
+
+interface RenewalOperationalOverviewBaseView {
+  id: string;
   status: string;
   plan: string;
-  nextRenewalAt?: string;
+  renewalAt?: string;
+  willRenew?: boolean;
   expectedAmount?: string;
   expectedCurrency?: string;
-  fixedSeatCapacity?: number;
-  fixedSeatOccupied: number;
-  fixedSeatAvailable?: number;
-  memberCount: number;
-  invitationCount: number;
-  seatSlotCount: number;
+  operationalStatus: RenewalOperationalStatus;
   riskLevel: OperationalRiskLevel;
   risks: string[];
 }
 
-export type SeatOperationalSource = 'membership' | 'invitation' | 'seat_slot' | 'fixed_vacancy';
+export interface RenewalOperationalOverviewView extends RenewalOperationalOverviewBaseView {
+  subject: 'workspace';
+  workspaceId: string;
+  workspaceExternalId: string;
+  workspaceName?: string;
+  fixedSeatCapacity?: number;
+  fixedSeatOccupied?: number;
+  fixedSeatAvailable?: number;
+  managingAccounts: OperationalAccountReferenceView[];
+}
 
 export interface SeatOperationalOverviewView {
   id: string;
   workspaceId: string;
   workspaceName?: string;
   workspaceExternalId: string;
-  source: SeatOperationalSource;
-  sources?: SeatOperationalSource[];
   email?: string;
-  displayName?: string;
-  role?: NormalizedWorkspaceRole;
   seatType: SeatType;
   status: string;
   contact?: string;
   remark?: string;
   expiresOn?: string;
   price?: string;
+  managingAccounts: OperationalAccountReferenceView[];
   riskLevel: OperationalRiskLevel;
   risks: string[];
 }
