@@ -102,6 +102,54 @@ export interface SubscriptionDetailView {
   observedAt: string;
 }
 
+export interface WorkspacePromotionReasonView {
+  title?: string;
+  message?: string;
+  code?: string;
+}
+
+export interface WorkspacePromotionMetadataView {
+  planName: string;
+  title?: string;
+  summary?: string;
+  quantityOff?: number;
+  durationPeriods?: number;
+  durationPeriod?: string;
+  noAutoRenewalAtDiscountEnd?: boolean;
+  promotionType?: string;
+  processor?: string;
+}
+
+export interface WorkspacePromotionSubscriptionView {
+  planType?: string;
+  seatsInUse?: number;
+  seatsEntitled?: number;
+  activeUntil?: string;
+  billingPeriod?: string;
+  billingCurrency?: string;
+  willRenew?: boolean;
+  cancellationOutcome?: string;
+}
+
+export interface WorkspacePromotionPreviewView {
+  promoCode: string;
+  isEligible: boolean;
+  ineligibleReason?: WorkspacePromotionReasonView;
+  metadata?: WorkspacePromotionMetadataView;
+  subscription: WorkspacePromotionSubscriptionView;
+  wouldEnableRenewal: boolean;
+}
+
+export interface WorkspacePromotionApplyResultView {
+  promoCode: string;
+  accepted: true;
+  verified: boolean;
+  before: WorkspacePromotionSubscriptionView;
+  after?: WorkspacePromotionSubscriptionView;
+  renewalEnabled?: boolean;
+  verificationError?: string;
+}
+
 export interface SnapshotView<T = Record<string, unknown>> {
   payload: T;
   observedAt: string;

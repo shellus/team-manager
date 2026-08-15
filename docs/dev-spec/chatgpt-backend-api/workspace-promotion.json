@@ -1,0 +1,121 @@
+{
+  "captured_at": "2026-08-15",
+  "page": "https://chatgpt.com/?promoCode={promo_code}",
+  "operation": "apply_promotion_to_existing_workspace_subscription",
+  "records": [
+    {
+      "method": "GET",
+      "path": "/backend-api/promotions/eligibility/{promo_code}?type=promo",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "is_eligible": true,
+          "ineligible_reason": null
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend-api/promotions/eligibility/{invalid_promo_code}?type=promo",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "is_eligible": false,
+          "ineligible_reason": {
+            "title": "促销优惠不可用",
+            "message": "优惠码无效。",
+            "code": "invalid_code"
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend-api/promotions/metadata/{promo_code}?type=promo",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "metadata": {
+            "plan_name": "chatgptteamplan",
+            "title": "",
+            "summary": "你已获得优惠码，最高可享 1 个 Business 席位 48 个月优惠。",
+            "discount": {
+              "quantity_off": 1
+            },
+            "duration": {
+              "num_periods": 48,
+              "period": "month"
+            },
+            "price_period": "recurring",
+            "promotion_type": "discount",
+            "no_auto_renewal_at_discount_end": false,
+            "processor": "stripe"
+          },
+          "is_eligible": true,
+          "ineligible_reason": null
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend-api/subscriptions?account_id={account_id}",
+      "phase": "before_update",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "{subscription_id}",
+          "plan_type": "team",
+          "seats_in_use": 2,
+          "seats_entitled": 2,
+          "billing_period": "monthly",
+          "will_renew": false,
+          "cancellation_outcome": "deactivate",
+          "billing_currency": "GBP",
+          "is_delinquent": false
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend-api/subscriptions/update",
+      "body": {
+        "account_id": "{account_id}",
+        "updated_promo_code": "{promo_code}"
+      },
+      "response": {
+        "status": 200,
+        "body": {}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/backend-api/subscriptions?account_id={account_id}",
+      "phase": "after_update",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body": {
+          "id": "{subscription_id}",
+          "plan_type": "team",
+          "seats_in_use": 2,
+          "seats_entitled": 2,
+          "billing_period": "monthly",
+          "will_renew": true,
+          "cancellation_outcome": null,
+          "billing_currency": "GBP",
+          "is_delinquent": false
+        }
+      }
+    }
+  ],
+  "notes": [
+    "无效优惠码仍返回 HTTP 200，通过 is_eligible=false 和 ineligible_reason 表达失败。",
+    "metadata 仅在 eligibility 通过后读取，并验证 plan_name=chatgptteamplan。",
+    "subscriptions/update 成功响应为空对象，写入后必须回读 subscriptions。",
+    "本次样本中 Workspace 原本 will_renew=false，应用优惠码后变为 true，因此界面必须明确提示恢复续费。"
+  ]
+}

@@ -37,6 +37,23 @@ test('个人账单只请求个人账号支持的三类接口', async () => {
   ]);
 });
 
+test('Workspace 优惠码接口复用 Workspace 访问上下文并保留上游请求结构', async () => {
+  const requests:any[]=[];const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:request.path.includes('/eligibility/')?'{"is_eligible":true,"ineligible_reason":null}':request.path.includes('/metadata/')?'{"metadata":{"plan_name":"chatgptteamplan"},"is_eligible":true,"ineligible_reason":null}':'{}'};}};
+  const api=new ChatGptApi({accountId:'workspace-account',accessToken:'token'},transport);
+  await api.getPromotionEligibility('PROMO/CODE');
+  await api.getPromotionMetadata('PROMO/CODE');
+  await api.updateSubscriptionPromoCode('PROMO/CODE');
+  await api.getSubscription();
+  assert.deepEqual(requests.map((request)=>[request.method,request.path]),[
+    ['GET','/backend-api/promotions/eligibility/PROMO%2FCODE?type=promo'],
+    ['GET','/backend-api/promotions/metadata/PROMO%2FCODE?type=promo'],
+    ['POST','/backend-api/subscriptions/update'],
+    ['GET','/backend-api/subscriptions?account_id=workspace-account']
+  ]);
+  assert.equal(requests[2].headers['chatgpt-account-id'],'workspace-account');
+  assert.deepEqual(JSON.parse(requests[2].body),{account_id:'workspace-account',updated_promo_code:'PROMO/CODE'});
+});
+
 test('Workspace API 任意 401 都用当前 Session 换取新 Token 并只重试一次', async () => {
   const tokens:string[]=[];let refreshes=0;
   const transport={fetch:async(request:any)=>{tokens.push(request.headers.Authorization);return tokens.length===1?{status:401,body:'{"detail":"Unauthorized"}'}:{status:200,body:'{"items":[]}'};}};

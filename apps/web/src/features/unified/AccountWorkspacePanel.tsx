@@ -46,6 +46,7 @@ import {
   selectAccountWorkspaceParams,
   type AccountWorkspacePersonRow,
 } from "./accountWorkspaceModel.js";
+import { WorkspacePromotionModal } from "./WorkspacePromotionModal.js";
 import { useSearchParams } from "react-router-dom";
 
 export function AccountWorkspacePanel({
@@ -169,7 +170,7 @@ export function AccountWorkspacePanel({
           {
             key: "billing",
             label: "账单",
-            children: <BillingPanel workspace={workspace} accountId={account.id} canManage={canManage} value={billing} subscription={subscription} busy={busy} run={run} reload={load} />,
+            children: <BillingPanel workspace={workspace} accountId={account.id} canManage={canManage} value={billing} subscription={subscription} busy={busy} run={run} reload={load} modal={params.get("modal")} setParams={setPanelParams} />,
           },
           {
             key: "settings",
@@ -385,7 +386,7 @@ function canEditStatus(row: AccountWorkspacePersonRow) { return (row.kind === "m
 function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
 function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
 
-function BillingPanel({ workspace, accountId, canManage, value, subscription, busy, run, reload }: {
+function BillingPanel({ workspace, accountId, canManage, value, subscription, busy, run, reload, modal, setParams }: {
   workspace?: WorkspaceDetailView;
   accountId: string;
   canManage: boolean;
@@ -394,17 +395,27 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
   busy: string;
   run: (key: string, action: () => Promise<unknown>) => Promise<boolean>;
   reload: () => Promise<void>;
+  modal: string | null;
+  setParams: (values: Record<string, string | undefined>) => void;
 }) {
   if (!workspace) return <LoadingEmpty loading />;
   return <Space direction="vertical" size={16} className="panel-stack">
     <Space wrap>
       <Button href={`https://chatgpt.com/account/manage?account_id=${encodeURIComponent(workspace.externalId)}`} target="_blank" rel="noreferrer">打开 ChatGPT 账单管理</Button>
       <Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "billing"} onClick={() => void run("billing", async () => { await unifiedApi.refreshWorkspaceBilling(workspace.id, accountId); await reload(); })}>刷新账单</Button>
+      <Button type="primary" disabled={!canManage} onClick={() => setParams({ modal: "workspace-promotion" })}>更新优惠码</Button>
     </Space>
     <Typography.Title level={5}>订阅与续费</Typography.Title>
     <SubscriptionSummary value={subscription} />
     <Typography.Title level={5}>账单</Typography.Title>
     <BillingSummary value={value} />
+    <WorkspacePromotionModal
+      workspaceId={workspace.id}
+      accountId={accountId}
+      open={modal === "workspace-promotion"}
+      onClose={() => setParams({ modal: undefined })}
+      onApplied={async () => { await reload(); }}
+    />
   </Space>;
 }
 

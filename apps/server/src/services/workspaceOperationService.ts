@@ -1,6 +1,19 @@
 import type { Kysely } from 'kysely';
-import type { EditableMemberRole, SeatType, WorkspaceMemberRemovalResult } from '@team-manager/shared';
-import type { ChatGptMemberRemovalResponse } from '../chatgptApi.js';
+import type {
+  EditableMemberRole,
+  SeatType,
+  WorkspaceMemberRemovalResult,
+  WorkspacePromotionApplyResultView,
+  WorkspacePromotionPreviewView,
+  WorkspacePromotionSubscriptionView
+} from '@team-manager/shared';
+import type {
+  ChatGptAccountCheckEntry,
+  ChatGptMemberRemovalResponse,
+  ChatGptPromotionEligibilityResponse,
+  ChatGptPromotionMetadataResponse,
+  ChatGptSubscriptionResponse
+} from '../chatgptApi.js';
 import type { Database } from '../database/schema.js';
 import { ChatGptApi } from '../chatgptApi.js';
 import { fetchWorkspaceWebAccessTokenFromSessionToken } from '../chatgptWebSession.js';
@@ -113,19 +126,58 @@ export class WorkspaceOperationService {
 
   async refreshSubscription(workspaceId: string, executorAccountId: string) {
     const { api, workspace } = await this.context(workspaceId, executorAccountId);
-    const payload = await api.checkAccount(); const observedAt = new Date();
-    await this.db.transaction().execute(async (trx) => {
-      await trx.insertInto('workspace_subscription_snapshots').values({
-        workspace_id: workspaceId, normalized_plan: normalizeWorkspacePlan(payload.planType),
-        raw_plan_code: payload.planType ?? null, status: payload.planType ? 'active' : 'unknown', will_renew: null,
-        effective_at: null, ends_at: payload.nextRenewalOn ?? null, payload: payload as Record<string, unknown>, observed_at: observedAt
-      }).execute();
-      await trx.updateTable('workspaces').set({
-        name: payload.workspaceName ?? workspace.name, raw_plan_code: payload.planType ?? workspace.raw_plan_code,
-        normalized_plan: normalizeWorkspacePlan(payload.planType), next_renewal_at: payload.nextRenewalOn ?? workspace.next_renewal_at
-      }).where('id', '=', workspaceId).execute();
-    });
+    const [account, subscription] = await Promise.all([api.checkAccount(), api.getSubscription()]);
+    await this.saveSubscriptionSnapshot(workspaceId, workspace, account, subscription);
     return this.subscription(workspaceId);
+  }
+
+  async previewPromotion(workspaceId: string, executorAccountId: string, input: { promoCode?: string }): Promise<WorkspacePromotionPreviewView> {
+    const promoCode = promotionCode(input.promoCode);
+    const { api } = await this.context(workspaceId, executorAccountId);
+    const eligibility = await api.getPromotionEligibility(promoCode);
+    if (eligibility.is_eligible !== true) return workspacePromotionPreview(promoCode, eligibility, undefined, {});
+    const [metadata, subscription] = await Promise.all([
+      api.getPromotionMetadata(promoCode),
+      api.getSubscription()
+    ]);
+    return workspacePromotionPreview(promoCode, eligibility, metadata, subscription);
+  }
+
+  async applyPromotion(workspaceId: string, executorAccountId: string, input: { promoCode?: string; acknowledgeRenewal?: boolean }): Promise<WorkspacePromotionApplyResultView> {
+    const promoCode = promotionCode(input.promoCode);
+    const { api, workspace } = await this.context(workspaceId, executorAccountId);
+    const eligibility = await api.getPromotionEligibility(promoCode);
+    if (eligibility.is_eligible !== true) throw promotionIneligible(eligibility);
+    const [metadata, before] = await Promise.all([
+      api.getPromotionMetadata(promoCode),
+      api.getSubscription()
+    ]);
+    assertPromotionSubscription(before);
+    if (promotionRequiresRenewalAcknowledgement(before) && input.acknowledgeRenewal !== true) {
+      throw new ServiceError(409, '应用优惠码可能恢复 Workspace 续费，请先确认续费影响');
+    }
+    assertBusinessPromotion(metadata);
+    await api.updateSubscriptionPromoCode(promoCode);
+    let result: WorkspacePromotionApplyResultView;
+    let activityKind: 'workspace_promotion_applied' | 'workspace_promotion_unverified';
+    try {
+      const [account, after] = await Promise.all([api.checkAccount(), api.getSubscription()]);
+      await this.saveSubscriptionSnapshot(workspaceId, workspace, account, after);
+      result = workspacePromotionApplyResult(promoCode, before, after);
+      activityKind = 'workspace_promotion_applied';
+    } catch (error) {
+      const verificationError = error instanceof Error ? error.message : String(error);
+      result = {
+        promoCode,
+        accepted: true,
+        verified: false,
+        before: promotionSubscription(before),
+        verificationError
+      };
+      activityKind = 'workspace_promotion_unverified';
+    }
+    await this.activity(executorAccountId, workspaceId, activityKind, result as unknown as Record<string, unknown>).catch(() => undefined);
+    return result;
   }
 
   async subscription(workspaceId: string) {
@@ -211,6 +263,35 @@ export class WorkspaceOperationService {
     return this.refreshSettings(workspaceId, executorAccountId);
   }
 
+  private async saveSubscriptionSnapshot(
+    workspaceId: string,
+    workspace: NonNullable<Awaited<ReturnType<WorkspaceRepository['findById']>>>,
+    account: Pick<ChatGptAccountCheckEntry, 'planType' | 'workspaceName' | 'nextRenewalOn'>,
+    subscription: ChatGptSubscriptionResponse
+  ) {
+    const rawPlan = subscription.plan_type ?? account.planType;
+    const observedAt = new Date();
+    await this.db.transaction().execute(async (trx) => {
+      await trx.insertInto('workspace_subscription_snapshots').values({
+        workspace_id: workspaceId,
+        normalized_plan: normalizeWorkspacePlan(rawPlan),
+        raw_plan_code: rawPlan ?? null,
+        status: subscription.is_delinquent ? 'delinquent' : rawPlan ? 'active' : 'unknown',
+        will_renew: typeof subscription.will_renew === 'boolean' ? subscription.will_renew : null,
+        effective_at: subscription.active_start ?? null,
+        ends_at: subscription.active_until ?? account.nextRenewalOn ?? null,
+        payload: { account, subscription },
+        observed_at: observedAt
+      }).execute();
+      await trx.updateTable('workspaces').set({
+        name: account.workspaceName ?? workspace.name,
+        raw_plan_code: rawPlan ?? workspace.raw_plan_code,
+        normalized_plan: normalizeWorkspacePlan(rawPlan),
+        next_renewal_at: subscription.active_until ?? account.nextRenewalOn ?? workspace.next_renewal_at
+      }).where('id', '=', workspaceId).execute();
+    });
+  }
+
   private async context(workspaceId: string, executorAccountId: string) {
     try {
       await this.#workspaces.requireManageableBy(workspaceId, executorAccountId);
@@ -268,4 +349,119 @@ function normalizeRole(value: string): 'owner' | 'admin' | 'member' | 'analytics
   if (value === 'analytics-viewer') return 'analytics_viewer';
   if (['standard-user', 'member'].includes(value)) return 'member';
   return 'unknown';
+}
+
+function promotionCode(value?: string): string {
+  const promoCode = value?.trim() ?? '';
+  if (!promoCode) throw new ServiceError(400, '请输入优惠码');
+  if (promoCode.length > 256) throw new ServiceError(400, '优惠码长度不能超过 256 个字符');
+  return promoCode;
+}
+
+function promotionIneligible(value: ChatGptPromotionEligibilityResponse): ServiceError {
+  const reason = record(value.ineligible_reason);
+  const message = typeof reason?.message === 'string' && reason.message.trim()
+    ? reason.message.trim()
+    : typeof reason?.title === 'string' && reason.title.trim()
+      ? reason.title.trim()
+      : '优惠码不适用于当前 Workspace';
+  return new ServiceError(409, message);
+}
+
+function assertBusinessPromotion(value: ChatGptPromotionMetadataResponse): void {
+  if (value.is_eligible !== true) throw promotionIneligible(value);
+  if (value.metadata?.plan_name !== 'chatgptteamplan') {
+    throw new ServiceError(409, '优惠码不适用于 Business Workspace 套餐');
+  }
+}
+
+export function workspacePromotionPreview(
+  promoCode: string,
+  eligibility: ChatGptPromotionEligibilityResponse,
+  metadata: ChatGptPromotionMetadataResponse | undefined,
+  subscription: ChatGptSubscriptionResponse
+): WorkspacePromotionPreviewView {
+  const rawMetadata = metadata?.metadata;
+  const subscriptionEligible = ['team', 'business'].includes(subscription.plan_type?.toLowerCase() ?? '');
+  const eligible = eligibility.is_eligible === true
+    && metadata?.is_eligible === true
+    && rawMetadata?.plan_name === 'chatgptteamplan'
+    && subscriptionEligible;
+  const upstreamReason = record(eligible ? undefined : metadata?.ineligible_reason ?? eligibility.ineligible_reason);
+  const localReason = !subscriptionEligible
+    ? { title: '订阅不适用', message: '当前 Workspace 不是可更新优惠码的 Business 订阅', code: 'subscription_plan_mismatch' }
+    : !eligible && metadata?.is_eligible === true
+      ? { title: '优惠码不适用', message: '优惠码不适用于 Business Workspace 套餐', code: 'plan_mismatch' }
+      : !eligible
+        ? { title: '优惠码不可用', message: '优惠码不适用于当前 Workspace', code: 'promotion_ineligible' }
+        : undefined;
+  const rawReason = upstreamReason ?? localReason;
+  return {
+    promoCode,
+    isEligible: eligible,
+    ...(rawReason ? { ineligibleReason: {
+      ...(text(rawReason.title) ? { title: text(rawReason.title) } : {}),
+      ...(text(rawReason.message) ? { message: text(rawReason.message) } : {}),
+      ...(text(rawReason.code) ? { code: text(rawReason.code) } : {})
+    } } : {}),
+    ...(eligible && rawMetadata ? { metadata: {
+      planName: rawMetadata.plan_name ?? '',
+      ...(text(rawMetadata.title) ? { title: text(rawMetadata.title) } : {}),
+      ...(text(rawMetadata.summary) ? { summary: text(rawMetadata.summary) } : {}),
+      ...(finite(rawMetadata.discount?.quantity_off) !== undefined ? { quantityOff: finite(rawMetadata.discount?.quantity_off) } : {}),
+      ...(finite(rawMetadata.duration?.num_periods) !== undefined ? { durationPeriods: finite(rawMetadata.duration?.num_periods) } : {}),
+      ...(text(rawMetadata.duration?.period) ? { durationPeriod: text(rawMetadata.duration?.period) } : {}),
+      ...(typeof rawMetadata.no_auto_renewal_at_discount_end === 'boolean' ? { noAutoRenewalAtDiscountEnd: rawMetadata.no_auto_renewal_at_discount_end } : {}),
+      ...(text(rawMetadata.promotion_type) ? { promotionType: text(rawMetadata.promotion_type) } : {}),
+      ...(text(rawMetadata.processor) ? { processor: text(rawMetadata.processor) } : {})
+    } } : {}),
+    subscription: promotionSubscription(subscription),
+    wouldEnableRenewal: eligible && promotionRequiresRenewalAcknowledgement(subscription)
+  };
+}
+
+export function workspacePromotionApplyResult(
+  promoCode: string,
+  before: ChatGptSubscriptionResponse,
+  after: ChatGptSubscriptionResponse
+): WorkspacePromotionApplyResultView {
+  return {
+    promoCode,
+    accepted: true,
+    verified: true,
+    before: promotionSubscription(before),
+    after: promotionSubscription(after),
+    renewalEnabled: before.will_renew === false && after.will_renew === true
+  };
+}
+
+function promotionSubscription(value: ChatGptSubscriptionResponse): WorkspacePromotionSubscriptionView {
+  return {
+    ...(text(value.plan_type) ? { planType: text(value.plan_type) } : {}),
+    ...(finite(value.seats_in_use) !== undefined ? { seatsInUse: finite(value.seats_in_use) } : {}),
+    ...(finite(value.seats_entitled) !== undefined ? { seatsEntitled: finite(value.seats_entitled) } : {}),
+    ...(text(value.active_until) ? { activeUntil: text(value.active_until) } : {}),
+    ...(text(value.billing_period) ? { billingPeriod: text(value.billing_period) } : {}),
+    ...(text(value.billing_currency) ? { billingCurrency: text(value.billing_currency) } : {}),
+    ...(typeof value.will_renew === 'boolean' ? { willRenew: value.will_renew } : {}),
+    ...(text(value.cancellation_outcome) ? { cancellationOutcome: text(value.cancellation_outcome) } : {})
+  };
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function finite(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function assertPromotionSubscription(value: ChatGptSubscriptionResponse): void {
+  if (!['team', 'business'].includes(value.plan_type?.toLowerCase() ?? '')) {
+    throw new ServiceError(409, '当前 Workspace 不是可更新优惠码的 Business 订阅');
+  }
+}
+
+export function promotionRequiresRenewalAcknowledgement(value: ChatGptSubscriptionResponse): boolean {
+  return value.will_renew !== true;
 }

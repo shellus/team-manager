@@ -86,9 +86,12 @@ export interface AutomaticReloadSettingsResponse extends Record<string, unknown>
   immediate_top_up_message?: string | null;
 }
 
-export interface ChatGptPersonalSubscriptionResponse extends Record<string, unknown> {
+export interface ChatGptSubscriptionResponse extends Record<string, unknown> {
   id?: string;
   plan_type?: string;
+  seats_in_use?: number;
+  seats_entitled?: number;
+  seat_capacity?: unknown[];
   active_start?: string;
   active_until?: string;
   billing_period?: string;
@@ -97,6 +100,32 @@ export interface ChatGptPersonalSubscriptionResponse extends Record<string, unkn
   cancellation_outcome?: string;
   billing_currency?: string;
   is_delinquent?: boolean;
+}
+
+export type ChatGptPersonalSubscriptionResponse = ChatGptSubscriptionResponse;
+
+export interface ChatGptPromotionReason extends Record<string, unknown> {
+  title?: string;
+  message?: string;
+  code?: string;
+}
+
+export interface ChatGptPromotionEligibilityResponse extends Record<string, unknown> {
+  is_eligible?: boolean;
+  ineligible_reason?: ChatGptPromotionReason | null;
+}
+
+export interface ChatGptPromotionMetadataResponse extends ChatGptPromotionEligibilityResponse {
+  metadata?: {
+    plan_name?: string;
+    title?: string;
+    summary?: string;
+    discount?: { quantity_off?: number } | null;
+    duration?: { num_periods?: number; period?: string } | null;
+    no_auto_renewal_at_discount_end?: boolean;
+    promotion_type?: string;
+    processor?: string;
+  } | null;
 }
 
 /**
@@ -234,11 +263,36 @@ export class ChatGptApi {
     };
   }
 
-  async getPersonalSubscription(): Promise<ChatGptPersonalSubscriptionResponse> {
-    return this.request<ChatGptPersonalSubscriptionResponse>(
+  async getSubscription(): Promise<ChatGptSubscriptionResponse> {
+    return this.request<ChatGptSubscriptionResponse>(
       'GET',
       `/backend-api/subscriptions?account_id=${encodeURIComponent(this.account.accountId)}`
     );
+  }
+
+  async getPersonalSubscription(): Promise<ChatGptPersonalSubscriptionResponse> {
+    return this.getSubscription();
+  }
+
+  async getPromotionEligibility(promoCode: string): Promise<ChatGptPromotionEligibilityResponse> {
+    return this.request(
+      'GET',
+      `/backend-api/promotions/eligibility/${encodeURIComponent(promoCode)}?type=promo`
+    );
+  }
+
+  async getPromotionMetadata(promoCode: string): Promise<ChatGptPromotionMetadataResponse> {
+    return this.request(
+      'GET',
+      `/backend-api/promotions/metadata/${encodeURIComponent(promoCode)}?type=promo`
+    );
+  }
+
+  async updateSubscriptionPromoCode(promoCode: string): Promise<Record<string, unknown>> {
+    return this.request('POST', '/backend-api/subscriptions/update', {
+      account_id: this.account.accountId,
+      updated_promo_code: promoCode
+    });
   }
 
   async cancelPersonalSubscriptionRenewal(): Promise<Record<string, unknown>> {

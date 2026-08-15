@@ -293,6 +293,16 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));
   api.get('/workspaces/:id/subscription', (c)=>wrap(c,()=>workspaceOperations.subscription(c.req.param('id'))));
   api.post('/workspaces/:id/subscription/refresh', async (c)=>withExecutor(c,(accountId)=>workspaceOperations.refreshSubscription(c.req.param('id'),accountId)));
+  api.post('/workspaces/:id/promotion/preview', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; promoCode?: string };
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
+    return wrap(c, () => workspaceOperations.previewPromotion(c.req.param('id'), body.executorAccountId!, body));
+  });
+  api.post('/workspaces/:id/promotion/apply', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; promoCode?: string; acknowledgeRenewal?: boolean };
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
+    return wrap(c, () => workspaceOperations.applyPromotion(c.req.param('id'), body.executorAccountId!, body));
+  });
   api.post('/workspaces/:id/seat-slots', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);const {executorAccountId,...input}=body;return wrap(c,()=>seatSlots.create(c.req.param('id'),executorAccountId,input));});
   api.patch('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);const {executorAccountId,...input}=body;return wrap(c,()=>seatSlots.update(c.req.param('id'),c.req.param('slotId'),executorAccountId,input));});
   api.delete('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);return wrap(c,()=>seatSlots.remove(c.req.param('id'),c.req.param('slotId'),body.executorAccountId));});
