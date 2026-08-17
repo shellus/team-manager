@@ -20,7 +20,7 @@ import type {
 import { unifiedApi } from "../../unifiedApi.js";
 import { LoadBoundary, PageHeader, formatPaymentCardLast4, formatTime } from "../../components/ProductPrimitives.js";
 import { formatMoney } from "../../components/OperationalDataPanels.js";
-import { limitTypeLabel, seatLabel, statusLabel } from "../../labels.js";
+import { limitTypeLabel, roleLabel, seatLabel, statusLabel } from "../../labels.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 import { ProductPagination } from "../../components/ProductPagination.js";
 
@@ -41,6 +41,13 @@ export const renewalStatusMeta: Record<RenewalOperationalStatus, { label: string
   inactive: { label: '未生效', color: 'default' },
 };
 
+export const seatSubjectMeta: Record<SeatOperationalOverviewView['subject'], { label: string; color: string }> = {
+  member: { label: '成员', color: 'green' },
+  invitation: { label: '邀请中', color: 'blue' },
+  vacancy: { label: '空位', color: 'default' },
+  customer: { label: '租客资料', color: 'gold' },
+};
+
 export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
   const [params, setParams] = useSearchParams();
   const [renewals, setRenewals] = useState<RenewalOperationalOverviewView[]>([]);
@@ -50,7 +57,7 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
   const query = params.get("query") ?? "";
   const risk = params.get("risk") ?? "all";
   const renewalStatus = params.get("status") ?? "all";
-  const seatType = params.get("type") ?? "all";
+  const seatSubject = params.get("subject") ?? "all";
 
   const load = async () => {
     setLoading(true);
@@ -73,8 +80,12 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
       next.delete('risk');
       changed = true;
     }
-    if (!['all', 'chatgpt', 'codex'].includes(seatType)) {
+    if (next.has('type')) {
       next.delete('type');
+      changed = true;
+    }
+    if (!['all', ...Object.keys(seatSubjectMeta)].includes(seatSubject)) {
+      next.delete('subject');
       changed = true;
     }
     if (renewalStatus !== 'all' && !(renewalStatus in renewalStatusMeta)) {
@@ -82,7 +93,7 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
       changed = true;
     }
     if (changed) setParams(next, { replace: true });
-  }, [params, renewalStatus, risk, seatType, setParams]);
+  }, [params, renewalStatus, risk, seatSubject, setParams]);
 
   const updateParam = (key: string, value?: string) => {
     const next = new URLSearchParams(params);
@@ -95,8 +106,9 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
     [query, renewalStatus, renewals],
   );
   const visibleSeats = useMemo(
-    () => seats.filter((row) => matches(row, query, risk) && seatMatches(row, seatType)),
-    [query, risk, seatType, seats],
+    () => seats.filter((row) => row.seatType === 'default' && matches(row, query, risk)
+      && (seatSubject === 'all' || row.subject === seatSubject)),
+    [query, risk, seatSubject, seats],
   );
 
   return (
@@ -104,7 +116,7 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
       <PageHeader
         title={kind === 'seats' ? '席位概览' : '母号概览'}
         description={kind === 'seats'
-          ? '每张卡片对应一个租客席位，按到期日从早到晚排列'
+          ? '展示固定席位成员、邀请和空位；租客资料作为附加信息'
           : '双席位母号按续费或到期时间从早到晚排列'}
         actions={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新数据</Button>}
       />
@@ -117,27 +129,23 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
             onChange={(event) => updateParam('query', event.target.value)}
           />
           {kind === 'seats' ? (
-            <Select
-              value={risk}
-              onChange={(value) => updateParam('risk', value)}
-              options={[{ value: 'all', label: '全部风险' }, ...Object.entries(riskMeta).map(([value, meta]) => ({ value, label: meta.label }))]}
-            />
+            <>
+              <Select
+                value={seatSubject}
+                onChange={(value) => updateParam('subject', value)}
+                options={[{ value: 'all', label: '全部状态' }, ...Object.entries(seatSubjectMeta).map(([value, meta]) => ({ value, label: meta.label }))]}
+              />
+              <Select
+                value={risk}
+                onChange={(value) => updateParam('risk', value)}
+                options={[{ value: 'all', label: '全部风险' }, ...Object.entries(riskMeta).map(([value, meta]) => ({ value, label: meta.label }))]}
+              />
+            </>
           ) : (
             <Select
               value={renewalStatus}
               onChange={(value) => updateParam('status', value)}
               options={[{ value: 'all', label: '全部状态' }, ...Object.entries(renewalStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]}
-            />
-          )}
-          {kind === 'seats' && (
-            <Select
-              value={seatType}
-              onChange={(value) => updateParam('type', value)}
-              options={[
-                { value: 'all', label: '全部类型' },
-                { value: 'chatgpt', label: 'ChatGPT 席位' },
-                { value: 'codex', label: 'Codex 席位' },
-              ]}
             />
           )}
         </div>
@@ -169,9 +177,9 @@ function RenewalStats({ rows }: { rows: RenewalOperationalOverviewView[] }) {
 
 function SeatStats({ rows }: { rows: SeatOperationalOverviewView[] }) {
   return <OverviewStats items={[
-    ['租客席位', rows.length],
-    ['ChatGPT', rows.filter((row) => row.seatType === 'default').length],
-    ['Codex', rows.filter((row) => row.seatType === 'usage_based').length],
+    ['固定成员', rows.filter((row) => row.subject === 'member' && row.seatType === 'default').length],
+    ['固定邀请', rows.filter((row) => row.subject === 'invitation' && row.seatType === 'default').length],
+    ['空位', rows.filter((row) => row.subject === 'vacancy').length],
   ]} />;
 }
 
@@ -262,30 +270,41 @@ function RenewalCard({ item }: { item: RenewalOperationalOverviewView }) {
   );
 }
 
-function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
+export function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
   const manager = item.managingAccounts[0];
   const target = manager
     ? `/accounts/${manager.id}?tab=workspaces&workspaceId=${encodeURIComponent(item.workspaceId)}`
     : undefined;
-  const identity = item.email ?? '空置租客资料';
+  const identity = item.subject === 'vacancy' ? '空位' : item.email ?? '未占用的租客资料';
+  const subject = seatSubjectMeta[item.subject];
   return (
     <Card size="small" className={`overview-grid-card seat-position-card risk-${item.riskLevel}`}>
       <div className="seat-position-head">
         <Typography.Text strong ellipsis={{ tooltip: identity }}>{identity}</Typography.Text>
-        <Tag color={item.seatType === 'usage_based' ? 'purple' : 'blue'}>{seatLabel(item.seatType)}</Tag>
+        <Space size={4} wrap>
+          <Tag color={subject.color}>{subject.label}</Tag>
+          {item.role && <Tag>{roleLabel(item.role)}</Tag>}
+          <Tag color={item.seatType === 'usage_based' ? 'purple' : 'blue'}>{seatLabel(item.seatType)}</Tag>
+        </Space>
       </div>
       <div className="overview-context-line">
         <span title={item.workspaceName ?? item.workspaceExternalId}>{target ? <Link to={target}>{item.workspaceName ?? item.workspaceExternalId}</Link> : item.workspaceName ?? item.workspaceExternalId}</span>
         <Typography.Text type="secondary" title={manager?.email}>{managerSummary(item.managingAccounts)}</Typography.Text>
       </div>
       <div className="overview-fact-grid">
-        <OverviewField inline emphasis label="到期">{item.expiresOn ?? '未设置'}</OverviewField>
-        <OverviewField inline label="价格">{item.price || '未填写'}</OverviewField>
+        {item.subject === 'vacancy' ? (
+          <OverviewField wide inline emphasis label="状态">可分配固定 ChatGPT 成员</OverviewField>
+        ) : (
+          <>
+            <OverviewField inline emphasis label="到期">{item.hasCustomerProfile ? item.expiresOn ?? '未设置' : '未录入租客资料'}</OverviewField>
+            <OverviewField inline label="价格">{item.hasCustomerProfile ? item.price || '未填写' : '未录入租客资料'}</OverviewField>
+          </>
+        )}
         {item.contact && <OverviewField wide inline label="联系"><span title={item.contact}>{item.contact}</span></OverviewField>}
         {item.remark && <OverviewField wide inline label="备注"><span title={item.remark}>{item.remark}</span></OverviewField>}
       </div>
       <div className="seat-position-footer">
-        <Typography.Text type="secondary">{statusLabel(item.status)}</Typography.Text>
+        <Typography.Text type="secondary">{item.hasCustomerProfile ? '已关联租客资料' : statusLabel(item.status)}</Typography.Text>
         <RiskTags level={item.riskLevel} risks={item.risks} />
       </div>
     </Card>
@@ -316,12 +335,6 @@ function managerSummary(managers: SeatOperationalOverviewView['managingAccounts'
   return <>{managers[0].email}{managers.length > 1 && <Typography.Text type="secondary"> +{managers.length - 1}</Typography.Text>}</>;
 }
 
-function seatMatches(row: SeatOperationalOverviewView, type: string): boolean {
-  if (type === 'chatgpt') return row.seatType === 'default';
-  if (type === 'codex') return row.seatType === 'usage_based';
-  return true;
-}
-
 function matches(
   row: RenewalOperationalOverviewView | SeatOperationalOverviewView,
   query: string,
@@ -335,5 +348,6 @@ function matches(
 
 function searchableValues(row: RenewalOperationalOverviewView | SeatOperationalOverviewView): string[] {
   const direct = Object.values(row).filter((value): value is string => typeof value === 'string');
-  return [...direct, ...row.managingAccounts.flatMap((manager) => [manager.email, manager.remark ?? ''])];
+  const seatSubject = row.subject === 'workspace' ? '' : seatSubjectMeta[row.subject].label;
+  return [...direct, seatSubject, ...row.managingAccounts.flatMap((manager) => [manager.email, manager.remark ?? ''])];
 }

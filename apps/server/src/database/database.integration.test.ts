@@ -101,6 +101,12 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         email: 'fixed-seat-invite@example.com', normalized_email: 'fixed-seat-invite@example.com', raw_role: 'standard-user',
         normalized_role: 'member', seat_type: 'default', status: 'pending', invited_at: new Date(), observed_at: new Date()
       }).execute();
+      const fixedMemberSeatSlot = await db.insertInto('seat_slots').values({
+        workspace_id: earlierFixedWorkspace.id, seat_key: 'fixed-seat-member-slot', remote_user_id: null,
+        current_email: 'fixed-seat-member@example.com', normalized_current_email: 'fixed-seat-member@example.com',
+        contact: 'fixed-contact', remark: 'fixed-member-profile', price: '26', expires_on: '2032-09-01',
+        expire_remove: false, seat_type: 'default', status: 'member'
+      }).returningAll().executeTakeFirstOrThrow();
       await addMembership(usageWorkspace.id, usageOwner.account.id, 'owner');
       await addMembership(usageWorkspace.id, bothOwner.account.id, 'owner');
       await addMembership(fixedWorkspace.id, bothOwner.account.id, 'owner');
@@ -569,6 +575,17 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
 
       const unauthorizedSlot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:outsider.account.id,email: 'customer@example.com', seatType: 'usage_based' }) });
       assert.equal(unauthorizedSlot.status,409,'普通成员不能维护客户资料');
+      const missingEmailSlot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:first.account.id, seatType: 'usage_based', remark: '不能成为空资料' }) });
+      assert.equal(missingEmailSlot.status,400,'不能创建没有关联邮箱的客户资料');
+      const releasableSlotResponse = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:first.account.id,email: 'release-customer@example.com', seatType: 'usage_based', contact: 'release-contact' }) });
+      assert.equal(releasableSlotResponse.status,200);
+      const releasableSlotId=(await releasableSlotResponse.json() as any).data.id;
+      const releasedSlotResponse=await app.request(`/api/workspaces/${workspace.id}/seat-slots/${releasableSlotId}/release`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id})});
+      assert.equal(releasedSlotResponse.status,200);
+      assert.equal((await releasedSlotResponse.json() as any).data,true);
+      assert.equal(await db.selectFrom('seat_slots').select('id').where('id','=',releasableSlotId).executeTakeFirst(),undefined,'释放关系后应一并删除客户资料');
+      const releaseActivity=await db.selectFrom('account_activity_logs').select(['kind','payload']).where('workspace_id','=',workspace.id).where('kind','=','seat_slot_released').orderBy('occurred_at','desc').executeTakeFirstOrThrow();
+      assert.equal(releaseActivity.payload.localProfileDeleted,true);
       const invitedWithTenant=new SeatSlotService(db,{invite:async(_workspaceId:string,_executorId:string,input:any)=>{await db.insertInto('workspace_invitations').values({workspace_id:workspace.id,account_id:null,remote_invitation_id:'tenant-invite',email:input.email,normalized_email:input.email.toLowerCase(),raw_role:input.role??'standard-user',normalized_role:'member',seat_type:input.seat,status:'pending',invited_at:new Date(),observed_at:new Date()}).execute();}} as any);
       await invitedWithTenant.invite(workspace.id,first.account.id,{email:'tenant-invite@example.com',seat:'usage_based',role:'standard-user',contact:'tenant-contact',remark:'tenant-remark',price:'52',expiresOn:'2032-08-14'});
       const invitedTenantSlot=await db.selectFrom('seat_slots').selectAll().where('workspace_id','=',workspace.id).where('normalized_current_email','=','tenant-invite@example.com').executeTakeFirstOrThrow();
@@ -615,10 +632,27 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const seatOverviewResponse = await app.request('/api/overview/seats', { headers });
       assert.equal(seatOverviewResponse.status, 200);
       const seatOverview = (await seatOverviewResponse.json() as any).data;
-      const invitedTenantCard = seatOverview.find((item: any) => item.id === invitedTenantSlot.id);
-      assert.equal(invitedTenantCard.email, 'tenant-invite@example.com');
-      assert.equal(invitedTenantCard.expiresOn, '2032-08-14');
-      assert.equal(Object.hasOwn(invitedTenantCard, 'source'), false, '租客席位概览不再混入成员或邀请来源');
+      assert.equal(seatOverview.find((item: any) => item.id === invitedTenantSlot.id), undefined, '概览卡片身份不直接等同 SeatSlot ID');
+      assert.equal(seatOverview.some((item: any) => item.email === 'tenant-invite@example.com'), false, 'usage-based 邀请及客户资料不进入席位概览');
+      assert.equal(seatOverview.every((item: any) => item.seatType === 'default'), true, '席位概览只返回固定 ChatGPT 席位');
+      assert.equal(seatOverview.some((item: any) => item.workspaceId === usageWorkspace.id), false, 'Codex Workspace 不进入席位概览');
+      assert.equal(seatOverview.some((item: any) => item.workspaceId === billingWorkspace.id), false, '即使旧账单含固定套餐信号，明确的 Codex Workspace 仍不进入席位概览');
+      const fixedMemberCard = seatOverview.find((item: any) => item.email === 'fixed-seat-member@example.com');
+      assert.equal(fixedMemberCard.subject, 'member', '固定成员进入席位概览');
+      assert.equal(fixedMemberCard.seatType, 'default');
+      assert.equal(fixedMemberCard.hasCustomerProfile, true);
+      assert.equal(fixedMemberCard.seatSlotId, fixedMemberSeatSlot.id);
+      assert.equal(fixedMemberCard.remark, 'fixed-member-profile');
+      const fixedMemberWithoutProfile = seatOverview.find((item: any) => item.workspaceId === workspace.id && item.email === first.account.email);
+      assert.equal(fixedMemberWithoutProfile.subject, 'member', '没有客户资料的固定成员仍进入席位概览');
+      assert.equal(fixedMemberWithoutProfile.hasCustomerProfile, false);
+      const fixedInvitationCard = seatOverview.find((item: any) => item.email === 'fixed-seat-invite@example.com');
+      assert.equal(fixedInvitationCard.subject, 'invitation', '待接受固定邀请作为占位展示');
+      assert.equal(fixedInvitationCard.hasCustomerProfile, false);
+      const vacancyCard = seatOverview.find((item: any) => item.workspaceId === workspace.id && item.subject === 'vacancy');
+      assert.equal(vacancyCard.status, 'empty', '已知双席位容量扣除固定占用后补出空位');
+      assert.equal(vacancyCard.hasCustomerProfile, false, '空位只是投影，不伪造客户资料');
+      assert.equal(Object.hasOwn(fixedMemberCard, 'source'), false, '席位概览不暴露底层来源字段');
       assert.equal((await app.request('/api/overview/workspaces', { headers })).status, 404, '旧 Workspace 概览 API 不保留兼容入口');
       assert.equal((await app.request('/api/settings/system/form-preferences', { method: 'PUT', headers, body: JSON.stringify({ country: 'US' }) })).status, 200);
 

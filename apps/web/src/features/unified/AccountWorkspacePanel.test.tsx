@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { UnifiedAccountDetailView } from "@team-manager/shared";
-import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
+import { AccountWorkspacePanel, relationReleaseCopy } from "./AccountWorkspacePanel.js";
 
 describe("账号 Workspace 面板", () => {
   it("没有活动 Workspace 时仍显示关系同步入口", () => {
@@ -55,5 +55,12 @@ describe("账号 Workspace 面板", () => {
     expect(html).toContain("已退出的 Workspace");
     expect(html).toContain("历史 Workspace");
     expect(html).toContain("删除本地数据");
+  });
+
+  it("按远端关系命名操作，不向用户暴露释放术语", () => {
+    expect(relationReleaseCopy({ kind: "member" }).okText).toBe("移除成员");
+    expect(relationReleaseCopy({ kind: "invitation" }).okText).toBe("撤销邀请");
+    expect(relationReleaseCopy({ kind: "customer" }).okText).toBe("删除资料");
+    expect(relationReleaseCopy({ kind: "member" }).content).toContain("租客资料也会一并删除");
   });
 });

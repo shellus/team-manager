@@ -462,11 +462,29 @@ function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}
   const productModal = useProductModal();
   if(isWorkspaceOwner(row))return null;
   if(!canManage)return <Typography.Text type="secondary">—</Typography.Text>;
-  if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>productModal.confirm({title:"删除空置租客资料？",content:"联系方式、备注、价格和到期设置会被删除。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
-  if(row.seatSlot)return <Button size="small" className="warning-action-button" onClick={()=>productModal.confirm({title:"释放租客占用？",content:["member","invited"].includes(row.seatSlot!.status)?"会移除对应成员或撤销邀请，并保留租客信息。":"会清空失效的邮箱关联，并保留租客信息。",okText:"释放",onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>释放</Button>;
+  if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>productModal.confirm({title:"删除异常租客资料？",content:"该资料没有关联邮箱，删除后无法恢复。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
+  if(row.seatSlot){const copy=relationReleaseCopy(row);return <Button size="small" danger={row.kind==="member"} className={row.kind==="member"?undefined:"warning-action-button"} onClick={()=>productModal.confirm({...copy,onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>{copy.okText}</Button>;}
   if(row.kind==="invitation")return <Button size="small" className="warning-action-button" onClick={()=>productModal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销</Button>;
   if(row.kind==="member"&&row.remoteUserId)return <Button size="small" danger onClick={()=>productModal.confirm({title:"移除成员？",content:"成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。",okText:"移除成员",onOk:()=>run(`remove-${row.id}`,async()=>{const result=await unifiedApi.removeMember(workspaceId,row.remoteUserId!,accountId);setLastRemoval(result.summary);})})}>移除成员</Button>;
   return <Typography.Text type="secondary">—</Typography.Text>;
+}
+
+export function relationReleaseCopy(row: Pick<AccountWorkspacePersonRow, "kind">) {
+  if (row.kind === "member") return {
+    title: "移除成员？",
+    content: "成员会立即失去 Workspace 访问权限，关联的租客资料也会一并删除。完成后请核对账单。",
+    okText: "移除成员",
+  };
+  if (row.kind === "invitation") return {
+    title: "撤销邀请？",
+    content: "邀请会被撤销，关联的租客资料也会一并删除。",
+    okText: "撤销邀请",
+  };
+  return {
+    title: "删除租客资料？",
+    content: "失效的邮箱关联及其租客资料会一并删除。",
+    okText: "删除资料",
+  };
 }
 
 function tenantDataInput(value: TenantDataValues): TenantDataValues {
@@ -484,7 +502,7 @@ function inviteTenantDataInput(value: TenantDataValues): TenantDataValues {
   };
 }
 function optionalText(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
-function personAccount(row: AccountWorkspacePersonRow) { return row.email ?? row.accountEmail ?? row.remoteUserId ?? "空置租客资料"; }
+function personAccount(row: AccountWorkspacePersonRow) { return row.email ?? row.accountEmail ?? row.remoteUserId ?? "异常资料：缺少关联邮箱"; }
 function relationLabel(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "成员" : kind === "invitation" ? "邀请中" : "未关联"; }
 function relationColor(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "green" : kind === "invitation" ? "blue" : "default"; }
 function isWorkspaceOwner(row?: AccountWorkspacePersonRow) { return row?.role === "owner"; }

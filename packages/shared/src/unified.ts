@@ -404,12 +404,16 @@ export interface RenewalOperationalOverviewView extends RenewalOperationalOvervi
 
 export interface SeatOperationalOverviewView {
   id: string;
+  subject: 'member' | 'invitation' | 'vacancy' | 'customer';
   workspaceId: string;
   workspaceName?: string;
   workspaceExternalId: string;
   email?: string;
   seatType: SeatType;
   status: string;
+  role?: NormalizedWorkspaceRole;
+  seatSlotId?: string;
+  hasCustomerProfile: boolean;
   contact?: string;
   remark?: string;
   expiresOn?: string;

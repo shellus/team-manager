@@ -1,5 +1,5 @@
 import { sql, type Kysely } from 'kysely';
-import type { Database } from '../database/schema.js';
+import type { Database, SeatSlotRow } from '../database/schema.js';
 import { TeamOrderRepository } from '../repositories/teamOrderRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { hasOutstandingInvoice } from '../repositories/billingRepository.js';
@@ -111,28 +111,134 @@ export class SystemService {
   }
 
   async overviewSeats(): Promise<SeatOperationalOverviewView[]> {
-    const [rows, managers] = await Promise.all([
-      this.db.selectFrom('seat_slots as s').innerJoin('workspaces as w', 'w.id', 's.workspace_id')
+    const [workspaces, memberships, invitations, slots, managers, subscriptions, billing] = await Promise.all([
+      this.db.selectFrom('workspaces').select(['id', 'external_id', 'name', 'status', 'normalized_plan']).execute(),
+      this.db.selectFrom('workspace_memberships as wm').leftJoin('accounts as a', 'a.id', 'wm.account_id')
         .select([
-          's.id', 's.workspace_id', 's.current_email', 's.seat_type', 's.status', 's.contact', 's.remark', 's.expires_on', 's.price',
-          'w.external_id as workspace_external_id', 'w.name as workspace_name', 'w.status as workspace_status'
-        ]).where('s.status', '!=', 'disabled').execute(),
-      manageableAccounts(this.db)
+          'wm.id', 'wm.workspace_id', 'wm.remote_user_id', 'wm.email', 'wm.normalized_role', 'wm.seat_type',
+          sql<string | null>`coalesce(wm.email, a.email)`.as('resolved_email')
+        ]).where('wm.status', '=', 'active').where('wm.seat_type', '=', 'default').execute(),
+      this.db.selectFrom('workspace_invitations').select([
+        'id', 'workspace_id', 'email', 'normalized_role', 'seat_type'
+      ]).where('status', '=', 'pending').where('seat_type', '=', 'default').execute(),
+      this.db.selectFrom('seat_slots').selectAll().where('status', '!=', 'disabled').where('seat_type', '=', 'default').execute(),
+      manageableAccounts(this.db),
+      this.db.selectFrom('workspace_subscription_snapshots').selectAll()
+        .distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at', 'desc').orderBy('created_at', 'desc').execute(),
+      latestWorkspaceBilling(this.db)
     ]);
-    return rows.map((row): SeatOperationalOverviewView => {
-      const expiresOn = row.expires_on ? dateKey(row.expires_on) : undefined;
-      const managingAccounts = managers.get(row.workspace_id) ?? [];
-      const risks = seatRisks(expiresOn, row.workspace_status, managingAccounts.length === 0);
-      return {
-        id: row.id, workspaceId: row.workspace_id, workspaceExternalId: row.workspace_external_id,
-        ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}), ...(row.current_email ? { email: row.current_email } : {}),
-        seatType: row.seat_type === 'usage_based' ? 'usage_based' : 'default', status: row.status,
-        ...(row.contact ? { contact: row.contact } : {}), ...(row.remark ? { remark: row.remark } : {}),
-        ...(expiresOn ? { expiresOn } : {}), ...(row.price ? { price: row.price } : {}), managingAccounts,
-        riskLevel: operationalRiskLevel(risks), risks
+    const membershipsByWorkspace = groupBy(memberships, (row) => row.workspace_id);
+    const invitationsByWorkspace = groupBy(invitations, (row) => row.workspace_id);
+    const slotsByWorkspace = groupBy(slots, (row) => row.workspace_id);
+    const subscriptionByWorkspace = new Map(subscriptions.map((row) => [row.workspace_id, row]));
+    const result: SeatOperationalOverviewView[] = [];
+    for (const workspace of workspaces) {
+      const subscription = subscriptionByWorkspace.get(workspace.id);
+      const billingPlan = billing.get(workspace.id)?.normalizedPlan;
+      if (!isFixedSeatOverviewWorkspace(workspace.normalized_plan, subscription?.normalized_plan, billingPlan)) continue;
+      const managingAccounts = managers.get(workspace.id) ?? [];
+      const remainingSlots = new Map((slotsByWorkspace.get(workspace.id) ?? []).map((slot) => [slot.id, slot]));
+      const takeSlot = (email?: string | null, remoteUserId?: string | null) => {
+        const normalizedEmail = normalizeOverviewEmail(email);
+        const match = [...remainingSlots.values()].find((slot) =>
+          Boolean(remoteUserId && slot.remote_user_id === remoteUserId)
+          || Boolean(normalizedEmail && slot.normalized_current_email === normalizedEmail));
+        if (match) remainingSlots.delete(match.id);
+        return match;
       };
-    }).sort((left, right) => compareOptionalDate(left.expiresOn, right.expiresOn) || left.id.localeCompare(right.id));
+      const workspaceMemberships = membershipsByWorkspace.get(workspace.id) ?? [];
+      const workspaceInvitations = invitationsByWorkspace.get(workspace.id) ?? [];
+      for (const membership of workspaceMemberships) {
+        const slot = takeSlot(membership.resolved_email, membership.remote_user_id);
+        result.push(seatOverviewItem({
+          id: `member:${membership.id}`, subject: 'member', workspace, managingAccounts,
+          email: membership.resolved_email, role: membership.normalized_role,
+          seatType: membership.seat_type, status: 'member', slot
+        }));
+      }
+      for (const invitation of workspaceInvitations) {
+        const slot = takeSlot(invitation.email);
+        result.push(seatOverviewItem({
+          id: `invitation:${invitation.id}`, subject: 'invitation', workspace, managingAccounts,
+          email: invitation.email, role: invitation.normalized_role,
+          seatType: invitation.seat_type, status: 'invited', slot
+        }));
+      }
+      const fixedOccupied = workspaceMemberships.length + workspaceInvitations.length;
+      const fixedAvailable = workspace.status === 'active' ? Math.max(2 - fixedOccupied, 0) : 0;
+      for (let index = 0; index < fixedAvailable; index += 1) {
+        const slot = [...remainingSlots.values()].find((row) => row.seat_type === 'default' && row.status === 'empty');
+        if (slot) remainingSlots.delete(slot.id);
+        result.push(seatOverviewItem({
+          id: `vacancy:${workspace.id}:${index + 1}`, subject: 'vacancy', workspace, managingAccounts,
+          seatType: 'default', status: 'empty', slot
+        }));
+      }
+      for (const slot of remainingSlots.values()) {
+        result.push(seatOverviewItem({
+          id: `customer:${slot.id}`, subject: 'customer', workspace, managingAccounts,
+          email: slot.current_email, seatType: slot.seat_type, status: slot.status, slot
+        }));
+      }
+    }
+    return result.sort((left, right) => compareOptionalDate(left.expiresOn, right.expiresOn)
+      || seatSubjectOrder(left.subject) - seatSubjectOrder(right.subject) || left.id.localeCompare(right.id));
   }
+}
+
+type SeatOverviewWorkspace = { id: string; external_id: string; name: string | null; status: string };
+type SeatOverviewSlot = SeatSlotRow;
+
+function seatOverviewItem(input: {
+  id: string;
+  subject: SeatOperationalOverviewView['subject'];
+  workspace: SeatOverviewWorkspace;
+  managingAccounts: OperationalAccountReferenceView[];
+  email?: string | null;
+  role?: string | null;
+  seatType?: string | null;
+  status: string;
+  slot?: SeatOverviewSlot;
+}): SeatOperationalOverviewView {
+  const expiresOn = input.slot?.expires_on ? dateKey(input.slot.expires_on) : undefined;
+  const tracksCustomerExpiry = Boolean(input.slot) && input.subject !== 'vacancy';
+  const risks = seatRisks(expiresOn, input.workspace.status, input.managingAccounts.length === 0, new Date(), tracksCustomerExpiry);
+  return {
+    id: input.id, subject: input.subject, workspaceId: input.workspace.id, workspaceExternalId: input.workspace.external_id,
+    ...(input.workspace.name ? { workspaceName: input.workspace.name } : {}), ...(input.email ? { email: input.email } : {}),
+    seatType: input.seatType === 'usage_based' ? 'usage_based' : 'default', status: input.status,
+    ...(normalizeOverviewRole(input.role) ? { role: normalizeOverviewRole(input.role) } : {}),
+    ...(input.slot ? { seatSlotId: input.slot.id } : {}), hasCustomerProfile: Boolean(input.slot),
+    ...(input.slot?.contact ? { contact: input.slot.contact } : {}), ...(input.slot?.remark ? { remark: input.slot.remark } : {}),
+    ...(expiresOn ? { expiresOn } : {}), ...(input.slot?.price ? { price: input.slot.price } : {}),
+    managingAccounts: input.managingAccounts, riskLevel: operationalRiskLevel(risks), risks
+  };
+}
+
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const result = new Map<string, T[]>();
+  for (const row of rows) result.set(key(row), [...(result.get(key(row)) ?? []), row]);
+  return result;
+}
+
+function normalizeOverviewEmail(value?: string | null): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function normalizeOverviewRole(value?: string | null): SeatOperationalOverviewView['role'] | undefined {
+  return ['owner', 'admin', 'member', 'analytics_viewer'].includes(value ?? '')
+    ? value as SeatOperationalOverviewView['role']
+    : value ? 'unknown' : undefined;
+}
+
+function seatSubjectOrder(value: SeatOperationalOverviewView['subject']): number {
+  return { member: 0, invitation: 1, vacancy: 2, customer: 3 }[value];
+}
+
+function isFixedSeatOverviewWorkspace(workspacePlan?: string | null, subscriptionPlan?: string | null, billingPlan?: string): boolean {
+  if (workspacePlan === 'business_usage_based') return false;
+  if (workspacePlan !== 'business' && subscriptionPlan === 'business_usage_based') return false;
+  return resolveWorkspacePlan(workspacePlan ?? undefined, subscriptionPlan ?? undefined, billingPlan) === 'business';
 }
 
 function notificationConfiguration(value: Record<string, unknown>): NotificationPolicyConfiguration {
@@ -162,7 +268,7 @@ function resolveWorkspacePlan(...plans:Array<string|undefined>){if(plans.include
 function normalizedLimitType(value:string):'unknown'|'weekly'|'monthly'{return value==='weekly'||value==='monthly'?value:'unknown';}
 export function renewalRisks(input:{renewalAt?:string;willRenew?:boolean|null;accountIsBanned?:boolean;workspaceStatus?:string;lacksManager?:boolean;fixedSeatCapacity?:number;fixedSeatOccupied?:number;paymentDue?:boolean},now=new Date()){const risks:string[]=[];const current=now.getTime();if(input.paymentDue)risks.push('当期账单待支付');if(!input.renewalAt)risks.push('续费时间未知');else{const at=new Date(input.renewalAt).getTime();if(at<current)risks.push(input.willRenew===false?'订阅已到期':'续费时间已过');else if(at<=current+3*86400_000)risks.push('三天内到期');}if(input.accountIsBanned)risks.push('账号已封号');if(input.workspaceStatus&&input.workspaceStatus!=='active')risks.push('Workspace 非活动');if(input.lacksManager)risks.push('缺少可管理账号');if(input.fixedSeatCapacity!==undefined&&input.fixedSeatOccupied!==undefined&&input.fixedSeatOccupied>input.fixedSeatCapacity)risks.push('固定席位超出容量');return risks;}
 export function renewalOperationalStatus(input:{renewalAt?:string;willRenew?:boolean|null;workspaceStatus?:string;fixedSeatCapacity?:number;fixedSeatOccupied?:number;paymentDue?:boolean},now=new Date()):RenewalOperationalStatus{const current=now.getTime();if(input.paymentDue)return'payment_due';if(input.renewalAt&&new Date(input.renewalAt).getTime()<current)return'expired';if(input.fixedSeatCapacity!==undefined&&input.fixedSeatOccupied!==undefined&&input.fixedSeatOccupied>input.fixedSeatCapacity)return'seat_over_capacity';if(input.workspaceStatus&&input.workspaceStatus!=='active')return'inactive';if(input.renewalAt&&new Date(input.renewalAt).getTime()<=current+3*86400_000)return'expiring_soon';if(!input.renewalAt)return'renewal_unknown';return'normal';}
-export function seatRisks(expiresOn:string|undefined,workspaceStatus:string,lacksManager:boolean,now=new Date()){const risks:string[]=[];const today=now.toISOString().slice(0,10);const soon=new Date(now.getTime()+3*86400_000).toISOString().slice(0,10);if(!expiresOn)risks.push('未设置到期日');else if(expiresOn<today)risks.push('客户席位已到期');else if(expiresOn<=soon)risks.push('三天内到期');if(workspaceStatus!=='active')risks.push('Workspace 非活动');if(lacksManager)risks.push('缺少可管理账号');return risks;}
+export function seatRisks(expiresOn:string|undefined,workspaceStatus:string,lacksManager:boolean,now=new Date(),trackCustomerExpiry=true){const risks:string[]=[];const today=now.toISOString().slice(0,10);const soon=new Date(now.getTime()+3*86400_000).toISOString().slice(0,10);if(trackCustomerExpiry){if(!expiresOn)risks.push('未设置到期日');else if(expiresOn<today)risks.push('客户席位已到期');else if(expiresOn<=soon)risks.push('三天内到期');}if(workspaceStatus!=='active')risks.push('Workspace 非活动');if(lacksManager)risks.push('缺少可管理账号');return risks;}
 function operationalRiskLevel(risks:string[]):OperationalRiskLevel{if(risks.some(item=>item.includes('已到期')||item.includes('已过')||item.includes('超出')||item.includes('缺少可管理')))return'critical';if(risks.length===0)return'normal';if(risks.every(item=>item.includes('未知')||item.includes('未设置')))return'unknown';return'warning';}
 async function manageableAccounts(db:Kysely<Database>):Promise<Map<string,OperationalAccountReferenceView[]>>{const rows=await db.selectFrom('workspace_memberships as wm').innerJoin('accounts as a','a.id','wm.account_id').innerJoin('account_operational_profiles as op','op.account_id','a.id').select(['wm.workspace_id','wm.normalized_role','a.id','a.email','a.remark','a.is_banned','op.limit_type']).where('wm.status','=','active').where('wm.normalized_role','in',['owner','admin']).execute();const result=new Map<string,OperationalAccountReferenceView[]>();for(const row of rows){const list=result.get(row.workspace_id)??[];list.push({id:row.id,email:row.email,...(row.remark?{remark:row.remark}:{}),role:row.normalized_role as 'owner'|'admin',isBanned:row.is_banned,limitType:normalizedLimitType(row.limit_type)});result.set(row.workspace_id,list);}for(const list of result.values())list.sort((left,right)=>(left.role==='owner'?0:1)-(right.role==='owner'?0:1)||left.email.localeCompare(right.email));return result;}
 type BillingSummary={expectedAmount?:string;expectedCurrency?:string;normalizedPlan?:string;defaultPaymentCardLast4?:string;paymentDue:boolean};

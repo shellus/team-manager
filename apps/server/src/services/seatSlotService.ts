@@ -45,18 +45,18 @@ export class SeatSlotService {
 
   async create(workspaceId: string, executorAccountId: string, input: SeatSlotMutationInput) {
     await this.requireManageableBy(workspaceId, executorAccountId);
+    const email = input.email?.trim();
+    if (!email || !normalizeEmail(email).includes('@')) throw new ServiceError(400, '缺少有效关联邮箱');
     const seatKey = input.seatKey?.trim() || randomBytes(24).toString('base64url');
     await this.assertWorkspace(workspaceId);
     if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
-    const relation=await this.relation(workspaceId,input.email);
+    const relation=await this.relation(workspaceId,email);
     const seatType=relation.seatType??input.seatType;
     if (!['default', 'usage_based'].includes(seatType ?? '')) throw new ServiceError(400, '缺少有效席位类型');
-    if (input.email) {
-      const duplicate = await this.db.selectFrom('seat_slots').select('id').where('workspace_id', '=', workspaceId)
-        .where('normalized_current_email', '=', normalizeEmail(input.email)).executeTakeFirst();
-      if (duplicate) throw new ServiceError(409, '该成员或邀请已有客户资料');
-    }
-    const row = await this.#repository.save({ workspaceId, seatKey, email: input.email, remoteUserId: relation.remoteUserId,
+    const duplicate = await this.db.selectFrom('seat_slots').select('id').where('workspace_id', '=', workspaceId)
+      .where('normalized_current_email', '=', normalizeEmail(email)).executeTakeFirst();
+    if (duplicate) throw new ServiceError(409, '该成员或邀请已有客户资料');
+    const row = await this.#repository.save({ workspaceId, seatKey, email, remoteUserId: relation.remoteUserId,
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
       expireRemove: input.expireRemove,
       seatType: seatType!, status: relation.status });
@@ -87,8 +87,9 @@ export class SeatSlotService {
     const relation = await this.relation(workspaceId, row.current_email);
     if (relation.status === 'member' && relation.remoteUserId && !force) await this.workspaceOperations.removeMember(workspaceId, executorAccountId, relation.remoteUserId);
     else if (relation.status === 'invited' && row.current_email && !force) await this.workspaceOperations.revokeInvitation(workspaceId, executorAccountId, row.current_email);
-    await this.log(id, row.current_email, null, force ? 'force_release' : 'release');
-    const released=await this.db.updateTable('seat_slots').set({ current_email: null, normalized_current_email: null, remote_user_id: null, status: 'empty' }).where('id', '=', id).returningAll().executeTakeFirstOrThrow();await this.#activity.log({accountId:executorAccountId,workspaceId,kind:'seat_slot_released',payload:{seatSlotId:id,previousEmail:row.current_email,force}});return released;
+    await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();
+    await this.#activity.log({accountId:executorAccountId,workspaceId,kind:'seat_slot_released',payload:{seatSlotId:id,previousEmail:row.current_email,force,localProfileDeleted:true}});
+    return true;
   }
   async runExpirations(now = new Date()) {
     const today = dateInTimeZone(now, 'UTC'); const schedules = await this.notificationSchedules();

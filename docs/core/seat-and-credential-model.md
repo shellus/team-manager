@@ -74,9 +74,11 @@
 | `default` | 固定 ChatGPT 席位，可能产生固定/按比例席位费用 |
 | `usage_based` | Codex/usage-based 席位，不占固定 ChatGPT 位置 |
 
-`SeatSlot` 是 Workspace 下的本地客户资源；当前邮箱只是占用身份。换号、邀请转成员或席位类型变化不改变客户备注、价格、到期日、公开 `seatKey` 和历史。
+`SeatSlot` 是 Workspace 下必须关联当前邮箱的本地客户资源。换号、邀请转成员或席位类型变化不改变客户备注、价格、到期日、公开 `seatKey` 和历史；移除成员、撤销邀请或删除失效关系时，本地客户资料和公开 `seatKey` 一并删除。Workspace 空位始终由容量与远端关系实时派生，不保存无邮箱的 `SeatSlot`。
 
 当前成员数不等于计费席位数。移除标准 ChatGPT 成员后仍可能临时计费，因此公开换号不得自动移除已接受的 `default` 成员；管理员操作后必须核对 Billing。
+
+席位概览只处理固定 ChatGPT 席位 Workspace，使用远端活动 `default` Membership 与待接受的 `default` Invitation 表达固定席位占用，并以已知 Business 固定容量补出空位。空位只是查询投影，不写入 `SeatSlot`。`SeatSlot` 只为匹配的邮箱附加联系方式、价格、备注、到期日和公开换号能力；没有 `SeatSlot` 的固定席位成员仍必须出现。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
 
 ## 凭证与额度
 
