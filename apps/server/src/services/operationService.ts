@@ -5,13 +5,17 @@ import type { Database } from '../database/schema.js';
 import { AutomationOperationRepository } from '../repositories/automationOperationRepository.js';
 import { ServiceError } from '../serviceError.js';
 import { AccountManagerService } from './accountManagerService.js';
+import { PersonalSpaceService } from './personalSpaceService.js';
+import { WorkspaceOperationService } from './workspaceOperationService.js';
 
 export class OperationService {
   readonly #operations: AutomationOperationRepository;
   constructor(
     db: Kysely<Database>,
     private readonly accountManagerService: AccountManagerService,
-    private readonly manager?: AccountManagerGateway
+    private readonly manager?: AccountManagerGateway,
+    private readonly personalSpaces?: PersonalSpaceService,
+    private readonly workspaceOperations?: WorkspaceOperationService
   ) { this.#operations = new AutomationOperationRepository(db); }
 
   async get(id: string): Promise<OperationDetailView> {
@@ -27,8 +31,11 @@ export class OperationService {
       await this.#operations.updateFromExternal(row.id, remote, row.account_id ?? undefined);
     }
     const updated = await this.requireRow(id);
+    if (updated.account_id && !updated.converged_at && ['failed', 'interrupted'].includes(updated.status)) {
+      await this.#operations.markConverged(updated.id);
+    }
     if (updated.status === 'succeeded' && updated.account_id && !updated.converged_at) {
-      await this.accountManagerService.sync(updated.account_id);
+      await this.converge(updated);
       await this.#operations.markConverged(updated.id);
     }
     const view = await this.localView(id);
@@ -86,6 +93,36 @@ export class OperationService {
       try { await this.get(row.id); } catch { failed += 1; }
     }
     return { checked: rows.length, failed };
+  }
+
+  private async converge(row: {
+    account_id: string | null;
+    workspace_id: string | null;
+    kind: string;
+  }): Promise<void> {
+    const accountId = row.account_id!;
+    if (['change_personal_subscription', 'open_business_subscription'].includes(row.kind)) {
+      await this.accountManagerService.importSession(accountId);
+    }
+    if (['register_account', 'import_account'].includes(row.kind)) {
+      await this.personalSpaces?.refresh(accountId, ['subscription', 'billing']);
+      await this.workspaceOperations?.syncAccountRelationships(accountId);
+      return;
+    }
+    if (row.kind === 'change_personal_subscription') {
+      await this.personalSpaces?.refresh(accountId, ['subscription', 'billing']);
+      return;
+    }
+    if (row.kind === 'open_business_subscription') {
+      await this.workspaceOperations?.syncAccountRelationships(accountId);
+      if (row.workspace_id) await this.workspaceOperations?.refreshBilling(row.workspace_id, accountId);
+      else await this.workspaceOperations?.refreshManageableBillingForAccount(accountId);
+      return;
+    }
+    if (['add_subscription_payment_method', 'add_personal_payment_method'].includes(row.kind)) {
+      if (row.workspace_id) await this.workspaceOperations?.refreshBilling(row.workspace_id, accountId);
+      else await this.personalSpaces?.refresh(accountId, ['billing']);
+    }
   }
 
   private async localView(id: string) {

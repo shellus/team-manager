@@ -45,7 +45,7 @@ import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPr
 import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
 import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
-import { PaymentCardFields } from "../../components/PaymentCardFields.js";
+import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
 
@@ -167,8 +167,10 @@ export function AccountDetailPage() {
                     danger
                     onClick={() =>
                       productModal.confirm({
-                        title: "删除账号？",
-                        content: "有关联关系或历史时数据库会拒绝删除。",
+                        title: "彻底删除账号？",
+                        content: "账号、个人空间、Session、GAM 绑定及该账号的已完成操作历史会一起删除，独立的 Workspace 会保留。仍有活动 Workspace 关系、凭证、订单或未完成操作时将拒绝删除。",
+                        okText: "彻底删除",
+                        okButtonProps: { danger: true },
                         onOk: async () => {
                           await unifiedApi.deleteAccount(account.id);
                           navigate("/accounts");
@@ -176,7 +178,7 @@ export function AccountDetailPage() {
                       })
                     }
                   >
-                    删除账号
+                    彻底删除账号
                   </Button>
                 </>
               }
@@ -261,17 +263,20 @@ export function AccountDetailPage() {
             onChanged={load}
             onOperationCreated={showCreatedOperation}
           />
-          <PaymentModal
-            accountId={account.id}
+          <SubscriptionPaymentMethodModal
+            targetLabel="个人空间"
             open={modal === "payment"}
             busy={busy === "payment"}
             onClose={() => setUrl("modal")}
-            onSubmit={(value) =>
-              run("payment", async () => {
-                await unifiedApi.addPaymentMethod(account.id, value);
+            loadDefaults={() => unifiedApi.paymentMethodDefaults(account.id)}
+            onSubmit={async (value) => {
+              let operation: AccountManagerOperationView | undefined;
+              await run("payment", async () => {
+                operation = await unifiedApi.addPersonalSpacePaymentMethod(account.id, value);
                 setUrl("modal");
-              })
-            }
+              });
+              if (operation) showCreatedOperation(operation);
+            }}
           />
           <OperationDrawer
             operation={selectedOperation}
@@ -326,7 +331,6 @@ function Overview({
           children: manager?.profile?.status ?? "未知",
         },
         { key: "health", label: "登录健康", children: account.accessHealth.status === "invalid" ? <Tag color="error">无效</Tag> : account.accessHealth.status === "valid" ? <Tag color="success">有效</Tag> : "未验证" },
-        { key: "sync", label: "最近 GAM 同步", children: account.lastSyncedAt ? formatTime(account.lastSyncedAt) : "未同步" },
         { key: "remote-user-id", label: "ChatGPT User ID", children: account.remoteUserId ? <Typography.Text copyable>{account.remoteUserId}</Typography.Text> : "—" },
         { key: "remote-account-id", label: "Personal Account ID", children: account.personalSpace.remoteAccountId ? <Typography.Text copyable>{account.personalSpace.remoteAccountId}</Typography.Text> : "—" },
         { key: "limit", label: "限额类型", children: account.limitType },
@@ -371,17 +375,6 @@ function Management({
         />
       )}
       {manager?.errors && <AccountManagerErrors errors={manager.errors} />}
-      <Space wrap>
-        <Button
-          disabled={!account.gamAccountRef}
-          loading={busy === "sync"}
-          onClick={() =>
-            run("sync", () => unifiedApi.syncAccountManager(account.id))
-          }
-        >
-          同步 GAM 与 Workspace
-        </Button>
-      </Space>
       <Descriptions
         bordered
         column={{ xs: 1, sm: 2 }}
@@ -610,77 +603,11 @@ function readableCode(value: unknown): string {
 }
 
 function operationTypeLabel(value: string): string {
-  return ({ register_account: "注册账号", change_personal_subscription: "个人套餐", cancel_personal_subscription_renewal: "取消续费", open_business_subscription: "Business 套餐", add_personal_payment_method: "绑定支付方式" } as Record<string, string>)[value] ?? readableCode(value);
-}
-
-function PaymentModal({
-  accountId,
-  open,
-  busy,
-  onClose,
-  onSubmit,
-}: {
-  accountId: string;
-  open: boolean;
-  busy: boolean;
-  onClose: () => void;
-  onSubmit: (value: any) => Promise<void>;
-}) {
-  const [form] = Form.useForm();
-  const [defaultsLoading, setDefaultsLoading] = useState(false);
-  const [defaultsError, setDefaultsError] = useState('');
-  useEffect(() => {
-    if (!open) return;
-    setDefaultsLoading(true);
-    setDefaultsError('');
-    void unifiedApi.personalPaymentMethodDefaults(accountId)
-      .then((value) => form.setFieldsValue(value))
-      .catch((reason) => setDefaultsError((reason as Error).message))
-      .finally(() => setDefaultsLoading(false));
-  }, [accountId, form, open]);
-  return (
-    <ProductModal
-      title="绑定个人支付方式"
-      open={open}
-      onCancel={onClose}
-    >
-      <Alert
-        type="info"
-        showIcon
-        message="完整卡号和 CVC 只在本次请求中转交 GAM。"
-      />
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={{ country: "US", currency: "USD" }}
-        onFinish={(v) =>
-          onSubmit({
-            country: v.country.toUpperCase(),
-            currency: v.currency.toUpperCase(),
-            card: v.card,
-          })
-        }
-      >
-        <div className="responsive-form-grid">
-          <Form.Item name="country" label="国家" rules={[{ required: true }]}>
-            <Input maxLength={2} />
-          </Form.Item>
-          <Form.Item name="currency" label="货币" rules={[{ required: true }]}>
-            <Input maxLength={3} />
-          </Form.Item>
-        </div>
-        <PaymentCardFields prefix="card" quickInput />
-        {defaultsError && <Alert className="modal-error" type="warning" showIcon message={`GAM 默认账单资料读取失败：${defaultsError}`} />}
-        <Button type="primary" htmlType="submit" loading={busy || defaultsLoading}>
-          提交给 GAM
-        </Button>
-      </Form>
-    </ProductModal>
-  );
+  return ({ register_account: "注册账号", change_personal_subscription: "个人套餐", cancel_personal_subscription_renewal: "取消续费", open_business_subscription: "Business 套餐", add_personal_payment_method: "绑定个人支付方式", add_subscription_payment_method: "绑定支付方式" } as Record<string, string>)[value] ?? readableCode(value);
 }
 
 function AccountManagerErrors({ errors }: { errors: NonNullable<AccountManagerStateView['errors']> }) {
-  const labels = { service: 'GAM 服务', account: '账号资料', profile: 'Profile', proxy: '住宅代理', operations: '操作记录' };
+  const labels = { service: 'GAM 服务', profile: 'Profile', proxy: '住宅代理', operations: '操作记录' };
   const values = Object.entries(errors).map(([key, value]) => `${labels[key as keyof typeof labels]}：${value}`);
   return values.length ? <Alert type="warning" showIcon message="GAM 部分资源读取失败" description={values.join('；')} /> : null;
 }

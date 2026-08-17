@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type {
   AccountManagerStateView,
-  AddPersonalPaymentMethodRequest,
+  AddSubscriptionPaymentMethodRequest,
   RegisterAccountRequest,
   ResidentialProxyConfig
 } from '@team-manager/shared';
@@ -11,10 +11,10 @@ import type { AccountManagerGateway } from '../accountManagerClient.js';
 import { AccountRepository } from '../repositories/accountRepository.js';
 import { AutomationOperationRepository } from '../repositories/automationOperationRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
-import { ServiceError, asServiceError } from '../serviceError.js';
+import { ServiceError } from '../serviceError.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
-import type { ManagedAccountSummary } from '../accountManagerClient.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
+import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 
 export class AccountManagerService {
   readonly #accounts: AccountRepository;
@@ -25,7 +25,8 @@ export class AccountManagerService {
   constructor(
     private readonly db: Kysely<Database>,
     private readonly sessions: SessionRepository,
-    private readonly manager?: AccountManagerGateway
+    private readonly manager?: AccountManagerGateway,
+    private readonly operational?: AccountOperationalRepository
   ) {
     this.#accounts = new AccountRepository(db);
     this.#operations = new AutomationOperationRepository(db);
@@ -41,34 +42,26 @@ export class AccountManagerService {
       throw error;
     });
     if (!ref) return { operations: localOperations };
-    const [healthResult, accountResult, profileResult, proxyResult, operationsResult] = await Promise.allSettled([
-      this.manager.health?.() ?? Promise.resolve(undefined),
-      this.manager.account?.(ref) ?? Promise.resolve(undefined),
+    const [profileResult, proxyResult, operationsResult] = await Promise.allSettled([
       this.manager.accountProfile?.(ref) ?? Promise.resolve(undefined),
       this.manager.accountProxyConfig?.(ref) ?? Promise.resolve(undefined),
       this.manager.listAccountOperations?.(ref) ?? Promise.resolve([])
     ]);
-    const account = fulfilled(accountResult);
     const profile = fulfilled(profileResult);
     const proxy = fulfilled(proxyResult);
-    const remoteOperations = fulfilled(operationsResult) ?? [];
+    const mirroredExternalIds = new Set((await this.db.selectFrom('automation_operations')
+      .select('external_operation_id').where('account_id', '=', accountId)
+      .where('external_operation_id', 'is not', null).execute())
+      .map((item) => item.external_operation_id!));
+    const remoteOperations = (fulfilled(operationsResult) ?? [])
+      .filter((operation) => !mirroredExternalIds.has(operation.id));
     const errors = {
-      ...(healthResult.status === 'rejected' ? { service: errorMessage(healthResult.reason) } : {}),
-      ...(healthResult.status === 'fulfilled' && healthResult.value?.status && healthResult.value.status !== 'ok'
-        ? { service: `GAM 服务状态：${healthResult.value.status}` } : {}),
-      ...(accountResult.status === 'rejected' ? { account: errorMessage(accountResult.reason) } : {}),
       ...(profileResult.status === 'rejected' ? { profile: errorMessage(profileResult.reason) } : {}),
       ...(proxyResult.status === 'rejected' ? { proxy: errorMessage(proxyResult.reason) } : {}),
       ...(operationsResult.status === 'rejected' ? { operations: errorMessage(operationsResult.reason) } : {})
     };
     if (profile) await this.db.updateTable('account_operational_profiles').set({ profile_status: profile.status, profile_checked_at: new Date() }).where('account_id', '=', accountId).execute();
     return {
-      ...(account ? { account: {
-        id: account.id,
-        email: account.email,
-        ...(account.personalPlan ? { personalPlan: account.personalPlan } : {}),
-        ...(account.paymentMethods ? { paymentMethods: account.paymentMethods } : {})
-      } } : {}),
       ...(profile ? { profile } : {}),
       ...(proxy ? { proxy } : {}),
       operations: mergeOperations(localOperations, remoteOperations),
@@ -114,8 +107,8 @@ export class AccountManagerService {
   }
 
   async paymentMethodDefaults(accountId: string) {
-    const manager = this.require('personalPaymentMethodDefaults');
-    return manager.personalPaymentMethodDefaults!(await this.accountRef(accountId));
+    const manager = this.require('paymentMethodDefaults');
+    return manager.paymentMethodDefaults!(await this.accountRef(accountId));
   }
 
   async registrationProxy(operationId: string) {
@@ -129,14 +122,6 @@ export class AccountManagerService {
     const operation = await this.registrationOperation(operationId);
     const manager = this.require('configureOperationProxy');
     return manager.configureOperationProxy!(operation.external_operation_id!, normalizedProxy(input));
-  }
-
-  async sync(accountId: string): Promise<AccountManagerStateView> {
-    const manager = this.require('syncAccount');
-    const ref = await this.accountRef(accountId);
-    const remote = await manager.syncAccount!(ref);
-    await this.persistRemoteState(accountId, remote);
-    return this.state(accountId);
   }
 
   async startProfile(accountId: string) {
@@ -167,7 +152,7 @@ export class AccountManagerService {
     await this.sessions.saveRevision({
       accountId,
       session,
-      source: 'gam_sync',
+      source: 'gam_session_import',
       observedEmail: session.user.email,
       observedPersonalAccountId: session.account.id
     });
@@ -176,25 +161,58 @@ export class AccountManagerService {
     return session;
   }
 
-  async addPaymentMethod(accountId: string, input: AddPersonalPaymentMethodRequest) {
-    const manager = this.require('addPersonalPaymentMethod');
+  async addPaymentMethod(
+    accountId: string,
+    input: AddSubscriptionPaymentMethodRequest,
+    target?: { workspaceId: string; targetAccountId: string }
+  ) {
+    validatePaymentMethod(input);
+    const manager = this.require('addSubscriptionPaymentMethod');
+    if (target) {
+      await this.#workspaces.requireManageableBy(target.workspaceId, accountId);
+      const workspace = await this.#workspaces.findById(target.workspaceId);
+      if (!workspace || workspace.external_id !== target.targetAccountId) throw new ServiceError(404, 'Workspace 不存在');
+    }
     const operationId = await this.#operations.start({
       accountId,
-      kind: 'add_personal_payment_method',
+      ...(target ? { workspaceId: target.workspaceId } : {}),
+      kind: 'add_subscription_payment_method',
       idempotencyKey: randomUUID(),
       safeRequestSummary: {
-        country: input.country,
-        currency: input.currency,
+        target: target ? 'workspace' : 'personal',
+        ...(target ? { workspaceId: target.workspaceId } : {}),
         cardLast4: input.card.number.slice(-4)
       }
     });
-    const operation = await manager.addPersonalPaymentMethod!(await this.accountRef(accountId), {
+    const operation = await manager.addSubscriptionPaymentMethod!(await this.accountRef(accountId), {
       ...input,
+      ...(target ? { targetAccountId: target.targetAccountId } : {}),
       requestTag: `team-manager:${operationId}`
     });
     await this.#operations.attach(operationId, operation);
-    await this.#activity.log({accountId,kind:'personal_payment_method_add_requested',payload:{operationId,country:input.country,currency:input.currency,cardLast4:input.card.number.slice(-4)}});
+    await this.#activity.log({
+      accountId,
+      workspaceId: target?.workspaceId ?? null,
+      kind: 'subscription_payment_method_add_requested',
+      payload: { operationId, target: target ? 'workspace' : 'personal', cardLast4: input.card.number.slice(-4) }
+    });
     return this.#operations.view(operationId);
+  }
+
+  async ensureHttpProxy(accountId: string): Promise<string | undefined> {
+    const existing = await this.operational?.proxy(accountId);
+    if (existing) return existing;
+    if (!this.manager?.accountHttpProxy || !this.operational) return undefined;
+    const ref = await this.accountRef(accountId).catch((error) => {
+      if (error instanceof ServiceError && error.status === 409) return undefined;
+      throw error;
+    });
+    if (!ref) return undefined;
+    const result = await this.manager.accountHttpProxy(ref);
+    const proxy = result.proxy?.trim();
+    if (!proxy) throw new ServiceError(502, 'GAM 未返回账号 HTTP 代理');
+    await this.operational.setProxy(accountId, proxy);
+    return proxy;
   }
 
   async register(input: RegisterAccountRequest) {
@@ -242,6 +260,7 @@ export class AccountManagerService {
         accountId = (await this.#accounts.create({ email, groupId: local.target_group_id })).account.id;
       }
       await this.#accounts.bindGamAccount(accountId, email);
+      await this.ensureHttpProxy(accountId).catch(() => undefined);
       await this.importSession(accountId);
     }
     await this.#operations.updateFromExternal(local.id, operation, accountId);
@@ -258,75 +277,10 @@ export class AccountManagerService {
       const account = await this.#accounts.findById(local.account_id);
       if (!account) throw new ServiceError(404, '账号不存在');
       await this.#accounts.bindGamAccount(account.id, account.email);
+      await this.ensureHttpProxy(account.id).catch(() => undefined);
     }
     await this.#operations.updateFromExternal(local.id, operation, local.account_id);
     return operation;
-  }
-
-  async persistRemoteState(accountId: string, remote: ManagedAccountSummary) {
-    const observedAt = new Date();
-    await this.db.updateTable('account_operational_profiles').set({
-      account_manager_plan_code: remote.personalPlan ?? null,
-      account_manager_synced_at: observedAt
-    }).where('account_id', '=', accountId).execute();
-    const personal = await this.db.selectFrom('personal_spaces').select('id').where('account_id', '=', accountId).executeTakeFirstOrThrow();
-    if (remote.personalPlan || remote.personalSubscription) {
-      const subscription = remote.personalSubscription ?? {};
-      const rawPlan = subscription.planType ?? remote.personalPlan ?? 'unknown';
-      await this.db.insertInto('personal_subscription_snapshots').values({
-        personal_space_id: personal.id,
-        normalized_plan: normalizePersonalPlan(rawPlan),
-        raw_plan_code: rawPlan,
-        status: subscription.isDelinquent ? 'delinquent' : 'active',
-        will_renew: subscription.willRenew ?? null,
-        effective_at: subscription.activeStart ?? null,
-        ends_at: subscription.activeUntil ?? null,
-        payload: subscription as Record<string, unknown>,
-        observed_at: observedAt
-      }).execute();
-    }
-    if (remote.paymentMethods) {
-      await this.db.transaction().execute(async (trx) => {
-        await trx.deleteFrom('payment_method_summaries').where('personal_space_id', '=', personal.id).execute();
-        if (remote.paymentMethods!.length) await trx.insertInto('payment_method_summaries').values(remote.paymentMethods!.map((item) => ({
-          personal_space_id: personal.id,
-          workspace_id: null,
-          brand: item.brand ?? item.type ?? null,
-          last4: item.last4 ?? null,
-          expiry_month: item.expMonth ?? null,
-          expiry_year: item.expYear ?? null,
-          is_default: item.isDefault === true,
-          observed_at: observedAt
-        }))).execute();
-      });
-    }
-    const seen = new Set<string>();
-    for (const item of remote.workspaces ?? []) {
-      if (!item.id?.trim()) continue;
-      const workspace = await this.#workspaces.upsert({
-        externalId: item.id, name: item.name ?? null,
-        status: item.visible === false || item.status === 'inactive' ? 'inactive' : 'active',
-        rawPlanCode: item.planType ?? null,
-        normalizedPlan: normalizeWorkspacePlan(item.planType),
-        nextRenewalAt: item.nextRenewalAt ?? null
-      });
-      seen.add(workspace.id);
-      await this.#workspaces.upsertMembership({
-        workspaceId: workspace.id, accountId, email: remote.email,
-        normalizedRole: normalizeWorkspaceRole(item.role), rawRole: item.role ?? null,
-        seatType: item.seatType ?? null, status: 'active', observedAt, source: 'gam_sync'
-      });
-    }
-    const existing = await this.db.selectFrom('workspace_memberships').select(['id', 'workspace_id'])
-      .where('account_id', '=', accountId).where('source', '=', 'gam_sync').where('status', '=', 'active').execute();
-    for (const row of existing) if (!seen.has(row.workspace_id)) {
-      await this.db.updateTable('workspace_memberships').set({ status: 'removed', observed_at: observedAt }).where('id', '=', row.id).execute();
-    }
-    await this.db.insertInto('account_activity_logs').values({
-      account_id: accountId, workspace_id: null, kind: 'gam_sync',
-      payload: { personalPlan: remote.personalPlan ?? null, workspaceCount: remote.workspaces?.length ?? 0 },
-      source_file_sha256: null, source_line: null, source_bytes_sha256: null, occurred_at: observedAt
-    }).execute();
   }
 
   private async accountRef(accountId: string): Promise<string> {
@@ -364,27 +318,15 @@ function normalizedProxy(input: ResidentialProxyConfig): ResidentialProxyConfig 
   return { ...input, country: input.country.toUpperCase() };
 }
 
-function normalizePersonalPlan(value: string): 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown' {
-  const key = value.toLowerCase();
-  if (['free', 'go', 'plus', 'pro_5x', 'pro_20x'].includes(key)) return key as any;
-  if (key.includes('prolite')) return 'pro_5x';
-  if (key.includes('pro')) return 'pro_20x';
-  if (key.includes('plus')) return 'plus';
-  if (key.includes('go')) return 'go';
-  return 'unknown';
-}
-function normalizeWorkspacePlan(value?: string): 'free' | 'business' | 'business_usage_based' | 'unknown' {
-  const key = value?.toLowerCase() ?? '';
-  if (key.includes('usage')) return 'business_usage_based';
-  if (key.includes('business') || key.includes('team')) return 'business';
-  if (key === 'free') return 'free';
-  return 'unknown';
-}
-function normalizeWorkspaceRole(value?: string): 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown' {
-  const key = value?.toLowerCase() ?? '';
-  if (key.includes('owner')) return 'owner'; if (key.includes('admin')) return 'admin';
-  if (key.includes('analytics')) return 'analytics_viewer'; if (key.includes('member') || key.includes('user')) return 'member';
-  return 'unknown';
+function validatePaymentMethod(input: AddSubscriptionPaymentMethodRequest): void {
+  if (!input.holderName?.trim() || input.holderName.trim().length > 200) throw new ServiceError(400, '持卡人姓名无效');
+  if (!input.postalCode?.trim() || input.postalCode.trim().length > 32) throw new ServiceError(400, '账单邮编无效');
+  const number = input.card?.number?.replaceAll(' ', '') ?? '';
+  if (!/^\d{12,19}$/.test(number)) throw new ServiceError(400, '卡号格式无效');
+  if (input.card.expiryMonth < 1 || input.card.expiryMonth > 12 || input.card.expiryYear < new Date().getUTCFullYear()) {
+    throw new ServiceError(400, '卡片有效期无效');
+  }
+  if (!/^\d{3,4}$/.test(input.card.cvc)) throw new ServiceError(400, 'CVC 格式无效');
 }
 
 function mergeOperations(local: AccountManagerStateView['operations'], remote: AccountManagerStateView['operations']) {

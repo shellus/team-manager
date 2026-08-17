@@ -22,7 +22,7 @@ import type { AccountListFilters } from './repositories/accountRepository.js';
 import { createTransport, type Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
-  AddPersonalPaymentMethodRequest,
+  AddSubscriptionPaymentMethodRequest,
   BulkUpdateAccountsRequest,
   ChangePersonalSubscriptionRequest,
   OpenBusinessSubscriptionRequest,
@@ -60,39 +60,41 @@ export type UnifiedApp = Hono & { stopBackgroundTasks(): void };
 export async function buildUnifiedApp({ config, database, artifactStore, transport = createTransport(), accountManager: providedAccountManager, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
   const app = new Hono();
   const cipher = new SecretCipher(config.dataEncryptionKey, config.dataEncryptionKeyVersion);
+  const artifactsStore = artifactStore ?? new ArtifactStore(config.artifactDir);
   const sessions = new SessionRepository(database, cipher);
+  const operational = new AccountOperationalRepository(database, cipher);
   const projections = new UnifiedProjectionRepository(database, sessions);
   const accounts = new UnifiedAccountService(
-    database, projections, sessions, new AccountOperationalRepository(database, cipher)
+    database, projections, sessions, operational
   );
   const workspaces = new WorkspaceService(projections);
-  const workspaceOperations = new WorkspaceOperationService(
-    database, workspaces, sessions, new AccountOperationalRepository(database, cipher), transport
-  );
   const accountManager = providedAccountManager ?? (config.accountManagerBaseUrl && config.accountManagerToken
     ? new AccountManagerClient(config.accountManagerBaseUrl, config.accountManagerToken)
     : undefined);
-  const accountManagement = new AccountManagerService(database, sessions, accountManager);
-  const subscriptions = new SubscriptionService(database, accountManager, accountManagement);
+  const accountManagement = new AccountManagerService(database, sessions, accountManager, operational);
+  const personalSpaces = new PersonalSpaceService(database, sessions, operational, transport, accountManagement);
+  const workspaceOperations = new WorkspaceOperationService(
+    database, workspaces, sessions, operational, transport, artifactsStore, accountManagement
+  );
+  const subscriptions = new SubscriptionService(database, accountManager, personalSpaces);
   const publicSeats = new PublicSeatService(database, workspaceOperations);
-  const artifactIndexes = new ArtifactIndexRepository(database, artifactStore ?? new ArtifactStore(config.artifactDir));
+  const artifactIndexes = new ArtifactIndexRepository(database, artifactsStore);
   const teamCode = new TeamCodeClient(config.teamCodeBaseUrl, config.teamCodePasscode);
   const system = new SystemService(database, teamCode.configured);
   const credentials = new CredentialService(
     database,
-    artifactStore ?? new ArtifactStore(config.artifactDir),
+    artifactsStore,
     sessions,
-    new AccountOperationalRepository(database, cipher),
+    operational,
     transport,
     cipher
   );
-  const personalSpaces = new PersonalSpaceService(database, sessions, new AccountOperationalRepository(database, cipher), transport);
-  const operations = new OperationService(database, accountManagement, accountManager);
+  const operations = new OperationService(database, accountManagement, accountManager, personalSpaces, workspaceOperations);
   const notifications = new NotificationService(database);
   const seatSlots = new SeatSlotService(database, workspaceOperations, notifications);
-  const artifacts = new ArtifactService(database, artifactStore ?? new ArtifactStore(config.artifactDir), config.artifactDir);
+  const artifacts = new ArtifactService(database, artifactsStore, config.artifactDir);
   const settings = new SettingsService(database, cipher);
-  const teamOrders = new TeamOrderService(database, sessions, new AccountOperationalRepository(database, cipher), teamCode);
+  const teamOrders = new TeamOrderService(database, sessions, operational, teamCode);
   const stops: Array<() => void> = [];
   if (startBackgroundTasks) {
     stops.push(startOperationPoller(operations), startTeamOrderScheduler(teamOrders),
@@ -176,6 +178,9 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.get('/accounts/:accountId/workspaces/:workspaceId', (c) =>
     wrap(c, () => workspaces.detailForAccount(c.req.param('workspaceId'), c.req.param('accountId')))
   );
+  api.post('/accounts/:id/workspaces/sync', (c) =>
+    wrap(c, () => workspaceOperations.syncAccountRelationships(c.req.param('id')))
+  );
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
   api.patch('/accounts/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}));
@@ -187,7 +192,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     return wrap(c, () => subscriptions.changePersonalSubscription(c.req.param('id'), body));
   });
   api.post('/accounts/:id/personal-subscription/cancel-renewal', (c) =>
-    wrap(c, () => subscriptions.cancelPersonalRenewal(c.req.param('id')))
+    wrap(c, () => personalSpaces.cancelRenewal(c.req.param('id')))
   );
   api.post('/accounts/:id/business-subscription', async (c) => {
     const body = await c.req.json().catch(() => ({})) as OpenBusinessSubscriptionRequest;
@@ -195,20 +200,17 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   });
   api.get('/accounts/:id/account-manager', (c) => wrap(c, () => accountManagement.state(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/enroll', (c) => wrap(c, () => accountManagement.enroll(c.req.param('id'))));
-  api.post('/accounts/:id/account-manager/sync', (c) => wrap(c, () => accountManagement.sync(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/start', (c) => wrap(c, () => accountManagement.startProfile(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/stop', (c) => wrap(c, () => accountManagement.stopProfile(c.req.param('id'))));
   api.put('/accounts/:id/account-manager/proxy', async (c) => {
     const body = await c.req.json().catch(() => ({})) as ResidentialProxyConfig;
     return wrap(c, () => accountManagement.setProxy(c.req.param('id'), body));
   });
-  api.post('/accounts/:id/account-manager/session/import', (c) => wrap(c, () => accountManagement.importSession(c.req.param('id'))));
-  api.get('/accounts/:id/personal-payment-method-defaults', (c) => wrap(c, () => accountManagement.paymentMethodDefaults(c.req.param('id'))));
-  api.post('/accounts/:id/personal-payment-methods', async (c) => {
-    const body = await c.req.json().catch(() => ({})) as AddPersonalPaymentMethodRequest;
+  api.get('/accounts/:id/payment-method-defaults', (c) => wrap(c, () => accountManagement.paymentMethodDefaults(c.req.param('id'))));
+  api.post('/accounts/:id/personal-space/payment-methods', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as AddSubscriptionPaymentMethodRequest;
     return wrap(c, () => accountManagement.addPaymentMethod(c.req.param('id'), body));
   });
-  api.post('/accounts/:id/sync', (c) => wrap(c, () => accountManagement.sync(c.req.param('id'))));
   api.post('/accounts/:id/personal-space/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { resources?: string[] };
     return wrap(c, () => personalSpaces.refresh(c.req.param('id'), body.resources));
@@ -288,11 +290,25 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.delete('/settings/system/:key', (c)=>wrap(c,()=>settings.remove(c.req.param('key'))));
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
+  api.delete('/workspaces/:id', (c) => wrap(c, () => workspaceOperations.removeLocalWorkspace(c.req.param('id'))));
   api.get('/workspaces/:id/settings', (c)=>wrap(c,()=>workspaceOperations.settings(c.req.param('id'))));
   api.get('/workspaces/:id/billing', (c)=>wrap(c,()=>workspaceOperations.billing(c.req.param('id'))));
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));
   api.get('/workspaces/:id/subscription', (c)=>wrap(c,()=>workspaceOperations.subscription(c.req.param('id'))));
   api.post('/workspaces/:id/subscription/refresh', async (c)=>withExecutor(c,(accountId)=>workspaceOperations.refreshSubscription(c.req.param('id'),accountId)));
+  api.post('/workspaces/:id/subscription/cancel-renewal', async (c)=>withExecutor(c,(accountId)=>workspaceOperations.cancelRenewal(c.req.param('id'),accountId)));
+  api.post('/workspaces/:id/payment-methods', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as AddSubscriptionPaymentMethodRequest & { executorAccountId?: string };
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
+    const { executorAccountId, ...input } = body;
+    return wrap(c, async () => {
+      const workspace = await workspaces.detailForAccount(c.req.param('id'), executorAccountId);
+      return accountManagement.addPaymentMethod(executorAccountId, input, {
+        workspaceId: workspace.id,
+        targetAccountId: workspace.externalId
+      });
+    });
+  });
   api.post('/workspaces/:id/promotion/preview', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; promoCode?: string };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);

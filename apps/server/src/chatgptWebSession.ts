@@ -44,6 +44,15 @@ export async function fetchWorkspaceWebAccessTokenFromSessionToken(
   targetChatgptAccountId: string,
   proxy?: string
 ): Promise<string> {
+  return fetchChatGptWebAccessTokenFromSessionToken(transport, sessionToken, targetChatgptAccountId, proxy);
+}
+
+export async function fetchChatGptWebAccessTokenFromSessionToken(
+  transport: Transport,
+  sessionToken: string,
+  targetChatgptAccountId: string,
+  proxy?: string
+): Promise<string> {
   const data = await fetchWorkspaceWebSessionFromSessionToken(transport, sessionToken, targetChatgptAccountId, proxy);
   const accessToken = readWorkspaceSessionAccessToken(data);
   if (!accessToken) throw new ChatGptWebSessionError(502, '目标 workspace Web session 响应缺少 accessToken');

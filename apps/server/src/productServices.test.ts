@@ -21,6 +21,8 @@ test('ArtifactStore 保持原始正文并校验哈希', async () => {
   const root=await temporaryDirectory();const store=new ArtifactStore(root);const content=Buffer.from('{"session":"raw"}');
   const saved=await store.writeImmutable('traces','trace.json',content);assert.deepEqual(await store.read(saved.storageKey,saved.contentSha256),content);
   assert.equal((await readFile(store.resolveStorageKey(saved.storageKey))).toString(),content.toString());
+  await store.remove(saved.storageKey);
+  await assert.rejects(readFile(store.resolveStorageKey(saved.storageKey)), { code: 'ENOENT' });
 });
 
 test('TeamCode 未配置时明确拒绝生成', async () => {

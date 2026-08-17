@@ -135,6 +135,13 @@ function numberField<K extends string>(key:K,value:unknown):Record<K,number>{con
 function unwrapRecord(value: unknown, key: string):Record<string,unknown>|undefined { const wrapper=record(value);return record(wrapper?.[key])??wrapper; }
 function formatAddress(value:unknown):string|undefined{const address=record(value);if(!address)return undefined;const formatted=['line1','line2','city','state','postal_code','country'].map(key=>text(address[key])).filter(Boolean).join(', ');return formatted||undefined;}
 function defaultPaymentMethodId(value: unknown): string | undefined { return text(record(value)?.default_payment_method_id); }
+export function hasOutstandingInvoice(payload: Record<string, unknown>): boolean {
+  return envelopeRecords(payload.invoices, ['data', 'invoices']).some((invoice) => {
+    if (text(invoice.status)?.toLowerCase() !== 'open') return false;
+    const outstanding = number(invoice.amount_remaining ?? invoice.amount_due ?? invoice.amount);
+    return outstanding === null || outstanding > 0;
+  });
+}
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.trim() ? value.trim() : undefined; }
 function number(value: unknown): number | null { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function numberOrString(value: unknown): number | string | undefined { return typeof value === 'number' && Number.isFinite(value) ? value : text(value); }

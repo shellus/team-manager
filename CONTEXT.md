@@ -24,6 +24,18 @@ _Avoid_: 母号、账号、个人空间
 账号或远端身份在一个 Workspace 中已经接受的关系，包含角色、席位类型和状态。账号是否拥有可管理空间由活动 owner/admin 成员关系派生。
 _Avoid_: 客户席位、待处理邀请、账号类型
 
+**同步账号与 Workspace 关系**:
+根据受管账号当前可访问的 Workspace 集合校准其成员关系；远端不再存在的成员关系进入已移除状态，Workspace 本身不受影响。
+_Avoid_: 刷新 Workspace 列表、删除 Workspace、退出 Workspace
+
+**彻底删除本地 Workspace**:
+显式、不可逆地删除 Team Manager 保存的 Workspace 及其从属业务资料，不代表也不会触发远端 Workspace 删除。账号关系同步不会自动执行此操作。
+_Avoid_: 远端删除 Workspace、账号退出 Workspace、自动清理
+
+**彻底删除账号**:
+不可逆删除账号及其专属资料和已结束操作历史，但不删除独立的 Workspace。活动 Workspace 关系、凭证、订单或未结束操作仍存在时，账号不满足彻底删除条件。
+_Avoid_: 退出 Workspace、删除 Workspace、归档账号
+
 **待处理邀请（Workspace Invitation）**:
 已经发出但尚未转为成员关系的 Workspace 邀请。邀请与成员关系是不同生命周期，不使用空成员关系表达邀请。
 _Avoid_: 待邀请、成员关系
@@ -41,7 +53,7 @@ _Avoid_: CloakBrowser Profile ID、GAM 数据库 UUID
 _Avoid_: Workspace Token、覆盖式 Session 字段
 
 **访问上下文（Account Access Context）**:
-账号在个人空间或指定 Workspace 下换取的 Web Access Token。相同账号的不同上下文互不覆盖。
+账号在个人空间或指定 Workspace 下换取的 Web Access Token。相同账号的不同上下文互不覆盖，成员关系变化不会推断其有效性，状态以真实请求结果为准。
 _Avoid_: 全局账号 Token、跨 Workspace Token
 
 **客户席位（Seat Slot）**:
@@ -92,9 +104,17 @@ _Avoid_: 子账号类型、Workspace 所有者、普通成员角色
 为账号创建新的 Business Workspace，或把账号可管理的既有 Workspace 升级为 Business 的操作。
 _Avoid_: 增加成员、个人套餐变更、Workspace 设置
 
-**个人支付方式绑定**:
-账号把一次性卡片输入交给 GPT Account Manager，为个人空间创建并设定默认支付方式的操作。Team Manager 不保存完整卡片。
-_Avoid_: Workspace 账单卡、保存完整卡片
+**订阅目标（Subscription Target）**:
+一次订阅或支付操作明确作用的个人空间或 Workspace。个人空间和 Workspace 的订阅生命周期彼此独立，不能从执行账号推断目标。
+_Avoid_: 当前账号套餐、默认 Workspace、隐式支付账号
+
+**订阅支付方式绑定**:
+账号把一次性卡片输入交给 GPT Account Manager，为明确的订阅目标创建并设定默认支付方式。Team Manager 不保存完整卡片。
+_Avoid_: 个人支付方式绑定、Workspace 账单卡、保存完整卡片
+
+**取消订阅续费**:
+关闭明确订阅目标的自动续费，不退款也不立即移除当前周期权益。个人空间和 Workspace 使用相同语义，并以实时复读 `will_renew=false` 为成功依据。
+_Avoid_: 个人套餐取消任务、退订退款、GAM 取消操作
 
 **自动支付**:
 Business Checkout 准备完成后是否自动提交付款的显式选项。默认关闭，与 Automatic reload 不同。

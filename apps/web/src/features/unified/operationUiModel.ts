@@ -5,12 +5,14 @@ const PAYMENT_TYPES = new Set([
   'change_personal_subscription',
   'open_business_subscription',
   'add_personal_payment_method',
+  'add_subscription_payment_method',
 ]);
 const BROWSER_RECOVERY_TYPES = new Set([
   'register_account',
   'change_personal_subscription',
   'open_business_subscription',
   'add_personal_payment_method',
+  'add_subscription_payment_method',
 ]);
 
 export function operationTypeLabel(value: string): string {
@@ -21,6 +23,7 @@ export function operationTypeLabel(value: string): string {
     cancel_personal_subscription_renewal: '取消续费',
     open_business_subscription: 'Business 套餐',
     add_personal_payment_method: '绑定支付方式',
+    add_subscription_payment_method: '绑定支付方式',
   } as Record<string, string>)[value] ?? readableOperationCode(value);
 }
 

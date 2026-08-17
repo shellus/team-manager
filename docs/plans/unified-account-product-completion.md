@@ -7,7 +7,7 @@
 以下能力已经在 PostgreSQL 服务层、受鉴权 API 和持久后台任务中实现：
 
 - 统一 Operation 查询、阶段事件、支付摘要、完成/生效时间、GAM 控制、补卡、清理和终态账号收敛；
-- GAM 同步个人订阅、支付方式、可见 Workspace 和 Membership；个人订阅操作前实时校验；
+- Team Manager 直连刷新个人订阅、支付方式、可见 Workspace 和 Membership；个人订阅操作前实时校验；
 - 完整 Session 读取/更新，个人订阅、账单、额度、设置、Activity Log 与账号分组排序；
 - Workspace 订阅、结构化账单/发票、全部已支持设置的多字段更新，以及成员/邀请变更后的凭证资格重算；
 - SeatSlot CRUD、释放、人工/公开换号历史、到期提醒去重、停用和可选移除；
@@ -32,7 +32,7 @@
 
 新增 API 保持 `/api/accounts`、`/api/workspaces`、`/api/operations`、`/api/settings` 主边界：
 
-- `POST /accounts/:id/sync`：同步 GAM 账号、个人订阅、支付摘要和可见 Workspace，并收敛 Membership。
+- `POST /accounts/:id/workspaces/sync`：使用本地 Session 直连校准账号与 Workspace Membership；个人空间使用定向 refresh API。
 - `GET /operations/:id`、`POST /operations/:id/controls/:control`、`PUT /operations/:id/payment-card`、`DELETE /operations/:id`：统一操作查询、重试、换 IP、终止、补卡和清理。
 - `POST /accounts/:id/personal-space/refresh`：刷新个人订阅、账单、额度和设置；各子资源允许单独刷新。
 - `GET /accounts/:id/session`：管理员读取完整 Session；更新与账号资料统一使用 `PATCH /accounts/:id`。
@@ -52,10 +52,10 @@
 - [x] A1. GAM 的 Go、Plus、Pro 5x、Pro 20x 首次开通共用通用命名、状态和测试；只有 Pro 5x 促销策略保留套餐特例。
 - [x] A2. Go、Plus、Pro 5x、Pro 20x 取消续费均按实时个人订阅执行，同套餐重复取消幂等成功。
 - [x] A3. Team Manager 发起操作前实时同步个人订阅并校验 `start_new`、`change_existing` 和同套餐幂等。
-- [x] A4. 套餐、支付和 Business 操作持续同步 GAM 状态，保存阶段事件、支付结果摘要、生效时间和错误。
+- [x] A4. 套餐、支付和 Business 浏览器操作保留 GAM 阶段事件；操作成功后由 Team Manager 定向刷新目标个人空间或 Workspace。
 - [x] A5. 操作支持重试当前步骤、轮换 IP、终止、补卡、清理；注册任务使用同一操作控制面。
 - [x] A6. Business 页面支持创建新 Workspace 和升级既有 Workspace，支持保存支付方式、新卡、自动提交及人工接管。
-- [x] A7. GAM 同步把新建/升级 Workspace、Membership、个人订阅和支付方式收敛到 PostgreSQL。
+- [x] A7. Team Manager 使用 ChatGPT 直连请求把新建/升级 Workspace、Membership、个人订阅和支付方式收敛到 PostgreSQL。
 
 ### 阶段 B：账号与个人空间
 

@@ -172,9 +172,10 @@ export interface PersonalPaymentMethodView {
   isDefault?: boolean;
 }
 
-export interface PersonalPaymentMethodDefaults {
-  country: string;
-  currency: string;
+export interface PaymentMethodDefaults {
+  holderName: string;
+  postalCode: string;
+  region: string;
 }
 
 export interface QuotaWindow {

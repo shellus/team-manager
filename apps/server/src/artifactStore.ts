@@ -62,6 +62,12 @@ export class ArtifactStore {
     await this.read(storageKey, expectedSha256);
   }
 
+  async remove(storageKey: string): Promise<void> {
+    await unlink(this.resolveStorageKey(storageKey)).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    });
+  }
+
   resolveStorageKey(storageKey: string): string {
     if (!/^(credentials|credential-quarantine|rrweb|traces)\/[a-z0-9][a-z0-9._/-]*$/i.test(storageKey)) {
       throw new Error('非法文件制品存储键');

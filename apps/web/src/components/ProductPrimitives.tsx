@@ -28,3 +28,8 @@ export function formatTime(value?: string | number | null) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false });
 }
+
+export function formatPaymentCardLast4(value?: string | null) {
+  const last4 = value?.trim();
+  return last4 && /^\d{4}$/.test(last4) ? `•••• ${last4}` : undefined;
+}

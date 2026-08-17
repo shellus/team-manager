@@ -32,7 +32,11 @@
 
 首次开通使用 `start_new`。现有付费套餐间切换只有在 GAM/上游请求矩阵验证后才开放；未验证组合必须拒绝，不能用 plan name 猜测。Business 操作分为创建新 Workspace 和升级当前账号可管理的既有 Workspace。
 
-完整卡号和 CVC 只在当前请求内交给 GAM；Team Manager 只保存品牌、尾号、有效期、默认标记和安全操作摘要。
+当前个人套餐以 `accounts/check` 中对应 `structure=personal` 的账号条目为准。`subscriptions` 返回的记录只提供续费、有效期和欠费等订阅生命周期事实；套餐取消并到期后该接口仍可能保留历史 `plan_type`，不得据此覆盖 `accounts/check` 已明确返回的 Free 或其他当前套餐。只有 `accounts/check` 未提供个人套餐时，才允许回退到订阅记录。
+
+完整卡号和 CVC 只在当前请求内交给 GAM；Team Manager 只保存品牌、尾号、有效期、默认标记和安全操作摘要。支付方式绑定必须显式指定个人空间或 Workspace 作为订阅目标，不能从执行账号或当前页面状态隐式推断。
+
+个人空间和 Workspace 都可以绑定默认支付方式、取消自动续费。绑定支付方式依赖 Stripe Elements 与浏览器支付现场，继续由 GAM 执行；取消续费是订阅状态写入，由 Team Manager 使用目标访问上下文直接请求 ChatGPT，并实时复读 `will_renew=false`。取消续费不退款，当前权益保留到计费周期结束。
 
 ## 账号运营主套餐
 

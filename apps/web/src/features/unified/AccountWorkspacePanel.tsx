@@ -21,6 +21,7 @@ import type {
   CredentialPoolGroupView,
   SubscriptionDetailView,
   UnifiedAccountDetailView,
+  RemovedAccountWorkspaceView,
   WorkspaceDetailView,
   WorkspaceMemberRemovalResult,
   SeatSlotView,
@@ -48,6 +49,7 @@ import {
 } from "./accountWorkspaceModel.js";
 import { WorkspacePromotionModal } from "./WorkspacePromotionModal.js";
 import { useSearchParams } from "react-router-dom";
+import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
 
 export function AccountWorkspacePanel({
   account,
@@ -59,6 +61,7 @@ export function AccountWorkspacePanel({
   onAccountChanged: () => Promise<void>;
 }) {
   const productMessage = useProductMessage();
+  const productModal = useProductModal();
   const [params, setParams] = useSearchParams();
   const workspaceId = resolveAccountWorkspaceId(account.workspaces, params.get("workspaceId"));
   const relationship = account.workspaces.find((item) => item.id === workspaceId);
@@ -119,9 +122,49 @@ export function AccountWorkspacePanel({
     }
   };
 
-  if (account.workspaces.length === 0) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该账号没有活动 Workspace 关系" />;
-  }
+  const syncAccountWorkspaces = async () => {
+    setBusy("account-workspace-sync");
+    setError("");
+    try {
+      const result = await unifiedApi.syncAccountWorkspaces(account.id);
+      await onAccountChanged();
+      productMessage.success(result.removedCount > 0
+        ? `账号与 Workspace 关系已同步，${result.removedCount} 个关系已移除`
+        : "账号与 Workspace 关系已同步");
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const deleteLocalWorkspace = (item: RemovedAccountWorkspaceView) => {
+    productModal.confirm({
+      title: "彻底删除本地 Workspace 数据？",
+      content: "将删除 Team Manager 保存的成员历史、邀请、凭证、客户席位、账单与订阅快照、订单和已结束操作历史。不会调用 ChatGPT 删除远端 Workspace。",
+      okText: "删除本地数据",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        const key = `delete-local-workspace-${item.id}`;
+        setBusy(key);
+        setError("");
+        try {
+          const result = await unifiedApi.deleteLocalWorkspace(item.id);
+          await onAccountChanged();
+          if (result.credentialArtifactCleanupFailures > 0) {
+            productMessage.warning("Workspace 本地记录已删除，部分凭证文件将在制品清理任务中继续处理");
+          } else {
+            productMessage.success("Workspace 本地数据已彻底删除");
+          }
+        } catch (reason) {
+          setError((reason as Error).message);
+          throw reason;
+        } finally {
+          setBusy("");
+        }
+      },
+    });
+  };
 
   const requestedWorkspaceTab = params.get("workspaceTab");
   const workspaceTab = ["members", "billing", "settings", "credentials"].includes(requestedWorkspaceTab ?? "")
@@ -140,24 +183,87 @@ export function AccountWorkspacePanel({
     setParams(next);
   };
   const canManage = relationship?.manageable === true;
+  const removedWorkspaces = account.removedWorkspaces ?? [];
+  const workspaceSwitcher = (
+    <Space wrap>
+      <Select
+        aria-label="选择 Workspace"
+        value={workspaceId}
+        placeholder="暂无活动 Workspace"
+        disabled={account.workspaces.length === 0}
+        onChange={selectWorkspace}
+        style={{ minWidth: 280 }}
+        options={account.workspaces.map((item) => ({
+          value: item.id,
+          label: `${item.name ?? item.externalId} · ${roleLabel(item.role)}`,
+        }))}
+      />
+      <Button
+        icon={<ReloadOutlined />}
+        loading={busy === "account-workspace-sync"}
+        disabled={Boolean(busy) && busy !== "account-workspace-sync"}
+        onClick={() => void syncAccountWorkspaces()}
+      >
+        同步账号与 Workspace 关系
+      </Button>
+      {relationship && <Tag color={canManage ? "green" : "default"}>{roleLabel(relationship.role)}</Tag>}
+      {relationship && !canManage && <Typography.Text type="secondary">普通成员只能查看空间资料并管理自己的凭证</Typography.Text>}
+    </Space>
+  );
+  const removedWorkspaceSection = removedWorkspaces.length > 0 ? (
+    <Space direction="vertical" size={8} className="panel-stack">
+      <Typography.Title level={5}>已退出的 Workspace</Typography.Title>
+      <Table<RemovedAccountWorkspaceView>
+        size="small"
+        rowKey="id"
+        pagination={false}
+        dataSource={removedWorkspaces}
+        columns={[
+          {
+            title: "Workspace",
+            render: (_, item) => <TwoLineCell primary={item.name ?? item.externalId} secondary={item.externalId} />,
+          },
+          {
+            title: "关系移除时间",
+            dataIndex: "removedAt",
+            render: formatTime,
+          },
+          {
+            title: "操作",
+            width: 190,
+            render: (_, item) => item.canDeleteLocally
+              ? <Button
+                  size="small"
+                  danger
+                  loading={busy === `delete-local-workspace-${item.id}`}
+                  disabled={Boolean(busy) && busy !== `delete-local-workspace-${item.id}`}
+                  onClick={() => deleteLocalWorkspace(item)}
+                >
+                  删除本地数据
+                </Button>
+              : <Typography.Text type="secondary">其他账号仍在使用</Typography.Text>,
+          },
+        ]}
+      />
+    </Space>
+  ) : null;
+
+  if (account.workspaces.length === 0) {
+    return (
+      <Space direction="vertical" size={16} className="panel-stack">
+        {error && <Alert type="error" showIcon closable message={error} onClose={() => setError("")} />}
+        {workspaceSwitcher}
+        {removedWorkspaceSection}
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该账号没有活动 Workspace 关系" />
+      </Space>
+    );
+  }
 
   return (
     <Space direction="vertical" size={16} className="panel-stack">
       {error && <Alert type="error" showIcon closable message={error} onClose={() => setError("")} />}
-      <Space wrap>
-        <Select
-          aria-label="选择 Workspace"
-          value={workspaceId}
-          onChange={selectWorkspace}
-          style={{ minWidth: 280 }}
-          options={account.workspaces.map((item) => ({
-            value: item.id,
-            label: `${item.name ?? item.externalId} · ${roleLabel(item.role)}`,
-          }))}
-        />
-        {relationship && <Tag color={canManage ? "green" : "default"}>{roleLabel(relationship.role)}</Tag>}
-        {!canManage && <Typography.Text type="secondary">普通成员只能查看空间资料并管理自己的凭证</Typography.Text>}
-      </Space>
+      {workspaceSwitcher}
+      {removedWorkspaceSection}
       <Tabs
         activeKey={workspaceTab}
         onChange={setWorkspaceTab}
@@ -398,11 +504,31 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
   modal: string | null;
   setParams: (values: Record<string, string | undefined>) => void;
 }) {
+  const productModal = useProductModal();
   if (!workspace) return <LoadingEmpty loading />;
+  const paidSubscription = Boolean(subscription && !["free", "unknown"].includes(subscription.plan));
+  const renewalCancelled = subscription?.willRenew === false;
+  const renewalEnd = subscription?.endsAt ? formatTime(subscription.endsAt) : "当前计费周期结束";
   return <Space direction="vertical" size={16} className="panel-stack">
     <Space wrap>
       <Button href={`https://chatgpt.com/account/manage?account_id=${encodeURIComponent(workspace.externalId)}`} target="_blank" rel="noreferrer">打开 ChatGPT 账单管理</Button>
       <Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "billing"} onClick={() => void run("billing", async () => { await unifiedApi.refreshWorkspaceBilling(workspace.id, accountId); await reload(); })}>刷新账单</Button>
+      {paidSubscription && <Button
+        danger={!renewalCancelled}
+        disabled={!canManage || renewalCancelled}
+        loading={busy === "workspace-cancel-renewal"}
+        onClick={() => productModal.confirm({
+          title: "取消 Workspace 自动续费？",
+          content: `仅关闭自动续费，不退款；Workspace 权益保留到 ${renewalEnd}。`,
+          okText: "取消 Workspace 续费",
+          okButtonProps: { danger: true },
+          cancelText: "返回",
+          onOk: () => run("workspace-cancel-renewal", () => unifiedApi.cancelWorkspaceRenewal(workspace.id, accountId)),
+        })}
+      >
+        {renewalCancelled ? "已取消续费" : "取消续费"}
+      </Button>}
+      <Button disabled={!canManage} onClick={() => setParams({ modal: "workspace-payment" })}>绑定支付方式</Button>
       <Button type="primary" disabled={!canManage} onClick={() => setParams({ modal: "workspace-promotion" })}>更新优惠码</Button>
     </Space>
     <Typography.Title level={5}>订阅与续费</Typography.Title>
@@ -415,6 +541,19 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
       open={modal === "workspace-promotion"}
       onClose={() => setParams({ modal: undefined })}
       onApplied={async () => { await reload(); }}
+    />
+    <SubscriptionPaymentMethodModal
+      targetLabel="当前 Workspace"
+      open={modal === "workspace-payment"}
+      busy={busy === "workspace-payment"}
+      loadDefaults={() => unifiedApi.paymentMethodDefaults(accountId)}
+      onClose={() => setParams({ modal: undefined })}
+      onSubmit={async (value) => {
+        await run("workspace-payment", async () => {
+          const operation = await unifiedApi.addWorkspacePaymentMethod(workspace.id, accountId, value);
+          setParams({ modal: undefined, operationId: operation.id });
+        });
+      }}
     />
   </Space>;
 }

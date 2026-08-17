@@ -18,7 +18,7 @@ import type {
   SeatOperationalOverviewView,
 } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
-import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
+import { LoadBoundary, PageHeader, formatPaymentCardLast4, formatTime } from "../../components/ProductPrimitives.js";
 import { formatMoney } from "../../components/OperationalDataPanels.js";
 import { limitTypeLabel, seatLabel, statusLabel } from "../../labels.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
@@ -31,10 +31,10 @@ const riskMeta: Record<OperationalRiskLevel, { label: string; color: string }> =
   unknown: { label: "未知", color: "default" },
 };
 
-const renewalStatusMeta: Record<RenewalOperationalStatus, { label: string; color: string }> = {
+export const renewalStatusMeta: Record<RenewalOperationalStatus, { label: string; color: string }> = {
   normal: { label: '正常', color: 'green' },
-  renewing_soon: { label: '即将续费', color: 'orange' },
-  expiring_soon: { label: '即将到期', color: 'orange' },
+  payment_due: { label: '待支付', color: 'orange' },
+  expiring_soon: { label: '三天内到期', color: 'orange' },
   expired: { label: '已到期', color: 'red' },
   seat_over_capacity: { label: '席位超额', color: 'red' },
   renewal_unknown: { label: '续费时间未知', color: 'default' },
@@ -246,7 +246,10 @@ function RenewalCard({ item }: { item: RenewalOperationalOverviewView }) {
       </div>
       <div className="overview-fact-grid">
         <OverviewField wide inline emphasis label={item.willRenew === false ? '到期时间' : item.willRenew === true ? '续费时间' : '有效至'}>
-          {item.renewalAt ? formatTime(item.renewalAt) : '未知'}
+          <span className="renewal-primary-fact">
+            <span>{item.renewalAt ? formatTime(item.renewalAt) : '未知'}</span>
+            <Typography.Text type="secondary">默认支付卡 {formatPaymentCardLast4(item.defaultPaymentCardLast4) ?? '未知'}</Typography.Text>
+          </span>
         </OverviewField>
         <OverviewField inline label="预计金额">{formatMoney(item.expectedAmount, item.expectedCurrency)}</OverviewField>
         <OverviewField inline label="席位">{item.fixedSeatCapacity === undefined ? '不适用' : `${item.fixedSeatOccupied ?? 0}/${item.fixedSeatCapacity}，余 ${item.fixedSeatAvailable ?? 0}`}</OverviewField>

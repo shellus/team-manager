@@ -5,7 +5,6 @@ import type {
   AccountRegistrationSummaryView,
   AccountGroupView,
   AccountLimitType,
-  PersonalPlan,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
@@ -15,6 +14,7 @@ import type { Database } from '../database/schema.js';
 import { AccountRepository, type AccountListFilters } from './accountRepository.js';
 import { SessionRepository } from './sessionRepository.js';
 import { AutomationOperationRepository } from './automationOperationRepository.js';
+import { normalizePersonalPlan } from '../domain/personalPlan.js';
 
 export class UnifiedProjectionRepository {
   constructor(
@@ -39,13 +39,12 @@ export class UnifiedProjectionRepository {
     const ids = rows.map((row) => row.id);
     const extras = ids.length === 0 ? [] : (await sql<{
       id: string; group_id: string; gam_ref: string | null; has_member: boolean; has_credential: boolean; has_running_profile: boolean;
-      account_manager_synced_at: Date | null; access_status: string; access_checked_at: Date | null;
+      access_status: string; access_checked_at: Date | null;
       access_expires_at: Date | null; invalid_context_count: number;
     }>`select a.id, a.group_id, gb.external_account_ref gam_ref,
           exists(select 1 from workspace_memberships wm where wm.account_id=a.id and wm.status='active' and wm.normalized_role not in ('owner','admin')) has_member,
           exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential,
           exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile,
-          op.account_manager_synced_at,
           case when count(ac.id)=0 then 'missing'
             when count(ac.id) filter(where ac.status='invalid' or (ac.expires_at is not null and ac.expires_at<=now()))>0 then 'invalid'
             when count(ac.id) filter(where ac.status='valid')=count(ac.id) then 'valid' else 'unknown' end access_status,
@@ -54,7 +53,7 @@ export class UnifiedProjectionRepository {
         from accounts a left join gam_bindings gb on gb.account_id=a.id
         join account_operational_profiles op on op.account_id=a.id
         left join account_access_contexts ac on ac.account_id=a.id
-        where a.id = any(${ids}::uuid[]) group by a.id,gb.external_account_ref,op.account_manager_synced_at`.execute(this.db)).rows;
+        where a.id = any(${ids}::uuid[]) group by a.id,gb.external_account_ref`.execute(this.db)).rows;
     const operations = ids.length === 0 ? [] : (await sql<any>`
       select distinct on (ao.account_id) ao.* from automation_operations ao
       where ao.account_id=any(${ids}::uuid[])
@@ -92,7 +91,6 @@ export class UnifiedProjectionRepository {
           invalidContextCount: Number(extra?.invalid_context_count ?? 0)
         },
         ...(operationByAccount.get(row.id) ? { latestOperation: operationByAccount.get(row.id) } : {}),
-        ...(extra?.account_manager_synced_at ? { lastSyncedAt: iso(extra.account_manager_synced_at) } : {}),
         limitType: normalizeLimitType(row.limit_type),
         workspaceCount: row.workspace_count,
         credentialCount: row.credential_count,
@@ -153,6 +151,28 @@ export class UnifiedProjectionRepository {
           and not exists(select 1 from workspace_memberships wm
             where wm.workspace_id=wi.workspace_id and wm.account_id=${id}::uuid and wm.status='active')
         order by name nulls last,external_id`.execute(this.db);
+    const removedWorkspaces = await sql<{
+      id: string; external_id: string; name: string | null; status: string; normalized_plan: string;
+      raw_plan_code: string | null; normalized_role: string; raw_role: string | null; seat_type: string | null;
+      membership_status: string; observed_at: Date; can_delete_locally: boolean;
+    }>`select latest.*,
+          not exists(
+            select 1 from workspace_memberships active
+            where active.workspace_id=latest.id and active.account_id is not null and active.status='active'
+          ) can_delete_locally
+        from (
+          select distinct on (wm.workspace_id)
+            w.id,w.external_id,w.name,w.status,w.normalized_plan,w.raw_plan_code,
+            wm.normalized_role,wm.raw_role,wm.seat_type,wm.status membership_status,wm.observed_at
+          from workspace_memberships wm join workspaces w on w.id=wm.workspace_id
+          where wm.account_id=${id}::uuid and wm.status='removed'
+            and not exists(
+              select 1 from workspace_memberships active
+              where active.workspace_id=wm.workspace_id and active.account_id=${id}::uuid and active.status='active'
+            )
+          order by wm.workspace_id,wm.observed_at desc
+        ) latest
+        order by latest.name nulls last,latest.external_id`.execute(this.db);
     const credentials = await credentialViews(this.db, sql`wc.account_id=${id}::uuid`);
     const paymentMethods = await this.db.selectFrom('payment_method_summaries').selectAll()
       .where('personal_space_id', '=', base.personal_space_id).orderBy('observed_at', 'desc').execute();
@@ -188,6 +208,16 @@ export class UnifiedProjectionRepository {
         ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
         membershipStatus: row.membership_status,
         manageable: row.membership_status === 'active' && ['owner', 'admin'].includes(row.normalized_role)
+      })),
+      removedWorkspaces: removedWorkspaces.rows.map((row) => ({
+        id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}),
+        status: row.status, plan: row.normalized_plan, ...(row.raw_plan_code ? { rawPlanCode: row.raw_plan_code } : {}),
+        role: normalizeRole(row.normalized_role), ...(row.raw_role ? { rawRole: row.raw_role } : {}),
+        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
+        membershipStatus: row.membership_status,
+        manageable: false,
+        removedAt: iso(row.observed_at),
+        canDeleteLocally: row.can_delete_locally
       })),
       credentials,
       paymentMethods: paymentMethods.map((row) => ({
@@ -362,9 +392,6 @@ function workspaceSummaryRisks(row:any):string[]{
 function iso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   return new Date(String(value)).toISOString();
-}
-function normalizePersonalPlan(value: string): PersonalPlan {
-  return ['free', 'go', 'plus', 'pro_5x', 'pro_20x'].includes(value) ? value as any : 'unknown';
 }
 function normalizePrimaryPlan(value: string): UnifiedAccountSummaryView['primaryPlan'] {
   return ['free', 'go', 'plus', 'pro_5x', 'pro_20x', 'business_two_seat', 'business_usage_based', 'team_member'].includes(value)

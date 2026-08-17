@@ -55,7 +55,6 @@ export interface UnifiedAccountSummaryView {
   primaryPlanLifecycle?: AccountPlanLifecycleView;
   accessHealth: AccountAccessHealthView;
   latestOperation?: AccountManagerOperationView;
-  lastSyncedAt?: string;
   limitType: AccountLimitType;
   workspaceCount: number;
   credentialCount: number;
@@ -232,31 +231,6 @@ export interface WorkspaceMemberRemovalResult {
 
 export type OperationControl = 'retry' | 'rotate-ip' | 'terminate';
 
-export interface ManagedPersonalSubscription {
-  id?: string;
-  planType?: string;
-  activeStart?: string;
-  activeUntil?: string;
-  billingPeriod?: string;
-  scheduledBillingPeriod?: string;
-  willRenew?: boolean;
-  cancellationOutcome?: string;
-  billingCurrency?: string;
-  isDelinquent?: boolean;
-  updatedAt?: number;
-}
-
-export interface ManagedWorkspaceSummary {
-  id: string;
-  name?: string;
-  planType?: string;
-  role?: string;
-  seatType?: SeatType;
-  status?: string;
-  nextRenewalAt?: string;
-  visible?: boolean;
-}
-
 export interface SeatSlotMutationInput {
   seatKey?: string;
   email?: string | null;
@@ -396,7 +370,7 @@ export interface OperationalAccountReferenceView {
 
 export type RenewalOperationalStatus =
   | 'normal'
-  | 'renewing_soon'
+  | 'payment_due'
   | 'expiring_soon'
   | 'expired'
   | 'seat_over_capacity'
@@ -409,6 +383,7 @@ interface RenewalOperationalOverviewBaseView {
   plan: string;
   renewalAt?: string;
   willRenew?: boolean;
+  defaultPaymentCardLast4?: string;
   expectedAmount?: string;
   expectedCurrency?: string;
   operationalStatus: RenewalOperationalStatus;
@@ -524,6 +499,24 @@ export interface AccountWorkspaceLinkView {
   manageable: boolean;
 }
 
+export interface RemovedAccountWorkspaceView extends AccountWorkspaceLinkView {
+  removedAt: string;
+  canDeleteLocally: boolean;
+}
+
+export interface AccountWorkspaceRelationshipSyncResult {
+  observedAt: string;
+  activeCount: number;
+  removedCount: number;
+  disabledCredentialCount: number;
+}
+
+export interface LocalWorkspaceDeleteResult {
+  deleted: true;
+  removedCredentialArtifactCount: number;
+  credentialArtifactCleanupFailures: number;
+}
+
 export interface WorkspaceCredentialView {
   id: string;
   accountId: string;
@@ -553,6 +546,7 @@ export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
     subscription?: PersonalSubscriptionSnapshotView;
   };
   workspaces: AccountWorkspaceLinkView[];
+  removedWorkspaces: RemovedAccountWorkspaceView[];
   credentials: WorkspaceCredentialView[];
   paymentMethods: PersonalPaymentMethodView[];
   operations: AccountManagerOperationView[];
@@ -565,16 +559,10 @@ export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
 }
 
 export interface AccountManagerStateView {
-  account?: {
-    id: string;
-    email: string;
-    personalPlan?: string;
-    paymentMethods?: PersonalPaymentMethodView[];
-  };
   profile?: AccountManagerProfileView;
   proxy?: ResidentialProxyConfig;
   operations: AccountManagerOperationView[];
-  errors?: Partial<Record<'service' | 'account' | 'profile' | 'proxy' | 'operations', string>>;
+  errors?: Partial<Record<'service' | 'profile' | 'proxy' | 'operations', string>>;
 }
 
 export interface RegisterAccountRequest {
@@ -585,9 +573,9 @@ export interface RegisterAccountRequest {
   resumeExisting?: boolean;
 }
 
-export interface AddPersonalPaymentMethodRequest {
-  country: string;
-  currency: string;
+export interface AddSubscriptionPaymentMethodRequest {
+  holderName: string;
+  postalCode: string;
   card: PaymentCardInput;
 }
 

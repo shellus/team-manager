@@ -26,6 +26,9 @@ import { ServiceError, asServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
+import { ArtifactStore } from '../artifactStore.js';
+import { normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
+import type { AccountManagerService } from './accountManagerService.js';
 
 export class WorkspaceOperationService {
   readonly #workspaces: WorkspaceRepository;
@@ -36,11 +39,181 @@ export class WorkspaceOperationService {
     private readonly views: WorkspaceService,
     private readonly sessions: SessionRepository,
     private readonly operational: AccountOperationalRepository,
-    private readonly transport: Transport
+    private readonly transport: Transport,
+    private readonly artifacts: ArtifactStore,
+    private readonly accountManagement?: AccountManagerService
   ) {
     this.#workspaces = new WorkspaceRepository(db);
     this.#billing = new BillingRepository(db);
     this.#activity = new ActivityLogRepository(db);
+  }
+
+  async syncAccountRelationships(accountId: string) {
+    try {
+      const account = await this.db.selectFrom('accounts').select(['id', 'email', 'normalized_email'])
+        .where('id', '=', accountId).executeTakeFirst();
+      if (!account) throw new ServiceError(404, '账号不存在');
+      const personal = await this.db.selectFrom('personal_spaces').select(['id', 'remote_account_id'])
+        .where('account_id', '=', accountId).executeTakeFirstOrThrow();
+      const session = await this.sessions.currentSession(accountId) as {
+        account?: { id?: string };
+        accessToken?: string;
+      } | undefined;
+      const accessToken = session?.accessToken?.trim();
+      const remoteAccountId = personal.remote_account_id ?? session?.account?.id?.trim();
+      if (!accessToken || !remoteAccountId) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
+
+      const api = new ChatGptApi({
+        accountId: remoteAccountId,
+        accessToken,
+        proxy: await this.operational.proxy(accountId)
+      }, this.transport);
+      const observedAt = new Date();
+      const visibleWorkspaces = (await api.checkAccounts()).filter((item) =>
+        item.structure === 'workspace' && item.canAccessWithSession !== false
+      );
+
+      return await this.db.transaction().execute(async (trx) => {
+        const workspaces = new WorkspaceRepository(trx);
+        const existing = await trx.selectFrom('workspace_memberships')
+          .selectAll().where('account_id', '=', accountId).where('status', '=', 'active').execute();
+        const existingByWorkspace = new Map(existing.map((item) => [item.workspace_id, item]));
+        const seen = new Set<string>();
+
+        for (const item of visibleWorkspaces) {
+          const knownWorkspace = await workspaces.findByExternalId(item.accountId);
+          const workspace = await workspaces.upsert({
+            externalId: item.accountId,
+            name: item.workspaceName ?? knownWorkspace?.name ?? null,
+            status: 'active',
+            rawPlanCode: item.planType ?? knownWorkspace?.raw_plan_code ?? null,
+            normalizedPlan: item.planType
+              ? normalizeWorkspacePlan(item.planType)
+              : normalizeWorkspacePlan(knownWorkspace?.normalized_plan),
+            nextRenewalAt: item.nextRenewalOn ?? knownWorkspace?.next_renewal_at ?? null
+          });
+          seen.add(workspace.id);
+          const current = existingByWorkspace.get(workspace.id);
+          if (current) {
+            await trx.updateTable('workspace_memberships').set({
+              email: account.email,
+              normalized_email: account.normalized_email,
+              ...(item.accountUserId ? { remote_user_id: item.accountUserId } : {}),
+              raw_role: item.role ?? current.raw_role,
+              normalized_role: item.role ? normalizeWorkspaceRole(item.role) : current.normalized_role,
+              observed_at: observedAt,
+              source: 'chatgpt_accounts_check'
+            }).where('id', '=', current.id).execute();
+          } else {
+            await workspaces.upsertMembership({
+              workspaceId: workspace.id,
+              accountId,
+              remoteUserId: item.accountUserId ?? null,
+              email: account.email,
+              rawRole: item.role ?? null,
+              normalizedRole: normalizeWorkspaceRole(item.role),
+              observedAt,
+              source: 'chatgpt_accounts_check'
+            });
+          }
+        }
+
+        const removed = existing.filter((item) => !seen.has(item.workspace_id));
+        if (removed.length) {
+          await trx.updateTable('workspace_memberships').set({ status: 'removed', observed_at: observedAt })
+            .where('id', 'in', removed.map((item) => item.id)).execute();
+        }
+
+        const disabledCredentialCount = removed.length
+          ? Number((await trx.updateTable('workspace_credentials').set({
+              status: 'disabled',
+              disabled_at: observedAt
+            }).where('account_id', '=', accountId).where('status', '=', 'active')
+              .where('workspace_id', 'in', removed.map((item) => item.workspace_id))
+              .executeTakeFirst()).numUpdatedRows)
+          : 0;
+
+        await new ActivityLogRepository(trx).log({
+          accountId,
+          kind: 'account_workspace_relationships_refreshed',
+          payload: {
+            activeCount: seen.size,
+            removedCount: removed.length,
+            disabledCredentialCount
+          }
+        });
+        return {
+          observedAt: observedAt.toISOString(),
+          activeCount: seen.size,
+          removedCount: removed.length,
+          disabledCredentialCount
+        };
+      });
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  async refreshManageableBillingForAccount(accountId: string): Promise<number> {
+    const rows = await this.db.selectFrom('workspace_memberships as membership')
+      .innerJoin('workspaces as workspace', 'workspace.id', 'membership.workspace_id')
+      .select('workspace.id')
+      .where('membership.account_id', '=', accountId)
+      .where('membership.status', '=', 'active')
+      .where('membership.normalized_role', 'in', ['owner', 'admin'])
+      .where('workspace.status', '=', 'active')
+      .execute();
+    for (const row of rows) await this.refreshBilling(row.id, accountId);
+    return rows.length;
+  }
+
+  async removeLocalWorkspace(workspaceId: string) {
+    try {
+      const credentialArtifacts = await this.db.transaction().execute(async (trx) => {
+        const workspace = await trx.selectFrom('workspaces').select(['id', 'external_id', 'name'])
+          .where('id', '=', workspaceId).forUpdate().executeTakeFirst();
+        if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
+
+        const activeAccountRelationship = await trx.selectFrom('workspace_memberships')
+          .select('id').where('workspace_id', '=', workspaceId).where('account_id', 'is not', null)
+          .where('status', '=', 'active').limit(1).executeTakeFirst();
+        if (activeAccountRelationship) throw new ServiceError(409, 'Workspace 仍有活动账号关系，不能删除本地数据');
+
+        const unfinishedOperation = await trx.selectFrom('automation_operations').select('id')
+          .where('workspace_id', '=', workspaceId)
+          .where('status', 'not in', ['succeeded', 'failed', 'interrupted'])
+          .limit(1).executeTakeFirst();
+        if (unfinishedOperation) throw new ServiceError(409, 'Workspace 仍有未完成操作，请等待操作结束或先中断操作');
+
+        const pendingOrder = await trx.selectFrom('team_upgrade_orders').select('id')
+          .where('workspace_id', '=', workspaceId).where('status', 'in', ['queued', 'running'])
+          .limit(1).executeTakeFirst();
+        if (pendingOrder) throw new ServiceError(409, 'Workspace 仍有待执行或运行中的 Team 订单');
+
+        const credentials = await trx.selectFrom('workspace_credentials')
+          .select(['storage_key']).where('workspace_id', '=', workspaceId).execute();
+        await trx.deleteFrom('automation_operations').where('workspace_id', '=', workspaceId).execute();
+        await trx.deleteFrom('team_upgrade_orders').where('workspace_id', '=', workspaceId).execute();
+        await trx.deleteFrom('workspace_credentials').where('workspace_id', '=', workspaceId).execute();
+        await trx.deleteFrom('seat_slots').where('workspace_id', '=', workspaceId).execute();
+        await trx.deleteFrom('account_activity_logs').where('workspace_id', '=', workspaceId).execute();
+        await new ActivityLogRepository(trx).log({
+          kind: 'local_workspace_removed',
+          payload: { workspaceId, externalId: workspace.external_id, name: workspace.name }
+        });
+        await trx.deleteFrom('workspaces').where('id', '=', workspaceId).executeTakeFirstOrThrow();
+        return credentials.map((item) => item.storage_key);
+      });
+
+      const cleanup = await Promise.allSettled(credentialArtifacts.map((storageKey) => this.artifacts.remove(storageKey)));
+      return {
+        deleted: true,
+        removedCredentialArtifactCount: cleanup.filter((item) => item.status === 'fulfilled').length,
+        credentialArtifactCleanupFailures: cleanup.filter((item) => item.status === 'rejected').length
+      };
+    } catch (error) {
+      throw asServiceError(error);
+    }
   }
 
   async refreshMembers(workspaceId: string, executorAccountId: string) {
@@ -128,6 +301,29 @@ export class WorkspaceOperationService {
     const { api, workspace } = await this.context(workspaceId, executorAccountId);
     const [account, subscription] = await Promise.all([api.checkAccount(), api.getSubscription()]);
     await this.saveSubscriptionSnapshot(workspaceId, workspace, account, subscription);
+    return this.subscription(workspaceId);
+  }
+
+  async cancelRenewal(workspaceId: string, executorAccountId: string) {
+    const { api, workspace } = await this.context(workspaceId, executorAccountId);
+    const before = await api.getSubscription();
+    if (!['team', 'business'].includes(before.plan_type?.trim().toLowerCase() ?? '')) {
+      throw new ServiceError(409, '该 Workspace 当前没有可取消续费的 Team/Business 套餐');
+    }
+    if (typeof before.will_renew !== 'boolean') throw new ServiceError(502, 'ChatGPT Workspace 订阅响应缺少续费状态');
+    let after = before;
+    if (before.will_renew !== false) {
+      await api.cancelSubscriptionRenewal();
+      after = await waitForRenewalCancellation(() => api.getSubscription());
+      if (after.will_renew !== false) throw new ServiceError(502, 'ChatGPT 已接受取消请求，但尚未确认 Workspace 停止续费');
+    }
+    const account = await api.checkAccount();
+    await this.saveSubscriptionSnapshot(workspaceId, workspace, account, after);
+    await this.activity(executorAccountId, workspaceId, 'workspace_subscription_renewal_cancelled', {
+      idempotent: before.will_renew === false,
+      planType: before.plan_type ?? null,
+      activeUntil: before.active_until ?? null
+    });
     return this.subscription(workspaceId);
   }
 
@@ -298,7 +494,8 @@ export class WorkspaceOperationService {
       const workspace = await this.#workspaces.findById(workspaceId);
       if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
       let accessToken = await this.sessions.accessToken(executorAccountId, { kind: 'workspace', workspaceId });
-      const proxy = await this.operational.proxy(executorAccountId);
+      let proxy = await this.operational.proxy(executorAccountId);
+      if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(executorAccountId).catch(() => undefined);
       const refresh = async () => {
         const session = await this.sessions.currentSession(executorAccountId) as { sessionToken?: string } | undefined;
         if (!session?.sessionToken) throw new ServiceError(409, '执行账号缺少可换取 Workspace Token 的 sessionToken');
@@ -329,6 +526,17 @@ export class WorkspaceOperationService {
   private activity(accountId:string,workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({accountId,workspaceId,kind,payload});}
 }
 
+async function waitForRenewalCancellation(
+  read: () => Promise<ChatGptSubscriptionResponse>
+): Promise<ChatGptSubscriptionResponse> {
+  let value = await read();
+  for (let attempt = 1; attempt < 5 && value.will_renew !== false; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    value = await read();
+  }
+  return value;
+}
+
 export function memberRemovalSummary(remoteUserId:string,member:{email:string|null;seat_type:string|null}|undefined,result:ChatGptMemberRemovalResponse):WorkspaceMemberRemovalResult['summary']{
   const policy=record(result.policy_notice);const number=(key:string)=>typeof policy?.[key]==='number'&&Number.isFinite(policy[key])?policy[key] as number:undefined;const string=(key:string)=>typeof policy?.[key]==='string'&&String(policy[key]).trim()?String(policy[key]).trim():undefined;
   const parsedPolicy=policy?{...optional('kind',string('kind')),...optional('billedSeatDelta',number('billed_seat_delta')),...optional('vacancyOrdinal',number('vacancy_ordinal')),...optional('freeVacancyThreshold',number('free_vacancy_threshold')),...optional('expiresAt',string('expires_at')),...optional('billingStartsAt',string('billing_starts_at')),...optional('replacementRequired',typeof policy.replacement_required==='boolean'?policy.replacement_required:undefined)}:undefined;
@@ -338,17 +546,8 @@ export function memberRemovalSummary(remoteUserId:string,member:{email:string|nu
 function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}
 function optional<K extends string,V>(key:K,value:V|undefined):Record<K,V>|Record<string,never>{return value===undefined?{}:{[key]:value} as Record<K,V>;}
 
-function normalizeWorkspacePlan(value?: string): 'free' | 'business' | 'business_usage_based' | 'unknown' {
-  const key = value?.toLowerCase() ?? ''; if (key.includes('usage')) return 'business_usage_based';
-  if (key.includes('business') || key.includes('team')) return 'business'; if (key === 'free') return 'free'; return 'unknown';
-}
-
 function normalizeRole(value: string): 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown' {
-  if (['account-owner', 'owner'].includes(value)) return 'owner';
-  if (['account-admin', 'admin'].includes(value)) return 'admin';
-  if (value === 'analytics-viewer') return 'analytics_viewer';
-  if (['standard-user', 'member'].includes(value)) return 'member';
-  return 'unknown';
+  return normalizeWorkspaceRole(value);
 }
 
 function promotionCode(value?: string): string {

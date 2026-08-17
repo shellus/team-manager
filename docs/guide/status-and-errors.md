@@ -17,7 +17,7 @@
 
 - `change_existing` 被拒绝：付费套餐间切换协议尚未验证，这是安全门禁。
 - 绑定支付失败：完整错误和现场在 GAM 与 HTTP trace 文件中；Team Manager 的结构化操作记录不持久化卡号和 CVC。
-- 取消续费/Business 操作长时间未完成：查看账号“操作记录”和 GAM 对应操作。
+- Business Checkout 或绑卡长时间未完成：查看账号“操作记录”和 GAM 对应操作。取消续费是 Team Manager 直连请求，失败时查看活动日志和对应 ChatGPT HTTP trace。
 
 ## 个人设置
 

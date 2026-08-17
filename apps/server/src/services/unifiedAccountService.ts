@@ -161,7 +161,65 @@ export class UnifiedAccountService {
   }
 
   async remove(id: string): Promise<boolean> {
-    try { const account=await this.#accounts.findById(id);if(!account)throw new ServiceError(404,'账号不存在');await this.#accounts.remove(id);await this.#activity.log({kind:'account_removed',payload:{accountId:id,email:account.email}}); return true; } catch (error) { throw asServiceError(error); }
+    try {
+      await this.db.transaction().execute(async (trx) => {
+        const lockedAccount = await trx.selectFrom('accounts')
+          .select(['id', 'email'])
+          .where('id', '=', id)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!lockedAccount) throw new ServiceError(404, '账号不存在');
+
+        const activeMembership = await trx.selectFrom('workspace_memberships')
+          .select('id')
+          .where('account_id', '=', id)
+          .where('status', '=', 'active')
+          .limit(1)
+          .executeTakeFirst();
+        if (activeMembership) {
+          throw new ServiceError(409, '账号仍有活动 Workspace 关系，请先同步账号与 Workspace 关系，并处理仍然存在的成员关系');
+        }
+
+        const credential = await trx.selectFrom('workspace_credentials')
+          .select('id')
+          .where('account_id', '=', id)
+          .limit(1)
+          .executeTakeFirst();
+        if (credential) throw new ServiceError(409, '账号仍有关联 Workspace 凭证，请先删除凭证');
+
+        const maintenance = await trx.selectFrom('team_order_maintenances')
+          .select('id')
+          .where('executor_account_id', '=', id)
+          .limit(1)
+          .executeTakeFirst();
+        if (maintenance) throw new ServiceError(409, '账号仍被订单维护池使用，请先更换或移除执行账号');
+
+        const order = await trx.selectFrom('team_upgrade_orders')
+          .select('id')
+          .where('executor_account_id', '=', id)
+          .limit(1)
+          .executeTakeFirst();
+        if (order) throw new ServiceError(409, '账号仍有关联 Team 升级订单，不能彻底删除');
+
+        const unfinishedOperation = await trx.selectFrom('automation_operations')
+          .select('id')
+          .where('account_id', '=', id)
+          .where('status', 'not in', ['succeeded', 'failed', 'interrupted'])
+          .limit(1)
+          .executeTakeFirst();
+        if (unfinishedOperation) throw new ServiceError(409, '账号仍有未完成操作，请等待操作结束或先中断操作');
+
+        await trx.deleteFrom('automation_operations').where('account_id', '=', id).execute();
+        await new ActivityLogRepository(trx).log({
+          kind: 'account_removed',
+          payload: { accountId: id, email: lockedAccount.email }
+        });
+        await trx.deleteFrom('accounts').where('id', '=', id).executeTakeFirstOrThrow();
+      });
+      return true;
+    } catch (error) {
+      throw asServiceError(error);
+    }
   }
 
   async session(id: string) {

@@ -2,28 +2,16 @@ import type {
   AccountManagerOperationStatus,
   AccountManagerOperationView,
   AccountManagerProfileView,
-  AddPersonalPaymentMethodRequest,
+  AddSubscriptionPaymentMethodRequest,
   ChangePersonalSubscriptionRequest,
   ChatGptSessionInput,
   OpenBusinessSubscriptionRequest,
-  PersonalPaymentMethodDefaults,
-  PersonalPaymentMethodView,
+  PaymentMethodDefaults,
   ResidentialProxyConfig,
-  ManagedPersonalSubscription,
-  ManagedWorkspaceSummary,
   OperationControl,
   PaymentCardInput
 } from '@team-manager/shared';
 import { fetchWithRawTrace } from './transport.js';
-
-export interface ManagedAccountSummary {
-  id: string;
-  email: string;
-  personalPlan?: string;
-  personalSubscription?: ManagedPersonalSubscription;
-  paymentMethods?: PersonalPaymentMethodView[];
-  workspaces?: ManagedWorkspaceSummary[];
-}
 
 export interface AccountRegistrationRequest {
   mailGroup?: string;
@@ -44,7 +32,6 @@ export interface AccountImportRequest {
 }
 
 export interface AccountManagerGateway {
-  health?(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }>;
   startRegistration?(input: AccountRegistrationRequest): Promise<AccountManagerOperationView>;
   startAccountImport?(input: AccountImportRequest): Promise<AccountManagerOperationView>;
   operation?(operationId: string): Promise<AccountManagerOperationView>;
@@ -53,32 +40,27 @@ export interface AccountManagerGateway {
   operationProxyConfig?(operationId: string): Promise<ResidentialProxyConfig>;
   configureOperationProxy?(operationId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   deleteOperation?(operationId: string): Promise<boolean>;
-  account?(accountId: string): Promise<ManagedAccountSummary>;
-  syncAccount?(accountId: string): Promise<ManagedAccountSummary>;
   listAccountOperations?(accountId: string): Promise<AccountManagerOperationView[]>;
   accountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   startAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   stopAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   accountProxyConfig?(accountId: string): Promise<ResidentialProxyConfig>;
+  accountHttpProxy?(accountId: string): Promise<{ proxy: string }>;
   configureAccountProxy?(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   session?(accountId: string): Promise<ChatGptSessionInput>;
   changePersonalSubscription?(
     accountId: string,
     input: ChangePersonalSubscriptionRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  cancelPersonalSubscriptionRenewal?(
-    accountId: string,
-    input?: { requestTag?: string }
-  ): Promise<AccountManagerOperationView>;
   openBusinessSubscription?(
     accountId: string,
     input: OpenBusinessSubscriptionRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  addPersonalPaymentMethod?(
+  addSubscriptionPaymentMethod?(
     accountId: string,
-    input: AddPersonalPaymentMethodRequest & { requestTag?: string }
+    input: AddSubscriptionPaymentMethodRequest & { targetAccountId?: string; requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  personalPaymentMethodDefaults?(accountId: string): Promise<PersonalPaymentMethodDefaults>;
+  paymentMethodDefaults?(accountId: string): Promise<PaymentMethodDefaults>;
 }
 
 interface RawOperation extends Omit<AccountManagerOperationView, 'status' | 'requestSummary' | 'result'> {
@@ -93,10 +75,6 @@ export class AccountManagerClient implements AccountManagerGateway {
     private readonly token: string,
     private readonly fetchImpl?: typeof fetch
   ) {}
-
-  health(): Promise<{ status?: string; accountRegistrationConfigured?: boolean }> {
-    return this.request('GET', '/health');
-  }
 
   async startRegistration(input: AccountRegistrationRequest): Promise<AccountManagerOperationView> {
     return toOperation(await this.request('POST', '/v1/accounts/register', input));
@@ -133,27 +111,6 @@ export class AccountManagerClient implements AccountManagerGateway {
     return true;
   }
 
-  account(accountId: string): Promise<ManagedAccountSummary> {
-    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}`);
-  }
-
-  async syncAccount(accountId: string): Promise<ManagedAccountSummary> {
-    const operation = toOperation(await this.request<RawOperation>(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/sync`, {}
-    ));
-    const deadline = Date.now() + 5 * 60_000;
-    let current = operation;
-    while (!['succeeded', 'failed', 'interrupted'].includes(current.status)) {
-      if (Date.now() >= deadline) throw new AccountManagerError(504, 'GAM 账号同步超时');
-      await wait(1_000);
-      current = await this.operation(operation.id);
-    }
-    if (current.status !== 'succeeded') {
-      throw new AccountManagerError(502, current.errorMessage || `GAM 账号同步失败：${current.status}`);
-    }
-    return this.account(accountId);
-  }
-
   async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
     const items = await this.request<RawOperation[]>('GET', `/v1/accounts/${encodeURIComponent(accountId)}/operations`);
     return items.map(toOperation);
@@ -175,6 +132,10 @@ export class AccountManagerClient implements AccountManagerGateway {
     return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`);
   }
 
+  accountHttpProxy(accountId: string): Promise<{ proxy: string }> {
+    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/http-proxy`);
+  }
+
   configureAccountProxy(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig> {
     return this.request('PUT', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`, input);
   }
@@ -189,26 +150,20 @@ export class AccountManagerClient implements AccountManagerGateway {
     ));
   }
 
-  async cancelPersonalSubscriptionRenewal(accountId: string, input: { requestTag?: string } = {}) {
-    return toOperation(await this.request(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/cancel-personal-subscription-renewal`, input
-    ));
-  }
-
   async openBusinessSubscription(accountId: string, input: OpenBusinessSubscriptionRequest & { requestTag?: string }) {
     return toOperation(await this.request(
       'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`, input
     ));
   }
 
-  async addPersonalPaymentMethod(accountId: string, input: AddPersonalPaymentMethodRequest & { requestTag?: string }) {
+  async addSubscriptionPaymentMethod(accountId: string, input: AddSubscriptionPaymentMethodRequest & { targetAccountId?: string; requestTag?: string }) {
     return toOperation(await this.request(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-personal-payment-method`, input
+      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-subscription-payment-method`, input
     ));
   }
 
-  personalPaymentMethodDefaults(accountId: string): Promise<PersonalPaymentMethodDefaults> {
-    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/personal-payment-method-defaults`);
+  paymentMethodDefaults(accountId: string): Promise<PaymentMethodDefaults> {
+    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/payment-method-defaults`);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -254,8 +209,4 @@ function normalizeOperationStatus(status: string): AccountManagerOperationStatus
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function wait(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

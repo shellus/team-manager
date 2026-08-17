@@ -27,6 +27,7 @@ export interface ChatGptAccountContext {
 
 export interface ChatGptAccountCheckEntry {
   accountId: string;
+  accountUserId?: string;
   role?: MemberRole;
   workspaceName?: string;
   nextRenewalOn?: string;
@@ -295,7 +296,7 @@ export class ChatGptApi {
     });
   }
 
-  async cancelPersonalSubscriptionRenewal(): Promise<Record<string, unknown>> {
+  async cancelSubscriptionRenewal(): Promise<Record<string, unknown>> {
     return this.request<Record<string, unknown>>('POST', '/backend-api/subscriptions/cancel', {
       account_id: this.account.accountId
     });
@@ -566,6 +567,7 @@ export function parseChatGptAccountCheckEntries(data: Record<string, unknown>): 
     seen.add(accountId);
     entries.push({
       accountId,
+      accountUserId: readString(entry.account_user_id),
       role: readString(entry.account_user_role) as MemberRole | undefined,
       workspaceName: readString(entry.name),
       nextRenewalOn: readRenewalDate(value as Record<string, unknown>),

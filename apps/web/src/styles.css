@@ -729,6 +729,25 @@ a.parent-overview-remark:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.renewal-primary-fact {
+  display: inline-flex;
+  min-width: 0;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.renewal-primary-fact > span:first-child {
+  flex: 0 0 auto;
+}
+
+.renewal-primary-fact > .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .subsection-panel {
   min-width: 0;
   padding: 12px;

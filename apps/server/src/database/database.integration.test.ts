@@ -31,7 +31,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -120,7 +120,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
           bothOwner.account.id, memberOnly.account.id, adminOnly.account.id, ownerAndMember.account.id,
           removedMember.account.id, inactiveMember.account.id, billingOwner.account.id]).execute();
       const plans = new Map(operationalRows.map((row) => [row.account_id, row.primary_plan]));
-      assert.equal(plans.get(freeAccount.account.id), 'free');
+      assert.equal(plans.get(freeAccount.account.id), 'unknown', '未观测个人订阅时不得默认推断为 free');
       assert.equal(plans.get(paidOwner.account.id), 'plus', '个人付费套餐优先于 owner Workspace');
       assert.equal(plans.get(twoSeatOwner.account.id), 'business_two_seat');
       assert.equal(plans.get(usageOwner.account.id), 'business_usage_based');
@@ -128,8 +128,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(plans.get(memberOnly.account.id), 'team_member');
       assert.equal(plans.get(adminOnly.account.id), 'team_member', 'admin 但非 owner 仍是 Team 子号');
       assert.equal(plans.get(ownerAndMember.account.id), 'business_usage_based', 'owner + member 不算 Team 子号');
-      assert.equal(plans.get(removedMember.account.id), 'free', 'removed Membership 不参与判定');
-      assert.equal(plans.get(inactiveMember.account.id), 'free', 'inactive Workspace 不参与判定');
+      assert.equal(plans.get(removedMember.account.id), 'unknown', 'removed Membership 不参与判定');
+      assert.equal(plans.get(inactiveMember.account.id), 'unknown', 'inactive Workspace 不参与判定');
       assert.equal(plans.get(billingOwner.account.id), 'business_two_seat', '固定席位账单证据优先于 usage-based Workspace plan');
       const paidLifecycle = await db.selectFrom('account_operational_summaries').select(['primary_plan','lifecycle_at','lifecycle_will_renew']).where('account_id','=',paidOwner.account.id).executeTakeFirstOrThrow();
       assert.equal(paidLifecycle.primary_plan,'plus');assert.equal(new Date(paidLifecycle.lifecycle_at!).toISOString(),'2030-02-03T00:00:00.000Z');assert.equal(paidLifecycle.lifecycle_will_renew,true);
@@ -153,24 +153,291 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(await sessions.invalidateWorkspaceAccessTokens(first.account.id),1);
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),undefined,'新 Session 保存后不能继续使用旧 Workspace Token');
       await accounts.bindGamAccount(first.account.id, first.account.email);
+      const renewalByAccount = new Map<string, boolean>();
+      const paymentInputs: Array<Record<string, unknown>> = [];
+      let paymentOperationNumber = 0;
+      const completedOperations = new Set<string>();
 
       const app = await buildUnifiedApp({
         database: db,
         config: { port: 0, dataDir: '/tmp', artifactDir: '/tmp', databaseUrl, dataEncryptionKey: '0'.repeat(64), dataEncryptionKeyVersion: 'test-v1', jwtSecret: 'secret', jwtIssuer: 'team-manager', adminUsername: 'admin', adminPassword: 'password', apiToken: 'test-token', allowedOrigins: [], webDistDir: '/missing' },
         accountManager: {
-          operation: async (id) => operation(id),
-          syncAccount: async () => ({ id: first.account.email, email: first.account.email, personalPlan: 'free',
-            personalSubscription: { planType: 'free', willRenew: false },
-            paymentMethods: [], workspaces: [{ id: workspace.external_id, name: workspace.name ?? undefined, planType: 'business', role: 'account-owner', seatType: 'default' }] }),
+          operation: async (id) => completedOperations.has(id)
+            ? { ...operation(id), status: 'succeeded', phase: 'complete', progress: 100, completedAt: Date.now(), updatedAt: Date.now() }
+            : operation(id),
           changePersonalSubscription: async () => operation('personal-operation'),
-          cancelPersonalSubscriptionRenewal: async () => operation('cancel-operation'),
           openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId }),
-          addPersonalPaymentMethod: async()=>operation('payment-operation'),
+          addSubscriptionPaymentMethod: async(_accountId,input)=>{paymentInputs.push(input);paymentOperationNumber+=1;return operation(`payment-operation-${paymentOperationNumber}`);},
+          paymentMethodDefaults: async()=>({holderName:'Taylor Anderson',postalCode:'97210',region:'US-OR'}),
           startRegistration:async()=>operation('registration-operation')
+        },
+        transport: {
+          fetch: async (request) => {
+            if (request.path === '/backend-api/subscriptions/cancel') {
+              renewalByAccount.set(request.headers['chatgpt-account-id'], false);
+              return { status: 200, body: '{}' };
+            }
+            if (request.path.startsWith('/backend-api/subscriptions?')) {
+              const targetAccountId = request.headers['chatgpt-account-id'];
+              return {
+                status: 200,
+                body: JSON.stringify({
+                  id: `${targetAccountId}-subscription`,
+                  plan_type: targetAccountId === workspace.external_id ? 'team' : 'plus',
+                  will_renew: renewalByAccount.get(targetAccountId) ?? true,
+                  active_start: null,
+                  active_until: null,
+                  is_delinquent: false
+                })
+              };
+            }
+            if (request.path.startsWith('/backend-api/invoices/upcoming?')) return { status: 404, body: '{}' };
+            if (request.path.startsWith('/backend-api/invoices?')) return { status: 200, body: JSON.stringify({ data: [] }) };
+            if (request.path.startsWith('/backend-api/payments/payment_methods?')) return { status: 200, body: JSON.stringify({ payment_methods: [] }) };
+            if (request.path.startsWith('/backend-api/payments/billing_info?')) return { status: 200, body: '{}' };
+            if (request.path.endsWith('/users/seat_type_counts')) return { status: 200, body: '{}' };
+            if (!request.path.startsWith('/backend-api/accounts/check/')) throw new Error(`unexpected direct ChatGPT request: ${request.path}`);
+            const personalAccountId = request.headers['chatgpt-account-id'];
+            const visibleAccounts: Record<string, unknown> = {
+              [personalAccountId]: {
+                account: {
+                  account_id: personalAccountId,
+                  account_user_role: 'account-owner',
+                  structure: 'personal',
+                  plan_type: 'free'
+                },
+                can_access_with_session: true
+              }
+            };
+            if (personalAccountId === 'workspace-sync-add-personal-account') {
+              visibleAccounts['workspace-sync-added-workspace'] = {
+                account: {
+                  account_id: 'workspace-sync-added-workspace',
+                  account_user_id: 'workspace-sync-added-user',
+                  account_user_role: 'account-owner',
+                  structure: 'workspace'
+                },
+                can_access_with_session: true
+              };
+            }
+            return {
+              status: 200,
+              body: JSON.stringify({ accounts: visibleAccounts })
+            };
+          }
         }
       });
       const headers = { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' };
       assert.equal((await app.request('/health')).status, 200);
+
+      const workspaceSyncAccount = await accounts.create({ email: 'workspace-sync-empty@example.com', groupId: group.id });
+      await sessions.saveRevision({
+        accountId: workspaceSyncAccount.account.id,
+        session: {
+          user: { email: workspaceSyncAccount.account.email },
+          account: { id: 'workspace-sync-personal-account' },
+          accessToken: 'workspace-sync-access-token'
+        },
+        source: 'workspace-sync-test'
+      });
+      await sessions.saveAccessToken(
+        workspaceSyncAccount.account.id,
+        { kind: 'workspace', workspaceId: workspace.id },
+        'workspace-sync-preserved-token',
+        { status: 'valid' }
+      );
+      const workspaceSyncCredential = await db.insertInto('workspace_credentials').values({
+        account_id: workspaceSyncAccount.account.id,
+        workspace_id: workspace.id,
+        pool_group_id: null,
+        kind: 'pat',
+        external_id: 'workspace-sync-credential',
+        storage_key: 'credentials/workspace-sync.json',
+        content_sha256: 'workspace-sync-credential-sha',
+        byte_size: 1,
+        format_version: 1,
+        eligibility_source: 'membership',
+        status: 'active'
+      }).returning('id').executeTakeFirstOrThrow();
+      await workspaces.upsertMembership({
+        workspaceId: workspace.id,
+        accountId: workspaceSyncAccount.account.id,
+        remoteUserId: 'workspace-sync-removed-user',
+        email: workspaceSyncAccount.account.email,
+        normalizedRole: 'member',
+        observedAt: new Date(),
+        source: 'gam_sync'
+      });
+      const accountWorkspaceSync = await app.request(`/api/accounts/${workspaceSyncAccount.account.id}/workspaces/sync`, { method: 'POST', headers });
+      assert.equal(accountWorkspaceSync.status, 200, await accountWorkspaceSync.clone().text());
+      assert.equal((await db.selectFrom('workspace_memberships').select('status')
+        .where('workspace_id', '=', workspace.id).where('account_id', '=', workspaceSyncAccount.account.id)
+        .executeTakeFirstOrThrow()).status, 'removed', '账号关系同步把远端已退出 Workspace 标记为已移除');
+      assert.equal((await db.selectFrom('workspace_credentials').select('status')
+        .where('id', '=', workspaceSyncCredential.id).executeTakeFirstOrThrow()).status, 'disabled',
+        '账号退出 Workspace 后停用对应活动凭证');
+      assert.equal(await sessions.accessToken(
+        workspaceSyncAccount.account.id,
+        { kind: 'workspace', workspaceId: workspace.id }
+      ), 'workspace-sync-preserved-token', '关系同步不主动推断或失效 Workspace Token');
+      const workspaceSyncDetail = await app.request(`/api/accounts/${workspaceSyncAccount.account.id}`, { headers });
+      const workspaceSyncDetailData = (await workspaceSyncDetail.json() as any).data;
+      assert.deepEqual(workspaceSyncDetailData.workspaces, [], '关系同步后空间切换器不再显示已退出 Workspace');
+      assert.deepEqual(workspaceSyncDetailData.removedWorkspaces.map((item: any) => item.id), [workspace.id],
+        '已退出 Workspace 保留在本地清理入口中');
+
+      const workspaceSyncAddAccount = await accounts.create({ email: 'workspace-sync-add@example.com', groupId: group.id });
+      const workspaceSyncAddedWorkspace = await workspaces.upsert({
+        externalId: 'workspace-sync-added-workspace',
+        name: '同步时保留的名称',
+        normalizedPlan: 'business',
+        rawPlanCode: 'chatgptteamplan',
+        nextRenewalAt: new Date('2033-09-10T00:00:00Z'),
+        status: 'inactive'
+      });
+      await sessions.saveRevision({
+        accountId: workspaceSyncAddAccount.account.id,
+        session: {
+          user: { email: workspaceSyncAddAccount.account.email },
+          account: { id: 'workspace-sync-add-personal-account' },
+          accessToken: 'workspace-sync-add-access-token'
+        },
+        source: 'workspace-sync-add-test'
+      });
+      await sessions.saveAccessToken(
+        workspaceSyncAddAccount.account.id,
+        { kind: 'personal', personalSpaceId: workspaceSyncAddAccount.personalSpace.id },
+        'workspace-sync-add-personal-token',
+        { status: 'valid' }
+      );
+      const accountWorkspaceAddSync = await app.request(`/api/accounts/${workspaceSyncAddAccount.account.id}/workspaces/sync`, { method: 'POST', headers });
+      assert.equal(accountWorkspaceAddSync.status, 200, await accountWorkspaceAddSync.clone().text());
+      const addedMembership = await db.selectFrom('workspace_memberships').select(['normalized_role', 'remote_user_id', 'status'])
+        .where('workspace_id', '=', workspaceSyncAddedWorkspace.id).where('account_id', '=', workspaceSyncAddAccount.account.id)
+        .executeTakeFirstOrThrow();
+      assert.deepEqual(addedMembership, {
+        normalized_role: 'owner',
+        remote_user_id: 'workspace-sync-added-user',
+        status: 'active'
+      }, '关系同步直接从 ChatGPT 新增可见 Workspace 关系');
+      const preservedWorkspace = await workspaces.findById(workspaceSyncAddedWorkspace.id);
+      assert.equal(preservedWorkspace?.name, '同步时保留的名称');
+      assert.equal(preservedWorkspace?.normalized_plan, 'business');
+      assert.equal(preservedWorkspace?.raw_plan_code, 'chatgptteamplan');
+      assert.equal(preservedWorkspace?.next_renewal_at?.toISOString(), '2033-09-10T00:00:00.000Z',
+        'accounts/check 省略 Workspace 资料时不清空已有业务事实');
+      const personalRefresh = await app.request(`/api/accounts/${workspaceSyncAddAccount.account.id}/personal-space/refresh`, {
+        method: 'POST', headers, body: JSON.stringify({ resources: ['subscription'] })
+      });
+      assert.equal(personalRefresh.status, 200, await personalRefresh.clone().text());
+      const personalRefreshData = (await personalRefresh.json() as any).data;
+      assert.equal(personalRefreshData.subscription.plan, 'free',
+        '个人刷新以 accounts/check 的 personal 当前套餐覆盖历史 Plus 订阅记录');
+      assert.equal(personalRefreshData.subscription.rawPlanCode, 'free');
+      assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id')
+        .where('id', '=', workspaceSyncAddAccount.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id,
+        'workspace-sync-add-personal-account', '个人刷新保存 accounts/check 确认的个人账号 ID');
+
+      const deletableAccount = await accounts.create({ email: 'delete-with-history@example.com', groupId: group.id });
+      const deletableWorkspace = await workspaces.upsert({ externalId: 'delete-history-workspace', name: 'Retained Workspace', normalizedPlan: 'business' });
+      await workspaces.upsertMembership({
+        workspaceId: deletableWorkspace.id,
+        accountId: deletableAccount.account.id,
+        remoteUserId: 'deleted-account-remote-user',
+        email: deletableAccount.account.email,
+        normalizedRole: 'member',
+        status: 'removed',
+        observedAt: new Date(),
+        source: 'delete-test'
+      });
+      const completedDeleteOperation = await db.insertInto('automation_operations').values({
+        account_id: deletableAccount.account.id,
+        workspace_id: null,
+        target_group_id: null,
+        kind: 'import_account',
+        idempotency_key: 'delete-completed-operation',
+        external_operation_id: 'delete-completed-operation-remote',
+        status: 'succeeded',
+        phase: 'completed',
+        progress: 100,
+        safe_request_summary: {},
+        result_summary: {},
+        error_code: null,
+        error_message: null,
+        completed_at: new Date()
+      }).returning('id').executeTakeFirstOrThrow();
+      await db.insertInto('automation_operation_events').values({
+        operation_id: completedDeleteOperation.id,
+        phase: 'completed',
+        status: 'succeeded',
+        safe_payload: {},
+        occurred_at: new Date()
+      }).execute();
+      const deleteWithHistory = await app.request(`/api/accounts/${deletableAccount.account.id}`, { method: 'DELETE', headers });
+      assert.equal(deleteWithHistory.status, 200, await deleteWithHistory.clone().text());
+      assert.equal(await accounts.findById(deletableAccount.account.id), undefined, '彻底删除移除账号本体');
+      assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', completedDeleteOperation.id).executeTakeFirst(), undefined,
+        '彻底删除一并移除账号的已结束操作历史');
+      assert.ok(await db.selectFrom('workspaces').select('id').where('id', '=', deletableWorkspace.id).executeTakeFirst(),
+        '彻底删除账号不删除独立 Workspace');
+      const retainedMembership = await db.selectFrom('workspace_memberships').select(['account_id', 'status'])
+        .where('workspace_id', '=', deletableWorkspace.id).executeTakeFirstOrThrow();
+      assert.deepEqual(retainedMembership, { account_id: null, status: 'removed' }, '历史成员事实保留但解除本地账号引用');
+
+      const activeRelationshipAccount = await accounts.create({ email: 'delete-active-workspace@example.com', groupId: group.id });
+      await workspaces.upsertMembership({
+        workspaceId: deletableWorkspace.id,
+        accountId: activeRelationshipAccount.account.id,
+        remoteUserId: 'active-delete-remote-user',
+        email: activeRelationshipAccount.account.email,
+        normalizedRole: 'member',
+        observedAt: new Date(),
+        source: 'delete-test'
+      });
+      const activeRelationshipDelete = await app.request(`/api/accounts/${activeRelationshipAccount.account.id}`, { method: 'DELETE', headers });
+      assert.equal(activeRelationshipDelete.status, 409);
+      assert.match(await activeRelationshipDelete.text(), /仍有活动 Workspace 关系/);
+      assert.ok(await accounts.findById(activeRelationshipAccount.account.id), '存在活动 Workspace 关系时账号保持不变');
+      await db.updateTable('workspace_memberships').set({ status: 'removed' })
+        .where('workspace_id', '=', deletableWorkspace.id)
+        .where('account_id', '=', activeRelationshipAccount.account.id).execute();
+      const completedWorkspaceOperation = await db.insertInto('automation_operations').values({
+        account_id: activeRelationshipAccount.account.id,
+        workspace_id: deletableWorkspace.id,
+        target_group_id: null,
+        kind: 'workspace_cleanup_history',
+        idempotency_key: 'delete-completed-workspace-operation',
+        external_operation_id: null,
+        status: 'succeeded',
+        phase: 'completed',
+        progress: 100,
+        safe_request_summary: {},
+        result_summary: {},
+        error_code: null,
+        error_message: null,
+        completed_at: new Date()
+      }).returning('id').executeTakeFirstOrThrow();
+      await db.insertInto('seat_slots').values({
+        workspace_id: deletableWorkspace.id,
+        seat_key: 'delete-workspace-seat',
+        remote_user_id: null,
+        current_email: null,
+        normalized_current_email: null,
+        contact: null,
+        remark: null,
+        price: null,
+        expires_on: null,
+        expire_remove: false,
+        seat_type: 'default',
+        status: 'empty'
+      }).execute();
+      const localWorkspaceDelete = await app.request(`/api/workspaces/${deletableWorkspace.id}`, { method: 'DELETE', headers });
+      assert.equal(localWorkspaceDelete.status, 200, await localWorkspaceDelete.clone().text());
+      assert.equal(await db.selectFrom('workspaces').select('id').where('id', '=', deletableWorkspace.id).executeTakeFirst(), undefined,
+        '本地 Workspace 彻底删除移除 Workspace 本体及其从属数据');
+      assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', completedWorkspaceOperation.id).executeTakeFirst(), undefined,
+        '本地 Workspace 彻底删除一并移除已结束操作历史');
+
       const batchGroup = await accounts.createGroup('Batch target');
       const batchResponse = await app.request('/api/accounts/bulk', {
         method: 'PATCH',
@@ -234,11 +501,13 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(mismatchedEdit.status, 409);
       assert.equal((await accounts.findById(first.account.id))?.remark, 'Edited with session', 'Session 校验失败时不提前写入账号字段');
       const syncResponse = await app.request(`/api/accounts/${first.account.id}/sync`, { method: 'POST', headers });
-      assert.equal(syncResponse.status, 200);
-      assert.equal((await db.selectFrom('personal_subscription_snapshots').selectAll().where('personal_space_id', '=', first.personalSpace.id).execute()).length, 1);
+      assert.equal(syncResponse.status, 404, '旧 GAM 全量同步入口已移除');
+      assert.equal((await db.selectFrom('personal_subscription_snapshots').selectAll().where('personal_space_id', '=', first.personalSpace.id).execute()).length, 0,
+        'GAM 同步资料不能写入个人套餐事实');
+      await db.updateTable('account_operational_profiles').set({account_manager_plan_code:'plus',account_manager_synced_at:new Date()}).where('account_id','=',first.account.id).execute();
       const detailResponse = await app.request(`/api/accounts/${first.account.id}`, { headers });
       assert.equal(detailResponse.status, 200);
-      assert.equal((await detailResponse.json() as any).data.personalPlan, 'free', '详情保留个人套餐事实');
+      assert.equal((await detailResponse.json() as any).data.personalPlan, 'unknown', '详情不再读取 GAM 套餐快照');
       const accountWorkspaceResponse = await app.request(`/api/accounts/${first.account.id}/workspaces/${workspace.id}`, { headers });
       assert.equal(accountWorkspaceResponse.status, 200);
       assert.deepEqual((await accountWorkspaceResponse.json() as any).data.credentials.map((item: any) => item.id),
@@ -281,7 +550,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(business.status, 200);
       const businessOperationId=(await business.clone().json() as any).data.id;assert.match(businessOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${businessOperationId}`,{headers})).status,200);
 
-      const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-payment-methods`,{method:'POST',headers,body:JSON.stringify({country:'US',currency:'USD',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}})});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
+      const personalCancel=await app.request(`/api/accounts/${first.account.id}/personal-subscription/cancel-renewal`,{method:'POST',headers});assert.equal(personalCancel.status,200,await personalCancel.clone().text());assert.equal((await personalCancel.json() as any).data.subscription.willRenew,false);
+      await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'workspace-cancel-token',{status:'valid'});
+      const workspaceCancel=await app.request(`/api/workspaces/${workspace.id}/subscription/cancel-renewal`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id})});assert.equal(workspaceCancel.status,200,await workspaceCancel.clone().text());assert.equal((await workspaceCancel.json() as any).data.willRenew,false);
+      const paymentRequest={holderName:'Taylor Anderson',postalCode:'97210',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}};
+      const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods`,{method:'POST',headers,body:JSON.stringify(paymentRequest)});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
+      completedOperations.add('payment-operation-1');assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);assert.ok((await db.selectFrom('automation_operations').select('converged_at').where('id','=',paymentOperationId).executeTakeFirstOrThrow()).converged_at,'个人绑卡成功后通过直连账单刷新收敛');
+      const workspacePayment=await app.request(`/api/workspaces/${workspace.id}/payment-methods`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id,...paymentRequest})});assert.equal(workspacePayment.status,200,await workspacePayment.clone().text());const workspacePaymentOperationId=(await workspacePayment.json() as any).data.id;
+      completedOperations.add('payment-operation-2');assert.equal((await app.request(`/api/operations/${workspacePaymentOperationId}`,{headers})).status,200);assert.ok((await db.selectFrom('automation_operations').select('converged_at').where('id','=',workspacePaymentOperationId).executeTakeFirstOrThrow()).converged_at,'Workspace 绑卡成功后通过目标 Workspace 账单刷新收敛');
+      assert.equal(paymentInputs[0]?.targetAccountId,undefined,'个人绑卡不隐式选择 Workspace');assert.equal(paymentInputs[1]?.targetAccountId,workspace.external_id,'Workspace 绑卡显式转发远端 Account ID');
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
       const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
       await accounts.update(first.account.id,{remark:'Visible Operator',isBanned:false});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);
@@ -311,6 +588,13 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await app.request('/api/credential-pool-groups', { method: 'POST', headers, body: JSON.stringify({ name: 'pool-a' }) })).status, 200);
       const overviewRenewalAt = new Date('2032-08-14T09:10:11Z');
       await db.updateTable('workspaces').set({ next_renewal_at: overviewRenewalAt }).where('id', '=', workspace.id).execute();
+      await primaryBilling.saveSnapshot({ kind: 'workspace', workspaceId: workspace.id }, {
+        invoices: { data: [{ id: 'overview-open-invoice', status: 'open', amount_due: 1100, amount_remaining: 1100, currency: 'usd' }] },
+        payment_methods: {
+          default_payment_method_id: 'overview-default-card',
+          payment_methods: [{ id: 'overview-default-card', card: { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 } }]
+        }
+      }, new Date('2032-08-13T09:10:11Z'));
       const bannedOverviewManager = await accounts.create({ email: 'banned-overview@example.com', groupId: group.id, isBanned: true });
       const bannedOverviewWorkspace = await workspaces.upsert({ externalId: 'banned-overview-workspace', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: bannedOverviewWorkspace.id, accountId: bannedOverviewManager.account.id, remoteUserId:'banned-overview-owner',email:bannedOverviewManager.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
@@ -320,9 +604,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const workspaceRenewalCard = renewalOverview.find((item: any) => item.workspaceId === workspace.id);
       assert.equal(workspaceRenewalCard.subject, 'workspace');
       assert.equal(workspaceRenewalCard.renewalAt, overviewRenewalAt.toISOString(), '续费概览保留精确到秒的时间');
+      assert.equal(workspaceRenewalCard.defaultPaymentCardLast4, '4242', '母号概览展示 Workspace 默认支付卡尾号');
       assert.equal(workspaceRenewalCard.managingAccounts[0].email, first.account.email);
       assert.equal(workspaceRenewalCard.managingAccounts[0].isBanned, false);
-      assert.equal(workspaceRenewalCard.operationalStatus, 'normal');
+      assert.equal(workspaceRenewalCard.operationalStatus, 'payment_due', '当期待付发票优先于未来续费时间');
       assert.equal(renewalOverview.every((item: any) => item.plan === 'business'), true, '母号概览只展示双席位 Business Workspace');
       assert.equal(renewalOverview.some((item: any) => item.workspaceId === usageWorkspace.id), false, '母号概览不展示 Business 0.52');
       assert.equal(renewalOverview.some((item: any) => item.workspaceId === billingWorkspace.id), true, '固定席位账单证据必须覆盖 usage-based Workspace plan');

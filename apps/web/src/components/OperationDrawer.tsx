@@ -15,7 +15,7 @@ import type {
   OperationDetailView,
 } from "@team-manager/shared";
 import { unifiedApi } from "../unifiedApi.js";
-import { LoadBoundary, formatTime } from "./ProductPrimitives.js";
+import { LoadBoundary, formatPaymentCardLast4, formatTime } from "./ProductPrimitives.js";
 import { PaymentCardFields } from "./PaymentCardFields.js";
 import {
   operationDrawerActions,
@@ -250,7 +250,7 @@ export function OperationDrawer({
                     ...(detail?.payment
                       ? [
                           { key: "payment-status", label: "支付结果", children: detail.payment.resultCode },
-                          { key: "payment-card", label: "支付卡", children: [detail.payment.cardBrand, detail.payment.cardLast4 && `•••• ${detail.payment.cardLast4}`].filter(Boolean).join(" ") || "—" },
+                          { key: "payment-card", label: "支付卡", children: [detail.payment.cardBrand, formatPaymentCardLast4(detail.payment.cardLast4)].filter(Boolean).join(" ") || "—" },
                           { key: "payment-amount", label: "支付金额", children: [detail.payment.currency, detail.payment.amount].filter(Boolean).join(" ") || "—" },
                           { key: "payment-time", label: "支付时间", children: formatTime(detail.payment.submittedAt ?? detail.payment.createdAt) },
                         ]

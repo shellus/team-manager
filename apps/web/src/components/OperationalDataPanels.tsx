@@ -1,6 +1,6 @@
 import { Descriptions, Empty, Space, Table, Tag, Typography } from 'antd';
 import type { AccountActivityView, BillingDetailView, BillingInvoiceView, SubscriptionDetailView } from '@team-manager/shared';
-import { formatTime } from './ProductPrimitives.js';
+import { formatPaymentCardLast4, formatTime } from './ProductPrimitives.js';
 import { useUrlPagination } from './urlPagination.js';
 
 const planLabels: Record<string, string> = { free:'Free',go:'Go',plus:'Plus',pro_5x:'Pro 5x',pro_20x:'Pro 20x',business:'Business',business_usage_based:'Business 0.52',unknown:'未知' };
@@ -30,7 +30,7 @@ export function BillingSummary({ value }: { value?: BillingDetailView }) {
     <Table rowKey="id" size="small" pagination={false} dataSource={value.paymentMethods} locale={{emptyText:'暂无支付方式'}} columns={[
       {title:'类型',render:(_,row)=><Space>{row.type??'银行卡'}{row.isDefault&&<Tag color="blue">默认</Tag>}</Space>},
       {title:'品牌',dataIndex:'brand',render:(v)=>v??'—'},
-      {title:'尾号',dataIndex:'last4',render:(v)=>v?`•••• ${v}`:'—'},
+      {title:'尾号',dataIndex:'last4',render:(v)=>formatPaymentCardLast4(v)??'—'},
       {title:'有效期',render:(_,row)=>row.expMonth&&row.expYear?`${String(row.expMonth).padStart(2,'0')}/${row.expYear}`:'—'},
     ]}/>
     {value.billingIdentity&&<><Typography.Title level={5}>账单主体</Typography.Title><Descriptions bordered size="small" column={{xs:1,sm:2}} items={[
