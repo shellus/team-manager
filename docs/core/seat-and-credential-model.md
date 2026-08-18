@@ -36,7 +36,7 @@
 
 完整卡号和 CVC 只在当前请求内交给 GAM；Team Manager 只保存品牌、尾号、有效期、默认标记和安全操作摘要。支付方式绑定必须显式指定个人空间或 Workspace 作为订阅目标，不能从执行账号或当前页面状态隐式推断。
 
-个人空间和 Workspace 都可以绑定默认支付方式、取消自动续费。绑定支付方式依赖 Stripe Elements 与浏览器支付现场，继续由 GAM 执行；取消续费是订阅状态写入，由 Team Manager 使用目标访问上下文直接请求 ChatGPT，并实时复读 `will_renew=false`。取消续费不退款，当前权益保留到计费周期结束。
+个人空间和 Workspace 都可以绑定默认支付方式、取消自动续费。绑定支付方式由 GAM 使用目标 Session、账号稳定代理和 HTTP Transport 创建并确认 Stripe SetupIntent；操作不创建浏览器 Profile，遇到 3DS、Radar 或其他交互要求时明确失败，不静默回退浏览器。取消续费是订阅状态写入，由 Team Manager 使用目标访问上下文直接请求 ChatGPT，并实时复读 `will_renew=false`。取消续费不退款，当前权益保留到计费周期结束。
 
 ## 账号运营主套餐
 
