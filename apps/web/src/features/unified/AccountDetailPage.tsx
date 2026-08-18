@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Alert,
   Button,
@@ -42,12 +42,17 @@ import {
   primaryPlanLabel,
 } from "./accountActionsModel.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
-import { ActivityTimeline, BillingSummary, SubscriptionSummary, paymentMethodActionKey } from "../../components/OperationalDataPanels.js";
+import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
 import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
+import {
+  resolvePersonalSpaceTab,
+  selectPersonalSpaceTabParams,
+  type PersonalSpaceTab,
+} from "./accountPersonalModel.js";
 
 export function AccountDetailPage() {
   const productModal = useProductModal();
@@ -107,7 +112,6 @@ export function AccountDetailPage() {
     }
   };
   const tab = params.get("tab") ?? "overview";
-  const modal = params.get("modal");
   const accountAction = actionModalFromParams(params);
   const selectedOperation = useMemo(
     () =>
@@ -213,9 +217,7 @@ export function AccountDetailPage() {
                     <PersonalPanel
                       account={account}
                       personal={personal}
-                      busy={busy}
-                      run={run}
-                      open={(name) => setUrl("modal", name)}
+                      onPersonalChanged={setPersonal}
                     />
                   ),
                 },
@@ -262,19 +264,6 @@ export function AccountDetailPage() {
             onClose={closeAccountAction}
             onChanged={load}
             onOperationCreated={showCreatedOperation}
-          />
-          <SubscriptionPaymentMethodModal
-            targetLabel="个人空间"
-            open={modal === "payment"}
-            busy={busy === "payment"}
-            onClose={() => setUrl("modal")}
-            loadDefaults={() => unifiedApi.paymentMethodDefaults(account.id)}
-            onSubmit={async (value) => {
-              await run("payment", async () => {
-                await unifiedApi.addPersonalSpacePaymentMethod(account.id, value);
-                setUrl("modal");
-              });
-            }}
           />
           <OperationDrawer
             operation={selectedOperation}
@@ -408,167 +397,242 @@ function Management({
 function PersonalPanel({
   account,
   personal,
-  busy,
-  run,
-  open,
+  onPersonalChanged,
 }: {
   account: UnifiedAccountDetailView;
   personal?: PersonalSpaceDetailView;
-  busy: string;
-  run: (key: string, action: () => Promise<unknown>) => Promise<void>;
-  open: (value: string) => void;
+  onPersonalChanged: Dispatch<SetStateAction<PersonalSpaceDetailView | undefined>>;
 }) {
+  const productMessage = useProductMessage();
   const productModal = useProductModal();
+  const [params, setParams] = useSearchParams();
+  const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
+  const pendingActionsRef = useRef(new Set<string>());
+  const [error, setError] = useState('');
+  const personalTab = resolvePersonalSpaceTab(params.get('personalTab'));
   const subscriptionSnapshot =
     personal?.subscription ?? account.personalSpace.subscription;
-  const billing = personal?.billing;
-  const settingsPayload = asRecord(personal?.settings?.payload);
-  const settingsValues = deriveSettingsValues(personal, settingsPayload);
-  const quotaPayload = asRecord(personal?.quota?.payload);
-  const quotaWindows =
-    personal?.quota?.windows ??
-    asRecordArray(quotaPayload?.windows) ??
-    asRecordArray(quotaPayload?.credits) ??
-    [];
-  const quotaPagination=useUrlPagination({total:quotaWindows.length,pageKey:"quotaPage",pageSizeStorageKey:"account-quota"});
   const paidSubscription = Boolean(subscriptionSnapshot && !['free', 'unknown'].includes(subscriptionSnapshot.plan));
   const renewalCancelled = subscriptionSnapshot?.willRenew === false;
   const renewalEnd = subscriptionSnapshot?.endsAt ? formatTime(subscriptionSnapshot.endsAt) : '当前计费周期结束';
 
-  return (
-    <Space direction="vertical" size={18} className="panel-stack">
-      <Space wrap>
-        <Button
-          icon={<ReloadOutlined />}
-          loading={busy === "personal"}
-          onClick={() =>
-            run("personal", () => unifiedApi.refreshPersonalSpace(account.id))
-          }
-        >
-          刷新个人空间
-        </Button>
-        {paidSubscription && <Button
-          danger={!renewalCancelled}
-          disabled={renewalCancelled}
-          loading={busy === 'cancel'}
-          onClick={() => productModal.confirm({
-            title: '取消个人套餐自动续费？',
-            content: `仅关闭自动续费，不退款；套餐权益保留到 ${renewalEnd}。`,
-            okText: '确认取消续费',
-            okButtonProps: { danger: true },
-            cancelText: '返回',
-            onOk: () => run('cancel', () => unifiedApi.cancelPersonalRenewal(account.id)),
-          })}
-        >
-          {renewalCancelled ? '已取消续费' : '取消续费'}
-        </Button>}
-        <Button onClick={() => open("payment")}>绑定支付方式</Button>
-      </Space>
-
-      <Typography.Title level={4}>订阅</Typography.Title>
-      <SubscriptionSummary value={subscriptionSnapshot} />
-
-      <Typography.Title level={4}>账单与支付</Typography.Title>
-      <BillingSummary value={billing} paymentMethodActions={{
-        busy,
-        onSetDefault: (paymentMethodId) => run(
-          paymentMethodActionKey('default', paymentMethodId),
-          () => unifiedApi.setPersonalSpaceDefaultPaymentMethod(account.id, paymentMethodId)
-        ),
-        onRemove: (paymentMethodId) => run(
-          paymentMethodActionKey('remove', paymentMethodId),
-          () => unifiedApi.removePersonalSpacePaymentMethod(account.id, paymentMethodId)
-        ),
-      }}/>
-
-      <Typography.Title level={4}>额度窗口与额度项目</Typography.Title>
-      <Table
-        rowKey={(row, index) =>
-          String(row.id ?? row.label ?? row.type ?? index)
-        }
-        dataSource={quotaWindows}
-        pagination={quotaPagination}
-        columns={[
-          {
-            title: "窗口/项目",
-            render: (_, row) =>
-              String(row.label ?? row.name ?? row.type ?? row.id ?? "—"),
-          },
-          {
-            title: "使用率",
-            render: (_, row) =>
-              row.usedPercent === undefined ? "—" : `${row.usedPercent}%`,
-          },
-          {
-            title: "数量",
-            render: (_, row) =>
-              String(row.available_count ?? row.count ?? row.amount ?? "—"),
-          },
-          {
-            title: "重置时间",
-            render: (_, row) => formatTime(asTime(row.resetAt ?? row.reset_at)),
-          },
-        ]}
-      />
-
-      <Typography.Title level={4}>资料与设置</Typography.Title>
-      {Boolean(asRecord(settingsPayload?.profile)?.error) && (
-        <Alert
-          type="warning"
-          showIcon
-          message="Profile 上游读取失败，请刷新个人空间后重试。"
-        />
-      )}
-      <Form
-        key={personal?.settings?.observedAt ?? "settings-empty"}
-        layout="vertical"
-        initialValues={settingsValues}
-        onFinish={(value) =>
-          run("personal-settings", () =>
-            unifiedApi.updatePersonalSettings(account.id, value),
-          )
-        }
-      >
-        <div className="responsive-form-grid">
-          <Form.Item name="username" label="用户名">
-            <Input />
-          </Form.Item>
-          <Form.Item name="displayName" label="显示名">
-            <Input />
-          </Form.Item>
-        </div>
-        <div className="switch-grid">
-          <Form.Item
-            name="marketingPush"
-            label="营销推送"
-            valuePropName="checked"
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item
-            name="marketingEmail"
-            label="营销邮件"
-            valuePropName="checked"
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item name="memoryEnabled" label="Memory（三态）">
-            <Select
-              allowClear
-              placeholder="未知（上游 GET 返回 405）"
-              options={[
-                { value: true, label: "明确开启" },
-                { value: false, label: "明确关闭" },
-              ]}
-            />
-          </Form.Item>
-        </div>
-        <Button htmlType="submit" loading={busy === "personal-settings"}>
-          保存个人设置
-        </Button>
-      </Form>
-    </Space>
+  const isPending = (key: string) => pendingActions.has(key);
+  const setModal = (value?: string) => {
+    const next = new URLSearchParams(params);
+    value ? next.set('modal', value) : next.delete('modal');
+    setParams(next);
+  };
+  const setPersonalTab = (value: string) => {
+    setParams(selectPersonalSpaceTabParams(params, value as PersonalSpaceTab));
+  };
+  const runResource = async (
+    resource: PersonalSpaceTab,
+    key: string,
+    successMessage: string,
+    action: () => Promise<PersonalSpaceDetailView>,
+  ) => {
+    if (pendingActionsRef.current.has(key)) return false;
+    pendingActionsRef.current = new Set(pendingActionsRef.current).add(key);
+    setPendingActions(pendingActionsRef.current);
+    setError('');
+    try {
+      const next = await action();
+      onPersonalChanged((current) => ({ ...current, [resource]: next[resource] }));
+      productMessage.success(successMessage);
+      return true;
+    } catch (reason) {
+      setError((reason as Error).message);
+      return false;
+    } finally {
+      const nextPendingActions = new Set(pendingActionsRef.current);
+      nextPendingActions.delete(key);
+      pendingActionsRef.current = nextPendingActions;
+      setPendingActions(nextPendingActions);
+    }
+  };
+  const refresh = (resource: PersonalSpaceTab, label: string) => runResource(
+    resource,
+    `refresh:${resource}`,
+    `${label}已刷新`,
+    () => unifiedApi.refreshPersonalSpace(account.id, resource),
   );
+
+  return <Space direction="vertical" size={16} className="panel-stack">
+    {error && <Alert type="error" showIcon closable message={error} onClose={() => setError('')} />}
+    <Tabs
+      activeKey={personalTab}
+      onChange={setPersonalTab}
+      items={[
+        {
+          key: 'subscription',
+          label: '订阅',
+          children: <PersonalSubscriptionPanel
+            value={subscriptionSnapshot}
+            refreshing={isPending('refresh:subscription')}
+            cancelling={isPending('cancel:subscription')}
+            paid={paidSubscription}
+            renewalCancelled={renewalCancelled}
+            onRefresh={() => void refresh('subscription', '订阅')}
+            onCancel={() => productModal.confirm({
+              title: '取消个人套餐自动续费？',
+              content: `仅关闭自动续费，不退款；套餐权益保留到 ${renewalEnd}。`,
+              okText: '确认取消续费',
+              okButtonProps: { danger: true },
+              cancelText: '返回',
+              onOk: () => runResource('subscription', 'cancel:subscription', '自动续费已取消', () => unifiedApi.cancelPersonalRenewal(account.id)),
+            })}
+          />,
+        },
+        {
+          key: 'billing',
+          label: '账单与支付',
+          children: <PersonalBillingPanel
+            accountId={account.id}
+            value={personal?.billing}
+            refreshing={isPending('refresh:billing')}
+            onRefresh={() => void refresh('billing', '账单与支付')}
+            onBind={() => setModal('payment')}
+          />,
+        },
+        {
+          key: 'quota',
+          label: '额度',
+          children: <PersonalQuotaPanel
+            value={personal?.quota}
+            refreshing={isPending('refresh:quota')}
+            onRefresh={() => void refresh('quota', '额度')}
+          />,
+        },
+        {
+          key: 'settings',
+          label: '设置',
+          children: <PersonalSettingsPanel
+            value={personal}
+            refreshing={isPending('refresh:settings')}
+            saving={isPending('save:settings')}
+            onRefresh={() => void refresh('settings', '设置')}
+            onSave={(value) => void runResource('settings', 'save:settings', '个人设置已保存', () => unifiedApi.updatePersonalSettings(account.id, value))}
+          />,
+        },
+      ]}
+    />
+    <SubscriptionPaymentMethodModal
+      targetLabel="个人空间"
+      open={params.get('modal') === 'payment'}
+      busy={isPending('bind:billing')}
+      onClose={() => setModal()}
+      loadDefaults={() => unifiedApi.paymentMethodDefaults(account.id)}
+      onSubmit={async (value) => {
+        const completed = await runResource('billing', 'bind:billing', '支付方式已绑定', async () => {
+          await unifiedApi.addPersonalSpacePaymentMethod(account.id, value);
+          return unifiedApi.personalSpace(account.id);
+        });
+        if (completed) setModal();
+      }}
+    />
+  </Space>;
+}
+
+function PersonalSubscriptionPanel({ value, refreshing, cancelling, paid, renewalCancelled, onRefresh, onCancel }: {
+  value?: PersonalSpaceDetailView['subscription'];
+  refreshing: boolean;
+  cancelling: boolean;
+  paid: boolean;
+  renewalCancelled: boolean;
+  onRefresh: () => void;
+  onCancel: () => void;
+}) {
+  return <Space direction="vertical" size={16} className="panel-stack">
+    <Space wrap>
+      <Typography.Text type="secondary">订阅快照：{formatTime(value?.observedAt)}</Typography.Text>
+      <Button icon={<ReloadOutlined />} loading={refreshing} disabled={cancelling} onClick={onRefresh}>刷新订阅</Button>
+      {paid && <Button danger={!renewalCancelled} disabled={renewalCancelled || refreshing} loading={cancelling} onClick={onCancel}>
+        {renewalCancelled ? '已取消续费' : '取消续费'}
+      </Button>}
+    </Space>
+    <SubscriptionSummary value={value} />
+  </Space>;
+}
+
+function PersonalBillingPanel({ accountId, value, refreshing, onRefresh, onBind }: {
+  accountId: string;
+  value?: PersonalSpaceDetailView['billing'];
+  refreshing: boolean;
+  onRefresh: () => void;
+  onBind: () => void;
+}) {
+  return <Space direction="vertical" size={16} className="panel-stack">
+    <Space wrap>
+      <Button icon={<ReloadOutlined />} loading={refreshing} onClick={onRefresh}>刷新账单与支付</Button>
+      <Button type="primary" onClick={onBind}>绑定支付方式</Button>
+    </Space>
+    <BillingSummary value={value} paymentMethodActions={{
+      onSetDefault: (paymentMethodId) => unifiedApi.setPersonalSpaceDefaultPaymentMethod(accountId, paymentMethodId),
+      onRemove: (paymentMethodId) => unifiedApi.removePersonalSpacePaymentMethod(accountId, paymentMethodId),
+    }}/>
+  </Space>;
+}
+
+function PersonalQuotaPanel({ value, refreshing, onRefresh }: {
+  value?: PersonalSpaceDetailView['quota'];
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const quotaPayload = asRecord(value?.payload);
+  const quotaWindows = value?.windows ?? asRecordArray(quotaPayload?.windows) ?? asRecordArray(quotaPayload?.credits) ?? [];
+  const quotaPagination = useUrlPagination({ total: quotaWindows.length, pageKey: 'quotaPage', pageSizeStorageKey: 'account-quota' });
+  return <Space direction="vertical" size={16} className="panel-stack">
+    <Space wrap>
+      <Typography.Text type="secondary">额度快照：{formatTime(value?.observedAt)}</Typography.Text>
+      <Button icon={<ReloadOutlined />} loading={refreshing} onClick={onRefresh}>刷新额度</Button>
+    </Space>
+    <Table
+      rowKey={(row, index) => String(row.id ?? row.label ?? row.type ?? index)}
+      dataSource={quotaWindows}
+      pagination={quotaPagination}
+      columns={[
+        { title: '窗口/项目', render: (_, row) => String(row.label ?? row.name ?? row.type ?? row.id ?? '—') },
+        { title: '使用率', render: (_, row) => row.usedPercent === undefined ? '—' : `${row.usedPercent}%` },
+        { title: '数量', render: (_, row) => String(row.available_count ?? row.count ?? row.amount ?? '—') },
+        { title: '重置时间', render: (_, row) => formatTime(asTime(row.resetAt ?? row.reset_at)) },
+      ]}
+    />
+  </Space>;
+}
+
+function PersonalSettingsPanel({ value, refreshing, saving, onRefresh, onSave }: {
+  value?: PersonalSpaceDetailView;
+  refreshing: boolean;
+  saving: boolean;
+  onRefresh: () => void;
+  onSave: (settings: Record<string, unknown>) => void;
+}) {
+  const settingsPayload = asRecord(value?.settings?.payload);
+  const settingsValues = deriveSettingsValues(value, settingsPayload);
+  return <Space direction="vertical" size={16} className="panel-stack">
+    <Space wrap>
+      <Typography.Text type="secondary">设置快照：{formatTime(value?.settings?.observedAt)}</Typography.Text>
+      <Button icon={<ReloadOutlined />} loading={refreshing} disabled={saving} onClick={onRefresh}>刷新设置</Button>
+    </Space>
+    {Boolean(asRecord(settingsPayload?.profile)?.error) && <Alert type="warning" showIcon message="Profile 上游读取失败，请刷新设置后重试。" />}
+    <Form key={value?.settings?.observedAt ?? 'settings-empty'} layout="vertical" initialValues={settingsValues} onFinish={onSave} disabled={refreshing}>
+      <div className="responsive-form-grid">
+        <Form.Item name="username" label="用户名"><Input /></Form.Item>
+        <Form.Item name="displayName" label="显示名"><Input /></Form.Item>
+      </div>
+      <div className="switch-grid">
+        <Form.Item name="marketingPush" label="营销推送" valuePropName="checked"><Switch /></Form.Item>
+        <Form.Item name="marketingEmail" label="营销邮件" valuePropName="checked"><Switch /></Form.Item>
+        <Form.Item name="memoryEnabled" label="Memory（三态）">
+          <Select allowClear placeholder="未知（上游 GET 返回 405）" options={[
+            { value: true, label: '明确开启' },
+            { value: false, label: '明确关闭' },
+          ]} />
+        </Form.Item>
+      </div>
+      <Button htmlType="submit" loading={saving}>保存个人设置</Button>
+    </Form>
+  </Space>;
 }
 
 function Operations({

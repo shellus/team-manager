@@ -58,6 +58,10 @@ export interface SensitiveStripeTransport {
   fetch(request: SensitiveStripeRequest): Promise<HttpResponse>;
 }
 
+export function paymentMethodWriteKey(accountId: string, targetAccountId: string, paymentMethodId: string) {
+  return `${accountId}:${targetAccountId}:${paymentMethodId}`;
+}
+
 /** Stripe 卡片请求不接入全局 fetch 和 HTTP trace，避免 PAN/CVC 落盘。 */
 export class NoTraceStripeTransport implements SensitiveStripeTransport {
   async fetch(request: SensitiveStripeRequest): Promise<HttpResponse> {
@@ -295,7 +299,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
 export class SubscriptionPaymentMethodService {
   readonly #workspaces: WorkspaceRepository;
   readonly #activity: ActivityLogRepository;
-  readonly #activeTargets = new Set<string>();
+  readonly #activePaymentWrites = new Set<string>();
 
   constructor(
     private readonly db: Kysely<Database>,
@@ -392,7 +396,7 @@ export class SubscriptionPaymentMethodService {
     paymentMethodId: string,
     action: 'default' | 'remove'
   ) {
-    return this.withTarget(accountId, targetAccountId, async (sessionToken, proxy) => (
+    return this.withTarget(accountId, targetAccountId, paymentMethodId, async (sessionToken, proxy) => (
       action === 'default'
         ? this.binder.setDefault({ sessionToken, targetAccountId, proxy, paymentMethodId })
         : this.binder.remove({ sessionToken, targetAccountId, proxy, paymentMethodId })
@@ -401,7 +405,7 @@ export class SubscriptionPaymentMethodService {
 
   private async bind(accountId: string, targetAccountId: string, input: AddSubscriptionPaymentMethodRequest) {
     parsePaymentMethod(input);
-    return this.withTarget(accountId, targetAccountId, (sessionToken, proxy) => (
+    return this.withTarget(accountId, targetAccountId, 'add', (sessionToken, proxy) => (
       this.binder.add({ sessionToken, targetAccountId, proxy, paymentMethod: input })
     ));
   }
@@ -409,11 +413,12 @@ export class SubscriptionPaymentMethodService {
   private async withTarget<T>(
     accountId: string,
     targetAccountId: string,
+    paymentMethodId: string,
     action: (sessionToken: string, proxy: string) => Promise<T>
   ): Promise<T> {
-    const key = `${accountId}:${targetAccountId}`;
-    if (this.#activeTargets.has(key)) throw new ServiceError(409, '该订阅目标已有支付方式写入请求正在进行');
-    this.#activeTargets.add(key);
+    const key = paymentMethodWriteKey(accountId, targetAccountId, paymentMethodId);
+    if (this.#activePaymentWrites.has(key)) throw new ServiceError(409, '该支付方式已有写入请求正在进行');
+    this.#activePaymentWrites.add(key);
     try {
       const session = await this.requireSession(accountId);
       const proxy = await this.operational.proxy(accountId)
@@ -423,7 +428,7 @@ export class SubscriptionPaymentMethodService {
     } catch (error) {
       throw asServiceError(error);
     } finally {
-      this.#activeTargets.delete(key);
+      this.#activePaymentWrites.delete(key);
     }
   }
 

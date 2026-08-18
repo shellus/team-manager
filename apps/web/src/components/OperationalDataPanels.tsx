@@ -1,7 +1,16 @@
 import { CheckCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { Button, Descriptions, Empty, Space, Table, Tag, Typography } from 'antd';
-import type { AccountActivityView, BillingDetailView, BillingInvoiceView, SubscriptionDetailView } from '@team-manager/shared';
+import { useEffect, useRef, useState } from 'react';
+import type {
+  AccountActivityView,
+  BillingDetailView,
+  BillingInvoiceView,
+  PersonalPaymentMethodView,
+  SubscriptionDetailView,
+  SubscriptionPaymentMethodBindingResult,
+} from '@team-manager/shared';
 import { formatPaymentCardLast4, formatTime } from './ProductPrimitives.js';
+import { useProductMessage } from './ProductOverlays.js';
 import { useUrlPagination } from './urlPagination.js';
 
 const planLabels: Record<string, string> = { free:'Free',go:'Go',plus:'Plus',pro_5x:'Pro 5x',pro_20x:'Pro 20x',business:'Business',business_usage_based:'Business 0.52',unknown:'未知' };
@@ -25,17 +34,63 @@ export function paymentMethodActionKey(action: PaymentMethodAction, paymentMetho
   return `payment-method:${action}:${paymentMethodId}`;
 }
 
+export function paymentMethodRowBusy(pendingActions: ReadonlySet<string>, paymentMethodId: string) {
+  return pendingActions.has(paymentMethodActionKey('default', paymentMethodId))
+    || pendingActions.has(paymentMethodActionKey('remove', paymentMethodId));
+}
+
+export function reconcilePaymentMethods(
+  paymentMethods: PersonalPaymentMethodView[],
+  removedPaymentMethodIds: ReadonlySet<string>,
+) {
+  return paymentMethods.filter((paymentMethod) => !removedPaymentMethodIds.has(paymentMethod.id));
+}
+
 export function BillingSummary({ value, paymentMethodActions }: {
   value?: BillingDetailView;
   paymentMethodActions?: {
-    busy: string;
     disabled?: boolean;
-    onSetDefault: (paymentMethodId: string) => Promise<unknown>;
-    onRemove: (paymentMethodId: string) => Promise<unknown>;
+    onSetDefault: (paymentMethodId: string) => Promise<SubscriptionPaymentMethodBindingResult>;
+    onRemove: (paymentMethodId: string) => Promise<SubscriptionPaymentMethodBindingResult>;
   };
 }) {
+  const productMessage = useProductMessage();
+  const [paymentMethods, setPaymentMethods] = useState<PersonalPaymentMethodView[]>(value?.paymentMethods ?? []);
+  const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
+  const pendingActionsRef = useRef(new Set<string>());
+  const removedPaymentMethodIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    removedPaymentMethodIdsRef.current.clear();
+    setPaymentMethods(value?.paymentMethods ?? []);
+  }, [value?.observedAt, value?.paymentMethods]);
+
   if (!value) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无账单快照" />;
-  const actionDisabled = paymentMethodActions?.disabled || Boolean(paymentMethodActions?.busy);
+
+  async function runPaymentMethodAction(action: PaymentMethodAction, paymentMethodId: string) {
+    if (!paymentMethodActions || paymentMethodActions.disabled || paymentMethodRowBusy(pendingActionsRef.current, paymentMethodId)) return;
+
+    const actionKey = paymentMethodActionKey(action, paymentMethodId);
+    pendingActionsRef.current = new Set(pendingActionsRef.current).add(actionKey);
+    setPendingActions(pendingActionsRef.current);
+
+    try {
+      const result = action === 'default'
+        ? await paymentMethodActions.onSetDefault(paymentMethodId)
+        : await paymentMethodActions.onRemove(paymentMethodId);
+      if (action === 'remove') removedPaymentMethodIdsRef.current.add(paymentMethodId);
+      setPaymentMethods(reconcilePaymentMethods(result.paymentMethods, removedPaymentMethodIdsRef.current));
+      productMessage.success(action === 'default' ? '默认支付方式已更新' : '支付方式已移除');
+    } catch (error) {
+      productMessage.error(error instanceof Error ? error.message : '支付方式操作失败');
+    } finally {
+      const nextPendingActions = new Set(pendingActionsRef.current);
+      nextPendingActions.delete(actionKey);
+      pendingActionsRef.current = nextPendingActions;
+      setPendingActions(nextPendingActions);
+    }
+  }
+
   return <Space direction="vertical" size={16} className="panel-stack">
     <Typography.Text type="secondary">账单快照：{formatTime(value.observedAt)}</Typography.Text>
     <Typography.Title level={5}>下期预计账单</Typography.Title>
@@ -43,7 +98,7 @@ export function BillingSummary({ value, paymentMethodActions }: {
     <Typography.Title level={5}>最近发票</Typography.Title>
     <InvoiceTable invoices={value.invoices} empty="暂无发票" />
     <Typography.Title level={5}>支付方式</Typography.Title>
-    <Table rowKey="id" size="small" pagination={false} dataSource={value.paymentMethods} locale={{emptyText:'暂无支付方式'}} scroll={{x:paymentMethodActions?820:undefined}} columns={[
+    <Table rowKey="id" size="small" pagination={false} dataSource={paymentMethods} locale={{emptyText:'暂无支付方式'}} scroll={{x:paymentMethodActions?820:undefined}} columns={[
       {title:'类型',render:(_,row)=><Space>{row.type??'银行卡'}{row.isDefault&&<Tag color="blue">默认</Tag>}</Space>},
       {title:'品牌',dataIndex:'brand',render:(v)=>v??'—'},
       {title:'尾号',dataIndex:'last4',render:(v)=>formatPaymentCardLast4(v)??'—'},
@@ -53,25 +108,31 @@ export function BillingSummary({ value, paymentMethodActions }: {
         title:'操作',
         key:'actions',
         width:220,
-        render:(_: unknown, row: BillingDetailView['paymentMethods'][number]) => <Space size={4}>
-          {!row.isDefault && <Button
-            type="link"
-            size="small"
-            icon={<CheckCircleOutlined />}
-            loading={paymentMethodActions.busy === paymentMethodActionKey('default', row.id)}
-            disabled={actionDisabled}
-            onClick={() => void paymentMethodActions.onSetDefault(row.id)}
-          >设为默认</Button>}
-          <Button
-            danger
-            type="link"
-            size="small"
-            icon={<DeleteOutlined />}
-            loading={paymentMethodActions.busy === paymentMethodActionKey('remove', row.id)}
-            disabled={actionDisabled}
-            onClick={() => void paymentMethodActions.onRemove(row.id)}
-          >移除</Button>
-        </Space>,
+        render:(_: unknown, row: BillingDetailView['paymentMethods'][number]) => {
+          const setDefaultKey = paymentMethodActionKey('default', row.id);
+          const removeKey = paymentMethodActionKey('remove', row.id);
+          const rowBusy = paymentMethodRowBusy(pendingActions, row.id);
+          const actionDisabled = paymentMethodActions.disabled || rowBusy;
+          return <Space size={4}>
+            {!row.isDefault && <Button
+              type="link"
+              size="small"
+              icon={<CheckCircleOutlined />}
+              loading={pendingActions.has(setDefaultKey)}
+              disabled={actionDisabled}
+              onClick={() => void runPaymentMethodAction('default', row.id)}
+            >设为默认</Button>}
+            <Button
+              danger
+              type="link"
+              size="small"
+              icon={<DeleteOutlined />}
+              loading={pendingActions.has(removeKey)}
+              disabled={actionDisabled}
+              onClick={() => void runPaymentMethodAction('remove', row.id)}
+            >移除</Button>
+          </Space>;
+        },
       }] : []),
     ]}/>
     {value.billingIdentity&&<><Typography.Title level={5}>账单主体</Typography.Title><Descriptions bordered size="small" column={{xs:1,sm:2}} items={[

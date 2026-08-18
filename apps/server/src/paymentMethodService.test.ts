@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Transport } from './transport.js';
 import {
   HttpPaymentMethodBinder,
+  paymentMethodWriteKey,
   parsePaymentMethod,
   parsePaymentMethods,
   type SensitiveStripeRequest,
@@ -10,6 +11,17 @@ import {
 } from './services/paymentMethodService.js';
 
 const CARD = { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' };
+
+test('支付方式写锁只阻止同一卡片重复操作', () => {
+  assert.equal(
+    paymentMethodWriteKey('account', 'target', 'pm_first'),
+    paymentMethodWriteKey('account', 'target', 'pm_first')
+  );
+  assert.notEqual(
+    paymentMethodWriteKey('account', 'target', 'pm_first'),
+    paymentMethodWriteKey('account', 'target', 'pm_second')
+  );
+});
 
 test('纯 HTTP 绑卡只把 PAN/CVC 交给无追踪 Stripe Transport', async () => {
   const chatGptRequests: Array<{ path: string; body?: string }> = [];
