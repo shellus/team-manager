@@ -88,6 +88,14 @@ export class SessionRepository {
     return Number(result.numUpdatedRows);
   }
 
+  async invalidateAccessTokens(accountId: string): Promise<number> {
+    const result = await this.db.updateTable('account_access_contexts').set({
+      status: 'invalid',
+      checked_at: new Date()
+    }).where('account_id', '=', accountId).executeTakeFirst();
+    return Number(result.numUpdatedRows);
+  }
+
   private async insertRevision(db: Kysely<Database>, input: SaveSessionRevisionInput, plaintext: string, digest: string): Promise<string> {
     const encrypted = this.cipher.encrypt(plaintext, `account-session:${input.accountId}`);
     const row = await db.insertInto('account_session_revisions').values({

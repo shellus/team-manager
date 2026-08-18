@@ -543,6 +543,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await app.request('/api/subaccounts', { headers })).status, 404);
       assert.equal((await app.request('/api/not-a-real-endpoint', { headers })).status, 404);
 
+      await sessions.saveAccessToken(first.account.id, { kind: 'workspace', workspaceId: workspace.id }, 'stale-workspace-token', { status: 'valid' });
       const sessionResponse = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
       assert.equal(sessionResponse.status, 200);
       assert.equal((await sessionResponse.json() as any).data.accessToken, 'secret');
@@ -553,6 +554,12 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(editAccount.status, 200, await editAccount.clone().text());
       const replacedSession = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
       assert.equal((await replacedSession.json() as any).data.accessToken, 'replacement-secret');
+      assert.equal(await sessions.accessToken(first.account.id, { kind: 'workspace', workspaceId: workspace.id }), undefined,
+        '替换 Session 后不能继续使用旧 Workspace Token');
+      assert.equal(await sessions.accessToken(first.account.id, { kind: 'personal', personalSpaceId: first.personalSpace.id }), 'replacement-secret',
+        '替换 Session 后个人 Access Token 必须更新');
+      assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id').where('id', '=', first.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id,
+        'personal-remote', '替换 Session 后个人远端 account id 必须更新');
       assert.equal((await app.request(`/api/accounts/${first.account.id}/session`, { method: 'PUT', headers, body: '{}' })).status, 404,
         'Session 更新只保留账号 PATCH 入口');
       const mismatchedEdit = await app.request(`/api/accounts/${first.account.id}`, {

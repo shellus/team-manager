@@ -147,8 +147,10 @@ export class AccountManagerService {
       observedEmail: session.user.email,
       observedPersonalAccountId: session.account.id
     });
+    await this.sessions.invalidateAccessTokens(accountId);
+    await this.db.updateTable('personal_spaces').set({ remote_account_id: session.account.id })
+      .where('id', '=', personal.id).executeTakeFirstOrThrow();
     await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId: personal.id }, session.accessToken);
-    await this.sessions.invalidateWorkspaceAccessTokens(accountId);
     return session;
   }
 

@@ -255,8 +255,10 @@ export class UnifiedAccountService {
       accountId, session, source, observedEmail: session.user.email,
       observedPersonalAccountId: session.account.id
     });
+    await this.sessions.invalidateAccessTokens(accountId);
+    await this.db.updateTable('personal_spaces').set({ remote_account_id: session.account.id })
+      .where('id', '=', personalSpaceId).executeTakeFirstOrThrow();
     await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId }, session.accessToken, { status: 'unknown' });
-    await this.sessions.invalidateWorkspaceAccessTokens(accountId);
   }
 }
 
