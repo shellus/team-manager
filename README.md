@@ -27,9 +27,9 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 ## 功能
 
 - 账号列表、单一分组、主套餐与运营条件筛选和账号详情；URL 保存筛选、Tab 和弹窗状态。
-- GAM 注册、纳管、Profile、住宅代理和支付自动化；账号、个人空间与 Workspace 业务状态由 Team Manager 直连 ChatGPT 刷新。
+- GAM 负责注册、纳管、Profile、住宅代理和浏览器 Checkout；账号、个人空间与 Workspace 业务状态及默认支付方式绑定由 Team Manager 直连上游处理。
 - Go、Plus、Pro 5x、Pro 20x 首次开通；已付费套餐间切换在上游合同验证完成前安全拒绝。
-- 个人空间与 Workspace 都支持绑定默认支付方式和取消续费；完整卡号/CVC 只转交 GAM，不写数据库或普通日志，取消续费直接请求 ChatGPT 并复读确认。
+- 个人空间与 Workspace 都支持绑定默认支付方式和取消续费；完整卡号/CVC 只进入当前 Team Manager 请求中的无追踪 Stripe Transport，不写数据库、普通日志或 HTTP trace，两个写操作都在返回前复读上游状态。
 - Business 创建新 Workspace，或升级账号当前可管理的既有 Workspace。
 - 账号详情内切换 Workspace；成员与邀请合并显示，账单集中呈现订阅、续费、金额、计费席位、支付方式和发票，并可校验和应用现有 Workspace 优惠码；凭证严格按 `Account × Workspace` 显示。
 - 客户联系方式、备注、价格和到期日合并显示在账号 Workspace 的成员与邀请列表；设置到期日即自动参与提醒，不设独立提醒开关。
@@ -59,7 +59,7 @@ PostgreSQL 是结构化业务数据的唯一事实源。应用启动只检查 mi
 - PostgreSQL、Kysely、`pg`；
 - HS256 JWT、scrypt 管理员密码；
 - curl_cffi sidecar 作为 ChatGPT Web 传输实现；
-- GAM 负责密码、浏览器身份、代理租约和支付自动化。
+- GAM 负责密码、浏览器身份、代理租约和浏览器 Checkout；Team Manager 负责普通 ChatGPT/Stripe HTTP 业务请求。
 
 ## 目录
 

@@ -3,7 +3,7 @@
 ## 账号
 
 - 无 Session：使用账号列表或详情的“编辑”弹窗粘贴 Session JSON，或关联 GAM 后使用“从 GAM 更新 Session”。
-- GAM 未关联：账号管理与支付操作会返回 409；通过 GAM 纳管或注册流程建立自动关联，界面不手工填写 GAM 引用。
+- GAM 未关联：注册、Profile、代理和浏览器 Checkout 会返回 409；通过 GAM 纳管或注册流程建立自动关联，界面不手工填写 GAM 引用。纯 HTTP 绑卡只在账号缺少可用代理时依赖 GAM 提供代理事实。
 - Profile/代理不可用：检查 GAM 健康、账号引用和运行环境 Token。
 - Session 邮箱不一致：系统拒绝导入，不能覆盖账号身份。
 
@@ -16,8 +16,8 @@
 ## 套餐与支付
 
 - `change_existing` 被拒绝：付费套餐间切换协议尚未验证，这是安全门禁。
-- 绑定支付失败：完整错误和现场在 GAM 与 HTTP trace 文件中；Team Manager 的结构化操作记录不持久化卡号和 CVC。
-- Business Checkout 或绑卡长时间未完成：查看账号“操作记录”和 GAM 对应操作。取消续费是 Team Manager 直连请求，失败时查看活动日志和对应 ChatGPT HTTP trace。
+- 绑定支付失败：接口同步返回 ChatGPT 或 Stripe 的安全错误；Stripe confirm 不写 HTTP trace，完整卡号和 CVC 不写数据库或普通日志。遇到 3DS、Radar 或结果未确认时停止提交，刷新账单后再判断，不通过操作面板恢复。
+- Business Checkout 长时间未完成：查看账号“操作记录”和 GAM 对应操作。绑卡和取消续费是 Team Manager 直连请求，失败时查看活动日志；只有不含完整卡片的 ChatGPT 请求进入 HTTP trace。
 
 ## 个人设置
 

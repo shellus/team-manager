@@ -45,6 +45,12 @@ import { ArtifactService, startArtifactCleanupScheduler } from './services/artif
 import { SettingsService } from './services/settingsService.js';
 import { TeamOrderService, startTeamOrderScheduler } from './services/teamOrderService.js';
 import { TeamCodeClient } from './teamCodeClient.js';
+import {
+  HttpPaymentMethodBinder,
+  NoTraceStripeTransport,
+  SubscriptionPaymentMethodService,
+  type PaymentMethodBinder
+} from './services/paymentMethodService.js';
 
 export interface UnifiedAppDeps {
   config: AppConfig;
@@ -52,12 +58,13 @@ export interface UnifiedAppDeps {
   artifactStore?: ArtifactStore;
   transport?: Transport;
   accountManager?: AccountManagerGateway;
+  paymentMethodBinder?: PaymentMethodBinder;
   startBackgroundTasks?: boolean;
 }
 
 export type UnifiedApp = Hono & { stopBackgroundTasks(): void };
 
-export async function buildUnifiedApp({ config, database, artifactStore, transport = createTransport(), accountManager: providedAccountManager, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
+export async function buildUnifiedApp({ config, database, artifactStore, transport = createTransport(), accountManager: providedAccountManager, paymentMethodBinder: providedPaymentMethodBinder, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
   const app = new Hono();
   const cipher = new SecretCipher(config.dataEncryptionKey, config.dataEncryptionKeyVersion);
   const artifactsStore = artifactStore ?? new ArtifactStore(config.artifactDir);
@@ -75,6 +82,21 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const personalSpaces = new PersonalSpaceService(database, sessions, operational, transport, accountManagement);
   const workspaceOperations = new WorkspaceOperationService(
     database, workspaces, sessions, operational, transport, artifactsStore, accountManagement
+  );
+  const paymentMethodBinder = providedPaymentMethodBinder ?? new HttpPaymentMethodBinder(
+    transport,
+    new NoTraceStripeTransport(),
+    config
+  );
+  const paymentMethods = new SubscriptionPaymentMethodService(
+    database,
+    sessions,
+    operational,
+    paymentMethodBinder,
+    accountManagement,
+    personalSpaces,
+    workspaceOperations,
+    config
   );
   const subscriptions = new SubscriptionService(database, accountManager, personalSpaces);
   const publicSeats = new PublicSeatService(database, workspaceOperations);
@@ -206,10 +228,10 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({})) as ResidentialProxyConfig;
     return wrap(c, () => accountManagement.setProxy(c.req.param('id'), body));
   });
-  api.get('/accounts/:id/payment-method-defaults', (c) => wrap(c, () => accountManagement.paymentMethodDefaults(c.req.param('id'))));
+  api.get('/accounts/:id/payment-method-defaults', (c) => wrap(c, () => paymentMethods.defaults(c.req.param('id'))));
   api.post('/accounts/:id/personal-space/payment-methods', async (c) => {
     const body = await c.req.json().catch(() => ({})) as AddSubscriptionPaymentMethodRequest;
-    return wrap(c, () => accountManagement.addPaymentMethod(c.req.param('id'), body));
+    return wrap(c, () => paymentMethods.addPersonal(c.req.param('id'), body));
   });
   api.post('/accounts/:id/personal-space/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { resources?: string[] };
@@ -301,13 +323,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({})) as AddSubscriptionPaymentMethodRequest & { executorAccountId?: string };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
     const { executorAccountId, ...input } = body;
-    return wrap(c, async () => {
-      const workspace = await workspaces.detailForAccount(c.req.param('id'), executorAccountId);
-      return accountManagement.addPaymentMethod(executorAccountId, input, {
-        workspaceId: workspace.id,
-        targetAccountId: workspace.externalId
-      });
-    });
+    return wrap(c, () => paymentMethods.addWorkspace(executorAccountId, c.req.param('id'), input));
   });
   api.post('/workspaces/:id/promotion/preview', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; promoCode?: string };

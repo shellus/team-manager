@@ -57,6 +57,7 @@ export class UnifiedProjectionRepository {
     const operations = ids.length === 0 ? [] : (await sql<any>`
       select distinct on (ao.account_id) ao.* from automation_operations ao
       where ao.account_id=any(${ids}::uuid[])
+        and ao.kind not in ('add_subscription_payment_method','add_personal_payment_method')
         and (ao.status<>'succeeded' or ao.updated_at>=now()-interval '10 minutes')
       order by ao.account_id,ao.updated_at desc,ao.created_at desc`.execute(this.db)).rows;
     const operationByAccount = new Map(operations.map((row) => [row.account_id as string, operationSummary(row)]));

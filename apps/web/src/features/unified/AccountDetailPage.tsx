@@ -270,12 +270,10 @@ export function AccountDetailPage() {
             onClose={() => setUrl("modal")}
             loadDefaults={() => unifiedApi.paymentMethodDefaults(account.id)}
             onSubmit={async (value) => {
-              let operation: AccountManagerOperationView | undefined;
               await run("payment", async () => {
-                operation = await unifiedApi.addPersonalSpacePaymentMethod(account.id, value);
+                await unifiedApi.addPersonalSpacePaymentMethod(account.id, value);
                 setUrl("modal");
               });
-              if (operation) showCreatedOperation(operation);
             }}
           />
           <OperationDrawer
@@ -603,7 +601,7 @@ function readableCode(value: unknown): string {
 }
 
 function operationTypeLabel(value: string): string {
-  return ({ register_account: "注册账号", change_personal_subscription: "个人套餐", cancel_personal_subscription_renewal: "取消续费", open_business_subscription: "Business 套餐", add_personal_payment_method: "绑定个人支付方式", add_subscription_payment_method: "绑定支付方式" } as Record<string, string>)[value] ?? readableCode(value);
+  return ({ register_account: "注册账号", change_personal_subscription: "个人套餐", cancel_personal_subscription_renewal: "取消续费", open_business_subscription: "Business 套餐" } as Record<string, string>)[value] ?? readableCode(value);
 }
 
 function AccountManagerErrors({ errors }: { errors: NonNullable<AccountManagerStateView['errors']> }) {

@@ -117,7 +117,7 @@ _Avoid_: 增加成员、个人套餐变更、Workspace 设置
 _Avoid_: 当前账号套餐、默认 Workspace、隐式支付账号
 
 **订阅支付方式绑定**:
-账号把一次性卡片输入交给 GPT Account Manager，为明确的订阅目标创建并设定默认支付方式。Team Manager 不保存完整卡片。
+Team Manager 使用一次性卡片输入，为明确的订阅目标创建并设定默认支付方式；请求同步返回成功或错误，不创建自动化操作。完整卡片只进入无原文追踪的 Stripe HTTP Transport。
 _Avoid_: 个人支付方式绑定、Workspace 账单卡、保存完整卡片
 
 **取消订阅续费**:

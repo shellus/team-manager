@@ -152,7 +152,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const historical=await db.insertInto('billing_snapshots').values({personal_space_id:first.personalSpace.id,workspace_id:null,payload:{invoices:{data:[{id:'historical-invoice',amount_due:9900,currency:'usd',status:'open',created:1781591356}]},payment_methods:{default_payment_method_id:'historical-pm',payment_methods:[{id:'historical-pm',card:{brand:'mastercard',last4:'4444',exp_month:11,exp_year:2031}}]},seat_type_counts:{seat_type_counts:{default:3,usage_based:4}}},observed_at:new Date('2026-08-14T00:00:00Z')}).returning('id').executeTakeFirstOrThrow();assert.equal((await db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id','=',historical.id).execute()).length,0);const historicalDetail=await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id});assert.equal(historicalDetail?.invoices[0].externalId,'historical-invoice');assert.equal(historicalDetail?.paymentMethods[0].last4,'4444');assert.equal(historicalDetail?.paymentMethods[0].isDefault,true);assert.equal((await billing.invoice({kind:'personal',personalSpaceId:first.personalSpace.id},'historical-invoice') as any)?.amount,9900);
 
       const sessions = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
-      await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'secret' }, source: 'test' });
+      await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'secret', sessionToken: 'session-token' }, source: 'test' });
       assert.equal((await sessions.currentSession(first.account.id) as any).accessToken, 'secret');
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'stale-workspace-token',{status:'valid'});
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),'stale-workspace-token');
@@ -161,7 +161,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await accounts.bindGamAccount(first.account.id, first.account.email);
       const renewalByAccount = new Map<string, boolean>();
       const paymentInputs: Array<Record<string, unknown>> = [];
-      let paymentOperationNumber = 0;
+      const boundPaymentTargets = new Set<string>();
       const completedOperations = new Set<string>();
 
       const app = await buildUnifiedApp({
@@ -173,9 +173,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             : operation(id),
           changePersonalSubscription: async () => operation('personal-operation'),
           openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId }),
-          addSubscriptionPaymentMethod: async(_accountId,input)=>{paymentInputs.push(input);paymentOperationNumber+=1;return operation(`payment-operation-${paymentOperationNumber}`);},
-          paymentMethodDefaults: async()=>({holderName:'Taylor Anderson',postalCode:'97210',region:'US-OR'}),
+          accountHttpProxy: async()=>({proxy:'http://proxy.example:8080'}),
           startRegistration:async()=>operation('registration-operation')
+        },
+        paymentMethodBinder: {
+          add: async (input) => {
+            paymentInputs.push(input as unknown as Record<string, unknown>);
+            boundPaymentTargets.add(input.targetAccountId);
+            return { targetAccountId: input.targetAccountId, paymentMethods: [{ id: `pm-${input.targetAccountId}`, brand: 'visa', last4: '4242', isDefault: true }] };
+          }
         },
         transport: {
           fetch: async (request) => {
@@ -199,7 +205,13 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             }
             if (request.path.startsWith('/backend-api/invoices/upcoming?')) return { status: 404, body: '{}' };
             if (request.path.startsWith('/backend-api/invoices?')) return { status: 200, body: JSON.stringify({ data: [] }) };
-            if (request.path.startsWith('/backend-api/payments/payment_methods?')) return { status: 200, body: JSON.stringify({ payment_methods: [] }) };
+            if (request.path.startsWith('/backend-api/payments/payment_methods?')) {
+              const target = new URL(request.path, 'https://chatgpt.com').searchParams.get('account_id') ?? '';
+              return { status: 200, body: JSON.stringify(boundPaymentTargets.has(target) ? {
+                default_payment_method_id: `pm-${target}`,
+                payment_methods: [{ id: `pm-${target}`, card: { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 } }]
+              } : { payment_methods: [] }) };
+            }
             if (request.path.startsWith('/backend-api/payments/billing_info?')) return { status: 200, body: '{}' };
             if (request.path.endsWith('/users/seat_type_counts')) return { status: 200, body: '{}' };
             if (!request.path.startsWith('/backend-api/accounts/check/')) throw new Error(`unexpected direct ChatGPT request: ${request.path}`);
@@ -493,7 +505,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await sessionResponse.json() as any).data.accessToken, 'secret');
       const editAccount = await app.request(`/api/accounts/${first.account.id}`, {
         method: 'PATCH', headers,
-        body: JSON.stringify({ remark: 'Edited with session', session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret' } })
+        body: JSON.stringify({ remark: 'Edited with session', session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret', sessionToken: 'replacement-session-token' } })
       });
       assert.equal(editAccount.status, 200, await editAccount.clone().text());
       const replacedSession = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
@@ -560,11 +572,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'workspace-cancel-token',{status:'valid'});
       const workspaceCancel=await app.request(`/api/workspaces/${workspace.id}/subscription/cancel-renewal`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id})});assert.equal(workspaceCancel.status,200,await workspaceCancel.clone().text());assert.equal((await workspaceCancel.json() as any).data.willRenew,false);
       const paymentRequest={holderName:'Taylor Anderson',postalCode:'97210',card:{number:'4242424242424242',expiryMonth:12,expiryYear:2030,cvc:'123'}};
-      const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods`,{method:'POST',headers,body:JSON.stringify(paymentRequest)});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());const paymentOperationId=(await paymentMethod.json() as any).data.id;assert.match(paymentOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);
-      completedOperations.add('payment-operation-1');assert.equal((await app.request(`/api/operations/${paymentOperationId}`,{headers})).status,200);assert.ok((await db.selectFrom('automation_operations').select('converged_at').where('id','=',paymentOperationId).executeTakeFirstOrThrow()).converged_at,'个人绑卡成功后通过直连账单刷新收敛');
-      const workspacePayment=await app.request(`/api/workspaces/${workspace.id}/payment-methods`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id,...paymentRequest})});assert.equal(workspacePayment.status,200,await workspacePayment.clone().text());const workspacePaymentOperationId=(await workspacePayment.json() as any).data.id;
-      completedOperations.add('payment-operation-2');assert.equal((await app.request(`/api/operations/${workspacePaymentOperationId}`,{headers})).status,200);assert.ok((await db.selectFrom('automation_operations').select('converged_at').where('id','=',workspacePaymentOperationId).executeTakeFirstOrThrow()).converged_at,'Workspace 绑卡成功后通过目标 Workspace 账单刷新收敛');
-      assert.equal(paymentInputs[0]?.targetAccountId,undefined,'个人绑卡不隐式选择 Workspace');assert.equal(paymentInputs[1]?.targetAccountId,workspace.external_id,'Workspace 绑卡显式转发远端 Account ID');
+      const paymentOperationCountBefore=Number((await db.selectFrom('automation_operations').select(({fn})=>fn.countAll().as('count')).executeTakeFirstOrThrow()).count);
+      const paymentDefaults=await app.request(`/api/accounts/${first.account.id}/payment-method-defaults`,{headers});assert.equal(paymentDefaults.status,200);assert.equal((await paymentDefaults.json() as any).data.region,'US-OR');
+      const paymentMethod=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods`,{method:'POST',headers,body:JSON.stringify(paymentRequest)});assert.equal(paymentMethod.status,200,await paymentMethod.clone().text());assert.equal((await paymentMethod.json() as any).data.targetAccountId,'personal-remote');
+      const workspacePayment=await app.request(`/api/workspaces/${workspace.id}/payment-methods`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id,...paymentRequest})});assert.equal(workspacePayment.status,200,await workspacePayment.clone().text());assert.equal((await workspacePayment.json() as any).data.targetAccountId,workspace.external_id);
+      const paymentOperationCountAfter=Number((await db.selectFrom('automation_operations').select(({fn})=>fn.countAll().as('count')).executeTakeFirstOrThrow()).count);assert.equal(paymentOperationCountAfter,paymentOperationCountBefore,'绑卡不创建自动化操作记录');
+      assert.equal((paymentInputs[0] as any)?.targetAccountId,'personal-remote','个人绑卡显式使用 Personal Account ID');assert.equal((paymentInputs[1] as any)?.targetAccountId,workspace.external_id,'Workspace 绑卡显式使用远端 Account ID');
+      assert.equal((await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id}))?.paymentMethods[0]?.last4,'4242','个人绑卡返回前刷新账单快照');
+      assert.equal((await billing.detail({kind:'workspace',workspaceId:workspace.id}))?.paymentMethods[0]?.last4,'4242','Workspace 绑卡返回前刷新账单快照');
+      const paymentActivities=await db.selectFrom('account_activity_logs').select(['kind','payload']).where('account_id','=',first.account.id).where('kind','=','subscription_payment_method_added').execute();assert.equal(paymentActivities.length,2);assert.equal(JSON.stringify(paymentActivities).includes('4242424242424242'),false);assert.equal(JSON.stringify(paymentActivities).includes('"cvc"'),false);
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
       const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
       await accounts.update(first.account.id,{remark:'Visible Operator',isBanned:false});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);

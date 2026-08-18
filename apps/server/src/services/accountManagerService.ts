@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type {
   AccountManagerStateView,
-  AddSubscriptionPaymentMethodRequest,
   RegisterAccountRequest,
   ResidentialProxyConfig
 } from '@team-manager/shared';
@@ -12,14 +11,12 @@ import { AccountRepository } from '../repositories/accountRepository.js';
 import { AutomationOperationRepository } from '../repositories/automationOperationRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { ServiceError } from '../serviceError.js';
-import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 
 export class AccountManagerService {
   readonly #accounts: AccountRepository;
   readonly #operations: AutomationOperationRepository;
-  readonly #workspaces: WorkspaceRepository;
   readonly #activity: ActivityLogRepository;
 
   constructor(
@@ -30,7 +27,6 @@ export class AccountManagerService {
   ) {
     this.#accounts = new AccountRepository(db);
     this.#operations = new AutomationOperationRepository(db);
-    this.#workspaces = new WorkspaceRepository(db);
     this.#activity = new ActivityLogRepository(db);
   }
 
@@ -106,11 +102,6 @@ export class AccountManagerService {
     return this.#operations.view(operationId);
   }
 
-  async paymentMethodDefaults(accountId: string) {
-    const manager = this.require('paymentMethodDefaults');
-    return manager.paymentMethodDefaults!(await this.accountRef(accountId));
-  }
-
   async registrationProxy(operationId: string) {
     const operation = await this.registrationOperation(operationId);
     const manager = this.require('operationProxyConfig');
@@ -159,44 +150,6 @@ export class AccountManagerService {
     await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId: personal.id }, session.accessToken);
     await this.sessions.invalidateWorkspaceAccessTokens(accountId);
     return session;
-  }
-
-  async addPaymentMethod(
-    accountId: string,
-    input: AddSubscriptionPaymentMethodRequest,
-    target?: { workspaceId: string; targetAccountId: string }
-  ) {
-    validatePaymentMethod(input);
-    const manager = this.require('addSubscriptionPaymentMethod');
-    if (target) {
-      await this.#workspaces.requireManageableBy(target.workspaceId, accountId);
-      const workspace = await this.#workspaces.findById(target.workspaceId);
-      if (!workspace || workspace.external_id !== target.targetAccountId) throw new ServiceError(404, 'Workspace 不存在');
-    }
-    const operationId = await this.#operations.start({
-      accountId,
-      ...(target ? { workspaceId: target.workspaceId } : {}),
-      kind: 'add_subscription_payment_method',
-      idempotencyKey: randomUUID(),
-      safeRequestSummary: {
-        target: target ? 'workspace' : 'personal',
-        ...(target ? { workspaceId: target.workspaceId } : {}),
-        cardLast4: input.card.number.slice(-4)
-      }
-    });
-    const operation = await manager.addSubscriptionPaymentMethod!(await this.accountRef(accountId), {
-      ...input,
-      ...(target ? { targetAccountId: target.targetAccountId } : {}),
-      requestTag: `team-manager:${operationId}`
-    });
-    await this.#operations.attach(operationId, operation);
-    await this.#activity.log({
-      accountId,
-      workspaceId: target?.workspaceId ?? null,
-      kind: 'subscription_payment_method_add_requested',
-      payload: { operationId, target: target ? 'workspace' : 'personal', cardLast4: input.card.number.slice(-4) }
-    });
-    return this.#operations.view(operationId);
   }
 
   async ensureHttpProxy(accountId: string): Promise<string | undefined> {
@@ -316,17 +269,6 @@ function validateProxy(input: ResidentialProxyConfig) {
 }
 function normalizedProxy(input: ResidentialProxyConfig): ResidentialProxyConfig {
   return { ...input, country: input.country.toUpperCase() };
-}
-
-function validatePaymentMethod(input: AddSubscriptionPaymentMethodRequest): void {
-  if (!input.holderName?.trim() || input.holderName.trim().length > 200) throw new ServiceError(400, '持卡人姓名无效');
-  if (!input.postalCode?.trim() || input.postalCode.trim().length > 32) throw new ServiceError(400, '账单邮编无效');
-  const number = input.card?.number?.replaceAll(' ', '') ?? '';
-  if (!/^\d{12,19}$/.test(number)) throw new ServiceError(400, '卡号格式无效');
-  if (input.card.expiryMonth < 1 || input.card.expiryMonth > 12 || input.card.expiryYear < new Date().getUTCFullYear()) {
-    throw new ServiceError(400, '卡片有效期无效');
-  }
-  if (!/^\d{3,4}$/.test(input.card.cvc)) throw new ServiceError(400, 'CVC 格式无效');
 }
 
 function mergeOperations(local: AccountManagerStateView['operations'], remote: AccountManagerStateView['operations']) {

@@ -568,8 +568,8 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
       onClose={() => setParams({ modal: undefined })}
       onSubmit={async (value) => {
         await run("workspace-payment", async () => {
-          const operation = await unifiedApi.addWorkspacePaymentMethod(workspace.id, accountId, value);
-          setParams({ modal: undefined, operationId: operation.id });
+          await unifiedApi.addWorkspacePaymentMethod(workspace.id, accountId, value);
+          setParams({ modal: undefined });
         });
       }}
     />

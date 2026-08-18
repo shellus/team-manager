@@ -583,6 +583,11 @@ export interface AddSubscriptionPaymentMethodRequest {
   card: PaymentCardInput;
 }
 
+export interface SubscriptionPaymentMethodBindingResult {
+  targetAccountId: string;
+  paymentMethods: PersonalPaymentMethodView[];
+}
+
 export interface WorkspaceSummaryView {
   id: string;
   externalId: string;

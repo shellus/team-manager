@@ -119,10 +119,6 @@ export class OperationService {
       else await this.workspaceOperations?.refreshManageableBillingForAccount(accountId);
       return;
     }
-    if (['add_subscription_payment_method', 'add_personal_payment_method'].includes(row.kind)) {
-      if (row.workspace_id) await this.workspaceOperations?.refreshBilling(row.workspace_id, accountId);
-      else await this.personalSpaces?.refresh(accountId, ['billing']);
-    }
   }
 
   private async localView(id: string) {

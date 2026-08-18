@@ -2,11 +2,9 @@ import type {
   AccountManagerOperationStatus,
   AccountManagerOperationView,
   AccountManagerProfileView,
-  AddSubscriptionPaymentMethodRequest,
   ChangePersonalSubscriptionRequest,
   ChatGptSessionInput,
   OpenBusinessSubscriptionRequest,
-  PaymentMethodDefaults,
   ResidentialProxyConfig,
   OperationControl,
   PaymentCardInput
@@ -56,11 +54,6 @@ export interface AccountManagerGateway {
     accountId: string,
     input: OpenBusinessSubscriptionRequest & { requestTag?: string }
   ): Promise<AccountManagerOperationView>;
-  addSubscriptionPaymentMethod?(
-    accountId: string,
-    input: AddSubscriptionPaymentMethodRequest & { targetAccountId?: string; requestTag?: string }
-  ): Promise<AccountManagerOperationView>;
-  paymentMethodDefaults?(accountId: string): Promise<PaymentMethodDefaults>;
 }
 
 interface RawOperation extends Omit<AccountManagerOperationView, 'status' | 'requestSummary' | 'result'> {
@@ -154,16 +147,6 @@ export class AccountManagerClient implements AccountManagerGateway {
     return toOperation(await this.request(
       'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/open-business-subscription`, input
     ));
-  }
-
-  async addSubscriptionPaymentMethod(accountId: string, input: AddSubscriptionPaymentMethodRequest & { targetAccountId?: string; requestTag?: string }) {
-    return toOperation(await this.request(
-      'POST', `/v1/accounts/${encodeURIComponent(accountId)}/operations/add-subscription-payment-method`, input
-    ));
-  }
-
-  paymentMethodDefaults(accountId: string): Promise<PaymentMethodDefaults> {
-    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/payment-method-defaults`);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

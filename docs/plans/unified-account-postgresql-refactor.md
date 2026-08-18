@@ -51,7 +51,7 @@ PostgreSQL 成为结构化业务数据的事实源。完整上游 HTTP trace、r
 - 不保留旧 URL 重定向或旧 API 适配器。
 - 不使用 ORM 自动同步 Schema，不在应用启动时猜测或改写表结构。
 - 不把完整卡号、CVC 或 GAM 浏览器现场复制进 Team Manager。
-- 不合并 GAM 与 Team Manager；GAM 继续负责账号密码、浏览器身份、代理和支付自动化。
+- 不合并 GAM 与 Team Manager；GAM 继续负责账号密码、浏览器身份、代理和浏览器 Checkout，Team Manager 负责普通 ChatGPT/Stripe HTTP 业务请求。
 
 ## 技术基线
 
@@ -70,7 +70,7 @@ PostgreSQL 成为结构化业务数据的事实源。完整上游 HTTP trace、r
 - Session、Cookie、Access Token 及敏感设置在应用层加密后写入数据库。
 - 加密密钥和版本只存在于运行环境，不进入 Git；表中保存算法、密钥版本、nonce、认证标签和密文。
 - OAuth/PAT 凭证正文只存在于权限为 `0600` 的 JSON 文件，数据库不得保存凭证正文或可还原正文的副本。
-- 完整支付卡数据只在当前请求内转交 GAM，不写 Team Manager 数据库、普通日志或任务摘要。
+- 完整支付卡数据只进入当前 Team Manager 请求中的无原文追踪 Stripe Transport，不写数据库、普通日志、HTTP trace 或任务摘要。
 - PostgreSQL、对应加密密钥和文件制品目录必须按同一恢复点备份并完成联合恢复验证。
 
 ### 数据库与文件制品的边界
@@ -420,7 +420,7 @@ GAM 当前 Pro 5x 专用合同必须泛化：
 - Pro5x 专用任务阶段、错误码和支付统计 → 带 `targetPlan` 的个人套餐任务；
 - Pro5x 专用订阅 Store → 通用个人订阅 Store。
 
-Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持支付秘密、浏览器现场和代理租约的事实源；Team Manager 只保存命令、外部操作关联、安全摘要和最终订阅投影。
+Team Manager 与 GAM 分别在各自 Git 边界提交。GAM 保持浏览器 Checkout 现场和代理租约的事实源；Team Manager 直接执行普通支付方式 HTTP 绑定，只保存安全活动摘要和最终订阅投影。
 
 ## 一次性迁移规则
 

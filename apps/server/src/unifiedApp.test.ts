@@ -24,7 +24,7 @@ test('GAM 个人套餐请求完整转发四档套餐与管理员提交的卡数�
 
 test('统一账号 GAM 网关不再暴露旧套餐和角色专用方法', () => {
   const keys: Array<keyof AccountManagerGateway> = [
-    'changePersonalSubscription', 'openBusinessSubscription', 'addSubscriptionPaymentMethod',
+    'changePersonalSubscription', 'openBusinessSubscription',
     'startRegistration', 'startAccountProfile', 'configureAccountProxy', 'session'
   ];
   assert.equal(keys.includes('changePersonalSubscription'), true);
@@ -45,24 +45,6 @@ test('GAM 操作补卡 PUT 按契约发送 card 字段', async () => {
   assert.deepEqual(JSON.parse(requestBody), {
     card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' }
   });
-});
-
-test('GAM 订阅支付方式绑定完整转发目标 Account 和账单资料', async () => {
-  let request: { path: string; body: Record<string, unknown> } | undefined;
-  const client = new AccountManagerClient('http://gam.test', 'token', async (input, init) => {
-    request = { path: new URL(String(input)).pathname, body: JSON.parse(String(init?.body)) };
-    return new Response(JSON.stringify({ ok: true, data: {
-      id: 'payment-operation', type: 'add_subscription_payment_method', status: 'queued', phase: 'queued', progress: 0,
-      createdAt: 1, updatedAt: 1
-    } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  });
-  await client.addSubscriptionPaymentMethod('account@example.com', {
-    holderName: 'Taylor Anderson', postalCode: '97210', targetAccountId: 'workspace-account',
-    card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' }
-  });
-  assert.equal(request?.path, '/v1/accounts/account%40example.com/operations/add-subscription-payment-method');
-  assert.equal(request?.body.targetAccountId, 'workspace-account');
-  assert.equal(request?.body.holderName, 'Taylor Anderson');
 });
 
 test('GAM existing_session 纳管和注册任务代理使用既有上游契约', async () => {
@@ -88,18 +70,6 @@ test('GAM existing_session 纳管和注册任务代理使用既有上游契约',
     ['GET', '/v1/operations/operation/proxy'],
     ['PUT', '/v1/operations/operation/proxy'],
   ]);
-});
-
-test('GAM 默认支付资料使用订阅支付方式接口', async () => {
-  let path = '';
-  const client = new AccountManagerClient('http://gam.test', 'token', async (input) => {
-    path = new URL(String(input)).pathname;
-    return new Response(JSON.stringify({ ok: true, data: { holderName: 'Taylor Anderson', postalCode: '97210', region: 'US-OR' } }), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    });
-  });
-  assert.deepEqual(await client.paymentMethodDefaults('account@example.com'), { holderName: 'Taylor Anderson', postalCode: '97210', region: 'US-OR' });
-  assert.equal(path, '/v1/accounts/account%40example.com/payment-method-defaults');
 });
 
 test('解析 Codex 五小时与七天额度窗口', () => {

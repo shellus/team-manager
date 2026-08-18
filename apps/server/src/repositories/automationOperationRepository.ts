@@ -56,7 +56,9 @@ export class AutomationOperationRepository {
 
   async listForAccount(accountId: string): Promise<AccountManagerOperationView[]> {
     const rows = await this.db.selectFrom('automation_operations').selectAll()
-      .where('account_id', '=', accountId).orderBy('created_at', 'desc').execute();
+      .where('account_id', '=', accountId)
+      .where('kind', 'not in', ['add_subscription_payment_method', 'add_personal_payment_method'])
+      .orderBy('created_at', 'desc').execute();
     return rows.map((row) => ({
       id: row.id,
       accountId,

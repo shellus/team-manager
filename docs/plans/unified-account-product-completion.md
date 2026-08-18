@@ -52,7 +52,7 @@
 - [x] A1. GAM 的 Go、Plus、Pro 5x、Pro 20x 首次开通共用通用命名、状态和测试；只有 Pro 5x 促销策略保留套餐特例。
 - [x] A2. Go、Plus、Pro 5x、Pro 20x 取消续费均按实时个人订阅执行，同套餐重复取消幂等成功。
 - [x] A3. Team Manager 发起操作前实时同步个人订阅并校验 `start_new`、`change_existing` 和同套餐幂等。
-- [x] A4. 套餐、支付和 Business 浏览器操作保留 GAM 阶段事件；操作成功后由 Team Manager 定向刷新目标个人空间或 Workspace。
+- [x] A4. 套餐开通和 Business Checkout 保留 GAM 阶段事件；默认支付方式绑定改为 Team Manager 同步 HTTP 请求并在返回前定向刷新目标个人空间或 Workspace。
 - [x] A5. 操作支持重试当前步骤、轮换 IP、终止、补卡、清理；注册任务使用同一操作控制面。
 - [x] A6. Business 页面支持创建新 Workspace 和升级既有 Workspace，支持保存支付方式、新卡、自动提交及人工接管。
 - [x] A7. Team Manager 使用 ChatGPT 直连请求把新建/升级 Workspace、Membership、个人订阅和支付方式收敛到 PostgreSQL。

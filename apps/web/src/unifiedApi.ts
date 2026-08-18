@@ -19,6 +19,7 @@ import type {
   SaveNotificationPolicyRequest,
   OpenBusinessSubscriptionRequest,
   SubscriptionDetailView,
+  SubscriptionPaymentMethodBindingResult,
   OperationControl,
   OperationDetailView,
   PersonalSpaceDetailView,
@@ -138,7 +139,7 @@ export const unifiedApi = {
   updatePersonalSettings: (id: string, body: Record<string, unknown>) => request<PersonalSpaceDetailView>('PATCH', `/accounts/${id}/personal-space/settings`, body),
   refreshPersonalSpace: (id: string, resource?: string) => request<PersonalSpaceDetailView>('POST', `/accounts/${id}/personal-space/refresh`, resource ? { resources: [resource] } : {}),
   accountActivity: (id: string) => request<AccountActivityView[]>('GET', `/accounts/${id}/personal-space/activity`),
-  addPersonalSpacePaymentMethod: (id: string, body: AddSubscriptionPaymentMethodRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-space/payment-methods`, body),
+  addPersonalSpacePaymentMethod: (id: string, body: AddSubscriptionPaymentMethodRequest) => request<SubscriptionPaymentMethodBindingResult>('POST', `/accounts/${id}/personal-space/payment-methods`, body),
   registerAccount: (body: RegisterAccountRequest) => request<AccountManagerOperationView>('POST', '/operations/registrations', body),
   registration: (id: string) => request<{ operation: AccountManagerOperationView; accountId?: string }>('GET', `/operations/registrations/${id}`),
   registrationProxy: (id: string) => request<ResidentialProxyConfig>('GET', `/operations/registrations/${id}/proxy`),
@@ -170,7 +171,7 @@ export const unifiedApi = {
   cancelWorkspaceRenewal: (id: string, executorAccountId: string) =>
     request<SubscriptionDetailView>('POST', `/workspaces/${id}/subscription/cancel-renewal`, { executorAccountId }),
   addWorkspacePaymentMethod: (id: string, executorAccountId: string, body: AddSubscriptionPaymentMethodRequest) =>
-    request<AccountManagerOperationView>('POST', `/workspaces/${id}/payment-methods`, { executorAccountId, ...body }),
+    request<SubscriptionPaymentMethodBindingResult>('POST', `/workspaces/${id}/payment-methods`, { executorAccountId, ...body }),
   previewWorkspacePromotion: (id: string, executorAccountId: string, promoCode: string) =>
     request<WorkspacePromotionPreviewView>('POST', `/workspaces/${id}/promotion/preview`, { executorAccountId, promoCode }),
   applyWorkspacePromotion: (id: string, executorAccountId: string, promoCode: string, acknowledgeRenewal: boolean) =>

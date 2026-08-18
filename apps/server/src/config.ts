@@ -24,6 +24,12 @@ export interface AppConfig {
   accountManagerToken?: string;
   teamCodeBaseUrl?: string;
   teamCodePasscode?: string;
+  stripePublishableKeys?: string[];
+  stripePaymentUserAgent?: string;
+  stripeWalletConfigId?: string;
+  paymentHttpProxyHost?: string;
+  paymentBillingPostalCode?: string;
+  paymentBillingRegion?: string;
 }
 
 export function loadConfig(): AppConfig {
@@ -45,9 +51,15 @@ export function loadConfig(): AppConfig {
     allowedOrigins: parseAllowedOrigins(nonEmptyEnv('TEAMMGR_ALLOWED_ORIGINS')),
     webDistDir: resolve(nonEmptyEnv('TEAMMGR_WEB_DIST_DIR') ?? '../web/dist'),
     accountManagerBaseUrl: nonEmptyEnv('TEAMMGR_ACCOUNT_MANAGER_BASE_URL'),
-    accountManagerToken: nonEmptyEnv('TEAMMGR_ACCOUNT_MANAGER_TOKEN')
-    ,teamCodeBaseUrl: nonEmptyEnv('TEAMMGR_TEAMCODE_BASE_URL')
-    ,teamCodePasscode: nonEmptyEnv('TEAMMGR_TEAMCODE_PASSCODE')
+    accountManagerToken: nonEmptyEnv('TEAMMGR_ACCOUNT_MANAGER_TOKEN'),
+    teamCodeBaseUrl: nonEmptyEnv('TEAMMGR_TEAMCODE_BASE_URL'),
+    teamCodePasscode: nonEmptyEnv('TEAMMGR_TEAMCODE_PASSCODE'),
+    stripePublishableKeys: parseCsv(nonEmptyEnv('TEAMMGR_STRIPE_PUBLISHABLE_KEYS')),
+    stripePaymentUserAgent: nonEmptyEnv('TEAMMGR_STRIPE_PAYMENT_USER_AGENT'),
+    stripeWalletConfigId: nonEmptyEnv('TEAMMGR_STRIPE_WALLET_CONFIG_ID'),
+    paymentHttpProxyHost: nonEmptyEnv('TEAMMGR_PAYMENT_HTTP_PROXY_HOST'),
+    paymentBillingPostalCode: nonEmptyEnv('TEAMMGR_PAYMENT_BILLING_POSTAL_CODE'),
+    paymentBillingRegion: nonEmptyEnv('TEAMMGR_PAYMENT_BILLING_REGION')
   };
 }
 
@@ -63,4 +75,9 @@ export function parseAllowedOrigins(raw: string | undefined): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function parseCsv(raw: string | undefined): string[] | undefined {
+  const values = raw?.split(',').map((value) => value.trim()).filter(Boolean);
+  return values?.length ? values : undefined;
 }
