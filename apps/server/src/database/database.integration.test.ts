@@ -161,7 +161,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await accounts.bindGamAccount(first.account.id, first.account.email);
       const renewalByAccount = new Map<string, boolean>();
       const paymentInputs: Array<Record<string, unknown>> = [];
-      const boundPaymentTargets = new Set<string>();
+      const paymentMethodsByTarget = new Map<string, Array<{
+        id: string; brand: string; last4: string; isDefault: boolean;
+      }>>();
       const completedOperations = new Set<string>();
 
       const app = await buildUnifiedApp({
@@ -179,8 +181,24 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         paymentMethodBinder: {
           add: async (input) => {
             paymentInputs.push(input as unknown as Record<string, unknown>);
-            boundPaymentTargets.add(input.targetAccountId);
-            return { targetAccountId: input.targetAccountId, paymentMethods: [{ id: `pm-${input.targetAccountId}`, brand: 'visa', last4: '4242', isDefault: true }] };
+            const paymentMethods = [
+              { id: `pm-${input.targetAccountId}`, brand: 'visa', last4: '4242', isDefault: true },
+              { id: `pm-alt-${input.targetAccountId}`, brand: 'mastercard', last4: '4444', isDefault: false }
+            ];
+            paymentMethodsByTarget.set(input.targetAccountId, paymentMethods);
+            return { targetAccountId: input.targetAccountId, paymentMethods };
+          },
+          setDefault: async (input) => {
+            const paymentMethods = (paymentMethodsByTarget.get(input.targetAccountId) ?? [])
+              .map((item) => ({ ...item, isDefault: item.id === input.paymentMethodId }));
+            paymentMethodsByTarget.set(input.targetAccountId, paymentMethods);
+            return { targetAccountId: input.targetAccountId, paymentMethods };
+          },
+          remove: async (input) => {
+            const paymentMethods = (paymentMethodsByTarget.get(input.targetAccountId) ?? [])
+              .filter((item) => item.id !== input.paymentMethodId);
+            paymentMethodsByTarget.set(input.targetAccountId, paymentMethods);
+            return { targetAccountId: input.targetAccountId, paymentMethods };
           }
         },
         transport: {
@@ -207,10 +225,14 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             if (request.path.startsWith('/backend-api/invoices?')) return { status: 200, body: JSON.stringify({ data: [] }) };
             if (request.path.startsWith('/backend-api/payments/payment_methods?')) {
               const target = new URL(request.path, 'https://chatgpt.com').searchParams.get('account_id') ?? '';
-              return { status: 200, body: JSON.stringify(boundPaymentTargets.has(target) ? {
-                default_payment_method_id: `pm-${target}`,
-                payment_methods: [{ id: `pm-${target}`, card: { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 } }]
-              } : { payment_methods: [] }) };
+              const paymentMethods = paymentMethodsByTarget.get(target) ?? [];
+              return { status: 200, body: JSON.stringify({
+                default_payment_method_id: paymentMethods.find((item) => item.isDefault)?.id,
+                payment_methods: paymentMethods.map((item) => ({
+                  id: item.id,
+                  card: { brand: item.brand, last4: item.last4, exp_month: 12, exp_year: 2030 }
+                }))
+              }) };
             }
             if (request.path.startsWith('/backend-api/payments/billing_info?')) return { status: 200, body: '{}' };
             if (request.path.endsWith('/users/seat_type_counts')) return { status: 200, body: '{}' };
@@ -581,6 +603,17 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id}))?.paymentMethods[0]?.last4,'4242','个人绑卡返回前刷新账单快照');
       assert.equal((await billing.detail({kind:'workspace',workspaceId:workspace.id}))?.paymentMethods[0]?.last4,'4242','Workspace 绑卡返回前刷新账单快照');
       const paymentActivities=await db.selectFrom('account_activity_logs').select(['kind','payload']).where('account_id','=',first.account.id).where('kind','=','subscription_payment_method_added').execute();assert.equal(paymentActivities.length,2);assert.equal(JSON.stringify(paymentActivities).includes('4242424242424242'),false);assert.equal(JSON.stringify(paymentActivities).includes('"cvc"'),false);
+      const personalDefaultId='pm-alt-personal-remote';
+      const personalDefault=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods/${personalDefaultId}/default`,{method:'POST',headers});assert.equal(personalDefault.status,200,await personalDefault.clone().text());assert.equal((await personalDefault.json() as any).data.paymentMethods.find((item:any)=>item.id===personalDefaultId)?.isDefault,true);
+      const personalRemove=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods/pm-personal-remote`,{method:'DELETE',headers});assert.equal(personalRemove.status,200,await personalRemove.clone().text());assert.equal((await personalRemove.json() as any).data.paymentMethods.some((item:any)=>item.id==='pm-personal-remote'),false);
+      const workspaceDefaultId=`pm-alt-${workspace.external_id}`;
+      const workspaceDefault=await app.request(`/api/workspaces/${workspace.id}/payment-methods/${workspaceDefaultId}/default`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id})});assert.equal(workspaceDefault.status,200,await workspaceDefault.clone().text());assert.equal((await workspaceDefault.json() as any).data.paymentMethods.find((item:any)=>item.id===workspaceDefaultId)?.isDefault,true);
+      const workspacePrimaryId=`pm-${workspace.external_id}`;
+      const workspaceRemove=await app.request(`/api/workspaces/${workspace.id}/payment-methods/${workspacePrimaryId}`,{method:'DELETE',headers,body:JSON.stringify({executorAccountId:first.account.id})});assert.equal(workspaceRemove.status,200,await workspaceRemove.clone().text());assert.equal((await workspaceRemove.json() as any).data.paymentMethods.some((item:any)=>item.id===workspacePrimaryId),false);
+      assert.equal((await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id}))?.paymentMethods[0]?.id,personalDefaultId,'设置个人默认卡后返回前刷新账单快照');
+      assert.equal((await billing.detail({kind:'workspace',workspaceId:workspace.id}))?.paymentMethods[0]?.id,workspaceDefaultId,'移除 Workspace 卡片后返回前刷新账单快照');
+      const paymentMutationActivities=await db.selectFrom('account_activity_logs').select('kind').where('account_id','=',first.account.id).where('kind','in',['subscription_payment_method_defaulted','subscription_payment_method_removed']).execute();assert.equal(paymentMutationActivities.length,4);
+      const paymentOperationCountAfterMutations=Number((await db.selectFrom('automation_operations').select(({fn})=>fn.countAll().as('count')).executeTakeFirstOrThrow()).count);assert.equal(paymentOperationCountAfterMutations,paymentOperationCountBefore,'支付方式写操作不创建自动化操作记录');
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
       const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
       await accounts.update(first.account.id,{remark:'Visible Operator',isBanned:false});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);

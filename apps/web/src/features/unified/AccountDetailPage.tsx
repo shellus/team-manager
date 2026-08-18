@@ -42,7 +42,7 @@ import {
   primaryPlanLabel,
 } from "./accountActionsModel.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
-import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
+import { ActivityTimeline, BillingSummary, SubscriptionSummary, paymentMethodActionKey } from "../../components/OperationalDataPanels.js";
 import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
@@ -469,7 +469,17 @@ function PersonalPanel({
       <SubscriptionSummary value={subscriptionSnapshot} />
 
       <Typography.Title level={4}>账单与支付</Typography.Title>
-      <BillingSummary value={billing}/>
+      <BillingSummary value={billing} paymentMethodActions={{
+        busy,
+        onSetDefault: (paymentMethodId) => run(
+          paymentMethodActionKey('default', paymentMethodId),
+          () => unifiedApi.setPersonalSpaceDefaultPaymentMethod(account.id, paymentMethodId)
+        ),
+        onRemove: (paymentMethodId) => run(
+          paymentMethodActionKey('remove', paymentMethodId),
+          () => unifiedApi.removePersonalSpacePaymentMethod(account.id, paymentMethodId)
+        ),
+      }}/>
 
       <Typography.Title level={4}>额度窗口与额度项目</Typography.Title>
       <Table

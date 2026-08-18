@@ -28,7 +28,7 @@ import type {
   WorkspaceInvitationMutationInput,
 } from "@team-manager/shared";
 import { unifiedApi, type SeatSlotInput } from "../../unifiedApi.js";
-import { BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
+import { BillingSummary, SubscriptionSummary, paymentMethodActionKey } from "../../components/OperationalDataPanels.js";
 import { formatTime } from "../../components/ProductPrimitives.js";
 import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
@@ -552,7 +552,18 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
     <Typography.Title level={5}>订阅与续费</Typography.Title>
     <SubscriptionSummary value={subscription} />
     <Typography.Title level={5}>账单</Typography.Title>
-    <BillingSummary value={value} />
+    <BillingSummary value={value} paymentMethodActions={{
+      busy,
+      disabled: !canManage,
+      onSetDefault: (paymentMethodId) => run(
+        paymentMethodActionKey('default', paymentMethodId),
+        () => unifiedApi.setWorkspaceDefaultPaymentMethod(workspace.id, accountId, paymentMethodId)
+      ),
+      onRemove: (paymentMethodId) => run(
+        paymentMethodActionKey('remove', paymentMethodId),
+        () => unifiedApi.removeWorkspacePaymentMethod(workspace.id, accountId, paymentMethodId)
+      ),
+    }} />
     <WorkspacePromotionModal
       workspaceId={workspace.id}
       accountId={accountId}

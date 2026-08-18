@@ -233,6 +233,12 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({})) as AddSubscriptionPaymentMethodRequest;
     return wrap(c, () => paymentMethods.addPersonal(c.req.param('id'), body));
   });
+  api.post('/accounts/:id/personal-space/payment-methods/:paymentMethodId/default', (c) =>
+    wrap(c, () => paymentMethods.setPersonalDefault(c.req.param('id'), c.req.param('paymentMethodId')))
+  );
+  api.delete('/accounts/:id/personal-space/payment-methods/:paymentMethodId', (c) =>
+    wrap(c, () => paymentMethods.removePersonal(c.req.param('id'), c.req.param('paymentMethodId')))
+  );
   api.post('/accounts/:id/personal-space/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { resources?: string[] };
     return wrap(c, () => personalSpaces.refresh(c.req.param('id'), body.resources));
@@ -324,6 +330,22 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
     const { executorAccountId, ...input } = body;
     return wrap(c, () => paymentMethods.addWorkspace(executorAccountId, c.req.param('id'), input));
+  });
+  api.post('/workspaces/:id/payment-methods/:paymentMethodId/default', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
+    const executorAccountId = body.executorAccountId;
+    return wrap(c, () => paymentMethods.setWorkspaceDefault(
+      executorAccountId, c.req.param('id'), c.req.param('paymentMethodId')
+    ));
+  });
+  api.delete('/workspaces/:id/payment-methods/:paymentMethodId', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
+    const executorAccountId = body.executorAccountId;
+    return wrap(c, () => paymentMethods.removeWorkspace(
+      executorAccountId, c.req.param('id'), c.req.param('paymentMethodId')
+    ));
   });
   api.post('/workspaces/:id/promotion/preview', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; promoCode?: string };

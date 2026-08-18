@@ -34,9 +34,9 @@
 
 当前个人套餐以 `accounts/check` 中对应 `structure=personal` 的账号条目为准。`subscriptions` 返回的记录只提供续费、有效期和欠费等订阅生命周期事实；套餐取消并到期后该接口仍可能保留历史 `plan_type`，不得据此覆盖 `accounts/check` 已明确返回的 Free 或其他当前套餐。只有 `accounts/check` 未提供个人套餐时，才允许回退到订阅记录。
 
-完整卡号和 CVC 只在当前 Team Manager 请求内交给无原文追踪的 Stripe HTTP Transport；数据库、普通日志、HTTP trace 和自动化操作都不得保存完整卡片。系统只保存品牌、尾号、有效期、默认标记和安全活动摘要。支付方式绑定必须显式指定个人空间或 Workspace 作为订阅目标，不能从执行账号或当前页面状态隐式推断。
+完整卡号和 CVC 只在当前 Team Manager 请求内交给无原文追踪的 Stripe HTTP Transport；数据库、普通日志、HTTP trace 和自动化操作都不得保存完整卡片。系统只保存品牌、尾号、有效期、默认标记和安全活动摘要。绑定、设置默认和移除支付方式必须显式指定个人空间或 Workspace 作为订阅目标，不能从执行账号或当前页面状态隐式推断。
 
-个人空间和 Workspace 都可以绑定默认支付方式、取消自动续费。绑定支付方式由 Team Manager 使用目标 Session、账号稳定代理和 HTTP Transport 创建并确认 Stripe SetupIntent，并在同步响应前复读默认支付方式；该请求不创建自动化操作或浏览器 Profile，遇到 3DS、Radar 或其他交互要求时明确失败，不静默回退浏览器。取消续费由 Team Manager 使用目标访问上下文直接请求 ChatGPT，并实时复读 `will_renew=false`。取消续费不退款，当前权益保留到计费周期结束。
+个人空间和 Workspace 都可以绑定、设置默认和移除支付方式，并取消自动续费。绑定支付方式由 Team Manager 使用目标 Session、账号稳定代理和 HTTP Transport 创建并确认 Stripe SetupIntent；设置默认和移除卡片直接请求 ChatGPT 支付接口。所有支付方式写请求都在同步响应前复读最新列表，不创建自动化操作或浏览器 Profile；绑定遇到 3DS、Radar 或其他交互要求时明确失败，不静默回退浏览器。取消续费由 Team Manager 使用目标访问上下文直接请求 ChatGPT，并实时复读 `will_renew=false`。取消续费不退款，当前权益保留到计费周期结束。
 
 ## 账号运营主套餐
 

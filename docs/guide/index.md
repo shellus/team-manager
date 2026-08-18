@@ -27,7 +27,7 @@ Business 支持：
 
 ## 套餐与支付
 
-个人空间支持 Go、Plus、Pro 5x、Pro 20x。Free 账号可以首次开通；付费套餐间切换在上游协议验证完成前禁用。完整卡号/CVC 只发送给 GAM，不保存到 Team Manager。
+个人空间支持 Go、Plus、Pro 5x、Pro 20x。Free 账号可以首次开通；付费套餐间切换在上游协议验证完成前禁用。个人空间与 Workspace 都可以直接绑定、设置默认和移除支付方式；完整卡号/CVC 只在当前请求内发送给 Stripe，不保存到 Team Manager。
 
 ## Team 订单与设置
 

@@ -59,7 +59,7 @@ export function SubscriptionPaymentMethodModal({
       <Alert
         type="info"
         showIcon
-        message={`卡片将绑定到${targetLabel}，完整卡号和 CVC 只在本次请求中转交 GAM。`}
+        message={`卡片将绑定到${targetLabel}，完整卡号和 CVC 只在本次请求中发送给 Stripe。`}
       />
       {region && (
         <Descriptions
@@ -87,7 +87,7 @@ export function SubscriptionPaymentMethodModal({
             className="modal-error"
             type="warning"
             showIcon
-            message={`GAM 默认账单资料读取失败：${defaultsError}`}
+            message={`默认账单资料读取失败：${defaultsError}`}
           />
         )}
         <Button type="primary" htmlType="submit" loading={busy || defaultsLoading}>

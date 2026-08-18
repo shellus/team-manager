@@ -33,8 +33,17 @@ export interface PaymentMethodBinderInput {
   paymentMethod: AddSubscriptionPaymentMethodRequest;
 }
 
+export interface PaymentMethodMutationInput {
+  sessionToken: string;
+  targetAccountId: string;
+  proxy: string;
+  paymentMethodId: string;
+}
+
 export interface PaymentMethodBinder {
   add(input: PaymentMethodBinderInput): Promise<SubscriptionPaymentMethodBindingResult>;
+  setDefault(input: PaymentMethodMutationInput): Promise<SubscriptionPaymentMethodBindingResult>;
+  remove(input: PaymentMethodMutationInput): Promise<SubscriptionPaymentMethodBindingResult>;
 }
 
 export interface SensitiveStripeRequest {
@@ -91,13 +100,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
       throw new ServiceError(503, 'Stripe HTTP 绑定配置不完整');
     }
     const proxy = overrideProxyHost(input.proxy, this.config.paymentHttpProxyHost);
-    const accessToken = await fetchChatGptWebAccessTokenFromSessionToken(
-      this.chatGptTransport,
-      input.sessionToken,
-      input.targetAccountId,
-      input.proxy
-    );
-    const cookie = sessionCookieHeader(input.sessionToken, input.targetAccountId);
+    const { accessToken, cookie } = await this.targetContext(input);
     const clientSecret = await this.createSetupIntent(accessToken, input.targetAccountId, cookie, input.proxy);
     const publishableKey = await this.selectPublishableKey(clientSecret, publishableKeys, proxy);
     await this.confirmSetupIntent(clientSecret, publishableKey, paymentMethod, paymentUserAgent, proxy);
@@ -109,6 +112,51 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
       paymentMethod.card.number.slice(-4)
     );
     return { targetAccountId: input.targetAccountId, paymentMethods };
+  }
+
+  async setDefault(input: PaymentMethodMutationInput): Promise<SubscriptionPaymentMethodBindingResult> {
+    const paymentMethodId = validatePaymentMethodId(input.paymentMethodId);
+    const context = await this.targetContext(input);
+    const route = '/backend-api/payments/payment_method/default';
+    const response = await this.chatGptTransport.fetch({
+      method: 'POST', path: route, proxy: input.proxy,
+      headers: chatGptHeaders(context.accessToken, input.targetAccountId, route, context.cookie, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ account_id: input.targetAccountId, payment_method_id: paymentMethodId })
+    });
+    assertMutationSucceeded(response, '设置默认支付方式');
+    const paymentMethods = await this.waitForPaymentMethods(
+      context.accessToken, input.targetAccountId, context.cookie, input.proxy,
+      (items) => items.some((item) => item.id === paymentMethodId && item.isDefault),
+      '上游未复读到目标默认支付方式'
+    );
+    return { targetAccountId: input.targetAccountId, paymentMethods };
+  }
+
+  async remove(input: PaymentMethodMutationInput): Promise<SubscriptionPaymentMethodBindingResult> {
+    const paymentMethodId = validatePaymentMethodId(input.paymentMethodId);
+    const context = await this.targetContext(input);
+    const route = `/backend-api/payments/payment_method/${encodeURIComponent(paymentMethodId)}`;
+    const response = await this.chatGptTransport.fetch({
+      method: 'DELETE', path: `${route}?account_id=${encodeURIComponent(input.targetAccountId)}`, proxy: input.proxy,
+      headers: chatGptHeaders(
+        context.accessToken, input.targetAccountId, route, context.cookie, {},
+        '/backend-api/payments/payment_method/{payment_method_id}'
+      )
+    });
+    assertMutationSucceeded(response, '移除支付方式');
+    const paymentMethods = await this.waitForPaymentMethods(
+      context.accessToken, input.targetAccountId, context.cookie, input.proxy,
+      (items) => items.every((item) => item.id !== paymentMethodId),
+      '上游仍返回已移除的支付方式'
+    );
+    return { targetAccountId: input.targetAccountId, paymentMethods };
+  }
+
+  private async targetContext(input: Pick<PaymentMethodMutationInput, 'sessionToken' | 'targetAccountId' | 'proxy'>) {
+    const accessToken = await fetchChatGptWebAccessTokenFromSessionToken(
+      this.chatGptTransport, input.sessionToken, input.targetAccountId, input.proxy
+    );
+    return { accessToken, cookie: sessionCookieHeader(input.sessionToken, input.targetAccountId) };
   }
 
   private async createSetupIntent(accessToken: string, accountId: string, cookie: string, proxy: string) {
@@ -205,13 +253,28 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
     proxy: string,
     expectedLast4: string
   ) {
+    return this.waitForPaymentMethods(
+      accessToken, accountId, cookie, proxy,
+      (items) => items.some((item) => item.last4 === expectedLast4 && item.isDefault),
+      'Stripe 已确认，但 ChatGPT 未复读到目标默认支付方式'
+    );
+  }
+
+  private async waitForPaymentMethods(
+    accessToken: string,
+    accountId: string,
+    cookie: string,
+    proxy: string,
+    complete: (items: PersonalPaymentMethodView[]) => boolean,
+    failureMessage: string
+  ) {
     let latest: PersonalPaymentMethodView[] = [];
     for (const milliseconds of PAYMENT_METHOD_READ_DELAYS_MS) {
       if (milliseconds) await this.wait(milliseconds);
       latest = await this.readPaymentMethods(accessToken, accountId, cookie, proxy);
-      if (latest.some((item) => item.last4 === expectedLast4 && item.isDefault)) return latest;
+      if (complete(latest)) return latest;
     }
-    throw new ServiceError(502, 'Stripe 已确认，但 ChatGPT 未复读到目标默认支付方式');
+    throw new ServiceError(502, failureMessage);
   }
 
   private async readPaymentMethods(accessToken: string, accountId: string, cookie: string, proxy: string) {
@@ -259,12 +322,7 @@ export class SubscriptionPaymentMethodService {
   }
 
   async addPersonal(accountId: string, input: AddSubscriptionPaymentMethodRequest) {
-    const personal = await this.db.selectFrom('personal_spaces').select(['id', 'remote_account_id'])
-      .where('account_id', '=', accountId).executeTakeFirst();
-    if (!personal) throw new ServiceError(404, '账号不存在');
-    const session = await this.requireSession(accountId);
-    const targetAccountId = personal.remote_account_id ?? session.account?.id?.trim();
-    if (!targetAccountId) throw new ServiceError(409, '个人空间缺少远端 Account ID');
+    const { targetAccountId } = await this.personalTarget(accountId);
     const result = await this.bind(accountId, targetAccountId, input);
     await this.personalSpaces.refresh(accountId, ['billing']);
     await this.logSuccess(accountId, null, 'personal', input, result);
@@ -272,26 +330,96 @@ export class SubscriptionPaymentMethodService {
   }
 
   async addWorkspace(accountId: string, workspaceId: string, input: AddSubscriptionPaymentMethodRequest) {
-    await this.#workspaces.requireManageableBy(workspaceId, accountId);
-    const workspace = await this.#workspaces.findById(workspaceId);
-    if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
+    const workspace = await this.workspaceTarget(accountId, workspaceId);
     const result = await this.bind(accountId, workspace.external_id, input);
     await this.workspaceOperations.refreshBilling(workspace.id, accountId);
     await this.logSuccess(accountId, workspace.id, 'workspace', input, result);
     return result;
   }
 
+  async setPersonalDefault(accountId: string, paymentMethodId: string) {
+    const { targetAccountId } = await this.personalTarget(accountId);
+    const result = await this.mutate(accountId, targetAccountId, paymentMethodId, 'default');
+    await this.personalSpaces.refresh(accountId, ['billing']);
+    await this.logMutation(accountId, null, 'personal', 'default', paymentMethodId, result.targetAccountId);
+    return result;
+  }
+
+  async removePersonal(accountId: string, paymentMethodId: string) {
+    const { targetAccountId } = await this.personalTarget(accountId);
+    const result = await this.mutate(accountId, targetAccountId, paymentMethodId, 'remove');
+    await this.personalSpaces.refresh(accountId, ['billing']);
+    await this.logMutation(accountId, null, 'personal', 'remove', paymentMethodId, result.targetAccountId);
+    return result;
+  }
+
+  async setWorkspaceDefault(accountId: string, workspaceId: string, paymentMethodId: string) {
+    const workspace = await this.workspaceTarget(accountId, workspaceId);
+    const result = await this.mutate(accountId, workspace.external_id, paymentMethodId, 'default');
+    await this.workspaceOperations.refreshBilling(workspace.id, accountId);
+    await this.logMutation(accountId, workspace.id, 'workspace', 'default', paymentMethodId, result.targetAccountId);
+    return result;
+  }
+
+  async removeWorkspace(accountId: string, workspaceId: string, paymentMethodId: string) {
+    const workspace = await this.workspaceTarget(accountId, workspaceId);
+    const result = await this.mutate(accountId, workspace.external_id, paymentMethodId, 'remove');
+    await this.workspaceOperations.refreshBilling(workspace.id, accountId);
+    await this.logMutation(accountId, workspace.id, 'workspace', 'remove', paymentMethodId, result.targetAccountId);
+    return result;
+  }
+
+  private async personalTarget(accountId: string) {
+    const personal = await this.db.selectFrom('personal_spaces').select(['id', 'remote_account_id'])
+      .where('account_id', '=', accountId).executeTakeFirst();
+    if (!personal) throw new ServiceError(404, '账号不存在');
+    const session = await this.requireSession(accountId);
+    const targetAccountId = personal.remote_account_id ?? session.account?.id?.trim();
+    if (!targetAccountId) throw new ServiceError(409, '个人空间缺少远端 Account ID');
+    return { personalSpaceId: personal.id, targetAccountId };
+  }
+
+  private async workspaceTarget(accountId: string, workspaceId: string) {
+    await this.#workspaces.requireManageableBy(workspaceId, accountId);
+    const workspace = await this.#workspaces.findById(workspaceId);
+    if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
+    return workspace;
+  }
+
+  private async mutate(
+    accountId: string,
+    targetAccountId: string,
+    paymentMethodId: string,
+    action: 'default' | 'remove'
+  ) {
+    return this.withTarget(accountId, targetAccountId, async (sessionToken, proxy) => (
+      action === 'default'
+        ? this.binder.setDefault({ sessionToken, targetAccountId, proxy, paymentMethodId })
+        : this.binder.remove({ sessionToken, targetAccountId, proxy, paymentMethodId })
+    ));
+  }
+
   private async bind(accountId: string, targetAccountId: string, input: AddSubscriptionPaymentMethodRequest) {
     parsePaymentMethod(input);
+    return this.withTarget(accountId, targetAccountId, (sessionToken, proxy) => (
+      this.binder.add({ sessionToken, targetAccountId, proxy, paymentMethod: input })
+    ));
+  }
+
+  private async withTarget<T>(
+    accountId: string,
+    targetAccountId: string,
+    action: (sessionToken: string, proxy: string) => Promise<T>
+  ): Promise<T> {
     const key = `${accountId}:${targetAccountId}`;
-    if (this.#activeTargets.has(key)) throw new ServiceError(409, '该订阅目标已有支付方式绑定请求正在进行');
+    if (this.#activeTargets.has(key)) throw new ServiceError(409, '该订阅目标已有支付方式写入请求正在进行');
     this.#activeTargets.add(key);
     try {
       const session = await this.requireSession(accountId);
       const proxy = await this.operational.proxy(accountId)
         ?? await this.accountManagement.ensureHttpProxy(accountId);
       if (!proxy) throw new ServiceError(409, '账号没有可用的 HTTP 代理');
-      return await this.binder.add({ sessionToken: session.sessionToken!, targetAccountId, proxy, paymentMethod: input });
+      return await action(session.sessionToken!, proxy);
     } catch (error) {
       throw asServiceError(error);
     } finally {
@@ -324,6 +452,22 @@ export class SubscriptionPaymentMethodService {
         targetAccountId: result.targetAccountId,
         cardLast4: input.card.number.replaceAll(' ', '').slice(-4)
       }
+    });
+  }
+
+  private async logMutation(
+    accountId: string,
+    workspaceId: string | null,
+    target: 'personal' | 'workspace',
+    action: 'default' | 'remove',
+    paymentMethodId: string,
+    targetAccountId: string
+  ) {
+    await this.#activity.log({
+      accountId,
+      workspaceId,
+      kind: action === 'default' ? 'subscription_payment_method_defaulted' : 'subscription_payment_method_removed',
+      payload: { target, targetAccountId, paymentMethodId }
     });
   }
 }
@@ -378,11 +522,12 @@ function chatGptHeaders(
   accountId: string,
   route: string,
   cookie: string,
-  extra: Record<string, string> = {}
+  extra: Record<string, string> = {},
+  targetRoute = route
 ) {
   return browserHeaders({
     Accept: 'application/json', Cookie: cookie, Authorization: `Bearer ${accessToken}`,
-    'ChatGPT-Account-ID': accountId, 'x-openai-target-path': route, 'x-openai-target-route': route, ...extra
+    'ChatGPT-Account-ID': accountId, 'x-openai-target-path': route, 'x-openai-target-route': targetRoute, ...extra
   });
 }
 
@@ -410,6 +555,19 @@ function responseJson(response: Pick<HttpResponse, 'status' | 'body'>, action: s
     if (record(value)) return value as Record<string, unknown>;
   } catch {}
   throw new ServiceError(response.status >= 400 && response.status < 500 ? response.status : 502, `${action}返回非 JSON 响应: HTTP ${response.status}`);
+}
+
+function assertMutationSucceeded(response: Pick<HttpResponse, 'status' | 'body'>, action: string) {
+  const body = responseJson(response, action);
+  if (response.status < 200 || response.status >= 300 || body.success === false) {
+    throw new ServiceError(upstreamStatus(response.status), `${action}失败: HTTP ${response.status}`);
+  }
+}
+
+function validatePaymentMethodId(value: string) {
+  const paymentMethodId = String(value ?? '').trim();
+  if (!/^[A-Za-z0-9_-]{3,255}$/u.test(paymentMethodId)) throw new ServiceError(400, '支付方式 ID 无效');
+  return paymentMethodId;
 }
 
 function overrideProxyHost(proxy: string, hostOverride?: string) {

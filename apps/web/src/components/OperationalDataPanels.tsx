@@ -1,4 +1,5 @@
-import { Descriptions, Empty, Space, Table, Tag, Typography } from 'antd';
+import { CheckCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Button, Descriptions, Empty, Space, Table, Tag, Typography } from 'antd';
 import type { AccountActivityView, BillingDetailView, BillingInvoiceView, SubscriptionDetailView } from '@team-manager/shared';
 import { formatPaymentCardLast4, formatTime } from './ProductPrimitives.js';
 import { useUrlPagination } from './urlPagination.js';
@@ -18,8 +19,23 @@ export function SubscriptionSummary({ value }: { value?: SubscriptionDetailView 
   ]}/>;
 }
 
-export function BillingSummary({ value }: { value?: BillingDetailView }) {
+type PaymentMethodAction = 'default' | 'remove';
+
+export function paymentMethodActionKey(action: PaymentMethodAction, paymentMethodId: string) {
+  return `payment-method:${action}:${paymentMethodId}`;
+}
+
+export function BillingSummary({ value, paymentMethodActions }: {
+  value?: BillingDetailView;
+  paymentMethodActions?: {
+    busy: string;
+    disabled?: boolean;
+    onSetDefault: (paymentMethodId: string) => Promise<unknown>;
+    onRemove: (paymentMethodId: string) => Promise<unknown>;
+  };
+}) {
   if (!value) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无账单快照" />;
+  const actionDisabled = paymentMethodActions?.disabled || Boolean(paymentMethodActions?.busy);
   return <Space direction="vertical" size={16} className="panel-stack">
     <Typography.Text type="secondary">账单快照：{formatTime(value.observedAt)}</Typography.Text>
     <Typography.Title level={5}>下期预计账单</Typography.Title>
@@ -27,11 +43,35 @@ export function BillingSummary({ value }: { value?: BillingDetailView }) {
     <Typography.Title level={5}>最近发票</Typography.Title>
     <InvoiceTable invoices={value.invoices} empty="暂无发票" />
     <Typography.Title level={5}>支付方式</Typography.Title>
-    <Table rowKey="id" size="small" pagination={false} dataSource={value.paymentMethods} locale={{emptyText:'暂无支付方式'}} columns={[
+    <Table rowKey="id" size="small" pagination={false} dataSource={value.paymentMethods} locale={{emptyText:'暂无支付方式'}} scroll={{x:paymentMethodActions?720:undefined}} columns={[
       {title:'类型',render:(_,row)=><Space>{row.type??'银行卡'}{row.isDefault&&<Tag color="blue">默认</Tag>}</Space>},
       {title:'品牌',dataIndex:'brand',render:(v)=>v??'—'},
       {title:'尾号',dataIndex:'last4',render:(v)=>formatPaymentCardLast4(v)??'—'},
       {title:'有效期',render:(_,row)=>row.expMonth&&row.expYear?`${String(row.expMonth).padStart(2,'0')}/${row.expYear}`:'—'},
+      ...(paymentMethodActions ? [{
+        title:'操作',
+        key:'actions',
+        width:220,
+        render:(_: unknown, row: BillingDetailView['paymentMethods'][number]) => <Space size={4}>
+          {!row.isDefault && <Button
+            type="link"
+            size="small"
+            icon={<CheckCircleOutlined />}
+            loading={paymentMethodActions.busy === paymentMethodActionKey('default', row.id)}
+            disabled={actionDisabled}
+            onClick={() => void paymentMethodActions.onSetDefault(row.id)}
+          >设为默认</Button>}
+          <Button
+            danger
+            type="link"
+            size="small"
+            icon={<DeleteOutlined />}
+            loading={paymentMethodActions.busy === paymentMethodActionKey('remove', row.id)}
+            disabled={actionDisabled}
+            onClick={() => void paymentMethodActions.onRemove(row.id)}
+          >移除</Button>
+        </Space>,
+      }] : []),
     ]}/>
     {value.billingIdentity&&<><Typography.Title level={5}>账单主体</Typography.Title><Descriptions bordered size="small" column={{xs:1,sm:2}} items={[
       {key:'name',label:'名称',children:value.billingIdentity.name??'—'},
