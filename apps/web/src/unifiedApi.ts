@@ -54,6 +54,7 @@ export interface JsonSnapshot {
 export type ArtifactView = ArtifactIndexView;
 export type SeatSlotInput = SeatSlotMutationInput;
 export type { AccountActivityView, CredentialPoolGroupView, NotificationDeliveryView, NotificationPolicyView, PersonalSpaceDetailView };
+export type PersonalSpaceRefreshResource = 'subscription' | 'billing' | 'billingDetails' | 'paymentMethods' | 'quota' | 'settings';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
@@ -137,7 +138,7 @@ export const unifiedApi = {
   accountSession: (id: string) => request<Record<string, unknown>>('GET', `/accounts/${id}/session`),
   personalSpace: (id: string) => request<PersonalSpaceDetailView>('GET', `/accounts/${id}/personal-space`),
   updatePersonalSettings: (id: string, body: Record<string, unknown>) => request<PersonalSpaceDetailView>('PATCH', `/accounts/${id}/personal-space/settings`, body),
-  refreshPersonalSpace: (id: string, resource?: string) => request<PersonalSpaceDetailView>('POST', `/accounts/${id}/personal-space/refresh`, resource ? { resources: [resource] } : {}),
+  refreshPersonalSpace: (id: string, resource?: PersonalSpaceRefreshResource) => request<PersonalSpaceDetailView>('POST', `/accounts/${id}/personal-space/refresh`, resource ? { resources: [resource] } : {}),
   accountActivity: (id: string) => request<AccountActivityView[]>('GET', `/accounts/${id}/personal-space/activity`),
   addPersonalSpacePaymentMethod: (id: string, body: AddSubscriptionPaymentMethodRequest) => request<SubscriptionPaymentMethodBindingResult>('POST', `/accounts/${id}/personal-space/payment-methods`, body),
   setPersonalSpaceDefaultPaymentMethod: (id: string, paymentMethodId: string) =>

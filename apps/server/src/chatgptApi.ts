@@ -441,13 +441,25 @@ export class ChatGptApi {
   }
 
   async getPersonalBillingSnapshotRaw(): Promise<PersonalBillingRaw> {
+    const [billing, paymentMethods] = await Promise.all([
+      this.getPersonalBillingDetailsRaw(),
+      this.getPersonalPaymentMethodsRaw()
+    ]);
+    return { ...billing, paymentMethods };
+  }
+
+  async getPersonalBillingDetailsRaw(): Promise<Pick<PersonalBillingRaw, 'invoices' | 'billingInfo'>> {
     const personalAccountId = encodeURIComponent(this.account.accountId);
-    const [invoices, paymentMethods, billingInfo] = await Promise.all([
+    const [invoices, billingInfo] = await Promise.all([
       this.request<unknown>('GET', `/backend-api/invoices?limit=10&account_id=${personalAccountId}`),
-      this.request<unknown>('GET', `/backend-api/payments/payment_methods?account_id=${personalAccountId}`),
       this.request<unknown>('GET', `/backend-api/payments/billing_info?account_id=${personalAccountId}`)
     ]);
-    return { invoices, paymentMethods, billingInfo };
+    return { invoices, billingInfo };
+  }
+
+  async getPersonalPaymentMethodsRaw(): Promise<unknown> {
+    const personalAccountId = encodeURIComponent(this.account.accountId);
+    return this.request<unknown>('GET', `/backend-api/payments/payment_methods?account_id=${personalAccountId}`);
   }
 
   async hasTeamSubscription(): Promise<boolean> {

@@ -328,7 +328,7 @@ export class SubscriptionPaymentMethodService {
   async addPersonal(accountId: string, input: AddSubscriptionPaymentMethodRequest) {
     const { targetAccountId } = await this.personalTarget(accountId);
     const result = await this.bind(accountId, targetAccountId, input);
-    await this.personalSpaces.refresh(accountId, ['billing']);
+    await this.personalSpaces.refresh(accountId, ['paymentMethods']);
     await this.logSuccess(accountId, null, 'personal', input, result);
     return result;
   }
@@ -344,7 +344,7 @@ export class SubscriptionPaymentMethodService {
   async setPersonalDefault(accountId: string, paymentMethodId: string) {
     const { targetAccountId } = await this.personalTarget(accountId);
     const result = await this.mutate(accountId, targetAccountId, paymentMethodId, 'default');
-    await this.personalSpaces.refresh(accountId, ['billing']);
+    await this.personalSpaces.refresh(accountId, ['paymentMethods']);
     await this.logMutation(accountId, null, 'personal', 'default', paymentMethodId, result.targetAccountId);
     return result;
   }
@@ -352,7 +352,7 @@ export class SubscriptionPaymentMethodService {
   async removePersonal(accountId: string, paymentMethodId: string) {
     const { targetAccountId } = await this.personalTarget(accountId);
     const result = await this.mutate(accountId, targetAccountId, paymentMethodId, 'remove');
-    await this.personalSpaces.refresh(accountId, ['billing']);
+    await this.personalSpaces.refresh(accountId, ['paymentMethods']);
     await this.logMutation(accountId, null, 'personal', 'remove', paymentMethodId, result.targetAccountId);
     return result;
   }

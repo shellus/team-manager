@@ -9,6 +9,7 @@ import { configuredNotificationChannels, NotificationService } from './services/
 import { teamOrderScheduledFor } from './services/teamOrderService.js';
 import { ChatGptApi } from './chatgptApi.js';
 import { notificationScheduleDue } from './services/seatSlotService.js';
+import { mergeBillingSnapshotPayload } from './repositories/billingRepository.js';
 
 test('Codex OAuth 会话使用 PKCE 且固定回调', () => {
   const session=createCodexAuthSession('account@example.com');const url=new URL(session.authUrl);
@@ -37,6 +38,25 @@ test('个人账单只请求个人账号支持的三类接口', async () => {
     '/backend-api/payments/billing_info?account_id=personal-account',
     '/backend-api/payments/payment_methods?account_id=personal-account'
   ]);
+});
+
+test('个人账单和支付方式可独立请求并合并为完整快照', async () => {
+  const paths:string[]=[];const transport={fetch:async(request:any)=>{paths.push(request.path);return{status:200,body:'{}'};}};
+  const api=new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport);
+  const billing=await api.getPersonalBillingDetailsRaw();
+  assert.deepEqual(paths.sort(),[
+    '/backend-api/invoices?limit=10&account_id=personal-account',
+    '/backend-api/payments/billing_info?account_id=personal-account'
+  ]);
+  paths.length=0;
+  const paymentMethods=await api.getPersonalPaymentMethodsRaw();
+  assert.deepEqual(paths,['/backend-api/payments/payment_methods?account_id=personal-account']);
+  assert.deepEqual(mergeBillingSnapshotPayload({paymentMethods:{old:true}},billing),{
+    paymentMethods:{old:true},invoices:{},billingInfo:{}
+  });
+  assert.deepEqual(mergeBillingSnapshotPayload({invoices:{old:true}}, {paymentMethods}),{
+    invoices:{old:true},paymentMethods:{}
+  });
 });
 
 test('Workspace 优惠码接口复用 Workspace 访问上下文并保留上游请求结构', async () => {

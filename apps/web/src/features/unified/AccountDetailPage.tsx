@@ -489,8 +489,10 @@ function PersonalPanel({
           children: <PersonalBillingPanel
             accountId={account.id}
             value={personal?.billing}
-            refreshing={isPending('refresh:billing')}
-            onRefresh={() => void refresh('billing', '账单与支付')}
+            billingRefreshing={isPending('refresh:billingDetails')}
+            paymentMethodsRefreshing={isPending('refresh:paymentMethods')}
+            onRefreshBilling={() => void runResource('billing', 'refresh:billingDetails', '账单已刷新', () => unifiedApi.refreshPersonalSpace(account.id, 'billingDetails'))}
+            onRefreshPaymentMethods={() => void runResource('billing', 'refresh:paymentMethods', '支付方式已刷新', () => unifiedApi.refreshPersonalSpace(account.id, 'paymentMethods'))}
             onBind={() => setModal('payment')}
           />,
         },
@@ -554,16 +556,19 @@ function PersonalSubscriptionPanel({ value, refreshing, cancelling, paid, renewa
   </Space>;
 }
 
-function PersonalBillingPanel({ accountId, value, refreshing, onRefresh, onBind }: {
+function PersonalBillingPanel({ accountId, value, billingRefreshing, paymentMethodsRefreshing, onRefreshBilling, onRefreshPaymentMethods, onBind }: {
   accountId: string;
   value?: PersonalSpaceDetailView['billing'];
-  refreshing: boolean;
-  onRefresh: () => void;
+  billingRefreshing: boolean;
+  paymentMethodsRefreshing: boolean;
+  onRefreshBilling: () => void;
+  onRefreshPaymentMethods: () => void;
   onBind: () => void;
 }) {
   return <Space direction="vertical" size={16} className="panel-stack">
     <Space wrap>
-      <Button icon={<ReloadOutlined />} loading={refreshing} onClick={onRefresh}>刷新账单与支付</Button>
+      <Button icon={<ReloadOutlined />} loading={billingRefreshing} disabled={paymentMethodsRefreshing} onClick={onRefreshBilling}>刷新账单</Button>
+      <Button icon={<ReloadOutlined />} loading={paymentMethodsRefreshing} disabled={billingRefreshing} onClick={onRefreshPaymentMethods}>刷新支付方式</Button>
       <Button type="primary" onClick={onBind}>绑定支付方式</Button>
     </Space>
     <BillingSummary value={value} paymentMethodActions={{

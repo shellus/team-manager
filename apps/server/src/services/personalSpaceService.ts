@@ -46,6 +46,15 @@ export class PersonalSpaceService {
     if (resources.includes('billing')) {
       const payload = await api.getPersonalBillingSnapshotRaw();
       await this.#billing.saveSnapshot({ kind: 'personal', personalSpaceId }, payload, observedAt);
+    } else if (resources.includes('billingDetails') || resources.includes('paymentMethods')) {
+      const [billingDetails, paymentMethods] = await Promise.all([
+        resources.includes('billingDetails') ? api.getPersonalBillingDetailsRaw() : Promise.resolve(undefined),
+        resources.includes('paymentMethods') ? api.getPersonalPaymentMethodsRaw() : Promise.resolve(undefined)
+      ]);
+      await this.#billing.saveMergedSnapshot({ kind: 'personal', personalSpaceId }, {
+        ...billingDetails,
+        ...(paymentMethods === undefined ? {} : { paymentMethods })
+      }, observedAt);
     }
     if (resources.includes('quota')) {
       const payload = await api.getRateLimitResetCredits();

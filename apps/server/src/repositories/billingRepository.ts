@@ -47,6 +47,11 @@ export class BillingRepository {
     });
   }
 
+  async saveMergedSnapshot(context: BillingContext, patch: Record<string, unknown>, observedAt: Date | string) {
+    const latest = await this.latest(context);
+    return this.saveSnapshot(context, mergeBillingSnapshotPayload(latest?.payload, patch), observedAt);
+  }
+
   latest(context: BillingContext) {
     let query = this.db.selectFrom('billing_snapshots').selectAll();
     query = context.kind === 'personal'
@@ -83,6 +88,13 @@ export class BillingRepository {
     const payload=envelopeRecords(snapshot.payload.invoices,['data','invoices']).find(item=>text(item.id)===invoiceId||text(item.invoice_id)===invoiceId);
     return payload?{id:text(payload.id)??text(payload.invoice_id)??invoiceId,billing_snapshot_id:snapshot.id,external_id:text(payload.id)??text(payload.invoice_id)??null,amount:numberOrString(payload.amount_due)??numberOrString(payload.amount)??null,currency:text(payload.currency)??null,status:text(payload.status)??null,occurred_at:date(payload.created)??date(payload.created_at),payload,created_at:snapshot.created_at}:undefined;
   }
+}
+
+export function mergeBillingSnapshotPayload(
+  current: Record<string, unknown> | undefined,
+  patch: Record<string, unknown>,
+) {
+  return { ...current, ...patch };
 }
 
 function invoiceView(item:any){return buildInvoiceView(item.payload,item.external_id??item.id);}
