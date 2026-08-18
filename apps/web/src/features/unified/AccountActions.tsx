@@ -244,25 +244,48 @@ function ProxyModal({
 }
 
 type AccountEditorValues = {
+  email?: string;
   groupId: string;
   remark?: string;
   limitType: AccountLimitType;
   isBanned: boolean;
+  proxy?: string;
   session: string;
 };
 
-function AccountEditorModal({
+export function accountEditorMode(account?: Pick<AccountActionSummary, "email">) {
+  return account ? {
+    title: `编辑账号 · ${account.email}`,
+    submitLabel: "保存账号资料",
+    successMessage: "账号资料已保存",
+    showEmail: false,
+    showLimitType: true,
+    showProxy: false,
+    sessionExtra: "完整显示且不做脱敏；内容没有变化时不会重复写入。",
+  } : {
+    title: "添加账号",
+    submitLabel: "创建账号",
+    successMessage: "账号已创建",
+    showEmail: true,
+    showLimitType: false,
+    showProxy: true,
+    sessionExtra: "可选；填写后将校验 JSON 和账号邮箱。",
+  };
+}
+
+export function AccountEditorModal({
   account,
   open,
   onClose,
   onSaved,
 }: {
-  account: AccountActionSummary;
+  account?: AccountActionSummary;
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
   const productMessage = useProductMessage();
+  const mode = accountEditorMode(account);
   const [form] = Form.useForm<AccountEditorValues>();
   const [groups, setGroups] = useState<Array<Pick<AccountGroupView, "id" | "name">>>([]);
   const [initialSession, setInitialSession] = useState<string>();
@@ -275,29 +298,34 @@ function AccountEditorModal({
     let cancelled = false;
     setLoading(true);
     setError("");
-    setGroups([account.group]);
-    setInitialSession(undefined);
+    form.resetFields();
+    setGroups(account ? [account.group] : []);
+    setInitialSession(account ? undefined : "");
     form.setFieldsValue({
-      groupId: account.group.id,
-      remark: account.remark,
-      limitType: account.limitType,
-      isBanned: account.isBanned,
+      email: "",
+      groupId: account?.group.id,
+      remark: account?.remark,
+      limitType: account?.limitType ?? "unknown",
+      isBanned: account?.isBanned ?? false,
+      proxy: "",
       session: "",
     });
-    const sessionRequest = unifiedApi.accountSession(account.id).catch((reason) => {
-      if (reason instanceof ApiError && reason.status === 404) return {};
-      throw reason;
-    });
+    const sessionRequest = account
+      ? unifiedApi.accountSession(account.id).catch((reason) => {
+          if (reason instanceof ApiError && reason.status === 404) return {};
+          throw reason;
+        })
+      : Promise.resolve(undefined);
     void Promise.allSettled([unifiedApi.groups(), sessionRequest]).then((results) => {
       if (cancelled) return;
       const errors: string[] = [];
       if (results[0].status === "fulfilled") setGroups(results[0].value);
       else errors.push(`分组读取失败：${(results[0].reason as Error).message}`);
-      if (results[1].status === "fulfilled") {
+      if (account && results[1].status === "fulfilled") {
         const session = JSON.stringify(results[1].value, null, 2);
         setInitialSession(session);
         form.setFieldValue("session", session);
-      } else {
+      } else if (account && results[1].status === "rejected") {
         errors.push(`Session 读取失败：${(results[1].reason as Error).message}`);
       }
       setError(errors.join("；"));
@@ -308,14 +336,14 @@ function AccountEditorModal({
 
   return (
     <ProductModal
-      title={`编辑账号 · ${account.email}`}
+      title={mode.title}
       open={open}
       onCancel={onClose}
       footer={(
         <Space>
           <Button onClick={onClose} disabled={saving}>取消</Button>
           <Button type="primary" loading={saving} disabled={loading} onClick={() => form.submit()}>
-            保存账号资料
+            {mode.submitLabel}
           </Button>
         </Space>
       )}
@@ -329,9 +357,13 @@ function AccountEditorModal({
         className="account-action-form"
         onFinish={async (values) => {
           let parsedSession: Record<string, unknown> | undefined;
-          if (initialSession !== undefined && values.session !== initialSession) {
+          const session = values.session?.trim() ?? "";
+          const shouldParseSession = account
+            ? initialSession !== undefined && values.session !== initialSession
+            : Boolean(session);
+          if (shouldParseSession) {
             try {
-              parsedSession = parseSessionEditorInput(values.session);
+              parsedSession = parseSessionEditorInput(session);
             } catch (reason) {
               setError(
                 reason instanceof SyntaxError
@@ -344,14 +376,25 @@ function AccountEditorModal({
           setSaving(true);
           setError("");
           try {
-            await unifiedApi.updateAccount(account.id, {
-              groupId: values.groupId,
-              remark: values.remark?.trim() || null,
-              limitType: values.limitType,
-              isBanned: values.isBanned,
-              ...(parsedSession ? { session: parsedSession } : {}),
-            });
-            productMessage.success("账号资料已保存");
+            if (account) {
+              await unifiedApi.updateAccount(account.id, {
+                groupId: values.groupId,
+                remark: values.remark?.trim() || null,
+                limitType: values.limitType,
+                isBanned: values.isBanned,
+                ...(parsedSession ? { session: parsedSession } : {}),
+              });
+            } else {
+              await unifiedApi.createAccount({
+                email: values.email?.trim() || undefined,
+                groupId: values.groupId,
+                remark: values.remark?.trim() || null,
+                isBanned: values.isBanned,
+                proxy: values.proxy?.trim() || undefined,
+                ...(parsedSession ? { session: parsedSession } : {}),
+              });
+            }
+            productMessage.success(mode.successMessage);
             await onSaved();
             onClose();
           } catch (reason) {
@@ -361,17 +404,34 @@ function AccountEditorModal({
           }
         }}
       >
+        {mode.showEmail && <Form.Item
+          name="email"
+          label="邮箱"
+          dependencies={["session"]}
+          extra="未填写时从 Session 识别。"
+          rules={[
+            { type: "email", message: "请输入有效邮箱" },
+            ({ getFieldValue }) => ({
+              validator: async (_, value) => {
+                if (String(value ?? "").trim() || String(getFieldValue("session") ?? "").trim()) return;
+                throw new Error("邮箱和 Session 至少填写一项");
+              },
+            }),
+          ]}
+        >
+          <Input autoComplete="email" />
+        </Form.Item>}
         <div className="responsive-form-grid">
           <Form.Item name="groupId" label="分组" rules={[{ required: true, message: "请选择分组" }]}>
             <Select options={groups.map((group) => ({ value: group.id, label: group.name }))} />
           </Form.Item>
-          <Form.Item name="limitType" label="限额类型" rules={[{ required: true, message: "请选择限额类型" }]}>
+          {mode.showLimitType && <Form.Item name="limitType" label="限额类型" rules={[{ required: true, message: "请选择限额类型" }]}>
             <Select options={[
               { value: "unknown", label: "未知" },
               { value: "weekly", label: "周限" },
               { value: "monthly", label: "月限" },
             ]} />
-          </Form.Item>
+          </Form.Item>}
         </div>
         <Form.Item name="remark" label="账号备注">
           <Input.TextArea rows={2} />
@@ -379,15 +439,18 @@ function AccountEditorModal({
         <Form.Item name="isBanned" label="封号标记" valuePropName="checked">
           <Switch checkedChildren="已封号" unCheckedChildren="正常" />
         </Form.Item>
+        {mode.showProxy && <Form.Item name="proxy" label="账号代理">
+          <Input.Password autoComplete="off" />
+        </Form.Item>}
         <Form.Item
           name="session"
           label="Session JSON"
-          extra="完整显示且不做脱敏；内容没有变化时不会重复写入。"
+          extra={mode.sessionExtra}
         >
           <Input.TextArea
             aria-label="完整 ChatGPT Session JSON"
             className="raw-json account-session-editor"
-            disabled={loading || initialSession === undefined}
+            disabled={loading || (Boolean(account) && initialSession === undefined)}
             rows={15}
             wrap="soft"
           />

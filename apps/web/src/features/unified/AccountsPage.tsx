@@ -17,7 +17,7 @@ import {
 } from "antd";
 import { ProductModal } from "../../components/ProductOverlays.js";
 import { useProductMessage } from "../../components/ProductOverlays.js";
-import { HolderOutlined, PlusOutlined } from "@ant-design/icons";
+import { HolderOutlined, PlusOutlined, UserAddOutlined } from "@ant-design/icons";
 import {
   DndContext,
   KeyboardSensor,
@@ -40,7 +40,7 @@ import type {
   AccountRegistrationSummaryView,
   UnifiedAccountSummaryView,
 } from "@team-manager/shared";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { unifiedApi } from "../../unifiedApi.js";
 import {
   LoadBoundary,
@@ -62,7 +62,9 @@ import {
 import {
   AccountActionButtons,
   AccountActionModals,
+  AccountEditorModal,
 } from "./AccountActions.js";
+import { AccountRegistrationModal } from "./AccountRegistrationModal.js";
 import {
   PRIMARY_PLAN_OPTIONS,
   accountRemarkLabel,
@@ -90,7 +92,6 @@ const TRI_STATE_FILTERS = [
 export function AccountsPage() {
   const productMessage = useProductMessage();
   const location = useLocation();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const committedQuery = params.get("query") ?? "";
   const [queryInput, setQueryInput] = useState(committedQuery);
@@ -399,9 +400,15 @@ export function AccountsPage() {
             <>
               <Button onClick={() => set("modal", "groups")}>管理分组</Button>
               <Button
+                icon={<UserAddOutlined />}
+                onClick={() => set("modal", "register-account")}
+              >
+                GAM 注册
+              </Button>
+              <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => navigate("/accounts/new")}
+                onClick={() => set("modal", "create-account")}
               >
                 添加账号
               </Button>
@@ -628,6 +635,23 @@ export function AccountsPage() {
           </Space>
         </Form>
       </ProductModal>
+      <AccountEditorModal
+        open={modal === "create-account"}
+        onClose={() => set("modal")}
+        onSaved={load}
+      />
+      <AccountRegistrationModal
+        groups={groups}
+        open={modal === "register-account"}
+        onClose={() => set("modal")}
+        onOperationCreated={(operation) => {
+          const next = new URLSearchParams(params);
+          next.delete("modal");
+          next.set("operationId", operation.id);
+          setParams(next);
+          void load();
+        }}
+      />
       <AccountActionModals
         account={actionAccount}
         action={accountAction}
