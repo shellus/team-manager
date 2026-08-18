@@ -28,7 +28,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 
 - 账号列表、单一分组、主套餐与运营条件筛选和账号详情；URL 保存筛选、Tab 和弹窗状态。
 - GAM 负责注册、纳管、Profile、住宅代理和浏览器 Checkout；账号、个人空间与 Workspace 业务状态及支付方式管理由 Team Manager 直连上游处理。
-- Go、Plus、Pro 5x、Pro 20x 首次开通；已付费套餐间切换在上游合同验证完成前安全拒绝。
+- Go、Plus、Pro 5x、Pro 20x 首次开通；Plus 可通过 Team Manager 直连升级到 Pro 5x 或 Pro 20x，其他付费套餐转换在对应上游合同验证前安全拒绝。
 - 个人空间与 Workspace 都支持绑定、设置默认和移除支付方式，以及取消续费；完整卡号/CVC 只进入当前 Team Manager 请求中的无追踪 Stripe Transport，不写数据库、普通日志或 HTTP trace，支付写操作都在返回前复读上游状态。
 - Business 创建新 Workspace，或升级账号当前可管理的既有 Workspace。
 - 账号详情内切换 Workspace；成员与邀请合并显示，账单集中呈现订阅、续费、金额、计费席位、支付方式和发票，并可校验和应用现有 Workspace 优惠码；凭证严格按 `Account × Workspace` 显示。

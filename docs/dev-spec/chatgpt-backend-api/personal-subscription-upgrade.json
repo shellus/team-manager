@@ -1,0 +1,54 @@
+{
+  "captured_at": "2026-08-18",
+  "page": "https://chatgpt.com/#pricing",
+  "operation": "upgrade_existing_plus_subscription",
+  "records": [
+    {
+      "method": "GET",
+      "path": "/backend-api/subscriptions/update/preview?account_id={personal_account_id}&updated_plan=chatgptprolite",
+      "body": null,
+      "response": {
+        "status": 200,
+        "body_shape": {
+          "total_amount": "integer_minor_units",
+          "positive_line_item_total": "integer_minor_units",
+          "negative_line_item_total": "negative_integer_minor_units",
+          "currency": "lowercase_iso_4217",
+          "renewal_date": "iso_8601",
+          "default_payment_method": {
+            "card_brand": "string",
+            "card_last4": "string"
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend-api/subscriptions/update",
+      "body": {
+        "account_id": "{personal_account_id}",
+        "updated_plan": "chatgptprolite"
+      },
+      "response": {
+        "status": "not_captured"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/backend-api/subscriptions/update",
+      "body": {
+        "account_id": "{personal_account_id}",
+        "updated_plan": "chatgptpro"
+      },
+      "response": {
+        "status": "not_captured"
+      }
+    }
+  ],
+  "notes": [
+    "chatgptprolite 与 chatgptpro 的预览和写请求均从 Plus 定价界面观测。",
+    "预览金额包含新套餐费用和剩余 Plus 周期的负数抵扣，界面必须在提交前显示 total_amount、抵扣和默认支付方式。",
+    "写请求在浏览器出站前被拦截，未产生真实扣款；实现不得假设响应 body，必须以 HTTP 2xx 后回读 subscriptions 确认目标套餐。",
+    "Go 升级、Pro 档位互转和任何降级未在此样本验证，不能由本样本推导为已支持。"
+  ]
+}

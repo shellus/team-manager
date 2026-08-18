@@ -23,6 +23,7 @@ import type {
   OperationControl,
   OperationDetailView,
   PersonalSpaceDetailView,
+  PersonalSubscriptionChangePreviewView,
   PaymentMethodDefaults,
   QuarantinedCredentialClaimInput,
   RegisterAccountRequest,
@@ -127,6 +128,8 @@ export const unifiedApi = {
   bulkUpdateAccounts: (body: BulkUpdateAccountsRequest) => request<BulkUpdateAccountsResult>('PATCH', '/accounts/bulk', body),
   deleteAccount: (id: string) => request<boolean>('DELETE', `/accounts/${id}`),
   changePersonalSubscription: (id: string, body: ChangePersonalSubscriptionRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-subscription`, body),
+  previewPersonalSubscriptionChange: (id: string, targetPlan: ChangePersonalSubscriptionRequest['targetPlan']) =>
+    request<PersonalSubscriptionChangePreviewView>('GET', `/accounts/${id}/personal-subscription/preview?targetPlan=${encodeURIComponent(targetPlan)}`),
   cancelPersonalRenewal: (id: string) => request<PersonalSpaceDetailView>('POST', `/accounts/${id}/personal-subscription/cancel-renewal`),
   openBusiness: (id: string, body: OpenBusinessSubscriptionRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/business-subscription`, body),
   accountManagerState: (id: string) => request<AccountManagerStateView>('GET', `/accounts/${id}/account-manager`),

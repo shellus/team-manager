@@ -17,7 +17,7 @@ import {
   type OpenBusinessSubscriptionRequest,
   type PaymentCardInput,
   type PersonalPlan,
-  type PersonalSubscriptionMode,
+  type PersonalSubscriptionChangePreviewView,
   type UnifiedAccountDetailView,
 } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
@@ -29,7 +29,6 @@ type SubscriptionTarget = "personal" | "business";
 
 interface SubscriptionValues {
   target: SubscriptionTarget;
-  personalMode: PersonalSubscriptionMode;
   targetPlan: ChangePersonalSubscriptionRequest["targetPlan"];
   businessMode: BusinessSubscriptionMode;
   workspaceId?: string;
@@ -42,7 +41,6 @@ interface SubscriptionValues {
 
 const REMEMBERED_SUBSCRIPTION_FIELDS: readonly (keyof SubscriptionValues)[] = [
   "target",
-  "personalMode",
   "targetPlan",
   "businessMode",
   "workspaceId",
@@ -77,13 +75,23 @@ export function SubscriptionModal({
   const [busy, setBusy] = useState(false);
   const [loadingAccount, setLoadingAccount] = useState(false);
   const [detail, setDetail] = useState<UnifiedAccountDetailView>();
+  const [upgradePreview, setUpgradePreview] = useState<PersonalSubscriptionChangePreviewView>();
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [error, setError] = useState("");
   const target = Form.useWatch("target", form) ?? "personal";
   const businessMode =
     Form.useWatch("businessMode", form) ?? "create_workspace";
+  const targetPlan = Form.useWatch("targetPlan", form) ?? "plus";
   const effectivePersonalPlan = detail?.personalPlan ?? currentPlan ?? "unknown";
   const isFree = effectivePersonalPlan === "free";
-  const personalChangeUnavailable = target === 'personal' && !isFree;
+  const isVerifiedPaidUpgrade = effectivePersonalPlan === "plus";
+  const personalChangeUnavailable = target === "personal" && !isFree && !isVerifiedPaidUpgrade;
+  const personalPlanOptions = useMemo(
+    () => PERSONAL_PLAN_OPTIONS
+      .filter((item) => isFree || (isVerifiedPaidUpgrade && ["pro_5x", "pro_20x"].includes(item.plan)))
+      .map((item) => ({ value: item.plan, label: item.label })),
+    [isFree, isVerifiedPaidUpgrade],
+  );
   const manageableWorkspaces = useMemo(
     () =>
       selectUpgradeableWorkspaces(detail?.workspaces ?? []),
@@ -94,6 +102,7 @@ export function SubscriptionModal({
     if (!open) return;
     setError("");
     setDetail(undefined);
+    setUpgradePreview(undefined);
     setLoadingAccount(true);
     void unifiedApi
       .account(accountId)
@@ -103,22 +112,31 @@ export function SubscriptionModal({
   }, [accountId, open]);
 
   useEffect(() => {
-    if (!detail || form.isFieldTouched("personalMode")) return;
-    form.setFieldValue(
-      "personalMode",
-      detail.personalPlan === "free" ? "start_new" : "change_existing",
-    );
+    if (!detail || detail.personalPlan === 'free') return;
+    if (detail.personalPlan === 'plus' && !['pro_5x', 'pro_20x'].includes(form.getFieldValue('targetPlan'))) {
+      form.setFieldValue('targetPlan', 'pro_5x');
+    }
   }, [detail, form]);
 
   useEffect(() => {
-    if (!detail || detail.personalPlan === 'free') return;
-    form.setFieldValue('personalMode', 'change_existing');
-  }, [detail, form]);
+    if (!open || target !== "personal" || !isVerifiedPaidUpgrade || !['pro_5x', 'pro_20x'].includes(targetPlan)) {
+      setUpgradePreview(undefined);
+      return;
+    }
+    let active = true;
+    setLoadingPreview(true);
+    setUpgradePreview(undefined);
+    setError("");
+    void unifiedApi.previewPersonalSubscriptionChange(accountId, targetPlan)
+      .then((value) => { if (active) setUpgradePreview(value); })
+      .catch((reason) => { if (active) setError((reason as Error).message); })
+      .finally(() => { if (active) setLoadingPreview(false); });
+    return () => { active = false; };
+  }, [accountId, isVerifiedPaidUpgrade, open, target, targetPlan]);
 
   const initial = useMemo<Partial<SubscriptionValues>>(
     () => ({
       target: "personal",
-      personalMode: isFree ? "start_new" : "change_existing",
       targetPlan: "plus",
       businessMode: "create_workspace",
       country: "US",
@@ -141,13 +159,22 @@ export function SubscriptionModal({
         // card 有意不进入表单记忆白名单。
         ...(values.card?.number ? { card: values.card } : {}),
       };
+      const personalRequest: ChangePersonalSubscriptionRequest = isFree
+        ? {
+            ...common,
+            targetPlan: values.targetPlan,
+            mode: "start_new",
+          }
+        : {
+            country: values.country,
+            currency: values.currency,
+            autoPay: true,
+            targetPlan: values.targetPlan,
+            mode: "change_existing",
+          };
       const operation =
         values.target === "personal"
-          ? await unifiedApi.changePersonalSubscription(accountId, {
-              ...common,
-              targetPlan: values.targetPlan,
-              mode: values.personalMode,
-            })
+          ? await unifiedApi.changePersonalSubscription(accountId, personalRequest)
           : await unifiedApi.openBusiness(accountId, {
               ...common,
               mode: values.businessMode,
@@ -168,7 +195,7 @@ export function SubscriptionModal({
 
   return (
     <ProductModal
-      title="开通套餐"
+      title={isFree ? "开通套餐" : "升级套餐"}
       open={open}
       onCancel={onClose}
       width={680}
@@ -198,33 +225,36 @@ export function SubscriptionModal({
               type={personalChangeUnavailable ? "warning" : "info"}
               showIcon
               message={personalChangeUnavailable
-                ? `当前个人套餐：${effectivePersonalPlan}。GAM/上游套餐切换协议尚未验证，暂不可执行升级或变更。`
-                : "当前个人套餐：Free，可全新开通。"}
+                ? `当前个人套餐：${effectivePersonalPlan}。该套餐的付费变更协议尚未验证。`
+                : isFree
+                  ? "当前个人套餐：Free，可全新开通。"
+                  : "当前个人套餐：Plus，可升级到 Pro 5x 或 Pro 20x。"}
             />
-            <Form.Item
-              name="personalMode"
-              label="操作方式"
-              rules={[{ required: true }]}
-            >
-              <Radio.Group
-                options={[
-                  { label: "全新开通", value: "start_new", disabled: !isFree },
-                  { label: "升级或变更（协议未验证）", value: "change_existing", disabled: true },
-                ]}
-              />
-            </Form.Item>
             <Form.Item
               name="targetPlan"
               label="目标套餐"
               rules={[{ required: true }]}
             >
               <Select
-                options={PERSONAL_PLAN_OPTIONS.map((item) => ({
-                  value: item.plan,
-                  label: item.label,
-                }))}
+                options={personalPlanOptions}
               />
             </Form.Item>
+            {!isFree && isVerifiedPaidUpgrade && (
+              <Form.Item>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={loadingPreview
+                    ? "正在读取上游扣款预览"
+                    : upgradePreview
+                      ? `今日扣款 ${formatMoney(upgradePreview.amountDueMinor, upgradePreview.currency)}，默认支付方式 ${upgradePreview.defaultPaymentMethod?.brand ?? "未知"} *${upgradePreview.defaultPaymentMethod?.last4 ?? "未知"}`
+                      : "请选择目标套餐以读取扣款预览"}
+                  description={upgradePreview
+                    ? `新套餐费用 ${formatMoney(upgradePreview.positiveLineItemMinor, upgradePreview.currency)}，原套餐按比例抵扣 ${formatMoney(upgradePreview.adjustmentMinor, upgradePreview.currency)}。`
+                    : undefined}
+                />
+              </Form.Item>
+            )}
           </>
         ) : (
           <>
@@ -266,7 +296,7 @@ export function SubscriptionModal({
           </>
         )}
 
-        <div className="responsive-form-grid">
+        {(target === "business" || isFree) && <><div className="responsive-form-grid">
           <Form.Item
             name="country"
             label="国家"
@@ -292,16 +322,21 @@ export function SubscriptionModal({
           <summary>使用新支付卡（可选）</summary>
           <PaymentCardFields prefix="card" />
         </details>
+        </>}
         {error && <Alert className="modal-error" type="error" showIcon message={error} />}
         <Button
           type="primary"
           htmlType="submit"
-          loading={busy || loadingAccount}
-          disabled={!detail || personalChangeUnavailable}
+          loading={busy || loadingAccount || loadingPreview}
+          disabled={!detail || personalChangeUnavailable || (!isFree && target === "personal" && !upgradePreview)}
         >
-          创建套餐操作
+          {!isFree && target === "personal" ? "立即升级" : "创建套餐操作"}
         </Button>
       </Form>
     </ProductModal>
   );
+}
+
+function formatMoney(amountMinor: number, currency: string): string {
+  return new Intl.NumberFormat("zh-CN", { style: "currency", currency }).format(amountMinor / 100);
 }

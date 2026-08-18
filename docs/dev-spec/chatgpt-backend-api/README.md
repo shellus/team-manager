@@ -29,6 +29,7 @@
 | 改 Codex Local 相关权限 | [codex-local-settings.json](./codex-local-settings.json) | `codex_device_code_auth`、`codex_remote_control` 使用 `/beta_features` 写入，`wham_local_access` 从完整 settings 读取 |
 | 改 Automatic reload | [automatic-reload.json](./automatic-reload.json) | 读取 `/settings`，开启和关闭分别调用无 body 的 `/enable`、`/disable` |
 | 更新现有 Workspace 优惠码 | [workspace-promotion.json](./workspace-promotion.json) | 先校验 eligibility 和 metadata，再调用 `/subscriptions/update`；成功响应为空且可能恢复续费，必须回读 subscription |
+| Plus 升级到 Pro | [personal-subscription-upgrade.json](./personal-subscription-upgrade.json) | 先读取按比例扣款预览，再以 `updated_plan` 更新订阅；写入后必须回读当前套餐，不复用首次开通 Checkout |
 | 创建 Codex 个人访问令牌 | [codex-personal-access-token.json](./codex-personal-access-token.json) | 使用子号 Web token 调 `POST /backend-api/wham/auth-credentials`，返回 `at-...` PAT |
 
 > 席位样本的 `records[].body` 可能为空，因为 Playwright 原生 request 事件没有读取页面 `Request` 对象 body；以同文件 `browser_request_log[].body` 为准。

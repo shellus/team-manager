@@ -160,6 +160,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),undefined,'新 Session 保存后不能继续使用旧 Workspace Token');
       await accounts.bindGamAccount(first.account.id, first.account.email);
       const renewalByAccount = new Map<string, boolean>();
+      const personalPlanByAccount = new Map<string, string>();
       const paymentInputs: Array<Record<string, unknown>> = [];
       const paymentMethodsByTarget = new Map<string, Array<{
         id: string; brand: string; last4: string; isDefault: boolean;
@@ -207,13 +208,33 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
               renewalByAccount.set(request.headers['chatgpt-account-id'], false);
               return { status: 200, body: '{}' };
             }
+            if (request.path.startsWith('/backend-api/subscriptions/update/preview?')) {
+              return { status: 200, body: JSON.stringify({
+                total_amount: 481902,
+                positive_line_item_total: 579464,
+                negative_line_item_total: -97562,
+                currency: 'php',
+                renewal_date: '2026-09-18T09:33:15Z',
+                default_payment_method: { card_brand: 'mastercard', card_last4: '1461' }
+              }) };
+            }
+            if (request.path === '/backend-api/subscriptions/update') {
+              const body = JSON.parse(request.body ?? '{}') as { updated_plan?: string };
+              const plan = body.updated_plan === 'chatgptprolite' ? 'prolite'
+                : body.updated_plan === 'chatgptpro' ? 'pro'
+                  : body.updated_plan;
+              if (plan) personalPlanByAccount.set(request.headers['chatgpt-account-id'], plan);
+              return { status: 200, body: '{"success":true}' };
+            }
             if (request.path.startsWith('/backend-api/subscriptions?')) {
               const targetAccountId = request.headers['chatgpt-account-id'];
               return {
                 status: 200,
                 body: JSON.stringify({
                   id: `${targetAccountId}-subscription`,
-                  plan_type: targetAccountId === workspace.external_id ? 'team' : 'plus',
+                  plan_type: targetAccountId === workspace.external_id
+                    ? 'team'
+                    : personalPlanByAccount.get(targetAccountId) ?? 'plus',
                   will_renew: renewalByAccount.get(targetAccountId) ?? true,
                   active_start: null,
                   active_until: null,
@@ -244,7 +265,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
                   account_id: personalAccountId,
                   account_user_role: 'account-owner',
                   structure: 'personal',
-                  plan_type: 'free'
+                  plan_type: personalPlanByAccount.get(personalAccountId) ?? 'free'
                 },
                 can_access_with_session: true
               }
@@ -584,8 +605,28 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(serializedStoredOperation.includes('4242424242424242'), false);
       assert.equal(serializedStoredOperation.includes('"cvc":"123"'), false);
 
-      const blocked = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'pro_20x', mode: 'change_existing', country: 'US', currency: 'USD', autoPay: false }) });
-      assert.equal(blocked.status, 409);
+      const paidPersonalRemoteId = (await db.selectFrom('personal_spaces').select('remote_account_id')
+        .where('id', '=', first.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id ?? 'personal-remote';
+      personalPlanByAccount.set(paidPersonalRemoteId, 'plus');
+      const preview = await app.request(`/api/accounts/${first.account.id}/personal-subscription/preview?targetPlan=pro_20x`, { headers });
+      assert.equal(preview.status, 200, await preview.clone().text());
+      assert.deepEqual((await preview.json() as any).data, {
+        currentPlan: 'plus', targetPlan: 'pro_20x', amountDueMinor: 481902,
+        positiveLineItemMinor: 579464, adjustmentMinor: -97562, currency: 'PHP',
+        renewalDate: '2026-09-18T09:33:15Z',
+        defaultPaymentMethod: { brand: 'mastercard', last4: '1461' }
+      });
+      const blockedWithoutPaymentConfirmation = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'pro_20x', mode: 'change_existing', country: 'US', currency: 'USD', autoPay: false }) });
+      assert.equal(blockedWithoutPaymentConfirmation.status, 400);
+      const upgraded = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'pro_20x', mode: 'change_existing', country: 'US', currency: 'USD', autoPay: true }) });
+      assert.equal(upgraded.status, 200, await upgraded.clone().text());
+      const upgradedOperation = (await upgraded.json() as any).data;
+      assert.equal(upgradedOperation.status, 'succeeded');
+      const upgradedDetailResponse = await app.request(`/api/operations/${upgradedOperation.id}`, { headers });
+      assert.equal(upgradedDetailResponse.status, 200, await upgradedDetailResponse.clone().text());
+      const upgradedPayment = (await upgradedDetailResponse.json() as any).data.payment;
+      assert.equal(upgradedPayment.resultCode, 'succeeded');assert.equal(upgradedPayment.cardBrand, 'mastercard');assert.equal(upgradedPayment.cardLast4, '1461');assert.equal(upgradedPayment.amount, '4819.02');assert.equal(upgradedPayment.currency, 'PHP');
+      assert.equal(personalPlanByAccount.get(paidPersonalRemoteId), 'pro');
       const business = await app.request(`/api/accounts/${first.account.id}/business-subscription`, { method: 'POST', headers, body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, country: 'US', currency: 'USD', autoPay: false }) });
       assert.equal(business.status, 200);
       const businessOperationId=(await business.clone().json() as any).data.id;assert.match(businessOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${businessOperationId}`,{headers})).status,200);

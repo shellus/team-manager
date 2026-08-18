@@ -683,6 +683,20 @@ export interface ChangePersonalSubscriptionRequest {
   card?: PaymentCardInput;
 }
 
+export interface PersonalSubscriptionChangePreviewView {
+  currentPlan: PersonalPlan;
+  targetPlan: Exclude<PersonalPlan, 'free' | 'unknown'>;
+  amountDueMinor: number;
+  positiveLineItemMinor: number;
+  adjustmentMinor: number;
+  currency: string;
+  renewalDate?: string;
+  defaultPaymentMethod?: {
+    brand: string;
+    last4: string;
+  };
+}
+
 export interface OpenBusinessSubscriptionRequest {
   mode: BusinessSubscriptionMode;
   workspaceId?: string;

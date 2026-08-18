@@ -87,10 +87,27 @@ export class AutomationOperationRepository {
 
   async completeLocal(id: string, input: { phase: string; result: Record<string, unknown> }): Promise<void> {
     const now = new Date();
+    await this.db.transaction().execute(async (trx) => {
+      await trx.updateTable('automation_operations').set({
+        status: 'succeeded', phase: input.phase, progress: 100, result_summary: input.result,
+        completed_at: now, effective_at: dateFromResult(input.result, ['effectiveAt', 'activeStart', 'active_start']),
+        converged_at: now
+      }).where('id', '=', id).execute();
+      const payment = paymentSummaryFromResult(input.result, 'succeeded');
+      if (payment) {
+        await trx.insertInto('payment_attempt_summaries').values({ operation_id: id, ...payment }).execute();
+      }
+    });
+  }
+
+  async failLocal(id: string, input: { phase: string; errorCode: string; errorMessage: string }): Promise<void> {
     await this.db.updateTable('automation_operations').set({
-      status: 'succeeded', phase: input.phase, progress: 100, result_summary: input.result,
-      completed_at: now, effective_at: dateFromResult(input.result, ['effectiveAt', 'activeStart', 'active_start']),
-      converged_at: now
+      status: 'failed',
+      phase: input.phase,
+      error_code: input.errorCode,
+      error_message: input.errorMessage,
+      completed_at: new Date(),
+      converged_at: new Date()
     }).where('id', '=', id).execute();
   }
 
@@ -187,13 +204,17 @@ function dateFromResult(result: Record<string, unknown> | undefined, keys: strin
 function paymentSummary(operation: AccountManagerOperationView) {
   const result = operation.result;
   if (!result || !['succeeded', 'failed', 'interrupted'].includes(operation.status)) return undefined;
+  return paymentSummaryFromResult(result, operation.status);
+}
+
+function paymentSummaryFromResult(result: Record<string, unknown>, status: string) {
   const payment = record(result.payment) ?? record(result.paymentResult) ?? result;
   const amount = numberOrString(payment.amount);
   const last4 = text(payment.cardLast4) ?? text(payment.last4);
   if (!amount && !last4 && !text(payment.currency) && !text(payment.resultCode)) return undefined;
   return {
     target_plan: text(result.targetPlan) ?? text(result.planType) ?? null,
-    result_code: text(payment.resultCode) ?? operation.status,
+    result_code: text(payment.resultCode) ?? status,
     card_brand: text(payment.cardBrand) ?? text(payment.brand) ?? null,
     card_last4: last4 ?? null,
     amount: amount ?? null,

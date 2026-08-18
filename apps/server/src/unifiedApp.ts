@@ -213,6 +213,12 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({})) as ChangePersonalSubscriptionRequest;
     return wrap(c, () => subscriptions.changePersonalSubscription(c.req.param('id'), body));
   });
+  api.get('/accounts/:id/personal-subscription/preview', (c) =>
+    wrap(c, () => subscriptions.previewPersonalSubscriptionChange(
+      c.req.param('id'),
+      c.req.query('targetPlan') as ChangePersonalSubscriptionRequest['targetPlan']
+    ))
+  );
   api.post('/accounts/:id/personal-subscription/cancel-renewal', (c) =>
     wrap(c, () => personalSpaces.cancelRenewal(c.req.param('id')))
   );

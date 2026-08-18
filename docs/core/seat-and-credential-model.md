@@ -30,7 +30,7 @@
 | Pro 5x | `pro_5x` | `chatgptprolite` |
 | Pro 20x | `pro_20x` | `chatgptpro` |
 
-首次开通使用 `start_new`。现有付费套餐间切换只有在 GAM/上游请求矩阵验证后才开放；未验证组合必须拒绝，不能用 plan name 猜测。Business 操作分为创建新 Workspace 和升级当前账号可管理的既有 Workspace。
+首次开通使用 `start_new` 并由 GAM 执行浏览器 Checkout。`Plus → Pro 5x` 与 `Plus → Pro 20x` 已验证为 Team Manager 可直连的订阅更新：先读取 `/backend-api/subscriptions/update/preview`，管理员确认后调用 `/backend-api/subscriptions/update`，再回读当前套餐。其他付费套餐转换仍必须拒绝，不能用 plan name 猜测。Business 操作分为创建新 Workspace 和升级当前账号可管理的既有 Workspace。
 
 当前个人套餐以 `accounts/check` 中对应 `structure=personal` 的账号条目为准。`subscriptions` 返回的记录只提供续费、有效期和欠费等订阅生命周期事实；套餐取消并到期后该接口仍可能保留历史 `plan_type`，不得据此覆盖 `accounts/check` 已明确返回的 Free 或其他当前套餐。只有 `accounts/check` 未提供个人套餐时，才允许回退到订阅记录。
 

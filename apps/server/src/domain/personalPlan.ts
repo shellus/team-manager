@@ -1,5 +1,12 @@
 export type NormalizedPersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
 
+const PERSONAL_PLAN_CODES = {
+  go: 'chatgptgoplan',
+  plus: 'chatgptplusplan',
+  pro_5x: 'chatgptprolite',
+  pro_20x: 'chatgptpro'
+} as const;
+
 export interface PersonalPlanAccountObservation {
   accountId: string;
   planType?: string;
@@ -21,6 +28,17 @@ export function normalizePersonalPlan(value?: string): NormalizedPersonalPlan {
   if (key.includes('plus')) return 'plus';
   if (key.includes('go')) return 'go';
   return 'unknown';
+}
+
+export function personalPlanCode(plan: Exclude<NormalizedPersonalPlan, 'free' | 'unknown'>): string {
+  return PERSONAL_PLAN_CODES[plan];
+}
+
+export function isVerifiedPersonalPlanUpgrade(
+  current: NormalizedPersonalPlan,
+  target: NormalizedPersonalPlan
+): boolean {
+  return current === 'plus' && (target === 'pro_5x' || target === 'pro_20x');
 }
 
 export function resolvePersonalPlan(

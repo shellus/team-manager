@@ -15,7 +15,9 @@
 
 ## 套餐与支付
 
-- `change_existing` 被拒绝：付费套餐间切换协议尚未验证，这是安全门禁。
+- `change_existing` 被拒绝：当前只验证并开放 Plus 到 Pro 5x/20x 的即时升级；Go、Pro 降级或其他付费转换仍由安全门禁拒绝。
+- Plus 升级预览失败：Team Manager 不会提交订阅更新；检查当前默认支付方式、Session、账号代理和上游预览响应。
+- Plus 升级提交后未收敛：上游写请求已返回成功但套餐回读未确认目标值，不能自动重复提交；刷新个人订阅与账单后再判断。
 - 支付方式写入失败：绑定、设置默认和移除卡片都同步返回 ChatGPT 或 Stripe 的安全错误，并在成功后刷新账单。Stripe confirm 不写 HTTP trace，完整卡号和 CVC 不写数据库或普通日志。遇到 3DS、Radar 或结果未确认时停止提交，刷新账单后再判断，不通过操作面板恢复。
 - Business Checkout 长时间未完成：查看账号“操作记录”和 GAM 对应操作。支付方式管理和取消续费是 Team Manager 直连请求，失败时查看活动日志；只有不含完整卡片的 ChatGPT 请求进入 HTTP trace。
 

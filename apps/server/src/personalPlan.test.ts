@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolvePersonalPlan } from './domain/personalPlan.js';
+import {
+  isVerifiedPersonalPlanUpgrade,
+  personalPlanCode,
+  resolvePersonalPlan
+} from './domain/personalPlan.js';
 
 test('个人当前套餐优先使用 accounts/check 的 personal 条目', () => {
   const result = resolvePersonalPlan([
@@ -53,4 +57,13 @@ test('唯一 personal 条目可以纠正 Session 中过时的账号上下文', (
 
   assert.equal(result.accountId, 'actual-personal-account');
   assert.equal(result.normalizedPlan, 'go');
+});
+
+test('只开放实测验证过的 Plus 到 Pro 升级矩阵', () => {
+  assert.equal(isVerifiedPersonalPlanUpgrade('plus', 'pro_5x'), true);
+  assert.equal(isVerifiedPersonalPlanUpgrade('plus', 'pro_20x'), true);
+  assert.equal(isVerifiedPersonalPlanUpgrade('plus', 'go'), false);
+  assert.equal(isVerifiedPersonalPlanUpgrade('pro_5x', 'pro_20x'), false);
+  assert.equal(personalPlanCode('pro_5x'), 'chatgptprolite');
+  assert.equal(personalPlanCode('pro_20x'), 'chatgptpro');
 });

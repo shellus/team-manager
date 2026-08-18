@@ -105,6 +105,18 @@ export interface ChatGptSubscriptionResponse extends Record<string, unknown> {
 
 export type ChatGptPersonalSubscriptionResponse = ChatGptSubscriptionResponse;
 
+export interface ChatGptSubscriptionUpdatePreviewResponse extends Record<string, unknown> {
+  total_amount?: number;
+  positive_line_item_total?: number;
+  negative_line_item_total?: number;
+  currency?: string;
+  renewal_date?: string;
+  default_payment_method?: {
+    card_brand?: string;
+    card_last4?: string;
+  } | null;
+}
+
 export interface ChatGptPromotionReason extends Record<string, unknown> {
   title?: string;
   message?: string;
@@ -273,6 +285,20 @@ export class ChatGptApi {
 
   async getPersonalSubscription(): Promise<ChatGptPersonalSubscriptionResponse> {
     return this.getSubscription();
+  }
+
+  async previewPersonalSubscriptionUpdate(updatedPlan: string): Promise<ChatGptSubscriptionUpdatePreviewResponse> {
+    return this.request(
+      'GET',
+      `/backend-api/subscriptions/update/preview?account_id=${encodeURIComponent(this.account.accountId)}&updated_plan=${encodeURIComponent(updatedPlan)}`
+    );
+  }
+
+  async updatePersonalSubscription(updatedPlan: string): Promise<Record<string, unknown>> {
+    return this.request('POST', '/backend-api/subscriptions/update', {
+      account_id: this.account.accountId,
+      updated_plan: updatedPlan
+    });
   }
 
   async getPromotionEligibility(promoCode: string): Promise<ChatGptPromotionEligibilityResponse> {

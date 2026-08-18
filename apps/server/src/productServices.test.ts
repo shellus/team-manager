@@ -76,6 +76,20 @@ test('Workspace 优惠码接口复用 Workspace 访问上下文并保留上游�
   assert.deepEqual(JSON.parse(requests[2].body),{account_id:'workspace-account',updated_promo_code:'PROMO/CODE'});
 });
 
+test('个人套餐升级预览和提交复用 subscriptions/update 的实测协议', async () => {
+  const requests:any[]=[];const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:request.method==='GET'?'{"total_amount":481902,"positive_line_item_total":579464,"negative_line_item_total":-97562,"currency":"php"}':'{"success":true}'};}};
+  const api=new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport);
+  await api.previewPersonalSubscriptionUpdate('chatgptprolite');
+  await api.updatePersonalSubscription('chatgptprolite');
+  assert.deepEqual(requests.map((request)=>[request.method,request.path]),[
+    ['GET','/backend-api/subscriptions/update/preview?account_id=personal-account&updated_plan=chatgptprolite'],
+    ['POST','/backend-api/subscriptions/update']
+  ]);
+  assert.deepEqual(JSON.parse(requests[1].body),{
+    account_id:'personal-account',updated_plan:'chatgptprolite'
+  });
+});
+
 test('Workspace API 任意 401 都用当前 Session 换取新 Token 并只重试一次', async () => {
   const tokens:string[]=[];let refreshes=0;
   const transport={fetch:async(request:any)=>{tokens.push(request.headers.Authorization);return tokens.length===1?{status:401,body:'{"detail":"Unauthorized"}'}:{status:200,body:'{"items":[]}'};}};

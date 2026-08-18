@@ -51,7 +51,7 @@ export class OperationService {
         id: payment.id, ...(payment.target_plan ? { targetPlan: payment.target_plan } : {}),
         resultCode: payment.result_code, ...(payment.card_brand ? { cardBrand: payment.card_brand } : {}),
         ...(payment.card_last4 ? { cardLast4: payment.card_last4 } : {}),
-        ...(payment.amount !== null ? { amount: String(payment.amount) } : {}),
+        ...(payment.amount !== null ? { amount: formatDecimal(payment.amount) } : {}),
         ...(payment.currency ? { currency: payment.currency } : {}),
         ...(payment.submitted_at ? { submittedAt: new Date(payment.submitted_at as any).toISOString() } : {}),
         createdAt: new Date(payment.created_at as any).toISOString()
@@ -159,6 +159,9 @@ function terminal(status: string): boolean { return ['succeeded', 'failed', 'int
 function normalizeStatus(status: string): AccountManagerOperationView['status'] {
   return ['queued', 'running', 'waiting_for_otp', 'waiting_manual', 'succeeded', 'failed', 'interrupted'].includes(status)
     ? status as AccountManagerOperationView['status'] : 'running';
+}
+function formatDecimal(value: string | number): string {
+  return String(value).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 function validateCard(card: PaymentCardInput) {
   if (!/^\d{12,19}$/.test(card.number.replaceAll(' ', ''))) throw new ServiceError(400, '卡号格式无效');

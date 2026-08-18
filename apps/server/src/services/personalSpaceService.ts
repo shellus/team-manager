@@ -1,4 +1,5 @@
 import type { Kysely } from 'kysely';
+import type { PersonalPlan, PersonalSubscriptionChangePreviewView } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { ChatGptApi, ChatGptApiError } from '../chatgptApi.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
@@ -7,7 +8,12 @@ import { ActivityLogRepository } from '../repositories/activityLogRepository.js'
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { ServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
-import { normalizePersonalPlan, resolvePersonalPlan } from '../domain/personalPlan.js';
+import {
+  isVerifiedPersonalPlanUpgrade,
+  normalizePersonalPlan,
+  personalPlanCode,
+  resolvePersonalPlan
+} from '../domain/personalPlan.js';
 import { fetchChatGptWebAccessTokenFromSessionToken } from '../chatgptWebSession.js';
 import type { AccountManagerService } from './accountManagerService.js';
 
@@ -127,6 +133,65 @@ export class PersonalSpaceService {
     return this.refresh(accountId, ['subscription']);
   }
 
+  async previewSubscriptionChange(
+    accountId: string,
+    targetPlan: Exclude<PersonalPlan, 'free' | 'unknown'>
+  ): Promise<PersonalSubscriptionChangePreviewView> {
+    const { api } = await this.context(accountId);
+    return this.readSubscriptionChangePreview(api, targetPlan);
+  }
+
+  async upgradeSubscription(
+    accountId: string,
+    targetPlan: Exclude<PersonalPlan, 'free' | 'unknown'>
+  ) {
+    const { api } = await this.context(accountId);
+    const preview = await this.readSubscriptionChangePreview(api, targetPlan);
+    await api.updatePersonalSubscription(personalPlanCode(targetPlan));
+    const after = await waitForPersonalPlan(() => api.getPersonalSubscription(), targetPlan);
+    if (normalizePersonalPlan(after.plan_type) !== targetPlan) {
+      throw new ServiceError(502, 'ChatGPT 已接受套餐升级请求，但回读尚未确认目标套餐');
+    }
+    await this.activity(accountId, 'personal_subscription_upgraded', {
+      fromPlan: preview.currentPlan,
+      targetPlan,
+      amountDueMinor: preview.amountDueMinor,
+      currency: preview.currency
+    });
+    return { detail: await this.refresh(accountId, ['subscription', 'billing']), preview };
+  }
+
+  private async readSubscriptionChangePreview(
+    api: ChatGptApi,
+    targetPlan: Exclude<PersonalPlan, 'free' | 'unknown'>
+  ): Promise<PersonalSubscriptionChangePreviewView> {
+    const before = await api.getPersonalSubscription();
+    const currentPlan = normalizePersonalPlan(before.plan_type);
+    if (!isVerifiedPersonalPlanUpgrade(currentPlan, targetPlan)) {
+      throw new ServiceError(409, `尚未验证 ${currentPlan} 到 ${targetPlan} 的个人套餐变更协议`);
+    }
+    const raw = await api.previewPersonalSubscriptionUpdate(personalPlanCode(targetPlan));
+    const amountDueMinor = requiredMoney(raw.total_amount, 'total_amount');
+    const positiveLineItemMinor = requiredMoney(raw.positive_line_item_total, 'positive_line_item_total');
+    const adjustmentMinor = requiredMoney(raw.negative_line_item_total, 'negative_line_item_total');
+    const currency = typeof raw.currency === 'string' ? raw.currency.trim().toUpperCase() : '';
+    if (!/^[A-Z]{3}$/.test(currency)) throw new ServiceError(502, 'ChatGPT 套餐升级预览缺少有效货币');
+    const brand = raw.default_payment_method?.card_brand?.trim();
+    const last4 = raw.default_payment_method?.card_last4?.trim();
+    return {
+      currentPlan,
+      targetPlan,
+      amountDueMinor,
+      positiveLineItemMinor,
+      adjustmentMinor,
+      currency,
+      ...(typeof raw.renewal_date === 'string' && raw.renewal_date.trim()
+        ? { renewalDate: raw.renewal_date }
+        : {}),
+      ...(brand && last4 ? { defaultPaymentMethod: { brand, last4 } } : {})
+    };
+  }
+
   private async context(accountId: string) {
     const personal = await this.personal(accountId); const session = await this.sessions.currentSession(accountId) as { sessionToken?: string; account?: { id?: string } } | undefined;
     let token = await this.sessions.accessToken(accountId, { kind: 'personal', personalSpaceId: personal.id });
@@ -168,6 +233,25 @@ async function waitForRenewalCancellation(
   for (let attempt = 1; attempt < 5 && value.will_renew !== false; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     value = await read();
+  }
+  return value;
+}
+
+async function waitForPersonalPlan(
+  read: () => Promise<{ plan_type?: string }>,
+  targetPlan: PersonalPlan
+): Promise<{ plan_type?: string }> {
+  let value = await read();
+  for (let attempt = 1; attempt < 6 && normalizePersonalPlan(value.plan_type) !== targetPlan; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    value = await read();
+  }
+  return value;
+}
+
+function requiredMoney(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw new ServiceError(502, `ChatGPT 套餐升级预览缺少有效 ${field}`);
   }
   return value;
 }
