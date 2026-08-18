@@ -50,6 +50,7 @@ import {
 import { WorkspacePromotionModal } from "./WorkspacePromotionModal.js";
 import { useSearchParams } from "react-router-dom";
 import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
+import { errorMessage } from "../../api.js";
 
 export function AccountWorkspacePanel({
   account,
@@ -78,10 +79,10 @@ export function AccountWorkspacePanel({
     setParams(selectAccountWorkspaceParams(params, workspaceId), { replace: true });
   }, [params, setParams, workspaceId]);
 
-  const load = async () => {
+  const load = async (options: { preserveError?: boolean } = {}) => {
     if (!workspaceId) return;
     setLoading(true);
-    setError("");
+    if (!options.preserveError) setError("");
     try {
       const [detail, nextBilling, nextSubscription] = await Promise.all([
         unifiedApi.accountWorkspace(account.id, workspaceId),
@@ -92,7 +93,7 @@ export function AccountWorkspacePanel({
       setBilling(nextBilling);
       setSubscription(nextSubscription);
     } catch (reason) {
-      setError((reason as Error).message);
+      setError(errorMessage(reason, "Workspace 数据读取失败"));
     } finally {
       setLoading(false);
     }
@@ -114,8 +115,10 @@ export function AccountWorkspacePanel({
       await Promise.all([load(), onAccountChanged()]);
       return true;
     } catch (reason) {
-      setError((reason as Error).message);
-      await load();
+      const message = errorMessage(reason, "Workspace 操作失败");
+      await load({ preserveError: true });
+      setError(message);
+      productMessage.error(message);
       return false;
     } finally {
       setBusy("");

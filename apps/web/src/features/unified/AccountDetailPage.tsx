@@ -46,6 +46,7 @@ import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../com
 import { AccountOperationSummary } from "./AccountOperationSummary.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
+import { errorMessage } from "../../api.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
 import {
@@ -441,7 +442,9 @@ function PersonalPanel({
       productMessage.success(successMessage);
       return true;
     } catch (reason) {
-      setError((reason as Error).message);
+      const message = errorMessage(reason, "个人空间刷新失败");
+      setError(message);
+      productMessage.error(message);
       return false;
     } finally {
       const nextPendingActions = new Set(pendingActionsRef.current);

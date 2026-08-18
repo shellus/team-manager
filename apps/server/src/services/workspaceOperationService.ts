@@ -16,7 +16,7 @@ import type {
 } from '../chatgptApi.js';
 import type { Database } from '../database/schema.js';
 import { ChatGptApi } from '../chatgptApi.js';
-import { fetchWorkspaceWebAccessTokenFromSessionToken } from '../chatgptWebSession.js';
+import { fetchWorkspaceExchangeSessionFromSessionToken } from '../chatgptWebSession.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 import { BillingRepository } from '../repositories/billingRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
@@ -497,9 +497,15 @@ export class WorkspaceOperationService {
       let proxy = await this.operational.proxy(executorAccountId);
       if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(executorAccountId).catch(() => undefined);
       const refresh = async () => {
-        const session = await this.sessions.currentSession(executorAccountId) as { sessionToken?: string } | undefined;
+        // A revoked Web access token can outlive the session cookie. Ask GAM for its
+        // current session first so a 401 retry does not keep exchanging the same token.
+        const imported = this.accountManagement
+          ? await this.accountManagement.importSession(executorAccountId).catch(() => undefined)
+          : undefined;
+        const session = (imported ?? await this.sessions.currentSession(executorAccountId)) as { sessionToken?: string } | undefined;
         if (!session?.sessionToken) throw new ServiceError(409, '执行账号缺少可换取 Workspace Token 的 sessionToken');
-        const token = await fetchWorkspaceWebAccessTokenFromSessionToken(this.transport, session.sessionToken, workspace.external_id, proxy);
+        const exchanged = await fetchWorkspaceExchangeSessionFromSessionToken(this.transport, session.sessionToken, workspace.external_id, proxy);
+        const token = exchanged.accessToken;
         await this.sessions.saveAccessToken(executorAccountId, { kind: 'workspace', workspaceId }, token, { status: 'valid', checkedAt: new Date() });
         return token;
       };
