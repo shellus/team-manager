@@ -18,6 +18,8 @@ describe('支付方式操作', () => {
     const html = render('');
     expect(html.match(/设为默认/g)).toHaveLength(1);
     expect(html.match(/移除/g)).toHaveLength(2);
+    expect(html).toContain('_default');
+    expect(html).toContain('pm_other');
     expect(html).not.toContain('确认移除');
   });
 

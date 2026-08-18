@@ -43,11 +43,12 @@ export function BillingSummary({ value, paymentMethodActions }: {
     <Typography.Title level={5}>最近发票</Typography.Title>
     <InvoiceTable invoices={value.invoices} empty="暂无发票" />
     <Typography.Title level={5}>支付方式</Typography.Title>
-    <Table rowKey="id" size="small" pagination={false} dataSource={value.paymentMethods} locale={{emptyText:'暂无支付方式'}} scroll={{x:paymentMethodActions?720:undefined}} columns={[
+    <Table rowKey="id" size="small" pagination={false} dataSource={value.paymentMethods} locale={{emptyText:'暂无支付方式'}} scroll={{x:paymentMethodActions?820:undefined}} columns={[
       {title:'类型',render:(_,row)=><Space>{row.type??'银行卡'}{row.isDefault&&<Tag color="blue">默认</Tag>}</Space>},
       {title:'品牌',dataIndex:'brand',render:(v)=>v??'—'},
       {title:'尾号',dataIndex:'last4',render:(v)=>formatPaymentCardLast4(v)??'—'},
       {title:'有效期',render:(_,row)=>row.expMonth&&row.expYear?`${String(row.expMonth).padStart(2,'0')}/${row.expYear}`:'—'},
+      {title:'标识',dataIndex:'id',render:(id:string)=><Typography.Text code copyable={{text:id}}>{id.slice(-8)}</Typography.Text>},
       ...(paymentMethodActions ? [{
         title:'操作',
         key:'actions',
