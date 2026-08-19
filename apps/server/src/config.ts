@@ -258,11 +258,16 @@ async function acquireLock(lockPath: string): Promise<{ release(): Promise<void>
   const token = randomUUID();
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   while (true) {
+    let created = false;
     try {
       const handle = await open(lockPath, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify({ pid: process.pid, token, createdAt: Date.now() }));
-      await handle.sync();
-      await handle.close();
+      created = true;
+      try {
+        await handle.writeFile(JSON.stringify({ pid: process.pid, token, createdAt: Date.now() }));
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       return {
         async release() {
           const current = await readFile(lockPath, 'utf8').then(JSON.parse).catch(() => undefined);
@@ -270,6 +275,7 @@ async function acquireLock(lockPath: string): Promise<{ release(): Promise<void>
         },
       };
     } catch (error) {
+      if (created) await unlink(lockPath).catch(() => undefined);
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       if (await clearStaleLock(lockPath)) continue;
       if (Date.now() >= deadline) throw new Error(`等待配置文件锁超时：${lockPath}`);
@@ -286,7 +292,7 @@ async function clearStaleLock(lockPath: string): Promise<boolean> {
     await unlink(lockPath).catch(() => undefined);
     return true;
   }
-  if (Date.now() - value.createdAt <= LOCK_STALE_MS || processExists(value.pid)) return false;
+  if (processExists(value.pid)) return false;
   await unlink(lockPath).catch(() => undefined);
   return true;
 }
