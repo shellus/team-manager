@@ -22,8 +22,11 @@ import {
 } from "@team-manager/shared";
 import { unifiedApi } from "../../unifiedApi.js";
 import { PaymentCardFields } from "../../components/PaymentCardFields.js";
-import { useRememberedForm } from "../../webPreferences.js";
 import { selectUpgradeableWorkspaces } from "./accountActionsModel.js";
+import {
+  loadSubscriptionDefaults,
+  saveSubscriptionDefaults,
+} from "./serverFormDefaults.js";
 
 type SubscriptionTarget = "personal" | "business";
 
@@ -34,21 +37,11 @@ interface SubscriptionValues {
   workspaceId?: string;
   country: string;
   currency: string;
+  promoEnabled: boolean;
   promoCode?: string;
   autoPay: boolean;
   card?: PaymentCardInput;
 }
-
-const REMEMBERED_SUBSCRIPTION_FIELDS: readonly (keyof SubscriptionValues)[] = [
-  "target",
-  "targetPlan",
-  "businessMode",
-  "workspaceId",
-  "country",
-  "currency",
-  "promoCode",
-  "autoPay",
-];
 
 export function SubscriptionModal({
   accountId,
@@ -67,13 +60,9 @@ export function SubscriptionModal({
 }) {
   const productMessage = useProductMessage();
   const [form] = Form.useForm<SubscriptionValues>();
-  const remember = useRememberedForm(
-    form,
-    "account-subscription",
-    REMEMBERED_SUBSCRIPTION_FIELDS,
-  );
   const [busy, setBusy] = useState(false);
   const [loadingAccount, setLoadingAccount] = useState(false);
+  const [loadingDefaults, setLoadingDefaults] = useState(false);
   const [detail, setDetail] = useState<UnifiedAccountDetailView>();
   const [upgradePreview, setUpgradePreview] = useState<PersonalSubscriptionChangePreviewView>();
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -82,6 +71,7 @@ export function SubscriptionModal({
   const businessMode =
     Form.useWatch("businessMode", form) ?? "create_workspace";
   const targetPlan = Form.useWatch("targetPlan", form) ?? "plus";
+  const promoEnabled = Form.useWatch("promoEnabled", form) === true;
   const effectivePersonalPlan = detail?.personalPlan ?? currentPlan ?? "unknown";
   const isFree = effectivePersonalPlan === "free";
   const isVerifiedPaidUpgrade = effectivePersonalPlan === "plus";
@@ -100,6 +90,8 @@ export function SubscriptionModal({
 
   useEffect(() => {
     if (!open) return;
+    let active = true;
+    form.resetFields();
     setError("");
     setDetail(undefined);
     setUpgradePreview(undefined);
@@ -109,6 +101,20 @@ export function SubscriptionModal({
       .then(setDetail)
       .catch((reason) => setError((reason as Error).message))
       .finally(() => setLoadingAccount(false));
+    setLoadingDefaults(true);
+    void loadSubscriptionDefaults()
+      .then((defaults) => {
+        if (active) form.setFieldsValue(defaults);
+      })
+      .catch((reason) => {
+        if (active) setError(`读取套餐默认值失败：${(reason as Error).message}`);
+      })
+      .finally(() => {
+        if (active) setLoadingDefaults(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [accountId, open]);
 
   useEffect(() => {
@@ -141,13 +147,13 @@ export function SubscriptionModal({
       businessMode: "create_workspace",
       country: "US",
       currency: "USD",
+      promoEnabled: false,
       autoPay: false,
     }),
     [isFree],
   );
 
   const submit = async (values: SubscriptionValues) => {
-    remember(values);
     setBusy(true);
     setError("");
     try {
@@ -155,7 +161,7 @@ export function SubscriptionModal({
         country: values.country.toUpperCase(),
         currency: values.currency.toUpperCase(),
         autoPay: values.autoPay === true,
-        ...(values.promoCode ? { promoCode: values.promoCode } : {}),
+        ...(values.promoEnabled && values.promoCode?.trim() ? { promoCode: values.promoCode.trim() } : {}),
         // card 有意不进入表单记忆白名单。
         ...(values.card?.number ? { card: values.card } : {}),
       };
@@ -182,6 +188,16 @@ export function SubscriptionModal({
                 ? { workspaceId: values.workspaceId }
                 : {}),
             } satisfies OpenBusinessSubscriptionRequest);
+      if (values.target === "business" || isFree) {
+        try {
+          await saveSubscriptionDefaults({
+            promoEnabled: values.promoEnabled === true,
+            promoCode: values.promoCode,
+          });
+        } catch (reason) {
+          productMessage.warning(`套餐操作已创建，但保存优惠码默认值失败：${(reason as Error).message}`);
+        }
+      }
       await onChanged?.();
       productMessage.success("套餐操作已创建");
       onClose();
@@ -206,7 +222,7 @@ export function SubscriptionModal({
         initialValues={initial}
         onFinish={submit}
         className="account-action-form"
-        disabled={loadingAccount}
+        disabled={loadingAccount || loadingDefaults}
       >
         <Form.Item name="target" label="套餐类型">
           <Radio.Group
@@ -312,9 +328,16 @@ export function SubscriptionModal({
             <Input maxLength={3} />
           </Form.Item>
         </div>
-        <Form.Item name="promoCode" label="优惠码">
-          <Input />
+        <Form.Item name="promoEnabled" label="使用优惠码" valuePropName="checked">
+          <Switch />
         </Form.Item>
+        {promoEnabled && <Form.Item
+          name="promoCode"
+          label="优惠码"
+          rules={[{ required: true, message: "请输入优惠码" }]}
+        >
+          <Input />
+        </Form.Item>}
         <Form.Item name="autoPay" label="自动提交付款" valuePropName="checked">
           <Switch />
         </Form.Item>
@@ -327,7 +350,7 @@ export function SubscriptionModal({
         <Button
           type="primary"
           htmlType="submit"
-          loading={busy || loadingAccount || loadingPreview}
+          loading={busy || loadingAccount || loadingDefaults || loadingPreview}
           disabled={!detail || personalChangeUnavailable || (!isFree && target === "personal" && !upgradePreview)}
         >
           {!isFree && target === "personal" ? "立即升级" : "创建套餐操作"}

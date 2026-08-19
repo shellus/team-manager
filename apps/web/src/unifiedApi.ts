@@ -166,7 +166,6 @@ export const unifiedApi = {
   removePersonalSpacePaymentMethod: (id: string, paymentMethodId: string) =>
     request<SubscriptionPaymentMethodBindingResult>('DELETE', `/accounts/${id}/personal-space/payment-methods/${encodeURIComponent(paymentMethodId)}`),
   registerAccount: (body: RegisterAccountRequest) => request<AccountManagerOperationView>('POST', '/operations/registrations', body),
-  registration: (id: string) => request<{ operation: AccountManagerOperationView; accountId?: string }>('GET', `/operations/registrations/${id}`),
   registrationProxy: (id: string) => request<ResidentialProxyConfig>('GET', `/operations/registrations/${id}/proxy`),
   configureRegistrationProxy: (id: string, body: ResidentialProxyConfig) => request<ResidentialProxyConfig>('PUT', `/operations/registrations/${id}/proxy`, body),
   operation: (id: string) => request<OperationDetailView>('GET', `/operations/${id}`),

@@ -1,11 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
-  actionModalFromParams,
   accountRemarkLabel,
   parseSessionEditorInput,
   primaryPlanLabel,
   seatUsageColor,
-  setAccountActionInParams,
   profileAction,
   executeProfileAction,
   lifecycleLabel,
@@ -43,24 +41,6 @@ describe("account action UI model", () => {
     await executeProfileAction("account-1", "start", commands);
     await executeProfileAction("account-1", "stop", commands);
     expect(calls).toEqual(["start:account-1", "stop:account-1"]);
-  });
-
-  test("persists and clears an account modal in URL parameters", () => {
-    const opened = setAccountActionInParams(
-      new URLSearchParams("query=alice"),
-      "edit",
-      "account-1",
-    );
-    expect(opened.toString()).toBe(
-      "query=alice&modal=edit&actionAccountId=account-1",
-    );
-    expect(actionModalFromParams(opened)).toBe("edit");
-
-    const closed = setAccountActionInParams(opened);
-    expect(closed.toString()).toBe("query=alice");
-    expect(actionModalFromParams(closed)).toBeUndefined();
-    expect(actionModalFromParams(new URLSearchParams("modal=profile"))).toBeUndefined();
-    expect(actionModalFromParams(new URLSearchParams("modal=session"))).toBeUndefined();
   });
 
   test("shows only the explicit account remark below the email", () => {

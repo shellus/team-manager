@@ -69,10 +69,8 @@ import {
   PRIMARY_PLAN_OPTIONS,
   accountRemarkLabel,
   lifecycleLabel,
-  actionModalFromParams,
   primaryPlanLabel,
   seatUsageColor,
-  setAccountActionInParams,
   type AccountActionModal,
   type AccountActionSummary,
 } from "./accountActionsModel.js";
@@ -82,6 +80,7 @@ import { useUrlPagination } from "../../components/urlPagination.js";
 
 type AccountListRow = UnifiedAccountSummaryView | AccountRegistrationSummaryView;
 function isRegistration(row: AccountListRow): row is AccountRegistrationSummaryView { return "kind" in row && row.kind === "registration"; }
+type AccountPageModal = "groups" | "batch-group" | "create-account" | "register-account";
 
 const TRI_STATE_FILTERS = [
   ["hasGamBinding", "GAM"],
@@ -105,6 +104,10 @@ export function AccountsPage() {
   const [multiSelect, setMultiSelect] = useState(false);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [batchAction, setBatchAction] = useState<"group" | "ban" | "unban">();
+  const [modal, setModal] = useState<AccountPageModal>();
+  const [accountAction, setAccountAction] = useState<AccountActionModal>();
+  const [actionAccountId, setActionAccountId] = useState<string>();
+  const [operationId, setOperationId] = useState<string>();
   const [error, setError] = useState("");
   const [batchGroupForm] = Form.useForm<{ groupId: string }>();
   const batchBusy = batchAction !== undefined;
@@ -114,9 +117,6 @@ export function AccountsPage() {
   );
   const latestRequest = useRef(0);
   const restoredLocationKey = useRef<string>();
-  const modal = params.get("modal");
-  const accountAction = actionModalFromParams(params);
-  const actionAccountId = params.get("actionAccountId");
   const selectedGroupId = params.get("groupId") ?? undefined;
   const explicitSort = accountListSort(params);
   const accountRequestQuery = accountListRequestQuery(params);
@@ -233,7 +233,7 @@ export function AccountsPage() {
   const toggleMultiSelect = () => {
     if (multiSelect) {
       setSelectedAccountIds([]);
-      if (modal === "batch-group") set("modal");
+      if (modal === "batch-group") setModal(undefined);
     }
     setMultiSelect(!multiSelect);
   };
@@ -251,7 +251,7 @@ export function AccountsPage() {
       });
       productMessage.success(`${successMessage}，共 ${result.updatedCount} 个账号`);
       setSelectedAccountIds([]);
-      if (modal === "batch-group") set("modal");
+      if (modal === "batch-group") setModal(undefined);
       void load();
     } catch (cause) {
       productMessage.error(`批量操作失败：${(cause as Error).message}`);
@@ -262,9 +262,14 @@ export function AccountsPage() {
   const openAccountAction = (
     account: Pick<UnifiedAccountSummaryView, "id">,
     action: AccountActionModal,
-  ) => setParams(setAccountActionInParams(params, action, account.id));
-  const closeAccountAction = () =>
-    setParams(setAccountActionInParams(params));
+  ) => {
+    setActionAccountId(account.id);
+    setAccountAction(action);
+  };
+  const closeAccountAction = () => {
+    setAccountAction(undefined);
+    setActionAccountId(undefined);
+  };
 
   const columns: TableColumnsType<AccountListRow> = [
     {
@@ -299,7 +304,7 @@ export function AccountsPage() {
           </Space>
           <br />
           <Typography.Text type="secondary">{isRegistration(row) ? "注册中的临时账号" : accountRemarkLabel(row.remark)}</Typography.Text>
-          {(isRegistration(row) ? row.operation : row.latestOperation) && <AccountOperationSummary operation={isRegistration(row) ? row.operation : row.latestOperation!} onOpen={(id) => set("operationId", id)} />}
+          {(isRegistration(row) ? row.operation : row.latestOperation) && <AccountOperationSummary operation={isRegistration(row) ? row.operation : row.latestOperation!} onOpen={setOperationId} />}
         </div>
       ),
     },
@@ -343,7 +348,7 @@ export function AccountsPage() {
       title: "操作",
       fixed: "right",
       width: 270,
-      render: (_, row) => isRegistration(row) ? <Button size="small" onClick={() => set("operationId", row.operation.id)}>查看进度</Button> : (
+      render: (_, row) => isRegistration(row) ? <Button size="small" onClick={() => setOperationId(row.operation.id)}>查看进度</Button> : (
         <AccountActionButtons
           account={row as AccountActionSummary}
           onOpen={(action) => openAccountAction(row, action)}
@@ -398,17 +403,17 @@ export function AccountsPage() {
           description="账号运营与 Workspace 关系统一从账号进入"
           actions={
             <>
-              <Button onClick={() => set("modal", "groups")}>管理分组</Button>
+              <Button onClick={() => setModal("groups")}>管理分组</Button>
               <Button
                 icon={<UserAddOutlined />}
-                onClick={() => set("modal", "register-account")}
+                onClick={() => setModal("register-account")}
               >
                 GAM 注册
               </Button>
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => set("modal", "create-account")}
+                onClick={() => setModal("create-account")}
               >
                 添加账号
               </Button>
@@ -493,7 +498,7 @@ export function AccountsPage() {
             <Button
               disabled={!selectedAccountIds.length || batchBusy}
               loading={batchAction === "group"}
-              onClick={() => set("modal", "batch-group")}
+              onClick={() => setModal("batch-group")}
             >
               更换分组
             </Button>
@@ -556,7 +561,7 @@ export function AccountsPage() {
       <ProductModal
         title="账号分组"
         open={modal === "groups"}
-        onCancel={() => set("modal")}
+        onCancel={() => setModal(undefined)}
         width={700}
       >
         <Space direction="vertical" className="panel-stack">
@@ -601,7 +606,7 @@ export function AccountsPage() {
       <ProductModal
         title="批量更换分组"
         open={modal === "batch-group"}
-        onCancel={() => set("modal")}
+        onCancel={() => setModal(undefined)}
         afterClose={() => batchGroupForm.resetFields()}
       >
         <Form
@@ -629,7 +634,7 @@ export function AccountsPage() {
             <Button type="primary" htmlType="submit" loading={batchAction === "group"}>
               更换分组
             </Button>
-            <Button disabled={batchBusy} onClick={() => set("modal")}>
+            <Button disabled={batchBusy} onClick={() => setModal(undefined)}>
               取消
             </Button>
           </Space>
@@ -637,18 +642,16 @@ export function AccountsPage() {
       </ProductModal>
       <AccountEditorModal
         open={modal === "create-account"}
-        onClose={() => set("modal")}
+        onClose={() => setModal(undefined)}
         onSaved={load}
       />
       <AccountRegistrationModal
         groups={groups}
         open={modal === "register-account"}
-        onClose={() => set("modal")}
+        onClose={() => setModal(undefined)}
         onOperationCreated={(operation) => {
-          const next = new URLSearchParams(params);
-          next.delete("modal");
-          next.set("operationId", operation.id);
-          setParams(next);
+          setModal(undefined);
+          setOperationId(operation.id);
           void load();
         }}
       />
@@ -658,13 +661,12 @@ export function AccountsPage() {
         onClose={closeAccountAction}
         onChanged={load}
         onOperationCreated={(operation) => {
-          const next = setAccountActionInParams(params);
-          next.set("operationId", operation.id);
-          setParams(next);
+          closeAccountAction();
+          setOperationId(operation.id);
           void load();
         }}
       />
-      <OperationDrawer operationId={params.get("operationId") ?? undefined} open={Boolean(params.get("operationId"))} onClose={() => set("operationId")} onChanged={load} />
+      <OperationDrawer operationId={operationId} open={Boolean(operationId)} onClose={() => setOperationId(undefined)} onChanged={load} />
     </Card>
   );
 }

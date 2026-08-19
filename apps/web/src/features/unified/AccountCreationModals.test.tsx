@@ -1,6 +1,7 @@
 import { App } from 'antd';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { accountEditorMode } from './AccountActions.js';
 import { AccountsPage } from './AccountsPage.js';
@@ -34,5 +35,13 @@ describe('账号创建弹窗', () => {
     expect(html).toContain('添加账号');
     expect(html).toContain('GAM 注册');
     expect(html).not.toContain('手工录入已有账号，或让 GAM 注册一个新账号');
+  });
+
+  it('账号页弹窗和操作抽屉不再由查询参数驱动', () => {
+    const source = readFileSync(new URL('./AccountsPage.tsx', import.meta.url), 'utf8');
+    expect(source).not.toMatch(/params\.get\(["']modal["']\)/);
+    expect(source).not.toMatch(/params\.get\(["']actionAccountId["']\)/);
+    expect(source).not.toMatch(/params\.get\(["']operationId["']\)/);
+    expect(source).not.toContain('setAccountActionInParams(params');
   });
 });

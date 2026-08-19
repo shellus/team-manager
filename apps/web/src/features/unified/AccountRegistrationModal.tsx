@@ -4,17 +4,13 @@ import type {
   AccountManagerOperationView,
   RegisterAccountRequest,
 } from '@team-manager/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ProductModal, useProductMessage } from '../../components/ProductOverlays.js';
 import { unifiedApi } from '../../unifiedApi.js';
-import { useRememberedForm } from '../../webPreferences.js';
-
-const REGISTRATION_FIELDS: readonly (keyof RegisterAccountRequest)[] = [
-  'groupId',
-  'email',
-  'country',
-  'mailGroup',
-];
+import {
+  loadGamRegistrationDefaults,
+  saveGamRegistrationDefaults,
+} from './serverFormDefaults.js';
 
 export function AccountRegistrationModal({
   groups,
@@ -29,13 +25,36 @@ export function AccountRegistrationModal({
 }) {
   const productMessage = useProductMessage();
   const [form] = Form.useForm<RegisterAccountRequest>();
-  const rememberRegistration = useRememberedForm(
-    form,
-    'gam-registration',
-    REGISTRATION_FIELDS,
-  );
   const [saving, setSaving] = useState(false);
+  const [loadingDefaults, setLoadingDefaults] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    form.resetFields();
+    setError('');
+    setLoadingDefaults(true);
+    void loadGamRegistrationDefaults()
+      .then((defaults) => {
+        if (!active) return;
+        form.setFieldsValue({
+          ...defaults,
+          groupId: defaults.groupId && groups.some((group) => group.id === defaults.groupId)
+            ? defaults.groupId
+            : undefined,
+        });
+      })
+      .catch((reason) => {
+        if (active) setError(`读取注册默认值失败：${(reason as Error).message}`);
+      })
+      .finally(() => {
+        if (active) setLoadingDefaults(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [form, open]);
 
   return (
     <ProductModal
@@ -46,7 +65,7 @@ export function AccountRegistrationModal({
       footer={(
         <Space>
           <Button onClick={onClose} disabled={saving}>取消</Button>
-          <Button type="primary" loading={saving} onClick={() => form.submit()}>
+          <Button type="primary" loading={saving || loadingDefaults} onClick={() => form.submit()}>
             启动 GAM 注册
           </Button>
         </Space>
@@ -67,9 +86,17 @@ export function AccountRegistrationModal({
             country: values.country?.trim().toUpperCase() || undefined,
             mailGroup: values.mailGroup?.trim() || undefined,
           };
-          rememberRegistration(input);
           try {
             const operation = await unifiedApi.registerAccount(input);
+            try {
+              await saveGamRegistrationDefaults({
+                groupId: input.groupId,
+                country: input.country ?? 'US',
+                mailGroup: input.mailGroup,
+              });
+            } catch (reason) {
+              productMessage.warning(`注册已启动，但保存默认值失败：${(reason as Error).message}`);
+            }
             productMessage.success('GAM 注册已启动');
             await onOperationCreated(operation);
           } catch (reason) {
