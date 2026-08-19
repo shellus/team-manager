@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@10.0.0",
   "scripts": {
-    "dev": "set -a; . ./.env 2>/dev/null || true; set +a; corepack pnpm --parallel --filter @team-manager/web --filter @team-manager/server dev",
+    "dev": "corepack pnpm --filter @team-manager/server run config -- exec --config ../../../config.yaml --profile development -- corepack pnpm --parallel --filter @team-manager/web --filter @team-manager/server dev",
     "build": "corepack pnpm --filter @team-manager/shared build && corepack pnpm --filter @team-manager/web build && corepack pnpm --filter @team-manager/server build",
     "typecheck": "corepack pnpm --filter @team-manager/shared build && corepack pnpm -r typecheck",
     "test": "corepack pnpm --filter @team-manager/server test",

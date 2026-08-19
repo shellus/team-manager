@@ -19,8 +19,6 @@ FROM node:22-bookworm-slim AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
-ENV TEAMMGR_DATA_DIR=/app/data
-ENV TEAMMGR_WEB_DIST_DIR=/app/apps/web/dist
 ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 RUN npm config set registry https://registry.npmmirror.com && corepack enable
 

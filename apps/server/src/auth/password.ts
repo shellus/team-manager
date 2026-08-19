@@ -1,68 +1,46 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import { compare, hash } from 'bcryptjs';
 
-const defaultScrypt = {
-  N: 16384,
-  r: 8,
-  p: 1,
-  keyLength: 32
-};
+export const BCRYPT_COST = 12;
+const BCRYPT_HASH = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
-export type HashPasswordOptions = {
-  salt?: string;
-};
-
-export async function hashPassword(password: string, options: HashPasswordOptions = {}) {
-  const salt = options.salt ?? randomBytes(16).toString('base64url');
-  const derived = await scrypt(password, salt, defaultScrypt.keyLength, {
-    N: defaultScrypt.N,
-    r: defaultScrypt.r,
-    p: defaultScrypt.p
-  });
-
-  return `$scrypt$N=${defaultScrypt.N},r=${defaultScrypt.r},p=${defaultScrypt.p}$${salt}$${derived.toString('base64url')}`;
+export async function hashPassword(password: string): Promise<string> {
+  assertPasswordFitsBcrypt(password);
+  return hash(password, BCRYPT_COST);
 }
 
-export async function verifyPasswordHash(password: string, storedHash: string) {
-  const parsed = parseScryptHash(storedHash);
-  if (!parsed) {
+export async function verifyPasswordHash(password: string, storedHash: string): Promise<boolean> {
+  if (!isSupportedBcryptHash(storedHash) || !passwordFitsBcrypt(password)) return false;
+  try {
+    return await compare(password, normalizeBcryptPrefix(storedHash));
+  } catch {
     return false;
   }
-
-  const derived = await scrypt(password, parsed.salt, Buffer.from(parsed.hash, 'base64url').length, {
-    N: parsed.N,
-    r: parsed.r,
-    p: parsed.p
-  });
-  const expected = Buffer.from(parsed.hash, 'base64url');
-
-  return derived.length === expected.length && timingSafeEqual(derived, expected);
 }
 
-function scrypt(password: string, salt: string, keyLength: number, options: { N: number; r: number; p: number }) {
-  return new Promise<Buffer>((resolve, reject) => {
-    scryptCallback(password, salt, keyLength, options, (error, derivedKey) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(derivedKey as Buffer);
-    });
-  });
+export function isSupportedBcryptHash(value: string): boolean {
+  return BCRYPT_HASH.test(value);
 }
 
-function parseScryptHash(storedHash: string) {
-  const [empty, scheme, params, salt, hash] = storedHash.split('$');
-  if (empty !== '' || scheme !== 'scrypt' || !params || !salt || !hash) {
-    return null;
-  }
+export function isBcryptLike(value: string): boolean {
+  return value.startsWith('$2');
+}
 
-  const parsedParams = Object.fromEntries(params.split(',').map((part) => part.split('=')));
-  const N = Number(parsedParams.N);
-  const r = Number(parsedParams.r);
-  const p = Number(parsedParams.p);
-  if (!Number.isInteger(N) || !Number.isInteger(r) || !Number.isInteger(p)) {
-    return null;
-  }
+export function assertPasswordFitsBcrypt(password: string): void {
+  if (!password) throw new Error('管理员密码不能为空');
+  if (password.includes('\0')) throw new Error('管理员密码不能包含 NUL 字符');
+  const length = Buffer.byteLength(password, 'utf8');
+  if (length > 72) throw new Error('管理员密码超过 bcrypt 的 72 UTF-8 字节限制');
+}
 
-  return { N, r, p, salt, hash };
+function passwordFitsBcrypt(password: string): boolean {
+  try {
+    assertPasswordFitsBcrypt(password);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeBcryptPrefix(value: string): string {
+  return value.startsWith('$2y$') ? `$2b$${value.slice(4)}` : value;
 }

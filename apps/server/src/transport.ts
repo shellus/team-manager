@@ -62,6 +62,7 @@ let traceWriteChain = Promise.resolve();
 let catchAllFetchInstalled = false;
 const catchAllFetchSources = new WeakMap<typeof fetch, typeof fetch>();
 let traceArtifactSink: ((record: unknown) => Promise<void>) | undefined;
+let configuredTraceFile: string | undefined;
 
 interface SerializedError {
   name: string;
@@ -88,7 +89,7 @@ export class CurlCffiTransport implements Transport {
 
   constructor(workerUrl: string) {
     const base = workerUrl.trim().replace(/\/+$/, '');
-    if (!base) throw new Error('TEAMMGR_CURL_CFFI_URL 为空');
+    if (!base) throw new Error('配置 transport.curlCffiUrls 为空');
     this.endpoint = `${base}/fetch`;
   }
 
@@ -183,7 +184,7 @@ function isWireTrace(value: unknown): value is HttpWireEvent[] {
 
 /**
  * Node 原生 fetch 直连。
- * 仅用于未配置 sidecar 的本地调试；生产和当前部署应配置 TEAMMGR_CURL_CFFI_URL。
+ * 仅用于未配置 sidecar 的本地调试；生产和当前部署应配置 transport.curlCffiUrls。
  */
 export class DirectTransport implements Transport {
   async fetch(req: HttpRequest): Promise<HttpResponse> {
@@ -430,16 +431,17 @@ async function writeTraceSafely(traceFile: string, record: unknown): Promise<voi
 }
 
 function resolveTraceFile(): string | undefined {
-  const configured = process.env.TEAMMGR_UPSTREAM_TRACE_FILE?.trim();
-  if (configured) return resolve(configured);
-  const dataDir = process.env.TEAMMGR_DATA_DIR?.trim();
-  if (dataDir) return join(resolve(dataDir), DEFAULT_TRACE_FILE);
-  return undefined;
+  return configuredTraceFile;
 }
 
-/** 按环境选传输后端：配置 sidecar 则走 curl_cffi，否则直连。 */
-export function createTransport(): Transport {
-  const workerUrl = process.env.TEAMMGR_CURL_CFFI_URL;
+export function configureTransportRuntime(config: { dataDir: string; upstreamTraceFile?: string }): void {
+  configuredTraceFile = config.upstreamTraceFile
+    ? resolve(config.upstreamTraceFile)
+    : join(resolve(config.dataDir), DEFAULT_TRACE_FILE);
+}
+
+/** 按配置选择传输后端：配置 sidecar 则走 curl_cffi，否则直连。 */
+export function createTransport(workerUrl?: string): Transport {
   const baseTransport = workerUrl?.trim()
     ? new CurlCffiTransport(workerUrl)
     : new DirectTransport();

@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { TeamOrderService } from '../services/teamOrderService.js';
 import { NotificationService } from '../services/notificationService.js';
 import { BillingRepository } from '../repositories/billingRepository.js';
+import { hashPassword } from '../auth/password.js';
 
 const adminUrl = process.env.TEAMMGR_TEST_ADMIN_DATABASE_URL;
 
@@ -169,7 +170,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
 
       const app = await buildUnifiedApp({
         database: db,
-        config: { port: 0, dataDir: '/tmp', artifactDir: '/tmp', databaseUrl, dataEncryptionKey: '0'.repeat(64), dataEncryptionKeyVersion: 'test-v1', jwtSecret: 'secret', jwtIssuer: 'team-manager', adminUsername: 'admin', adminPassword: 'password', apiToken: 'test-token', allowedOrigins: [], webDistDir: '/missing' },
+        config: { port: 0, dataDir: '/tmp', artifactDir: '/tmp', databaseUrl, dataEncryptionKey: '0'.repeat(64), dataEncryptionKeyVersion: 'test-v1', jwtSecret: 'secret', jwtIssuer: 'team-manager', adminUsername: 'admin', adminPasswordHash: await hashPassword('password'), apiToken: 'test-token', allowedOrigins: [], webDistDir: '/missing' },
         accountManager: {
           operation: async (id) => completedOperations.has(id)
             ? { ...operation(id), status: 'succeeded', phase: 'complete', progress: 100, completedAt: Date.now(), updatedAt: Date.now() }

@@ -4,21 +4,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/index.ts --config ../../../config.yaml --profile development",
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "test": "tsx --test src/*.test.ts",
     "test:db": "tsx --test src/database/*.test.ts",
-    "db:migrate": "tsx src/database/cli.ts migrate",
-    "db:status": "tsx src/database/cli.ts status",
+    "db:migrate": "tsx src/database/cli.ts migrate --config ../../../config.yaml --profile development",
+    "db:status": "tsx src/database/cli.ts status --config ../../../config.yaml --profile development",
+    "config": "tsx src/configCli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "@team-manager/shared": "workspace:*",
+    "bcryptjs": "^3.0.3",
     "hono": "^4.6.0",
     "kysely": "0.28.3",
     "pg": "8.16.3",
-    "undici": "^8.10.0"
+    "undici": "^8.10.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/pg": "8.15.5",

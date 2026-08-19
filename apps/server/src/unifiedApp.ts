@@ -8,7 +8,7 @@ import type { Kysely } from 'kysely';
 import type { AppConfig } from './config.js';
 import type { Database } from './database/schema.js';
 import { verifyJwt, signJwt } from './auth/jwt.js';
-import { hashPassword, verifyPasswordHash } from './auth/password.js';
+import { verifyPasswordHash } from './auth/password.js';
 import { ArtifactStore } from './artifactStore.js';
 import { SecretCipher } from './secretCipher.js';
 import { AccountOperationalRepository } from './repositories/accountOperationalRepository.js';
@@ -19,7 +19,7 @@ import { WorkspaceService } from './services/workspaceService.js';
 import { WorkspaceOperationService } from './services/workspaceOperationService.js';
 import { ServiceError, asServiceError } from './serviceError.js';
 import type { AccountListFilters } from './repositories/accountRepository.js';
-import { createTransport, type Transport } from './transport.js';
+import { configureTransportRuntime, createTransport, type Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
   AddSubscriptionPaymentMethodRequest,
@@ -64,8 +64,10 @@ export interface UnifiedAppDeps {
 
 export type UnifiedApp = Hono & { stopBackgroundTasks(): void };
 
-export async function buildUnifiedApp({ config, database, artifactStore, transport = createTransport(), accountManager: providedAccountManager, paymentMethodBinder: providedPaymentMethodBinder, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
+export async function buildUnifiedApp({ config, database, artifactStore, transport: providedTransport, accountManager: providedAccountManager, paymentMethodBinder: providedPaymentMethodBinder, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
   const app = new Hono();
+  configureTransportRuntime(config);
+  const transport = providedTransport ?? createTransport(config.curlCffiUrl);
   const cipher = new SecretCipher(config.dataEncryptionKey, config.dataEncryptionKeyVersion);
   const artifactsStore = artifactStore ?? new ArtifactStore(config.artifactDir);
   const sessions = new SessionRepository(database, cipher);
@@ -124,8 +126,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const notificationTimer = setInterval(() => void notifications.retryFailed().catch((error) => console.warn('[team-manager] 通知重试失败:', error)), 60_000);
     notificationTimer.unref(); stops.push(() => clearInterval(notificationTimer));
   }
-  let adminHash = config.adminPasswordHash;
-  if (!adminHash && config.adminPassword) adminHash = await hashPassword(config.adminPassword);
+  const adminHash = config.adminPasswordHash;
 
   if (config.allowedOrigins.length > 0) {
     app.use('*', cors({

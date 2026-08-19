@@ -46,6 +46,6 @@ export function sha256(value: string | Uint8Array): string {
 function parseKey(material: string): Buffer {
   const trimmed = material.trim();
   const key = /^[0-9a-f]{64}$/i.test(trimmed) ? Buffer.from(trimmed, 'hex') : Buffer.from(trimmed, 'base64');
-  if (key.length !== 32) throw new Error('TEAMMGR_DATA_ENCRYPTION_KEY 必须是 32 字节（64 位 hex 或 base64）');
+  if (key.length !== 32) throw new Error('配置 server.dataEncryptionKey 必须是 32 字节（64 位 hex 或 base64）');
   return key;
 }

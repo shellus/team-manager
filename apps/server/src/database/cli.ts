@@ -5,7 +5,7 @@ import { migrateToLatest, pendingMigrations } from './migrator.js';
 async function main(): Promise<void> {
   const command = process.argv[2];
   if (command !== 'migrate' && command !== 'status') throw new Error('Usage: db:migrate | db:status');
-  const config = loadConfig();
+  const config = await loadConfig();
   const db = createDatabase({ connectionString: config.databaseUrl, applicationName: `team-manager-${command}` });
   try {
     if (command === 'migrate') {

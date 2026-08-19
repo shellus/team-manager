@@ -1,0 +1,67 @@
+# Team Manager 配置示例。复制到私有部署目录后填写；不要把真实值提交到源码仓库。
+version: 1
+server:
+  port: 3000
+  dataDir: ./data
+  artifactDir: ./data/artifacts
+  webDistDirs:
+    development: ./source/apps/web/dist
+    compose: ./apps/web/dist
+  dataEncryptionKey: replace-with-32-byte-key
+  dataEncryptionKeyVersion: v1
+  jwtSecret: replace-with-random-secret
+  jwtIssuer: team-manager
+  apiToken: null
+  allowedOrigins: []
+admin:
+  username: admin
+  # 可以先填不超过 72 UTF-8 字节的明文；首次读取会原子改写为 bcrypt cost 12。
+  password: replace-before-start
+database:
+  name: team_manager
+  username: team_manager
+  password: replace-with-database-password
+  hosts:
+    development:
+      host: 127.0.0.1
+      port: 5433
+    compose:
+      host: postgres
+      port: 5432
+integrations:
+  accountManager:
+    token: null
+    baseUrls:
+      development: http://127.0.0.1:3015
+      compose: http://registrar-api:3000
+  teamCode:
+    baseUrl: null
+    passcode: null
+  stripe:
+    publishableKeys: []
+    paymentUserAgent: null
+    walletConfigId: null
+  payment:
+    httpProxyHosts:
+      development: 127.0.0.1
+      compose: host.docker.internal
+    billingPostalCode: null
+    billingRegion: null
+transport:
+  curlCffiUrls:
+    development: http://127.0.0.1:3011
+    compose: http://curl-cffi-worker:8080
+  upstreamTraceFile: ./data/upstream-http-trace.jsonl
+deployment:
+  postgres:
+    publishedPort: 5433
+  worker:
+    chatgptBaseUrl: https://chatgpt.com
+    chatgptProxy: null
+    impersonate: chrome110
+    requestTimeoutSeconds: 60
+    ports:
+      development: 3011
+      compose: 8080
+  web:
+    devApiTarget: http://127.0.0.1:3000
