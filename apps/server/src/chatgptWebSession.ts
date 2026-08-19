@@ -4,16 +4,18 @@ import {
   type ChatGptSessionInput
 } from '@team-manager/shared';
 import type { Transport } from './transport.js';
+import { ServiceError, upstreamHttpError } from './serviceError.js';
 
 const CHATGPT_WEB_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
 
-export class ChatGptWebSessionError extends Error {
+export class ChatGptWebSessionError extends ServiceError {
   constructor(
-    public readonly status: number,
-    message: string
+    status: number,
+    message: string,
+    upstreamStatus?: number
   ) {
-    super(message);
+    super(status, message, { upstreamStatus });
     this.name = 'ChatGptWebSessionError';
   }
 }
@@ -105,12 +107,12 @@ async function fetchWorkspaceWebSessionWithCookies(
     proxy: proxy?.trim() || undefined
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new ChatGptWebSessionError(
-      response.status >= 400 && response.status < 500 ? response.status : 502,
+    throw upstreamHttpError(
+      response.status,
       `获取目标 workspace Web session 失败: HTTP ${response.status} ${trimForLog(response.body)}`
     );
   }
-  const data = parseJsonObject(response.body, '获取目标 workspace Web session 返回不是 JSON');
+  const data = parseJsonObject(response.body, response.status, '获取目标 workspace Web session 返回不是 JSON');
   const accessToken = readWorkspaceSessionAccessToken(data);
   if (!accessToken) throw new ChatGptWebSessionError(502, '目标 workspace Web session 响应缺少 accessToken');
   const claims = chatGptAuthClaimsFromAccessToken(accessToken);
@@ -142,12 +144,12 @@ export async function fetchWorkspaceExchangeSessionFromSessionToken(
     proxy: proxy?.trim() || undefined
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new ChatGptWebSessionError(
-      response.status >= 400 && response.status < 500 ? response.status : 502,
+    throw upstreamHttpError(
+      response.status,
       `获取目标 workspace Web session 失败: HTTP ${response.status} ${trimForLog(response.body)}`
     );
   }
-  const data = parseJsonObject(response.body, '获取目标 workspace Web session 返回不是 JSON');
+  const data = parseJsonObject(response.body, response.status, '获取目标 workspace Web session 返回不是 JSON');
   const accessToken =
     readOptionalString(data, 'accessToken') ??
     readOptionalString(data, 'access_token') ??
@@ -225,12 +227,12 @@ function buildStoredSessionCookieHeader(
   return base.join('; ');
 }
 
-function parseJsonObject(body: string, message: string): Record<string, unknown> {
+function parseJsonObject(body: string, upstreamStatus: number, message: string): Record<string, unknown> {
   try {
     const data = JSON.parse(body) as unknown;
     return data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
   } catch {
-    throw new ChatGptWebSessionError(502, message);
+    throw upstreamHttpError(upstreamStatus, message);
   }
 }
 

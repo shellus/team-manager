@@ -1,4 +1,5 @@
 import { fetchWithRawTrace } from './transport.js';
+import { upstreamHttpError } from './serviceError.js';
 
 interface TeamCodeTaskResult {
   payUrl?: unknown;
@@ -95,7 +96,10 @@ export class TeamCodeClient implements TeamCodeGateway {
       });
       const submitBody = await submitResponse.json().catch(() => ({}));
       if (!submitResponse.ok) {
-        throw new Error(errorMessage(submitBody, `TeamCode 提交失败（HTTP ${submitResponse.status}）`));
+        throw upstreamHttpError(
+          submitResponse.status,
+          errorMessage(submitBody, `TeamCode 提交失败（HTTP ${submitResponse.status}）`)
+        );
       }
       const taskId = readString(readObject(submitBody).id);
       if (!taskId) throw new Error('TeamCode 提交成功但未返回任务 ID');
@@ -112,7 +116,10 @@ export class TeamCodeClient implements TeamCodeGateway {
         );
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(errorMessage(body, `TeamCode 查询失败（HTTP ${response.status}）`));
+          throw upstreamHttpError(
+            response.status,
+            errorMessage(body, `TeamCode 查询失败（HTTP ${response.status}）`)
+          );
         }
         const states = readObject(body).states;
         const state = Array.isArray(states) ? states[0] as TeamCodeTaskState | undefined : undefined;

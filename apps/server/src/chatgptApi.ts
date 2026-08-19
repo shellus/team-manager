@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { EditableMemberRole, Member, PendingInvite, SeatType, MemberRole } from '@team-manager/shared';
 import { fetchWithRawTrace, type Transport } from './transport.js';
+import { upstreamHttpError } from './serviceError.js';
 
 interface AccountFingerprint { deviceId?: string; sessionId?: string; userAgent?: string }
 interface BillingRaw extends Record<string, unknown> { invoices: unknown; upcomingInvoice: unknown; paymentMethods: unknown; billingInfo: unknown; seatTypeCounts: unknown }
@@ -677,7 +678,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<RefreshR
     }).toString()
   });
   if (!res.ok) {
-    throw new Error(`token 刷新失败 ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    throw upstreamHttpError(res.status, `token 刷新失败 ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }
   const data = (await res.json()) as { access_token?: string; refresh_token?: string };
   if (!data.access_token) throw new Error('token 刷新响应无 access_token');

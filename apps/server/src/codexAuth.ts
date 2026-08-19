@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { CodexCredentialJson } from '@team-manager/shared';
 import type { Transport } from './transport.js';
+import { upstreamHttpError } from './serviceError.js';
 
 export const CODEX_AUTH_REDIRECT_URI = 'http://localhost:1455/auth/callback';
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -23,7 +24,9 @@ export async function exchangeCodexCallback(input: { callbackUrl: string; state:
   const response = await input.transport.fetch({ method: 'POST', baseUrl: 'https://auth.openai.com', path: '/oauth/token', upstream: 'codex-oauth-token-exchange',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, proxy: input.proxy,
     body: new URLSearchParams({ grant_type: 'authorization_code', client_id: CLIENT_ID, code, redirect_uri: CODEX_AUTH_REDIRECT_URI, code_verifier: input.codeVerifier }).toString() });
-  if (response.status < 200 || response.status >= 300) throw new Error(`Codex token exchange 失败: HTTP ${response.status} ${response.body.slice(0, 200)}`);
+  if (response.status < 200 || response.status >= 300) {
+    throw upstreamHttpError(response.status, `Codex token exchange 失败: HTTP ${response.status} ${response.body.slice(0, 200)}`);
+  }
   const token = JSON.parse(response.body) as Record<string, unknown>;
   if (typeof token.access_token !== 'string' || typeof token.refresh_token !== 'string' || typeof token.id_token !== 'string') throw new Error('Codex token response 缺少 token');
   const claims = decodeJwt(token.id_token); const auth = record(claims['https://api.openai.com/auth']); const expires = Number(token.expires_in);

@@ -9,6 +9,7 @@ import {
   type SensitiveStripeRequest,
   type SensitiveStripeTransport
 } from './services/paymentMethodService.js';
+import { ServiceError } from './serviceError.js';
 
 const CARD = { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' };
 
@@ -141,6 +142,32 @@ test('设置默认卡和移除卡使用 ChatGPT HTTP 接口并复读最新支付
   const removeRequest = requests.find((request) => request.method === 'DELETE');
   assert.equal(removeRequest?.headers['x-openai-target-route'], '/backend-api/payments/payment_method/{payment_method_id}');
   assert.equal(removeRequest?.path, `/backend-api/payments/payment_method/pm_first?account_id=${targetAccountId}`);
+});
+
+test('支付方式上游 401 转换为依赖错误并保留 upstreamStatus', async () => {
+  const targetAccountId = 'personal-account';
+  const transport: Transport = {
+    fetch: async (request) => request.path.startsWith('/api/auth/session?')
+      ? { status: 200, body: JSON.stringify({
+        accessToken: jwt({ 'https://api.openai.com/auth': { chatgpt_account_id: targetAccountId } })
+      }) }
+      : { status: 401, body: JSON.stringify({ detail: 'Unauthorized' }) }
+  };
+  const binder = new HttpPaymentMethodBinder(transport, { fetch: async () => {
+    throw new Error('设置默认卡不应访问 Stripe');
+  } }, { stripePublishableKeys: [], stripePaymentUserAgent: '' });
+
+  await assert.rejects(
+    () => binder.setDefault({
+      sessionToken: 'session', targetAccountId, proxy: 'http://proxy.example:8080', paymentMethodId: 'pm_first'
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof ServiceError);
+      assert.equal(error.status, 502);
+      assert.equal(error.upstreamStatus, 401);
+      return true;
+    }
+  );
 });
 
 test('支付方式输入校验 Luhn 并解析默认卡摘要', () => {

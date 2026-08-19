@@ -266,7 +266,7 @@ async function captureUpstream<T extends Record<string, unknown>>(action: () => 
   try { return await action(); }
   catch (error) {
     if (error instanceof ChatGptApiError) {
-      return { error: { name: error.name, message: error.message, status: error.status, context: error.context, body: error.body } };
+      return { error: { name: error.name, message: error.message, upstreamStatus: error.status, context: error.context, body: error.body } };
     }
     const value = error as Error;
     return { error: { name: value?.name ?? 'Error', message: value?.message ?? String(error), stack: value?.stack } };

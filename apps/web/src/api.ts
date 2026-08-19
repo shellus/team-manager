@@ -2,7 +2,12 @@ import type { PublicSeatSlotView } from '@team-manager/shared';
 
 const TOKEN_KEY = 'teammgr_token';
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string, public readonly path: string) { super(message); this.name='ApiError'; }
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly path: string,
+    public readonly upstreamStatus?: number
+  ) { super(message); this.name='ApiError'; }
 }
 export function errorMessage(reason: unknown, fallback = '请求失败'): string {
   if (reason instanceof Error && reason.message.trim()) return reason.message;

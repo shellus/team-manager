@@ -17,7 +17,7 @@ import { UnifiedProjectionRepository } from './repositories/unifiedProjectionRep
 import { UnifiedAccountService } from './services/unifiedAccountService.js';
 import { WorkspaceService } from './services/workspaceService.js';
 import { WorkspaceOperationService } from './services/workspaceOperationService.js';
-import { ServiceError } from './serviceError.js';
+import { ServiceError, asServiceError } from './serviceError.js';
 import type { AccountListFilters } from './repositories/accountRepository.js';
 import { createTransport, type Transport } from './transport.js';
 import { isEditableMemberRole } from '@team-manager/shared';
@@ -163,10 +163,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   });
   const wrap = async (c: any, fn: () => Promise<unknown>) => {
     try { return c.json({ ok: true, data: await fn() }); }
-    catch (error) {
-      const status = error instanceof ServiceError ? error.status : 500;
-      return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, status as any);
-    }
+    catch (error) { return serviceErrorResponse(c, error); }
   };
 
   api.get('/account-groups', (c) => wrap(c, () => accounts.groups()));
@@ -445,10 +442,16 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
 
 async function wrapPublic(c: any, fn: () => Promise<unknown>) {
   try { return c.json({ ok: true, data: await fn() }); }
-  catch (error) {
-    const status = error instanceof ServiceError ? error.status : 500;
-    return c.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, status as any);
-  }
+  catch (error) { return serviceErrorResponse(c, error); }
+}
+
+function serviceErrorResponse(c: any, error: unknown) {
+  const serviceError = asServiceError(error);
+  return c.json({
+    ok: false,
+    error: serviceError.message,
+    ...(serviceError.upstreamStatus === undefined ? {} : { upstreamStatus: serviceError.upstreamStatus })
+  }, serviceError.status as any);
 }
 
 function accountFilters(c: any): AccountListFilters {

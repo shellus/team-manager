@@ -71,10 +71,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     ok?: boolean;
     data?: T;
     error?: string;
+    upstreamStatus?: number;
   };
   if (!response.ok || payload.ok !== true) {
     if (response.status === 401) expireAuthentication();
-    throw new ApiError(response.status, payload.error ?? `请求失败 ${response.status}`, path);
+    throw new ApiError(response.status, payload.error ?? `请求失败 ${response.status}`, path, payload.upstreamStatus);
   }
   return payload.data as T;
 }
@@ -93,10 +94,11 @@ async function requestBytes(method: string, path: string, body: Uint8Array, head
     ok?: boolean;
     data?: string | { id: string };
     error?: string;
+    upstreamStatus?: number;
   };
   if (!response.ok || payload.ok !== true) {
     if (response.status === 401) expireAuthentication();
-    throw new ApiError(response.status, payload.error ?? `请求失败 ${response.status}`, path);
+    throw new ApiError(response.status, payload.error ?? `请求失败 ${response.status}`, path, payload.upstreamStatus);
   }
   return typeof payload.data === 'string' ? { id: payload.data } : payload.data!;
 }
@@ -106,8 +108,23 @@ async function requestRaw(path: string): Promise<Blob> {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (response.status === 401) expireAuthentication();
-  if (!response.ok) throw new ApiError(response.status, await response.text(), path);
+  if (!response.ok) {
+    const text = await response.text();
+    const payload = parseErrorPayload(text);
+    throw new ApiError(response.status, payload?.error ?? text, path, payload?.upstreamStatus);
+  }
   return response.blob();
+}
+
+function parseErrorPayload(value: string): { error?: string; upstreamStatus?: number } | undefined {
+  try {
+    const payload = JSON.parse(value) as unknown;
+    return payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload as { error?: string; upstreamStatus?: number }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export const unifiedApi = {

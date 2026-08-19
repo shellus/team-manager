@@ -190,6 +190,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             return { targetAccountId: input.targetAccountId, paymentMethods };
           },
           setDefault: async (input) => {
+            if (input.paymentMethodId === 'pm-upstream-401') {
+              throw Object.assign(new Error('设置默认支付方式失败: HTTP 401'), { status: 401 });
+            }
             const paymentMethods = (paymentMethodsByTarget.get(input.targetAccountId) ?? [])
               .map((item) => ({ ...item, isDefault: item.id === input.paymentMethodId }));
             paymentMethodsByTarget.set(input.targetAccountId, paymentMethods);
@@ -290,6 +293,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       });
       const headers = { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' };
       assert.equal((await app.request('/health')).status, 200);
+      const unauthorizedResponse = await app.request('/api/accounts', {
+        headers: { Authorization: 'Bearer invalid-token' }
+      });
+      assert.equal(unauthorizedResponse.status, 401);
+      assert.deepEqual(await unauthorizedResponse.json(), { ok: false, error: '未授权' });
 
       const workspaceSyncAccount = await accounts.create({ email: 'workspace-sync-empty@example.com', groupId: group.id });
       await sessions.saveRevision({
@@ -653,6 +661,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const paymentActivities=await db.selectFrom('account_activity_logs').select(['kind','payload']).where('account_id','=',first.account.id).where('kind','=','subscription_payment_method_added').execute();assert.equal(paymentActivities.length,2);assert.equal(JSON.stringify(paymentActivities).includes('4242424242424242'),false);assert.equal(JSON.stringify(paymentActivities).includes('"cvc"'),false);
       const personalDefaultId='pm-alt-personal-remote';
       const personalDefault=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods/${personalDefaultId}/default`,{method:'POST',headers});assert.equal(personalDefault.status,200,await personalDefault.clone().text());assert.equal((await personalDefault.json() as any).data.paymentMethods.find((item:any)=>item.id===personalDefaultId)?.isDefault,true);
+      const upstreamUnauthorized=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods/pm-upstream-401/default`,{method:'POST',headers});
+      assert.equal(upstreamUnauthorized.status,502);assert.deepEqual(await upstreamUnauthorized.json(),{ok:false,error:'设置默认支付方式失败: HTTP 401',upstreamStatus:401});
       const personalRemove=await app.request(`/api/accounts/${first.account.id}/personal-space/payment-methods/pm-personal-remote`,{method:'DELETE',headers});assert.equal(personalRemove.status,200,await personalRemove.clone().text());assert.equal((await personalRemove.json() as any).data.paymentMethods.some((item:any)=>item.id==='pm-personal-remote'),false);
       const workspaceDefaultId=`pm-alt-${workspace.external_id}`;
       const workspaceDefault=await app.request(`/api/workspaces/${workspace.id}/payment-methods/${workspaceDefaultId}/default`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id})});assert.equal(workspaceDefault.status,200,await workspaceDefault.clone().text());assert.equal((await workspaceDefault.json() as any).data.paymentMethods.find((item:any)=>item.id===workspaceDefaultId)?.isDefault,true);

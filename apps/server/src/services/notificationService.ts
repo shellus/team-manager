@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
-import { ServiceError } from '../serviceError.js';
+import { ServiceError, upstreamHttpError } from '../serviceError.js';
 import { fetchWithRawTrace } from '../transport.js';
 
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000] as const;
@@ -110,7 +110,7 @@ export class NotificationService {
           ? new Date(attemptedAt.getTime() + delay)
           : null
       }).where('id', '=', id).execute();
-      if (throwOnFailure) throw new ServiceError(502, message);
+      if (throwOnFailure) throw error instanceof ServiceError ? error : new ServiceError(502, message);
       return { deliveryId: id, status: shouldRetry ? 'retrying' : 'exhausted', attemptCount };
     }
   }
@@ -129,7 +129,7 @@ async function sendConfiguration(config: Record<string, unknown>, payload: Recor
     const response = await fetchWithRawTrace(item.upstream, item.url, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item.body)
     }, fetchImpl);
-    if (!response.ok) throw new Error(`${item.upstream} HTTP ${response.status}`);
+    if (!response.ok) throw upstreamHttpError(response.status, `${item.upstream} HTTP ${response.status}`);
   }
 }
 

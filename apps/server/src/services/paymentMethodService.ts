@@ -14,7 +14,7 @@ import { AccountOperationalRepository } from '../repositories/accountOperational
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
-import { ServiceError, asServiceError } from '../serviceError.js';
+import { ServiceError, asServiceError, upstreamHttpError } from '../serviceError.js';
 import type { HttpResponse, Transport } from '../transport.js';
 import type { AccountManagerService } from './accountManagerService.js';
 import type { PersonalSpaceService } from './personalSpaceService.js';
@@ -172,7 +172,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
     });
     const body = responseJson(response, '创建 SetupIntent');
     if (response.status < 200 || response.status >= 300) {
-      throw new ServiceError(upstreamStatus(response.status), `创建 SetupIntent 失败: HTTP ${response.status}`);
+      throw upstreamHttpError(response.status, `创建 SetupIntent 失败: HTTP ${response.status}`);
     }
     const clientSecret = stringValue(body.client_secret);
     if (!clientSecret?.includes('_secret_')) throw new ServiceError(502, 'SetupIntent 响应缺少 client_secret');
@@ -181,6 +181,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
 
   private async selectPublishableKey(clientSecret: string, keys: string[], proxy: string) {
     const setupIntentId = clientSecret.split('_secret_', 1)[0]!;
+    let lastUpstreamStatus: number | undefined;
     for (const key of keys) {
       if (!/^pk_(?:live|test)_/u.test(key)) continue;
       const query = new URLSearchParams({ client_secret: clientSecret, key });
@@ -189,8 +190,12 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
         proxy, headers: stripeHeaders()
       });
       if (response.status >= 200 && response.status < 300) return key;
+      lastUpstreamStatus = response.status;
     }
-    throw new ServiceError(502, '没有配置可读取当前 SetupIntent 的 Stripe publishable key');
+    if (lastUpstreamStatus !== undefined) {
+      throw upstreamHttpError(lastUpstreamStatus, '没有配置可读取当前 SetupIntent 的 Stripe publishable key');
+    }
+    throw new ServiceError(502, '没有可用于读取当前 SetupIntent 的 Stripe publishable key');
   }
 
   private async confirmSetupIntent(
@@ -240,7 +245,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
     if (response.status < 200 || response.status >= 300 || stripeError) {
       const code = stringValue(stripeError?.code) ?? stringValue(stripeError?.decline_code) ?? `http_${response.status}`;
       const message = stringValue(stripeError?.message) ?? 'Stripe 确认失败';
-      throw new ServiceError(422, `Stripe 确认失败（${code}）：${message}`);
+      throw new ServiceError(422, `Stripe 确认失败（${code}）：${message}`, { upstreamStatus: response.status });
     }
     const status = stringValue(body.status);
     if (status !== 'succeeded') {
@@ -290,7 +295,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
     if (response.status === 404) return [];
     const body = responseJson(response, '读取支付方式');
     if (response.status < 200 || response.status >= 300) {
-      throw new ServiceError(upstreamStatus(response.status), `读取支付方式失败: HTTP ${response.status}`);
+      throw upstreamHttpError(response.status, `读取支付方式失败: HTTP ${response.status}`);
     }
     return parsePaymentMethods(body);
   }
@@ -559,13 +564,13 @@ function responseJson(response: Pick<HttpResponse, 'status' | 'body'>, action: s
     const value = JSON.parse(response.body);
     if (record(value)) return value as Record<string, unknown>;
   } catch {}
-  throw new ServiceError(response.status >= 400 && response.status < 500 ? response.status : 502, `${action}返回非 JSON 响应: HTTP ${response.status}`);
+  throw upstreamHttpError(response.status, `${action}返回非 JSON 响应: HTTP ${response.status}`);
 }
 
 function assertMutationSucceeded(response: Pick<HttpResponse, 'status' | 'body'>, action: string) {
   const body = responseJson(response, action);
   if (response.status < 200 || response.status >= 300 || body.success === false) {
-    throw new ServiceError(upstreamStatus(response.status), `${action}失败: HTTP ${response.status}`);
+    throw upstreamHttpError(response.status, `${action}失败: HTTP ${response.status}`);
   }
 }
 
@@ -600,6 +605,5 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 function stringValue(value: unknown) { return typeof value === 'string' && value.trim() ? value.trim() : undefined; }
-function upstreamStatus(status: number) { return status >= 400 && status < 500 ? status : 502; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
 function delay(milliseconds: number) { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)); }
