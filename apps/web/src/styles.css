@@ -986,7 +986,7 @@ a.parent-overview-remark:hover {
 
 .workspace-inline-select {
   width: 100%;
-  min-width: 150px;
+  min-width: 120px;
 }
 
 .workspace-name-form {

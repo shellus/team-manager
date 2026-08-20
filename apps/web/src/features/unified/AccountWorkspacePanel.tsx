@@ -380,14 +380,14 @@ function PeoplePanel({
         rowKey="rowKey"
         dataSource={rows}
         pagination={false}
-        scroll={{ x: 1140 }}
+        scroll={{ x: 1060 }}
         columns={[
           { title: "成员", width: 270, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark} /> },
           { title: "关系", width: 110, render: (_, row) => <Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag> },
-          { title: "角色", width: 180, render: (_, row) => row.kind === "member" && row.remoteUserId && canManage
+          { title: "角色", width: 140, render: (_, row) => row.kind === "member" && row.remoteUserId && canManage
             ? <Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" />
             : row.role ? <Tag>{roleLabel(row.role)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
-          { title: "席位", width: 180, render: (_, row) => canManage && canEditSeat(row)
+          { title: "席位", width: 140, render: (_, row) => canManage && canEditSeat(row)
             ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
             : <Tag>{seatLabel(row.seatType)}</Tag> },
           { title: "租客信息", width: 280, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
