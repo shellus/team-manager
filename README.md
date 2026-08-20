@@ -16,7 +16,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 ## 产品模型
 
 - `AccountGroup`：稳定 ID 的结构化账号分组；账号恰好属于一个分组，重命名不改账号记录。
-- `Account`：唯一受管 ChatGPT 登录身份，承载邮箱、备注、封号标记、GAM 引用、代理和 Session 修订。
+- `Account`：唯一受管 ChatGPT 登录身份，承载邮箱、备注、封号标记、GAM 引用、代理和当前 Session。
 - `PersonalSpace`：账号一对一的个人空间，承载 Free、Go、Plus、Pro 5x、Pro 20x、个人支付摘要和个人设置。
 - `Workspace`：独立 Team/Business 空间，承载成员、邀请、设置、订阅、账单、客户席位和 Team 订单；管理入口统一位于账号详情中。
 - `WorkspaceMembership`：账号或远端成员在 Workspace 中的角色和席位事实。活动 owner/admin 关系产生“拥有可管理空间”能力。

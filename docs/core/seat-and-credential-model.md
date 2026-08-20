@@ -58,7 +58,7 @@
 
 ## Session 与访问上下文
 
-账号完整 Web Session 使用不可变 `AccountSessionRevision` 保存，并在应用层加密。Access Token 按以下上下文隔离：
+账号完整 Web Session 只由 Team Manager 持久化并在应用层加密。保存新 Session 时原子替换并删除旧 Session，GAM 不保留副本；注册成功时 GAM 只做一次性交付，Team Manager 保存后确认清除。Access Token 按以下上下文隔离：
 
 - `Account × PersonalSpace`；
 - `Account × Workspace`。

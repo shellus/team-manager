@@ -1,4 +1,5 @@
 import type { Kysely } from 'kysely';
+import type { ChatGptSessionInput } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { SecretCipher, sha256, type EncryptedValue } from '../secretCipher.js';
 
@@ -13,7 +14,6 @@ export interface SaveSessionRevisionInput {
   sourceUpdatedAt?: Date | string | null;
   observedEmail?: string | null;
   observedPersonalAccountId?: string | null;
-  makeCurrent?: boolean;
 }
 
 export class SessionRepository {
@@ -29,9 +29,10 @@ export class SessionRepository {
       const existing = await trx.selectFrom('account_session_revisions')
         .select('id').where('account_id', '=', input.accountId).where('plaintext_sha256', '=', digest).executeTakeFirst();
       const id = existing?.id ?? await this.insertRevision(trx as Kysely<Database>, input, plaintext, digest);
-      if (input.makeCurrent !== false) {
-        await trx.updateTable('accounts').set({ current_session_revision_id: id }).where('id', '=', input.accountId).executeTakeFirstOrThrow();
-      }
+      await trx.updateTable('accounts').set({ current_session_revision_id: id })
+        .where('id', '=', input.accountId).executeTakeFirstOrThrow();
+      await trx.deleteFrom('account_session_revisions')
+        .where('account_id', '=', input.accountId).where('id', '!=', id).execute();
       return id;
     };
     return this.db.isTransaction ? execute(this.db) : this.db.transaction().execute(execute);
@@ -44,6 +45,48 @@ export class SessionRepository {
       .where('a.id', '=', accountId).executeTakeFirst();
     if (!row) return undefined;
     return JSON.parse(this.cipher.decrypt(toEncrypted(row), `account-session:${accountId}`));
+  }
+
+  async replaceCurrent(input: {
+    accountId: string;
+    personalSpaceId: string;
+    session: ChatGptSessionInput;
+    source: string;
+    sourceUpdatedAt?: Date | string | null;
+  }): Promise<string> {
+    const execute = async (trx: Kysely<Database>) => {
+      const sessions = trx === this.db ? this : new SessionRepository(trx, this.cipher);
+      const workspace = await trx.selectFrom('workspaces').select('id')
+        .where('external_id', '=', input.session.account.id).executeTakeFirst();
+      const revisionId = await sessions.saveRevision({
+        accountId: input.accountId,
+        session: input.session,
+        source: input.source,
+        sourceUpdatedAt: input.sourceUpdatedAt,
+        observedEmail: input.session.user.email,
+        observedPersonalAccountId: workspace ? null : input.session.account.id
+      });
+      await sessions.invalidateAccessTokens(input.accountId);
+      if (workspace) {
+        await sessions.saveAccessToken(
+          input.accountId,
+          { kind: 'workspace', workspaceId: workspace.id },
+          input.session.accessToken,
+          { status: 'unknown' }
+        );
+      } else {
+        await trx.updateTable('personal_spaces').set({ remote_account_id: input.session.account.id })
+          .where('id', '=', input.personalSpaceId).executeTakeFirstOrThrow();
+        await sessions.saveAccessToken(
+          input.accountId,
+          { kind: 'personal', personalSpaceId: input.personalSpaceId },
+          input.session.accessToken,
+          { status: 'unknown' }
+        );
+      }
+      return revisionId;
+    };
+    return this.db.isTransaction ? execute(this.db) : this.db.transaction().execute(execute);
   }
 
   async saveAccessToken(accountId: string, context: AccessContext, accessToken: string, input: {

@@ -7,7 +7,7 @@ PostgreSQL 是 Team Manager 结构化业务数据的唯一事实源。Schema 由
 ```text
 AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
                          │
-                         ├── N AccountSessionRevision
+                         ├── 0..1 Current AccountSessionRevision
                          ├── N AccountAccessContext
                          ├── N AutomationOperation
                          ├── N WorkspaceMembership N ── 1 Workspace

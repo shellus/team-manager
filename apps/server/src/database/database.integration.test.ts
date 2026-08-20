@@ -32,7 +32,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -156,6 +156,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const sessions = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
       await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'secret', sessionToken: 'session-token' }, source: 'test' });
       assert.equal((await sessions.currentSession(first.account.id) as any).accessToken, 'secret');
+      await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'replacement', sessionToken: 'replacement-session-token' }, source: 'test-replacement' });
+      assert.equal((await sessions.currentSession(first.account.id) as any).accessToken, 'replacement');
+      assert.equal((await db.selectFrom('account_session_revisions').selectAll().where('account_id', '=', first.account.id).execute()).length, 1, '保存新 Session 后删除旧 Session');
+      await sessions.replaceCurrent({ accountId: first.account.id, personalSpaceId: first.personalSpace.id, session: { user: { email: first.account.email }, account: { id: workspace.external_id }, accessToken: 'workspace-session-token' }, source: 'workspace-session-test' });
+      assert.equal(await sessions.accessToken(first.account.id, { kind: 'workspace', workspaceId: workspace.id }), 'workspace-session-token', 'Workspace Session 的 AT 写入目标 Workspace 上下文');
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'stale-workspace-token',{status:'valid'});
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),'stale-workspace-token');
       assert.equal(await sessions.invalidateWorkspaceAccessTokens(first.account.id),1);
@@ -168,6 +173,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         id: string; brand: string; last4: string; isDefault: boolean;
       }>>();
       const completedOperations = new Set<string>();
+      const acknowledgedRegistrationDeliveries: string[] = [];
 
       const app = await buildUnifiedApp({
         database: db,
@@ -179,7 +185,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
           changePersonalSubscription: async () => operation('personal-operation'),
           openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId }),
           accountHttpProxy: async()=>({proxy:'http://proxy.example:8080'}),
-          startRegistration:async()=>operation('registration-operation')
+          startRegistration:async()=>operation('registration-operation'),
+          registrationSessionDelivery:async()=>({
+            email:'new@example.com',
+            session:{
+              user:{email:'new@example.com'},account:{id:'new-personal-account'},
+              accessToken:'new-registration-access-token',sessionToken:'new-registration-session-token'
+            }
+          }),
+          acknowledgeRegistrationSessionDelivery:async(id)=>{acknowledgedRegistrationDeliveries.push(id);return true;}
         },
         paymentMethodBinder: {
           add: async (input) => {
@@ -558,7 +572,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await sessions.saveAccessToken(first.account.id, { kind: 'workspace', workspaceId: workspace.id }, 'stale-workspace-token', { status: 'valid' });
       const sessionResponse = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
       assert.equal(sessionResponse.status, 200);
-      assert.equal((await sessionResponse.json() as any).data.accessToken, 'secret');
+      assert.equal((await sessionResponse.json() as any).data.accessToken, 'workspace-session-token');
       const editAccount = await app.request(`/api/accounts/${first.account.id}`, {
         method: 'PATCH', headers,
         body: JSON.stringify({ remark: 'Edited with session', session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret', sessionToken: 'replacement-session-token' } })
@@ -677,7 +691,14 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const paymentMutationActivities=await db.selectFrom('account_activity_logs').select('kind').where('account_id','=',first.account.id).where('kind','in',['subscription_payment_method_defaulted','subscription_payment_method_removed']).execute();assert.equal(paymentMutationActivities.length,4);
       const paymentOperationCountAfterMutations=Number((await db.selectFrom('automation_operations').select(({fn})=>fn.countAll().as('count')).executeTakeFirstOrThrow()).count);assert.equal(paymentOperationCountAfterMutations,paymentOperationCountBefore,'支付方式写操作不创建自动化操作记录');
       const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
-      const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.equal((await registrationRows.json() as any).data[0].email,'new@example.com');
+      completedOperations.add('registration-operation');
+      const completedRegistration=await app.request(`/api/operations/${registrationOperationId}`,{headers});
+      assert.equal(completedRegistration.status,200,await completedRegistration.clone().text());
+      const registeredAccount=await accounts.findByEmail('new@example.com');
+      assert.ok(registeredAccount);
+      assert.equal((await sessions.currentSession(registeredAccount.id) as any).accessToken,'new-registration-access-token');
+      assert.deepEqual(acknowledgedRegistrationDeliveries,['registration-operation']);
+      const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.deepEqual((await registrationRows.json() as any).data,[],'已完成注册收敛为正式账号后不再保留临时行');
       await accounts.update(first.account.id,{remark:'Visible Operator',isBanned:false});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);
 
       const operationRow = await db.selectFrom('automation_operations').select('id').where('external_operation_id', '=', 'business-operation').executeTakeFirstOrThrow();

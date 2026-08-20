@@ -25,7 +25,8 @@ test('GAM 个人套餐请求完整转发四档套餐与管理员提交的卡数�
 test('统一账号 GAM 网关不再暴露旧套餐和角色专用方法', () => {
   const keys: Array<keyof AccountManagerGateway> = [
     'changePersonalSubscription', 'openBusinessSubscription',
-    'startRegistration', 'startAccountProfile', 'configureAccountProxy', 'session'
+    'startRegistration', 'startAccountProfile', 'configureAccountProxy',
+    'registrationSessionDelivery', 'acknowledgeRegistrationSessionDelivery'
   ];
   assert.equal(keys.includes('changePersonalSubscription'), true);
 });
@@ -69,6 +70,33 @@ test('GAM existing_session 纳管和注册任务代理使用既有上游契约',
   assert.deepEqual(requests.slice(1).map((item) => [item.method, item.path]), [
     ['GET', '/v1/operations/operation/proxy'],
     ['PUT', '/v1/operations/operation/proxy'],
+  ]);
+});
+
+test('GAM 注册 Session 使用操作级交付并在本地保存后确认清除', async () => {
+  const requests: Array<[string, string]> = [];
+  const client = new AccountManagerClient('http://gam.test', 'token', async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    requests.push([String(init?.method), path]);
+    const data = String(init?.method) === 'GET'
+      ? {
+          email: 'account@example.com',
+          session: {
+            user: { email: 'account@example.com' }, account: { id: 'personal' },
+            accessToken: 'access', sessionToken: 'session'
+          }
+        }
+      : true;
+    return new Response(JSON.stringify({ ok: true, data }), {
+      status: 200, headers: { 'Content-Type': 'application/json' }
+    });
+  });
+  const delivery = await client.registrationSessionDelivery('operation');
+  assert.equal(delivery.session.accessToken, 'access');
+  await client.acknowledgeRegistrationSessionDelivery('operation');
+  assert.deepEqual(requests, [
+    ['GET', '/v1/operations/operation/session-delivery'],
+    ['DELETE', '/v1/operations/operation/session-delivery']
   ]);
 });
 

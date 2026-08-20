@@ -48,9 +48,9 @@ _Avoid_: 母号、`isParent`、Workspace 所有者字段
 账号在 GPT Account Manager 中使用的规范化邮箱引用。它允许 Team Manager 发起 Profile、代理、注册和支付操作，但不转移浏览器身份、密码或支付现场的所有权。
 _Avoid_: CloakBrowser Profile ID、GAM 数据库 UUID
 
-**账号会话修订（Account Session Revision）**:
-账号完整 ChatGPT Web Session 的不可变历史版本。当前修订可以为个人空间和不同 Workspace 换取相互隔离的 Access Context。
-_Avoid_: Workspace Token、覆盖式 Session 字段
+**当前账号会话（Current Account Session）**:
+Team Manager 独占持久化的账号完整 ChatGPT Web Session。保存新 Session 时原子替换并删除旧 Session，同时使旧 Access Context 失效；GAM 不保留账号级 Session 副本。
+_Avoid_: Session 修订历史、GAM Session、从 GAM 自动回读 Session
 
 **访问上下文（Account Access Context）**:
 账号在个人空间或指定 Workspace 下换取的 Web Access Token。相同账号的不同上下文互不覆盖，成员关系变化不会推断其有效性，状态以真实请求结果为准。

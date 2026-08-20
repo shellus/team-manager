@@ -251,14 +251,7 @@ export class UnifiedAccountService {
   }
 
   private async saveSession(accountId: string, personalSpaceId: string, session: ChatGptSessionInput, source: string): Promise<void> {
-    await this.sessions.saveRevision({
-      accountId, session, source, observedEmail: session.user.email,
-      observedPersonalAccountId: session.account.id
-    });
-    await this.sessions.invalidateAccessTokens(accountId);
-    await this.db.updateTable('personal_spaces').set({ remote_account_id: session.account.id })
-      .where('id', '=', personalSpaceId).executeTakeFirstOrThrow();
-    await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId }, session.accessToken, { status: 'unknown' });
+    await this.sessions.replaceCurrent({ accountId, personalSpaceId, session, source });
   }
 }
 

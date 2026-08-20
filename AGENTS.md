@@ -21,7 +21,7 @@
 
 - 当前任务是为项目整体服务的，不只处理用户指出的单点；实现前先查看同类代码，遵循已有风格，复用已有 helper 和数据模型。
 - DRY 是硬约束。新增字段、缓存或派生数据前，先检查是否会造成重复、冗余或断链。
-- Team Manager 只保存业务所需的 ChatGPT Web Session 和可选 GAM 账号引用；注册密码、CloakBrowser profile 与支付状态属于 GPT Account Manager，不得复制到业务模型。完整上游原始追踪属于文件制品，数据库只保存索引。
+- Team Manager 是业务 Web Session 的唯一持久化事实源；保存新 Session 时删除旧 Session，不得在业务请求中从 GAM 自动回读。GAM 只在注册成功时一次性交付 Session，Team Manager 保存成功后确认清除。注册密码、CloakBrowser profile 与支付状态属于 GPT Account Manager，不得复制到业务模型。完整上游原始追踪属于文件制品，数据库只保存索引。
 - Team Manager 可通过 Account Manager gateway 转发受管账号的 Profile 启动、状态和关闭请求，但不得直接调用 CloakBrowser、保存运行 Profile ID 或提供 VNC/浏览器查看能力。
 - 后端所有外部 HTTP 请求必须通过 `apps/server/src/transport.ts` 的 `Transport` 或 `fetchWithRawTrace` 发出，并写入完整、未脱敏、未截断的私有上游追踪。不得在其他生产代码中直接调用 `fetch`，也不得引入 `axios`、`node:http/https`、`undici`、`child_process curl` 等旁路；新增上游必须使用可识别的 `upstream` 名称。进程级 `catch-all-fetch` 只作为遗漏兜底，不能替代具名接入。
 - 应用只从显式指定的 YAML 配置读取运行设置；不得重新引入 `.env` 或在业务模块直接读取 `process.env`。Compose、worker、Vite 的临时环境由部署目录的统一配置启动器派生。

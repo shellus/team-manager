@@ -502,12 +502,7 @@ export class WorkspaceOperationService {
       let proxy = await this.operational.proxy(executorAccountId);
       if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(executorAccountId).catch(() => undefined);
       const refresh = async () => {
-        // A revoked Web access token can outlive the session cookie. Ask GAM for its
-        // current session first so a 401 retry does not keep exchanging the same token.
-        const imported = this.accountManagement
-          ? await this.accountManagement.importSession(executorAccountId).catch(() => undefined)
-          : undefined;
-        const session = (imported ?? await this.sessions.currentSession(executorAccountId)) as { sessionToken?: string } | undefined;
+        const session = await this.sessions.currentSession(executorAccountId) as { sessionToken?: string } | undefined;
         if (!session?.sessionToken) throw new ServiceError(409, '执行账号缺少可换取 Workspace Token 的 sessionToken');
         const exchanged = await fetchWorkspaceExchangeSessionFromSessionToken(this.transport, session.sessionToken, workspace.external_id, proxy);
         const token = exchanged.accessToken;

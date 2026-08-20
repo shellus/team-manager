@@ -131,29 +131,6 @@ export class AccountManagerService {
     return manager.configureAccountProxy!(await this.accountRef(accountId), normalizedProxy(input));
   }
 
-  async importSession(accountId: string) {
-    const manager = this.require('session');
-    const session = await manager.session!(await this.accountRef(accountId));
-    const account = await this.#accounts.findById(accountId);
-    if (!account) throw new ServiceError(404, '账号不存在');
-    if (account.normalized_email !== session.user.email.trim().toLowerCase()) {
-      throw new ServiceError(409, 'GAM Session 邮箱与账号不一致');
-    }
-    const personal = await this.db.selectFrom('personal_spaces').select('id').where('account_id', '=', accountId).executeTakeFirstOrThrow();
-    await this.sessions.saveRevision({
-      accountId,
-      session,
-      source: 'gam_session_import',
-      observedEmail: session.user.email,
-      observedPersonalAccountId: session.account.id
-    });
-    await this.sessions.invalidateAccessTokens(accountId);
-    await this.db.updateTable('personal_spaces').set({ remote_account_id: session.account.id })
-      .where('id', '=', personal.id).executeTakeFirstOrThrow();
-    await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId: personal.id }, session.accessToken);
-    return session;
-  }
-
   async ensureHttpProxy(accountId: string): Promise<string | undefined> {
     const existing = await this.operational?.proxy(accountId);
     if (existing) return existing;
@@ -206,8 +183,17 @@ export class AccountManagerService {
     const operation = await manager.operation!(local.external_operation_id);
     let accountId = local.account_id ?? undefined;
     if (operation.status === 'succeeded' && !accountId) {
-      const email = operation.email?.trim().toLowerCase() || stringFrom(operation.result, 'email') || operation.accountId?.trim().toLowerCase();
+      const delivery = await this.require('registrationSessionDelivery')
+        .registrationSessionDelivery!(local.external_operation_id);
+      const email = delivery.email.trim().toLowerCase();
       if (!email) throw new ServiceError(502, 'GAM 注册成功但未返回邮箱');
+      const operationEmail = operation.email?.trim().toLowerCase()
+        || stringFrom(operation.result, 'email')
+        || operation.accountId?.trim().toLowerCase();
+      if (operationEmail && operationEmail !== email) throw new ServiceError(409, 'GAM 注册结果与 Session 交付邮箱不一致');
+      if (delivery.session.user.email.trim().toLowerCase() !== email) {
+        throw new ServiceError(409, 'GAM Session 交付邮箱与注册账号不一致');
+      }
       const existing = await this.#accounts.findByEmail(email);
       if (existing) accountId = existing.id;
       else {
@@ -215,10 +201,21 @@ export class AccountManagerService {
         accountId = (await this.#accounts.create({ email, groupId: local.target_group_id })).account.id;
       }
       await this.#accounts.bindGamAccount(accountId, email);
+      const personal = await this.db.selectFrom('personal_spaces').select('id')
+        .where('account_id', '=', accountId).executeTakeFirstOrThrow();
+      await this.sessions.replaceCurrent({
+        accountId,
+        personalSpaceId: personal.id,
+        session: delivery.session,
+        source: 'gam_registration_delivery'
+      });
       await this.ensureHttpProxy(accountId).catch(() => undefined);
-      await this.importSession(accountId);
     }
     await this.#operations.updateFromExternal(local.id, operation, accountId);
+    if (operation.status === 'succeeded' && accountId) {
+      await this.require('acknowledgeRegistrationSessionDelivery')
+        .acknowledgeRegistrationSessionDelivery!(local.external_operation_id);
+    }
     return { operation, ...(accountId ? { accountId } : {}) };
   }
 

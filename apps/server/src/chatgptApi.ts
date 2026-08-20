@@ -278,10 +278,11 @@ export class ChatGptApi {
   }
 
   async getSubscription(): Promise<ChatGptSubscriptionResponse> {
-    return this.request<ChatGptSubscriptionResponse>(
+    const subscription = await this.request<ChatGptSubscriptionResponse | null>(
       'GET',
       `/backend-api/subscriptions?account_id=${encodeURIComponent(this.account.accountId)}`
     );
+    return subscription ?? {};
   }
 
   async getPersonalSubscription(): Promise<ChatGptPersonalSubscriptionResponse> {

@@ -29,6 +29,11 @@ export interface AccountImportRequest {
   clientReference?: string;
 }
 
+export interface RegistrationSessionDelivery {
+  email: string;
+  session: ChatGptSessionInput;
+}
+
 export interface AccountManagerGateway {
   startRegistration?(input: AccountRegistrationRequest): Promise<AccountManagerOperationView>;
   startAccountImport?(input: AccountImportRequest): Promise<AccountManagerOperationView>;
@@ -38,6 +43,8 @@ export interface AccountManagerGateway {
   operationProxyConfig?(operationId: string): Promise<ResidentialProxyConfig>;
   configureOperationProxy?(operationId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
   deleteOperation?(operationId: string): Promise<boolean>;
+  registrationSessionDelivery?(operationId: string): Promise<RegistrationSessionDelivery>;
+  acknowledgeRegistrationSessionDelivery?(operationId: string): Promise<boolean>;
   listAccountOperations?(accountId: string): Promise<AccountManagerOperationView[]>;
   accountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   startAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
@@ -45,7 +52,6 @@ export interface AccountManagerGateway {
   accountProxyConfig?(accountId: string): Promise<ResidentialProxyConfig>;
   accountHttpProxy?(accountId: string): Promise<{ proxy: string }>;
   configureAccountProxy?(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
-  session?(accountId: string): Promise<ChatGptSessionInput>;
   changePersonalSubscription?(
     accountId: string,
     input: ChangePersonalSubscriptionRequest & { requestTag?: string }
@@ -104,6 +110,15 @@ export class AccountManagerClient implements AccountManagerGateway {
     return true;
   }
 
+  registrationSessionDelivery(operationId: string): Promise<RegistrationSessionDelivery> {
+    return this.request('GET', `/v1/operations/${encodeURIComponent(operationId)}/session-delivery`);
+  }
+
+  async acknowledgeRegistrationSessionDelivery(operationId: string): Promise<boolean> {
+    await this.request('DELETE', `/v1/operations/${encodeURIComponent(operationId)}/session-delivery`);
+    return true;
+  }
+
   async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
     const items = await this.request<RawOperation[]>('GET', `/v1/accounts/${encodeURIComponent(accountId)}/operations`);
     return items.map(toOperation);
@@ -131,10 +146,6 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   configureAccountProxy(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig> {
     return this.request('PUT', `/v1/accounts/${encodeURIComponent(accountId)}/proxy`, input);
-  }
-
-  session(accountId: string): Promise<ChatGptSessionInput> {
-    return this.request('GET', `/v1/accounts/${encodeURIComponent(accountId)}/session`);
   }
 
   async changePersonalSubscription(accountId: string, input: ChangePersonalSubscriptionRequest & { requestTag?: string }) {

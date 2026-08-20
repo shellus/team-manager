@@ -101,9 +101,6 @@ export class OperationService {
     kind: string;
   }): Promise<void> {
     const accountId = row.account_id!;
-    if (['change_personal_subscription', 'open_business_subscription'].includes(row.kind)) {
-      await this.accountManagerService.importSession(accountId);
-    }
     if (['register_account', 'import_account'].includes(row.kind)) {
       await this.personalSpaces?.refresh(accountId, ['subscription', 'billing']);
       await this.workspaceOperations?.syncAccountRelationships(accountId);
