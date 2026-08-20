@@ -2,7 +2,7 @@ import type { AccountLimitType, AccountManagerOperationView, AccountManagerProfi
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export type PersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
-export type PrimaryPlan = PersonalPlan | 'business_two_seat' | 'business_usage_based' | 'team_member';
+export type PrimaryPlan = PersonalPlan | 'business_fixed_seat' | 'business_usage_based' | 'team_member';
 export type PersonalSubscriptionMode = 'start_new' | 'change_existing';
 export type BusinessSubscriptionMode = 'create_workspace' | 'upgrade_existing_workspace';
 export type NormalizedWorkspaceRole = 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown';
@@ -51,7 +51,7 @@ export interface UnifiedAccountSummaryView {
   isWorkspaceMember: boolean;
   hasWorkspaceCredential: boolean;
   primaryPlan: PrimaryPlan;
-  primaryPlanSeatUsage?: { occupied: number; capacity: number };
+  primaryPlanSeatUsage?: { occupied: number; capacity?: number };
   primaryPlanLifecycle?: AccountPlanLifecycleView;
   accessHealth: AccountAccessHealthView;
   latestOperation?: AccountManagerOperationView;
@@ -98,6 +98,8 @@ export interface SubscriptionDetailView {
   willRenew?: boolean;
   effectiveAt?: string;
   endsAt?: string;
+  fixedSeatCapacity?: number;
+  subscriptionSeatsInUse?: number;
   observedAt: string;
 }
 
@@ -386,6 +388,8 @@ interface RenewalOperationalOverviewBaseView {
   defaultPaymentCardLast4?: string;
   expectedAmount?: string;
   expectedCurrency?: string;
+  subscriptionSeatsInUse?: number;
+  billedSeatQuantity?: number;
   operationalStatus: RenewalOperationalStatus;
   riskLevel: OperationalRiskLevel;
   risks: string[];
@@ -429,6 +433,7 @@ export interface TeamOrderConfigurationView {
   promoCode?: string;
   country?: string;
   currency?: string;
+  seatQuantity?: number;
 }
 
 export interface TeamOrderMaintenanceView {

@@ -24,7 +24,7 @@ export interface TeamCodeOrderResult {
 export interface TeamCodeOrderInput {
   account: { email: string; accountId: string; accessToken: string; sessionToken?: string };
   workspaceName: string;
-  config: { promoCode: string; country: string; currency: string };
+  config: { promoCode: string; country: string; currency: string; seatQuantity: number };
 }
 
 export interface TeamCodeGateway {
@@ -75,23 +75,7 @@ export class TeamCodeClient implements TeamCodeGateway {
           'Content-Type': 'application/json',
           'X-Passcode': this.passcode
         },
-        body: JSON.stringify({
-          session: {
-            user: { email: input.account.email },
-            account: { id: input.account.accountId },
-            accessToken: input.account.accessToken,
-            ...(input.account.sessionToken ? { sessionToken: input.account.sessionToken } : {})
-          },
-          order: {
-            mode: 'normal',
-            seatQuantity: 2,
-            workspaceId: input.account.accountId,
-            workspaceName: input.workspaceName,
-            promoCode: input.config.promoCode,
-            country: input.config.country,
-            currency: input.config.currency
-          }
-        }),
+        body: JSON.stringify(teamCodeOrderPayload(input)),
         signal: controller.signal
       });
       const submitBody = await submitResponse.json().catch(() => ({}));
@@ -155,4 +139,24 @@ export class TeamCodeClient implements TeamCodeGateway {
       clearTimeout(timeout);
     }
   }
+}
+
+export function teamCodeOrderPayload(input: TeamCodeOrderInput) {
+  return {
+    session: {
+      user: { email: input.account.email },
+      account: { id: input.account.accountId },
+      accessToken: input.account.accessToken,
+      ...(input.account.sessionToken ? { sessionToken: input.account.sessionToken } : {})
+    },
+    order: {
+      mode: 'normal',
+      seatQuantity: input.config.seatQuantity,
+      workspaceId: input.account.accountId,
+      workspaceName: input.workspaceName,
+      promoCode: input.config.promoCode,
+      country: input.config.country,
+      currency: input.config.currency
+    }
+  };
 }

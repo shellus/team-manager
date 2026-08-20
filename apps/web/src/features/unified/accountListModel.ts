@@ -31,10 +31,10 @@ export function accountListRequestQuery(
   params: URLSearchParams,
 ): URLSearchParams {
   const query = new URLSearchParams();
-  for (const key of ["query", "primaryPlan"] as const) {
-    const value = params.get(key);
-    if (value) query.set(key, value);
-  }
+  const textQuery = params.get("query");
+  if (textQuery) query.set("query", textQuery);
+  const primaryPlan = normalizePrimaryPlanFilter(params.get("primaryPlan"));
+  if (primaryPlan) query.set("primaryPlan", primaryPlan);
   for (const key of ["hasGamBinding", "hasRunningProfile", "isBanned"] as const) {
     const value = accountListBooleanFilter(params, key);
     if (value) query.set(key, value);
@@ -146,9 +146,14 @@ const PRIMARY_PLAN_ORDER: UnifiedAccountSummaryView["primaryPlan"][] = [
   "pro_20x",
   "team_member",
   "business_usage_based",
-  "business_two_seat",
+  "business_fixed_seat",
   "unknown",
 ];
+
+export function normalizePrimaryPlanFilter(value: string | null): string | undefined {
+  if (!value) return undefined;
+  return value === "business_two_seat" ? "business_fixed_seat" : value;
+}
 
 export function sortAccountList<T extends SortableAccount>(
   accounts: readonly T[],

@@ -28,11 +28,13 @@ export class SystemService {
     return this.#orders.dashboard(this.teamCodeConfigured);
   }
 
-  saveTeamOrderConfiguration(input: { workspaceId?: string; promoCode?: string; country?: string; currency?: string }) {
+  saveTeamOrderConfiguration(input: { workspaceId?: string; promoCode?: string; country?: string; currency?: string; seatQuantity?: number }) {
+    validateOptionalSeatQuantity(input.seatQuantity);
     return this.#orders.saveConfiguration(input.workspaceId ?? null, input);
   }
 
-  async saveMaintenance(input: { workspaceId: string; executorAccountId: string; enabled: boolean; promoCode?: string; country?: string; currency?: string }) {
+  async saveMaintenance(input: { workspaceId: string; executorAccountId: string; enabled: boolean; promoCode?: string; country?: string; currency?: string; seatQuantity?: number }) {
+    validateOptionalSeatQuantity(input.seatQuantity);
     await this.#workspaces.requireManageableBy(input.workspaceId, input.executorAccountId);
     await this.#orders.saveMaintenance({
       workspaceId: input.workspaceId,
@@ -92,7 +94,7 @@ export class SystemService {
       const managingAccounts = managers.get(row.id) ?? [];
       const primaryManager = managingAccounts[0];
       if (!primaryManager || primaryManager.isBanned) continue;
-      const fixedSeatCapacity = plan === 'business' ? 2 : undefined;
+      const fixedSeatCapacity = subscription?.fixed_seat_capacity ?? undefined;
       const fixedSeatOccupied = Number(row.fixed_occupied);
       const riskInput = { renewalAt, willRenew: subscription?.will_renew, workspaceStatus: row.status,
         fixedSeatCapacity, fixedSeatOccupied, paymentDue: workspaceBilling?.paymentDue };
@@ -103,7 +105,11 @@ export class SystemService {
         ...(renewalAt ? { renewalAt } : {}), ...(subscription?.will_renew === null || subscription?.will_renew === undefined ? {} : { willRenew: subscription.will_renew }),
         ...(workspaceBilling?.defaultPaymentCardLast4 ? { defaultPaymentCardLast4: workspaceBilling.defaultPaymentCardLast4 } : {}),
         ...billingAmounts(workspaceBilling),
-        ...(fixedSeatCapacity === undefined ? {} : { fixedSeatCapacity, fixedSeatOccupied, fixedSeatAvailable: Math.max(fixedSeatCapacity - fixedSeatOccupied, 0) }),
+        fixedSeatOccupied,
+        ...(fixedSeatCapacity === undefined ? {} : { fixedSeatCapacity, fixedSeatAvailable: Math.max(fixedSeatCapacity - fixedSeatOccupied, 0) }),
+        ...(subscription?.subscription_seats_in_use === null || subscription?.subscription_seats_in_use === undefined
+          ? {} : { subscriptionSeatsInUse: subscription.subscription_seats_in_use }),
+        ...(workspaceBilling?.billedSeatQuantity === undefined ? {} : { billedSeatQuantity: workspaceBilling.billedSeatQuantity }),
         managingAccounts, operationalStatus: renewalOperationalStatus(riskInput), riskLevel: operationalRiskLevel(risks), risks
       });
     }
@@ -165,7 +171,9 @@ export class SystemService {
         }));
       }
       const fixedOccupied = workspaceMemberships.length + workspaceInvitations.length;
-      const fixedAvailable = workspace.status === 'active' ? Math.max(2 - fixedOccupied, 0) : 0;
+      const fixedSeatCapacity = subscription?.fixed_seat_capacity ?? undefined;
+      const fixedAvailable = workspace.status === 'active' && fixedSeatCapacity !== undefined
+        ? Math.max(fixedSeatCapacity - fixedOccupied, 0) : 0;
       for (let index = 0; index < fixedAvailable; index += 1) {
         const slot = [...remainingSlots.values()].find((row) => row.seat_type === 'default' && row.status === 'empty');
         if (slot) remainingSlots.delete(slot.id);
@@ -271,8 +279,10 @@ export function renewalOperationalStatus(input:{renewalAt?:string;willRenew?:boo
 export function seatRisks(expiresOn:string|undefined,workspaceStatus:string,lacksManager:boolean,now=new Date(),trackCustomerExpiry=true){const risks:string[]=[];const today=now.toISOString().slice(0,10);const soon=new Date(now.getTime()+3*86400_000).toISOString().slice(0,10);if(trackCustomerExpiry){if(!expiresOn)risks.push('未设置到期日');else if(expiresOn<today)risks.push('客户席位已到期');else if(expiresOn<=soon)risks.push('三天内到期');}if(workspaceStatus!=='active')risks.push('Workspace 非活动');if(lacksManager)risks.push('缺少可管理账号');return risks;}
 function operationalRiskLevel(risks:string[]):OperationalRiskLevel{if(risks.some(item=>item.includes('已到期')||item.includes('已过')||item.includes('超出')||item.includes('缺少可管理')))return'critical';if(risks.length===0)return'normal';if(risks.every(item=>item.includes('未知')||item.includes('未设置')))return'unknown';return'warning';}
 async function manageableAccounts(db:Kysely<Database>):Promise<Map<string,OperationalAccountReferenceView[]>>{const rows=await db.selectFrom('workspace_memberships as wm').innerJoin('accounts as a','a.id','wm.account_id').innerJoin('account_operational_profiles as op','op.account_id','a.id').select(['wm.workspace_id','wm.normalized_role','a.id','a.email','a.remark','a.is_banned','op.limit_type']).where('wm.status','=','active').where('wm.normalized_role','in',['owner','admin']).execute();const result=new Map<string,OperationalAccountReferenceView[]>();for(const row of rows){const list=result.get(row.workspace_id)??[];list.push({id:row.id,email:row.email,...(row.remark?{remark:row.remark}:{}),role:row.normalized_role as 'owner'|'admin',isBanned:row.is_banned,limitType:normalizedLimitType(row.limit_type)});result.set(row.workspace_id,list);}for(const list of result.values())list.sort((left,right)=>(left.role==='owner'?0:1)-(right.role==='owner'?0:1)||left.email.localeCompare(right.email));return result;}
-type BillingSummary={expectedAmount?:string;expectedCurrency?:string;normalizedPlan?:string;defaultPaymentCardLast4?:string;paymentDue:boolean};
+type BillingSummary={expectedAmount?:string;expectedCurrency?:string;normalizedPlan?:string;defaultPaymentCardLast4?:string;billedSeatQuantity?:number;paymentDue:boolean};
 function billingAmounts(summary?:BillingSummary){return summary?{...(summary.expectedAmount?{expectedAmount:summary.expectedAmount}:{}),...(summary.expectedCurrency?{expectedCurrency:summary.expectedCurrency}:{})}:{};}
 async function latestWorkspaceBilling(db:Kysely<Database>){const [rows,defaultCards]=await Promise.all([db.selectFrom('billing_snapshots').select(['workspace_id','normalized_workspace_plan','payload']).where('workspace_id','is not',null).distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at','desc').orderBy('created_at','desc').execute(),db.selectFrom('payment_method_summaries').select(['workspace_id','last4']).where('workspace_id','is not',null).where('is_default','=',true).distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at','desc').orderBy('created_at','desc').execute()]);const cardByWorkspace=new Map(defaultCards.flatMap(row=>row.workspace_id&&row.last4?[[row.workspace_id,row.last4] as const]:[]));const result=new Map<string,BillingSummary>();for(const row of rows)if(row.workspace_id)result.set(row.workspace_id,{...billingSummary(row.payload,row.normalized_workspace_plan),...(cardByWorkspace.get(row.workspace_id)?{defaultPaymentCardLast4:cardByWorkspace.get(row.workspace_id)}:{})});return result;}
-function billingSummary(payload:Record<string,unknown>,normalizedPlan?:string|null):BillingSummary{const upcoming=record(payload.upcomingInvoice??payload.upcoming_invoice);const invoice=record(upcoming?.upcoming_invoice)??upcoming;const amount=invoice?.amount_due??invoice?.amount_remaining;const currency=text(invoice?.currency);return{...(amount!==undefined?{expectedAmount:String(amount)}:{}),...(currency?{expectedCurrency:currency}: {}),...(normalizedPlan?{normalizedPlan}:{}),paymentDue:hasOutstandingInvoice(payload)};}
+function billingSummary(payload:Record<string,unknown>,normalizedPlan?:string|null):BillingSummary{const upcoming=record(payload.upcomingInvoice??payload.upcoming_invoice);const invoice=record(upcoming?.upcoming_invoice)??upcoming;const amount=invoice?.amount_due??invoice?.amount_remaining;const currency=text(invoice?.currency);const billedSeatQuantity=invoiceSeatQuantity(invoice);return{...(amount!==undefined?{expectedAmount:String(amount)}:{}),...(currency?{expectedCurrency:currency}: {}),...(normalizedPlan?{normalizedPlan}:{}),...(billedSeatQuantity===undefined?{}:{billedSeatQuantity}),paymentDue:hasOutstandingInvoice(payload)};}
+function invoiceSeatQuantity(invoice:Record<string,unknown>|undefined):number|undefined{const lines=record(invoice?.lines);const items=Array.isArray(lines?.data)?lines.data.map(record).filter(Boolean) as Record<string,unknown>[]:[];const recurring=items.find(item=>item.type==='subscription'||record(item.price)?.recurring!==undefined)??items[0];const quantity=Number(recurring?.quantity);return Number.isSafeInteger(quantity)&&quantity>0?quantity:undefined;}
 function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}
+function validateOptionalSeatQuantity(value:unknown):void{if(value!==undefined&&(!Number.isSafeInteger(value)||Number(value)<=0))throw new ServiceError(400,'订单席位数必须是正整数');}

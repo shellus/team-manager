@@ -32,7 +32,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -71,7 +71,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const createPlanAccount = async (name: string) => accounts.create({ email: `${name}@example.com`, groupId: primaryPlanGroup.id });
       const freeAccount = await createPlanAccount('primary-free');
       const paidOwner = await createPlanAccount('primary-paid-owner');
-      const twoSeatOwner = await createPlanAccount('primary-two-seat');
+      const fixedSeatOwner = await createPlanAccount('primary-fixed-seat');
       const usageOwner = await createPlanAccount('primary-usage');
       const bothOwner = await createPlanAccount('primary-both-owner');
       const memberOnly = await createPlanAccount('primary-member');
@@ -93,9 +93,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const addMembership = (workspaceId: string, accountId: string, role: 'owner' | 'admin' | 'member', status: 'active' | 'removed' = 'active', seatType?: 'default' | 'usage_based') =>
         workspaces.upsertMembership({ workspaceId, accountId, normalizedRole: role, status, seatType, observedAt: new Date(), source: 'primary-plan-test' });
       await addMembership(fixedWorkspace.id, paidOwner.account.id, 'owner');
-      await addMembership(fixedWorkspace.id, twoSeatOwner.account.id, 'owner');
-      await addMembership(laterFixedWorkspace.id, twoSeatOwner.account.id, 'owner');
-      await addMembership(earlierFixedWorkspace.id, twoSeatOwner.account.id, 'owner', 'active', 'default');
+      await addMembership(fixedWorkspace.id, fixedSeatOwner.account.id, 'owner');
+      await addMembership(laterFixedWorkspace.id, fixedSeatOwner.account.id, 'owner');
+      await addMembership(earlierFixedWorkspace.id, fixedSeatOwner.account.id, 'owner', 'active', 'default');
       await workspaces.upsertMembership({ workspaceId: earlierFixedWorkspace.id, email: 'fixed-seat-member@example.com', normalizedRole: 'member', seatType: 'default', observedAt: new Date(), source: 'primary-plan-seat-test' });
       await db.insertInto('workspace_invitations').values({
         workspace_id: earlierFixedWorkspace.id, account_id: null, remote_invitation_id: 'fixed-seat-invite',
@@ -123,28 +123,29 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         upcomingInvoice: { lines: [{ metadata: { user_origin_tag: 'ChatGPTTeamPlan' } }] }
       }, new Date());
       const operationalRows = await db.selectFrom('account_operational_summaries').select(['account_id', 'primary_plan'])
-        .where('account_id', 'in', [freeAccount.account.id, paidOwner.account.id, twoSeatOwner.account.id, usageOwner.account.id,
+        .where('account_id', 'in', [freeAccount.account.id, paidOwner.account.id, fixedSeatOwner.account.id, usageOwner.account.id,
           bothOwner.account.id, memberOnly.account.id, adminOnly.account.id, ownerAndMember.account.id,
           removedMember.account.id, inactiveMember.account.id, billingOwner.account.id]).execute();
       const plans = new Map(operationalRows.map((row) => [row.account_id, row.primary_plan]));
       assert.equal(plans.get(freeAccount.account.id), 'unknown', '未观测个人订阅时不得默认推断为 free');
       assert.equal(plans.get(paidOwner.account.id), 'plus', '个人付费套餐优先于 owner Workspace');
-      assert.equal(plans.get(twoSeatOwner.account.id), 'business_two_seat');
+      assert.equal(plans.get(fixedSeatOwner.account.id), 'business_fixed_seat');
       assert.equal(plans.get(usageOwner.account.id), 'business_usage_based');
-      assert.equal(plans.get(bothOwner.account.id), 'business_two_seat', '双席位优先于 0.52');
+      assert.equal(plans.get(bothOwner.account.id), 'business_fixed_seat', '固定席位 Business 优先于 0.52');
       assert.equal(plans.get(memberOnly.account.id), 'team_member');
       assert.equal(plans.get(adminOnly.account.id), 'team_member', 'admin 但非 owner 仍是 Team 子号');
       assert.equal(plans.get(ownerAndMember.account.id), 'business_usage_based', 'owner + member 不算 Team 子号');
       assert.equal(plans.get(removedMember.account.id), 'unknown', 'removed Membership 不参与判定');
       assert.equal(plans.get(inactiveMember.account.id), 'unknown', 'inactive Workspace 不参与判定');
-      assert.equal(plans.get(billingOwner.account.id), 'business_two_seat', '固定席位账单证据优先于 usage-based Workspace plan');
+      assert.equal(plans.get(billingOwner.account.id), 'business_fixed_seat', '固定席位账单证据优先于 usage-based Workspace plan');
       const paidLifecycle = await db.selectFrom('account_operational_summaries').select(['primary_plan','lifecycle_at','lifecycle_will_renew']).where('account_id','=',paidOwner.account.id).executeTakeFirstOrThrow();
       assert.equal(paidLifecycle.primary_plan,'plus');assert.equal(new Date(paidLifecycle.lifecycle_at!).toISOString(),'2030-02-03T00:00:00.000Z');assert.equal(paidLifecycle.lifecycle_will_renew,true);
       await db.updateTable('workspaces').set({ next_renewal_at: new Date('2031-06-01T00:00:00Z') }).where('id','=',laterFixedWorkspace.id).execute();
       await db.updateTable('workspaces').set({ next_renewal_at: new Date('2031-03-01T00:00:00Z') }).where('id','=',earlierFixedWorkspace.id).execute();
-      const multipleOwnerLifecycle=await db.selectFrom('account_operational_summaries').select(['primary_plan','primary_workspace_id','primary_chatgpt_seat_count','lifecycle_at']).where('account_id','=',twoSeatOwner.account.id).executeTakeFirstOrThrow();
-      assert.equal(multipleOwnerLifecycle.primary_plan,'business_two_seat');assert.equal(new Date(multipleOwnerLifecycle.lifecycle_at!).toISOString(),'2031-03-01T00:00:00.000Z','同类 owner Workspace 选择最早的未来续费时间');
-      assert.equal(multipleOwnerLifecycle.primary_workspace_id,earlierFixedWorkspace.id,'席位统计使用与生命周期相同的代表 Workspace');assert.equal(multipleOwnerLifecycle.primary_chatgpt_seat_count,3,'统计活动成员与待接受邀请中的 default 席位');
+      await db.insertInto('workspace_subscription_snapshots').values({workspace_id:earlierFixedWorkspace.id,normalized_plan:'business',raw_plan_code:'team',status:'active',will_renew:true,effective_at:null,ends_at:new Date('2031-03-01T00:00:00Z'),fixed_seat_capacity:4,subscription_seats_in_use:4,payload:{subscription:{seats_entitled:4,seats_in_use:4}},observed_at:new Date()}).execute();
+      const multipleOwnerLifecycle=await db.selectFrom('account_operational_summaries').select(['primary_plan','primary_workspace_id','primary_fixed_seat_occupied','primary_fixed_seat_capacity','lifecycle_at']).where('account_id','=',fixedSeatOwner.account.id).executeTakeFirstOrThrow();
+      assert.equal(multipleOwnerLifecycle.primary_plan,'business_fixed_seat');assert.equal(new Date(multipleOwnerLifecycle.lifecycle_at!).toISOString(),'2031-03-01T00:00:00.000Z','同类 owner Workspace 选择最早的未来续费时间');
+      assert.equal(multipleOwnerLifecycle.primary_workspace_id,earlierFixedWorkspace.id,'席位统计使用与生命周期相同的代表 Workspace');assert.equal(multipleOwnerLifecycle.primary_fixed_seat_occupied,3,'统计活动成员与待接受邀请中的 default 席位');assert.equal(multipleOwnerLifecycle.primary_fixed_seat_capacity,4,'容量来自同一代表 Workspace 的订阅权益');
       assert.deepEqual((await accounts.list({ primaryPlan: 'team_member' })).map((item) => item.email).sort(),
         ['member@example.com', 'primary-admin@example.com', 'primary-member@example.com']);
 
@@ -543,9 +544,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
       assert.equal(typeof primaryPlanAccounts[0].accessHealth.status, 'string');
-      const twoSeatResponse = await app.request('/api/accounts?primaryPlan=business_two_seat', { headers });
-      const twoSeatAccounts = (await twoSeatResponse.json() as any).data;
-      assert.deepEqual(twoSeatAccounts.find((item: any) => item.id === twoSeatOwner.account.id)?.primaryPlanSeatUsage, { occupied: 3, capacity: 2 });
+      const fixedSeatResponse = await app.request('/api/accounts?primaryPlan=business_fixed_seat', { headers });
+      const fixedSeatAccounts = (await fixedSeatResponse.json() as any).data;
+      assert.deepEqual(fixedSeatAccounts.find((item: any) => item.id === fixedSeatOwner.account.id)?.primaryPlanSeatUsage, { occupied: 3, capacity: 4 });
+      const legacyFixedSeatResponse = await app.request('/api/accounts?primaryPlan=business_two_seat', { headers });
+      assert.equal((await legacyFixedSeatResponse.json() as any).data.some((item: any) => item.id === fixedSeatOwner.account.id), true, '旧双席位筛选值兼容到固定席位 Business');
       assert.equal((await app.request('/api/accounts?personalPlan=pro_5x', { headers })).status, 400,
         '旧列表筛选不做静默兼容');
       assert.equal((await app.request('/api/parents', { headers })).status, 404);
@@ -713,8 +716,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await app.request('/api/credential-pool-groups', { method: 'POST', headers, body: JSON.stringify({ name: 'pool-a' }) })).status, 200);
       const overviewRenewalAt = new Date('2032-08-14T09:10:11Z');
       await db.updateTable('workspaces').set({ next_renewal_at: overviewRenewalAt }).where('id', '=', workspace.id).execute();
+      await db.insertInto('workspace_subscription_snapshots').values({workspace_id:workspace.id,normalized_plan:'business',raw_plan_code:'team',status:'active',will_renew:true,effective_at:null,ends_at:overviewRenewalAt,fixed_seat_capacity:2,subscription_seats_in_use:1,payload:{subscription:{seats_entitled:2,seats_in_use:1}},observed_at:new Date('2032-08-13T09:10:11Z')}).execute();
       await primaryBilling.saveSnapshot({ kind: 'workspace', workspaceId: workspace.id }, {
         invoices: { data: [{ id: 'overview-open-invoice', status: 'open', amount_due: 1100, amount_remaining: 1100, currency: 'usd' }] },
+        upcomingInvoice: { lines: { data: [{ type: 'subscription', quantity: 2 }] }, amount_due: 2200, currency: 'usd' },
         payment_methods: {
           default_payment_method_id: 'overview-default-card',
           payment_methods: [{ id: 'overview-default-card', card: { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 } }]
@@ -723,6 +728,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const bannedOverviewManager = await accounts.create({ email: 'banned-overview@example.com', groupId: group.id, isBanned: true });
       const bannedOverviewWorkspace = await workspaces.upsert({ externalId: 'banned-overview-workspace', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: bannedOverviewWorkspace.id, accountId: bannedOverviewManager.account.id, remoteUserId:'banned-overview-owner',email:bannedOverviewManager.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
+      const unknownCapacityManager = await accounts.create({ email: 'unknown-capacity@example.com', groupId: group.id });
+      const unknownCapacityWorkspace = await workspaces.upsert({ externalId: 'unknown-capacity-workspace', normalizedPlan: 'business' });
+      await workspaces.upsertMembership({ workspaceId: unknownCapacityWorkspace.id, accountId: unknownCapacityManager.account.id, remoteUserId:'unknown-capacity-owner',email:unknownCapacityManager.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
       const renewalOverviewResponse = await app.request('/api/overview/renewals', { headers });
       assert.equal(renewalOverviewResponse.status, 200);
       const renewalOverview = (await renewalOverviewResponse.json() as any).data;
@@ -733,10 +741,16 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(workspaceRenewalCard.managingAccounts[0].email, first.account.email);
       assert.equal(workspaceRenewalCard.managingAccounts[0].isBanned, false);
       assert.equal(workspaceRenewalCard.operationalStatus, 'payment_due', '当期待付发票优先于未来续费时间');
-      assert.equal(renewalOverview.every((item: any) => item.plan === 'business'), true, '母号概览只展示双席位 Business Workspace');
+      assert.equal(renewalOverview.every((item: any) => item.plan === 'business'), true, '母号概览只展示固定席位 Business Workspace');
+      assert.equal(workspaceRenewalCard.fixedSeatCapacity, 2);
+      assert.equal(workspaceRenewalCard.subscriptionSeatsInUse, 1, '订阅报告使用数不覆盖关系占用');
+      assert.equal(workspaceRenewalCard.billedSeatQuantity, 2, '下期发票行数量独立表达计费席位');
       assert.equal(renewalOverview.some((item: any) => item.workspaceId === usageWorkspace.id), false, '母号概览不展示 Business 0.52');
       assert.equal(renewalOverview.some((item: any) => item.workspaceId === billingWorkspace.id), true, '固定席位账单证据必须覆盖 usage-based Workspace plan');
       assert.equal(renewalOverview.some((item: any) => item.workspaceId === bannedOverviewWorkspace.id), false, '母号概览不展示管理账号已封号的 Workspace');
+      const unknownCapacityRenewal = renewalOverview.find((item: any) => item.workspaceId === unknownCapacityWorkspace.id);
+      assert.equal(unknownCapacityRenewal.fixedSeatOccupied, 1);
+      assert.equal(Object.hasOwn(unknownCapacityRenewal, 'fixedSeatCapacity'), false, '容量未知时不回退到双席位常量');
       const seatOverviewResponse = await app.request('/api/overview/seats', { headers });
       assert.equal(seatOverviewResponse.status, 200);
       const seatOverview = (await seatOverviewResponse.json() as any).data;
@@ -758,8 +772,10 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(fixedInvitationCard.subject, 'invitation', '待接受固定邀请作为占位展示');
       assert.equal(fixedInvitationCard.hasCustomerProfile, false);
       const vacancyCard = seatOverview.find((item: any) => item.workspaceId === workspace.id && item.subject === 'vacancy');
-      assert.equal(vacancyCard.status, 'empty', '已知双席位容量扣除固定占用后补出空位');
+      assert.equal(vacancyCard.status, 'empty', '已知权益容量扣除固定占用后补出空位');
       assert.equal(vacancyCard.hasCustomerProfile, false, '空位只是投影，不伪造客户资料');
+      assert.equal(seatOverview.filter((item: any) => item.workspaceId === earlierFixedWorkspace.id && item.subject === 'vacancy').length, 1, '4 席位容量减去 3 个关系占用补出一个空位');
+      assert.equal(seatOverview.some((item: any) => item.workspaceId === unknownCapacityWorkspace.id && item.subject === 'vacancy'), false, '容量未知时不虚构空位');
       assert.equal(Object.hasOwn(fixedMemberCard, 'source'), false, '席位概览不暴露底层来源字段');
       assert.equal((await app.request('/api/overview/workspaces', { headers })).status, 404, '旧 Workspace 概览 API 不保留兼容入口');
       assert.equal((await app.request('/api/settings/system/form-preferences', { method: 'PUT', headers, body: JSON.stringify({ country: 'US' }) })).status, 200);

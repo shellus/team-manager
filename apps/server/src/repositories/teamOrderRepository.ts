@@ -6,6 +6,7 @@ export interface TeamOrderConfigInput {
   promoCode?: string | null;
   country?: string | null;
   currency?: string | null;
+  seatQuantity?: number | null;
 }
 
 export class TeamOrderRepository {
@@ -16,7 +17,8 @@ export class TeamOrderRepository {
       workspace_id: workspaceId,
       promo_code: input.promoCode?.trim() || null,
       country: input.country?.trim().toUpperCase() || null,
-      currency: input.currency?.trim().toUpperCase() || null
+      currency: input.currency?.trim().toUpperCase() || null,
+      seat_quantity: positiveInteger(input.seatQuantity) ?? null
     };
     const existing = workspaceId
       ? await this.db.selectFrom('team_order_configurations').select('id').where('workspace_id', '=', workspaceId).executeTakeFirst()
@@ -89,6 +91,7 @@ export class TeamOrderRepository {
       promo_code: input.overrides?.promoCode?.trim() || null,
       country: input.overrides?.country?.trim().toUpperCase() || null,
       currency: input.overrides?.currency?.trim().toUpperCase() || null,
+      seat_quantity: positiveInteger(input.overrides?.seatQuantity) ?? null,
       next_run_at: input.nextRunAt ?? null,
       pause_reason: input.pauseReason?.trim() || null,
       last_success_at: input.lastSuccessAt ?? null,
@@ -119,13 +122,16 @@ export class TeamOrderRepository {
   }
 }
 
-function configurationView(row: { workspace_id?: string | null; workspace_name?: string | null; promo_code?: string | null; country?: string | null; currency?: string | null }): TeamOrderConfigurationView {
+function configurationView(row: { workspace_id?: string | null; workspace_name?: string | null; promo_code?: string | null; country?: string | null; currency?: string | null; seat_quantity?: number | null }): TeamOrderConfigurationView {
   return { ...(row.workspace_id ? { workspaceId: row.workspace_id } : {}), ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}),
-    ...(row.promo_code ? { promoCode: row.promo_code } : {}), ...(row.country ? { country: row.country } : {}), ...(row.currency ? { currency: row.currency } : {}) };
+    ...(row.promo_code ? { promoCode: row.promo_code } : {}), ...(row.country ? { country: row.country } : {}), ...(row.currency ? { currency: row.currency } : {}),
+    ...(row.seat_quantity ? { seatQuantity: row.seat_quantity } : {}) };
 }
 function configurationSnapshot(value: Record<string, unknown>, workspaceId: string, workspaceName?: string | null): TeamOrderConfigurationView {
   return { workspaceId, ...(workspaceName ? { workspaceName } : {}), ...(text(value.promoCode) ? { promoCode: text(value.promoCode) } : {}),
-    ...(text(value.country) ? { country: text(value.country) } : {}), ...(text(value.currency) ? { currency: text(value.currency) } : {}) };
+    ...(text(value.country) ? { country: text(value.country) } : {}), ...(text(value.currency) ? { currency: text(value.currency) } : {}),
+    ...(positiveInteger(value.seatQuantity) ? { seatQuantity: positiveInteger(value.seatQuantity) } : {}) };
 }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.trim() ? value.trim() : undefined; }
+function positiveInteger(value: unknown): number | undefined { const parsed=Number(value);return Number.isSafeInteger(parsed)&&parsed>0?parsed:undefined; }
 function iso(value: unknown): string { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }

@@ -22,7 +22,7 @@ export const PRIMARY_PLAN_OPTIONS: ReadonlyArray<{
   { value: "plus", label: "Plus" },
   { value: "pro_5x", label: "Pro 5x" },
   { value: "pro_20x", label: "Pro 20x" },
-  { value: "business_two_seat", label: "双席位" },
+  { value: "business_fixed_seat", label: "Business 固定席位" },
   { value: "business_usage_based", label: "0.52" },
   { value: "team_member", label: "Team 子号" },
   { value: "unknown", label: "未知" },
@@ -42,7 +42,8 @@ export function accountRemarkLabel(remark?: string): string {
   return remark?.trim() || "";
 }
 
-export function seatUsageColor(occupied: number, capacity: number): "gold" | "green" | "red" {
+export function seatUsageColor(occupied: number, capacity?: number): "blue" | "gold" | "green" | "red" {
+  if (capacity === undefined) return "blue";
   if (occupied < capacity) return "gold";
   return occupied === capacity ? "green" : "red";
 }

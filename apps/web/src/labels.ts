@@ -42,7 +42,7 @@ const PLAN_LABELS: Record<string, string> = {
   plus: 'Plus',
   pro_5x: 'Pro 5x',
   pro_20x: 'Pro 20x',
-  business: 'Business 双席位',
+  business: 'Business 固定席位',
   business_usage_based: 'Business 0.52',
   unknown: '未知套餐',
   self_serve_business_usage_based: 'Codex席位',

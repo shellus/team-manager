@@ -54,6 +54,7 @@ import {
   accountListRequestQuery,
   accountSelectionState,
   countAccountsByGroup,
+  normalizePrimaryPlanFilter,
   restorePersistedAccountListFilters,
   selectAccountsByGroup,
   sortAccountList,
@@ -318,12 +319,12 @@ export function AccountsPage() {
       render: (_, row) => isRegistration(row) ? "—" : (
         <Tag
           className="primary-plan-tag"
-          color={row.primaryPlan === "business_two_seat" && row.primaryPlanSeatUsage
+          color={row.primaryPlan === "business_fixed_seat" && row.primaryPlanSeatUsage
             ? seatUsageColor(row.primaryPlanSeatUsage.occupied, row.primaryPlanSeatUsage.capacity)
             : row.primaryPlan === "free" ? "default" : "blue"}
         >
-          {row.primaryPlan === "business_two_seat" && row.primaryPlanSeatUsage
-            ? `双席位 ${row.primaryPlanSeatUsage.occupied}/${row.primaryPlanSeatUsage.capacity}`
+          {row.primaryPlan === "business_fixed_seat" && row.primaryPlanSeatUsage
+            ? `固定席位 ${row.primaryPlanSeatUsage.occupied}/${row.primaryPlanSeatUsage.capacity ?? "?"}`
             : primaryPlanLabel(row.primaryPlan)}
         </Tag>
       ),
@@ -463,7 +464,7 @@ export function AccountsPage() {
           <Select
             allowClear
             placeholder="主套餐"
-            value={params.get("primaryPlan") ?? undefined}
+            value={normalizePrimaryPlanFilter(params.get("primaryPlan"))}
             onChange={(value) => set("primaryPlan", value)}
             options={[...PRIMARY_PLAN_OPTIONS]}
           />

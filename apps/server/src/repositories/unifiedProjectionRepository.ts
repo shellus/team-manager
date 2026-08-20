@@ -79,8 +79,9 @@ export class UnifiedProjectionRepository {
         isWorkspaceMember: extra?.has_member ?? false,
         hasWorkspaceCredential: extra?.has_credential ?? false,
         primaryPlan,
-        ...(primaryPlan === 'business_two_seat' ? { primaryPlanSeatUsage: {
-          occupied: Number(row.primary_chatgpt_seat_count ?? 0), capacity: 2
+        ...(primaryPlan === 'business_fixed_seat' ? { primaryPlanSeatUsage: {
+          occupied: Number(row.primary_fixed_seat_occupied ?? 0),
+          ...(row.primary_fixed_seat_capacity === null ? {} : { capacity: Number(row.primary_fixed_seat_capacity) })
         } } : {}),
         ...(row.lifecycle_at ? { primaryPlanLifecycle: {
           kind: lifecycleKind(row.lifecycle_at, row.lifecycle_will_renew), at: iso(row.lifecycle_at)
@@ -395,7 +396,7 @@ function iso(value: unknown): string {
   return new Date(String(value)).toISOString();
 }
 function normalizePrimaryPlan(value: string): UnifiedAccountSummaryView['primaryPlan'] {
-  return ['free', 'go', 'plus', 'pro_5x', 'pro_20x', 'business_two_seat', 'business_usage_based', 'team_member'].includes(value)
+  return ['free', 'go', 'plus', 'pro_5x', 'pro_20x', 'business_fixed_seat', 'business_usage_based', 'team_member'].includes(value)
     ? value as UnifiedAccountSummaryView['primaryPlan'] : 'unknown';
 }
 function normalizeProfileStatus(value: string): AccountProfileStatus {

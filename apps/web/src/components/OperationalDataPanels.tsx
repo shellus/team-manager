@@ -24,6 +24,10 @@ export function SubscriptionSummary({ value }: { value?: SubscriptionDetailView 
     {key:'renew',label:value.willRenew===false?'到期时间':'下次续费',children:formatTime(value.endsAt)},
     {key:'auto',label:'自动续费',children:value.willRenew===undefined?'未知':value.willRenew?'开启':'已关闭'},
     {key:'effective',label:'生效时间',children:formatTime(value.effectiveAt)},
+    ...(value.plan==='business'?[
+      {key:'capacity',label:'固定席位权益容量',children:value.fixedSeatCapacity??'未知'},
+      {key:'in-use',label:'订阅报告使用数',children:value.subscriptionSeatsInUse??'未知'},
+    ]:[]),
     {key:'observed',label:'快照时间',children:formatTime(value.observedAt)},
   ]}/>;
 }
@@ -141,9 +145,9 @@ export function BillingSummary({ value, paymentMethodActions }: {
       {key:'tax',label:'税号',children:value.billingIdentity.taxId??'—'},
       {key:'address',label:'地址',span:2,children:value.billingIdentity.address??'—'},
     ]}/></>}
-    {value.seatTypeCounts&&<><Typography.Title level={5}>计费席位</Typography.Title><Descriptions bordered size="small" column={{xs:1,sm:2}} items={[
-      {key:'default',label:'ChatGPT 固定席位',children:value.seatTypeCounts.default},
-      {key:'usage',label:'Codex 席位',children:value.seatTypeCounts.usageBased},
+    {value.seatTypeCounts&&<><Typography.Title level={5}>当前席位类型数量</Typography.Title><Descriptions bordered size="small" column={{xs:1,sm:2}} items={[
+      {key:'default',label:'ChatGPT 固定关系',children:value.seatTypeCounts.default},
+      {key:'usage',label:'Codex 关系',children:value.seatTypeCounts.usageBased},
     ]}/></>}
   </Space>;
 }

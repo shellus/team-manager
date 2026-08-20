@@ -1334,12 +1334,16 @@ a.parent-overview-remark:hover {
 
 .team-order-config-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr);
+  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(120px, 0.8fr)) auto;
   gap: 12px;
 }
 
 .team-order-config-grid.compact {
-  grid-template-columns: minmax(220px, 1.4fr) minmax(160px, 0.8fr) minmax(160px, 0.8fr);
+  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(140px, 0.8fr));
+}
+
+.team-order-config-grid .ant-input-number {
+  width: 100%;
 }
 
 .team-orders-toolbar {

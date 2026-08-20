@@ -12,7 +12,7 @@ import {
 
 describe("account action UI model", () => {
   test("labels every primary plan without exposing its source", () => {
-    expect(primaryPlanLabel("business_two_seat")).toBe("双席位");
+    expect(primaryPlanLabel("business_fixed_seat")).toBe("Business 固定席位");
     expect(primaryPlanLabel("business_usage_based")).toBe("0.52");
     expect(primaryPlanLabel("team_member")).toBe("Team 子号");
     expect(primaryPlanLabel("pro_5x")).toBe("Pro 5x");
@@ -49,10 +49,11 @@ describe("account action UI model", () => {
     expect(accountRemarkLabel(undefined)).toBe("");
   });
 
-  test("colors two-seat usage by capacity", () => {
+  test("colors fixed-seat usage by capacity", () => {
     expect(seatUsageColor(1, 2)).toBe("gold");
     expect(seatUsageColor(2, 2)).toBe("green");
     expect(seatUsageColor(3, 2)).toBe("red");
+    expect(seatUsageColor(4, undefined)).toBe("blue");
   });
 
   test("offers only active owner or admin workspaces for Business upgrade", () => {

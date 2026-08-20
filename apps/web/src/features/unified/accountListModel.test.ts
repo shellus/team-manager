@@ -8,6 +8,7 @@ import {
   accountSelectionState,
   countAccountsByGroup,
   persistAccountListFilters,
+  normalizePrimaryPlanFilter,
   restorePersistedAccountListFilters,
   selectAccountsByGroup,
   sortAccountList,
@@ -46,6 +47,12 @@ describe("account list filters", () => {
     expect(accountListRequestQuery(params).toString()).toBe(
       "primaryPlan=plus&isBanned=false",
     );
+  });
+
+  test("normalizes the retired two-seat filter to fixed-seat Business", () => {
+    expect(normalizePrimaryPlanFilter("business_two_seat")).toBe("business_fixed_seat");
+    expect(accountListRequestQuery(new URLSearchParams("primaryPlan=business_two_seat")).toString())
+      .toBe("primaryPlan=business_fixed_seat");
   });
 
   test("drops removed filters and preserves every tri-state boolean value", () => {

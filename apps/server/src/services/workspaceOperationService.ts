@@ -22,6 +22,7 @@ import { BillingRepository } from '../repositories/billingRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { normalizeEmail } from '../domain/identity.js';
+import { fixedSeatCapacity, subscriptionSeatsInUse } from '../domain/fixedSeat.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
@@ -381,7 +382,9 @@ export class WorkspaceOperationService {
     return row ? { observedAt: new Date(row.observed_at as any).toISOString(), plan: row.normalized_plan,
       rawPlanCode: row.raw_plan_code, status: row.status, willRenew: row.will_renew,
       effectiveAt: row.effective_at ? new Date(row.effective_at as any).toISOString() : undefined,
-      endsAt: row.ends_at ? new Date(row.ends_at as any).toISOString() : undefined } : undefined;
+      endsAt: row.ends_at ? new Date(row.ends_at as any).toISOString() : undefined,
+      ...(row.fixed_seat_capacity === null ? {} : { fixedSeatCapacity: row.fixed_seat_capacity }),
+      ...(row.subscription_seats_in_use === null ? {} : { subscriptionSeatsInUse: row.subscription_seats_in_use }) } : undefined;
   }
 
   async settings(workspaceId: string) {
@@ -476,6 +479,8 @@ export class WorkspaceOperationService {
         will_renew: typeof subscription.will_renew === 'boolean' ? subscription.will_renew : null,
         effective_at: subscription.active_start ?? null,
         ends_at: subscription.active_until ?? account.nextRenewalOn ?? null,
+        fixed_seat_capacity: fixedSeatCapacity(subscription.seats_entitled) ?? null,
+        subscription_seats_in_use: subscriptionSeatsInUse(subscription.seats_in_use) ?? null,
         payload: { account, subscription },
         observed_at: observedAt
       }).execute();

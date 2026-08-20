@@ -4,7 +4,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { temporaryDirectory } from './testHelpers.js';
 import { ArtifactStore } from './artifactStore.js';
 import { createCodexAuthSession } from './codexAuth.js';
-import { TeamCodeClient } from './teamCodeClient.js';
+import { TeamCodeClient, teamCodeOrderPayload } from './teamCodeClient.js';
 import { configuredNotificationChannels, NotificationService } from './services/notificationService.js';
 import { teamOrderScheduledFor } from './services/teamOrderService.js';
 import { ChatGptApi } from './chatgptApi.js';
@@ -27,7 +27,12 @@ test('ArtifactStore 保持原始正文并校验哈希', async () => {
 });
 
 test('TeamCode 未配置时明确拒绝生成', async () => {
-  const client=new TeamCodeClient();await assert.rejects(()=>client.generateOrder({account:{email:'a@example.com',accountId:'w',accessToken:'t'},workspaceName:'W',config:{promoCode:'',country:'US',currency:'USD'}}),/尚未配置/);
+  const client=new TeamCodeClient();await assert.rejects(()=>client.generateOrder({account:{email:'a@example.com',accountId:'w',accessToken:'t'},workspaceName:'W',config:{promoCode:'',country:'US',currency:'USD',seatQuantity:4}}),/尚未配置/);
+});
+
+test('TeamCode 使用订单合同中的显式席位数', () => {
+  const payload=teamCodeOrderPayload({account:{email:'a@example.com',accountId:'w',accessToken:'t'},workspaceName:'W',config:{promoCode:'P',country:'US',currency:'USD',seatQuantity:4}});
+  assert.equal(payload.order.seatQuantity,4);
 });
 
 test('个人账单只请求个人账号支持的三类接口', async () => {

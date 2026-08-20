@@ -117,7 +117,7 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
         title={kind === 'seats' ? '席位概览' : '母号概览'}
         description={kind === 'seats'
           ? '展示固定席位成员、邀请和空位；租客资料作为附加信息'
-          : '双席位母号按续费或到期时间从早到晚排列'}
+          : '固定席位 Business 母号按续费或到期时间从早到晚排列'}
         actions={<Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新数据</Button>}
       />
       <section className="overview-toolbar" aria-label="概览筛选与统计">
@@ -260,7 +260,7 @@ function RenewalCard({ item }: { item: RenewalOperationalOverviewView }) {
           </span>
         </OverviewField>
         <OverviewField inline label="预计金额">{formatMoney(item.expectedAmount, item.expectedCurrency)}</OverviewField>
-        <OverviewField inline label="席位">{item.fixedSeatCapacity === undefined ? '不适用' : `${item.fixedSeatOccupied ?? 0}/${item.fixedSeatCapacity}，余 ${item.fixedSeatAvailable ?? 0}`}</OverviewField>
+        <OverviewField inline label="席位"><span>{`${item.fixedSeatOccupied ?? 0}/${item.fixedSeatCapacity ?? '?'}${item.fixedSeatAvailable === undefined ? '' : `，余 ${item.fixedSeatAvailable}`}`}</span>{(item.subscriptionSeatsInUse!==undefined||item.billedSeatQuantity!==undefined)&&<Typography.Text type="secondary">订阅使用 {item.subscriptionSeatsInUse??'未知'} · 计费 {item.billedSeatQuantity??'未知'}</Typography.Text>}</OverviewField>
         <div className="parent-overview-footer">
           <OverviewField inline label="限额">{limitTypeLabel(manager.limitType)}</OverviewField>
           <Tag color={status.color}>{status.label}</Tag>

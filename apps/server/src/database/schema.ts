@@ -279,6 +279,8 @@ export interface WorkspaceSubscriptionSnapshotTable {
   will_renew: boolean | null;
   effective_at: NullableTimestamp;
   ends_at: NullableTimestamp;
+  fixed_seat_capacity: Generated<number | null>;
+  subscription_seats_in_use: Generated<number | null>;
   payload: JsonObject;
   observed_at: Timestamp;
   created_at: Generated<Timestamp>;
@@ -307,7 +309,8 @@ export interface AccountOperationalSummaryTable {
   personal_plan: string;
   primary_plan: string;
   primary_workspace_id: string | null;
-  primary_chatgpt_seat_count: number | null;
+  primary_fixed_seat_occupied: number | null;
+  primary_fixed_seat_capacity: number | null;
   limit_type: string;
   profile_status: string;
   lifecycle_at: NullableTimestamp;
@@ -392,6 +395,7 @@ export interface TeamOrderConfigurationTable extends AuditedTable {
   promo_code: string | null;
   country: string | null;
   currency: string | null;
+  seat_quantity: Generated<number | null>;
 }
 
 export interface TeamOrderMaintenanceTable extends AuditedTable {
@@ -402,6 +406,7 @@ export interface TeamOrderMaintenanceTable extends AuditedTable {
   promo_code: string | null;
   country: string | null;
   currency: string | null;
+  seat_quantity: Generated<number | null>;
   next_run_at: NullableTimestamp;
   pause_reason: string | null;
   last_success_at: NullableTimestamp;

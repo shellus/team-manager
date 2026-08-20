@@ -21,7 +21,8 @@ export interface AccountListItem extends AccountRow {
   personal_plan: string;
   primary_plan: string;
   primary_workspace_id: string | null;
-  primary_chatgpt_seat_count: number | null;
+  primary_fixed_seat_occupied: number | null;
+  primary_fixed_seat_capacity: number | null;
   limit_type: string;
   profile_status: string;
   lifecycle_at: Date | null;
@@ -182,7 +183,8 @@ export class AccountRepository {
         'aos.personal_plan',
         'aos.primary_plan',
         'aos.primary_workspace_id',
-        'aos.primary_chatgpt_seat_count',
+        'aos.primary_fixed_seat_occupied',
+        'aos.primary_fixed_seat_capacity',
         'aos.limit_type',
         'aos.profile_status',
         'aos.lifecycle_at',
@@ -227,7 +229,7 @@ export class AccountRepository {
     if (filters.hasRunningProfile !== undefined) {
       query = query.where(sql<boolean>`exists (select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping'))`, '=', filters.hasRunningProfile);
     }
-    if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', filters.primaryPlan);
+    if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', normalizePrimaryPlanFilter(filters.primaryPlan));
     return query
       .orderBy('a.created_at', 'asc')
       .orderBy('a.id', 'asc')
@@ -241,4 +243,8 @@ export class AccountRepository {
     if (existing) return existing.id;
     return trx.insertInto('account_groups').values({ name, normalized_name: normalized }).returning('id').executeTakeFirstOrThrow().then((row) => row.id);
   }
+}
+
+function normalizePrimaryPlanFilter(value: string): string {
+  return value === 'business_two_seat' ? 'business_fixed_seat' : value;
 }
