@@ -29,6 +29,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 - Credential 分别外键关联账号与 Workspace；正文为文件制品。
 - `seatKey` 全局唯一；同一 SeatSlot 同时最多一个活动换号操作。
 - Automation Operation 幂等键唯一；支付输入只保存安全摘要。
+- Workspace 订阅快照结构化保存 `fixed_seat_capacity` 与 `subscription_seats_in_use`；两者分别对应上游 `seats_entitled` 与 `seats_in_use`，不能从成员、邀请或发票反推。
 
 ## 表分组
 
@@ -46,6 +47,18 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 | 文件证据 | `upstream_trace_segments`、`rrweb_recordings`、`quarantined_artifacts` |
 
 低频上游快照可以保存 `jsonb` 原文，但稳定查询字段必须拆列。Session、Token 与秘密设置在应用层加密；完整 HTTP trace、rrweb 和凭证 JSON 只保存为文件。
+
+## 固定席位字段边界
+
+| 字段 | 存储或投影位置 | 约束 |
+|---|---|---|
+| `workspace_subscription_snapshots.fixed_seat_capacity` | Workspace 订阅快照结构化列 | 正整数或 `null`；来自同一快照 `payload.subscription.seats_entitled` |
+| `workspace_subscription_snapshots.subscription_seats_in_use` | Workspace 订阅快照结构化列 | 非负整数或 `null`；来自同一快照 `payload.subscription.seats_in_use` |
+| `fixedSeatOccupied` | 查询投影 | 活动 `default` Membership 与待接受 `default` Invitation 数量之和，不持久化 |
+| `billedSeatQuantity` | Billing 查询投影 | 从具有明确 Business 周期计费语义的发票行读取，不写入 Workspace 或订阅快照 |
+| `fixedSeatAvailable` | 查询投影 | 仅在容量已知时计算 `max(fixedSeatCapacity - fixedSeatOccupied, 0)`，不持久化 |
+
+账号运营主套餐使用容量无关代码 `business_fixed_seat`。代表 Workspace 的 `primary_fixed_seat_capacity` 和 `primary_fixed_seat_occupied` 必须通过相同排序选择，不能分别命中不同 Workspace。旧筛选值 `business_two_seat` 只作为输入兼容别名，不再作为领域事实输出。
 
 ## 迁移与恢复
 

@@ -45,16 +45,16 @@
 投影只使用各关系的最新有效事实，按以下优先级返回第一个命中值：
 
 1. 个人空间当前付费套餐：Go、Plus、Pro 5x、Pro 20x；
-2. 账号以 owner 身份管理的活动双席位 Workspace；
+2. 账号以 owner 身份管理的活动固定席位 Business Workspace；
 3. 账号以 owner 身份管理的活动 0.52 Workspace；
 4. 账号存在活动 Workspace Membership，且所有活动关系都不是 owner：Team 子号；
 5. Free。
 
 证据不足时返回 `unknown`，不得把未知伪装成 Free。Workspace Invitation、已移除关系和非活动 Workspace 不参与投影。admin 在授权和“拥有可管理空间”能力中仍属于管理员，但在主套餐称呼中不是 owner，因此满足其他条件时归为 Team 子号；账号同时存在 owner 和非 owner 活动关系时，不归为 Team 子号。
 
-“双席位”和“0.52”只描述活动 owner Workspace 的运营套餐信号；完整 Workspace 套餐、角色和来源仍由各自事实对象表达。账号列表只展示并筛选主套餐，不额外展开其来源或命中原因，详情页继续展示个人空间和 Workspace 的完整事实。
+“固定席位 Business”和“0.52”只描述活动 owner Workspace 的运营套餐信号；完整 Workspace 套餐、角色、容量和来源仍由各自事实对象表达。固定席位容量不进入套餐代码，不按 2 席位、4 席位拆成不同套餐。账号列表只展示并筛选主套餐，不额外展开其来源或命中原因，详情页继续展示个人空间和 Workspace 的完整事实。
 
-当主套餐为“双席位”时，列表附带显示该主套餐 Workspace 的 ChatGPT 席位占用。存在多个双席位 owner Workspace 时，选择规则与主套餐生命周期一致：优先最早的未来续费，其次最近的历史续费，最后以 Workspace ID 稳定排序。占用数只统计该 Workspace 中活动 `default` Membership 与待接受的 `default` Invitation；不跨 Workspace 汇总，也不写回账号字段。
+当主套餐为“固定席位 Business”时，列表附带显示该主套餐 Workspace 的固定席位占用与权益容量。存在多个固定席位 owner Workspace 时，选择规则与主套餐生命周期一致：优先最早的未来续费，其次最近的历史续费，最后以 Workspace ID 稳定排序。占用数只统计该 Workspace 中活动 `default` Membership 与待接受的 `default` Invitation；不跨 Workspace 汇总，也不写回账号字段。权益容量未知时显示未知，不默认写成 2。
 
 ## Session 与访问上下文
 
@@ -78,7 +78,18 @@
 
 当前成员数不等于计费席位数。移除标准 ChatGPT 成员后仍可能临时计费，因此公开换号不得自动移除已接受的 `default` 成员；管理员操作后必须核对 Billing。
 
-席位概览只处理固定 ChatGPT 席位 Workspace，使用远端活动 `default` Membership 与待接受的 `default` Invitation 表达固定席位占用，并以已知 Business 固定容量补出空位。空位只是查询投影，不写入 `SeatSlot`。`SeatSlot` 只为匹配的邮箱附加联系方式、价格、备注、到期日和公开换号能力；没有 `SeatSlot` 的固定席位成员仍必须出现。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
+固定席位 Business 同时存在四个不能互相替代的数字：
+
+| 领域字段 | 含义 | 事实来源 | 缺失规则 |
+|---|---|---|---|
+| `fixedSeatCapacity` | 当前固定 ChatGPT 席位权益容量 | 最新 Workspace 订阅的 `seats_entitled` | 保持未知，不回退到 2、占用数或账单数 |
+| `fixedSeatOccupied` | 当前固定席位关系占用 | 活动 `default` Membership + 待接受 `default` Invitation | 无匹配关系时为 0 |
+| `subscriptionSeatsInUse` | 订阅接口报告的使用数 | 最新 Workspace 订阅的 `seats_in_use` | 保持未知，只用于核对 |
+| `billedSeatQuantity` | 当前账期或下期账单的计费数量 | 对应 Business 周期性发票行的 `quantity` | 保持未知，并保留账单周期语义 |
+
+只有 `fixedSeatCapacity` 可以用于补出固定席位空位和判断关系占用是否超出权益容量。`subscriptionSeatsInUse`、`billedSeatQuantity` 与 `fixedSeatOccupied` 不一致时应并列展示或产生风险提示，不得通过覆盖其中任一事实消除差异。
+
+席位概览只处理固定 ChatGPT 席位 Workspace，使用远端活动 `default` Membership 与待接受的 `default` Invitation 表达固定席位占用，并以已知 `fixedSeatCapacity` 补出空位。容量未知时仍展示已知占用，但不虚构空位。空位只是查询投影，不写入 `SeatSlot`。`SeatSlot` 只为匹配的邮箱附加联系方式、价格、备注、到期日和公开换号能力；没有 `SeatSlot` 的固定席位成员仍必须出现。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
 
 ## 凭证与额度
 
