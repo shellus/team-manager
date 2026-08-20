@@ -81,6 +81,12 @@ test('Workspace 优惠码接口复用 Workspace 访问上下文并保留上游�
   assert.deepEqual(JSON.parse(requests[2].body),{account_id:'workspace-account',updated_promo_code:'PROMO/CODE'});
 });
 
+test('空 Workspace 订阅响应按未知订阅处理', async () => {
+  const transport={fetch:async()=>({status:200,body:'null'})};
+  const api=new ChatGptApi({accountId:'workspace-account',accessToken:'token'},transport);
+  assert.deepEqual(await api.getSubscription(),{});
+});
+
 test('个人套餐升级预览和提交复用 subscriptions/update 的实测协议', async () => {
   const requests:any[]=[];const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:request.method==='GET'?'{"total_amount":481902,"positive_line_item_total":579464,"negative_line_item_total":-97562,"currency":"php"}':'{"success":true}'};}};
   const api=new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport);
