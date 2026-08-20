@@ -5,7 +5,8 @@ import type {
   WorkspaceMemberRemovalResult,
   WorkspacePromotionApplyResultView,
   WorkspacePromotionPreviewView,
-  WorkspacePromotionSubscriptionView
+  WorkspacePromotionSubscriptionView,
+  WorkspaceSettingMutationInput
 } from '@team-manager/shared';
 import type {
   ChatGptAccountCheckEntry,
@@ -416,23 +417,40 @@ export class WorkspaceOperationService {
     return {workspace:await this.refreshMembers(workspaceId, executorAccountId),summary};
   }
 
-  async updateMemberStatus(workspaceId: string, executorAccountId: string, remoteUserId: string, input: { seat?: SeatType; role?: EditableMemberRole }) {
-    if (!input.seat && !input.role) throw new ServiceError(400, '没有可更新的成员状态');
+  async updateMemberRole(workspaceId: string, executorAccountId: string, remoteUserId: string, role: EditableMemberRole) {
     const { api } = await this.context(workspaceId, executorAccountId);
-    const member = input.seat ? await this.db.selectFrom('workspace_memberships').select('normalized_email')
+    const member = await this.db.selectFrom('workspace_memberships').select('id')
       .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
-      .where('status', '=', 'active').executeTakeFirst() : undefined;
-    if (input.role) await api.setMemberRole(remoteUserId, input.role);
-    if (input.seat) await api.setMemberSeat(remoteUserId, input.seat);
-    await this.activity(executorAccountId,workspaceId,'workspace_member_status_changed',{remoteUserId,...input});
-    const result = await this.refreshMembers(workspaceId, executorAccountId);
-    if (input.seat) {
-      await this.db.updateTable('seat_slots').set({ seat_type: input.seat })
+      .where('status', '=', 'active').executeTakeFirst();
+    if (!member) throw new ServiceError(404, '成员不存在或已失效');
+    await api.setMemberRole(remoteUserId, role);
+    await this.db.updateTable('workspace_memberships').set({
+      raw_role: role, normalized_role: normalizeRole(role), observed_at: new Date(), source: 'upstream_mutation'
+    }).where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
+      .where('status', '=', 'active').execute();
+    await this.activity(executorAccountId,workspaceId,'workspace_member_role_changed',{remoteUserId,role});
+    return this.views.detailForAccount(workspaceId, executorAccountId);
+  }
+
+  async updateMemberSeat(workspaceId: string, executorAccountId: string, remoteUserId: string, seat: SeatType) {
+    const { api } = await this.context(workspaceId, executorAccountId);
+    const member = await this.db.selectFrom('workspace_memberships').select('normalized_email')
+      .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
+      .where('status', '=', 'active').executeTakeFirst();
+    if (!member) throw new ServiceError(404, '成员不存在或已失效');
+    await api.setMemberSeat(remoteUserId, seat);
+    await this.db.transaction().execute(async (trx) => {
+      await trx.updateTable('workspace_memberships').set({
+        seat_type: seat, observed_at: new Date(), source: 'upstream_mutation'
+      }).where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
+        .where('status', '=', 'active').execute();
+      await trx.updateTable('seat_slots').set({ seat_type: seat })
         .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId).execute();
-      if (member?.normalized_email) await this.db.updateTable('seat_slots').set({ seat_type: input.seat })
+      if (member.normalized_email) await trx.updateTable('seat_slots').set({ seat_type: seat })
         .where('workspace_id', '=', workspaceId).where('normalized_current_email', '=', member.normalized_email).execute();
-    }
-    return result;
+    });
+    await this.activity(executorAccountId,workspaceId,'workspace_member_seat_changed',{remoteUserId,seat});
+    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   async rename(workspaceId: string, executorAccountId: string, name: string) {
@@ -447,19 +465,23 @@ export class WorkspaceOperationService {
     return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
-  async patchSettings(workspaceId: string, executorAccountId: string, input: Record<string, unknown>) {
+  async updateSetting(workspaceId: string, executorAccountId: string, input: WorkspaceSettingMutationInput) {
     const { api } = await this.context(workspaceId, executorAccountId);
-    let changes = 0;
-    if (input.defaultSeat === 'default' || input.defaultSeat === 'usage_based') { await api.setDefaultSeat(input.defaultSeat); changes += 1; }
-    if (typeof input.workspaceReferralsEnabled === 'boolean') { await api.setWorkspaceReferralsEnabled(input.workspaceReferralsEnabled); changes += 1; }
-    if (typeof input.autoAcceptRequests === 'boolean') { await api.setAutoAcceptRequests(input.autoAcceptRequests); changes += 1; }
-    if (typeof input.personalAccessTokensEnabled === 'boolean') { await api.setPersonalAccessTokensEnabled(input.personalAccessTokensEnabled); changes += 1; }
-    if (typeof input.codexDeviceCodeAuthEnabled === 'boolean') { await api.setCodexDeviceCodeAuthEnabled(input.codexDeviceCodeAuthEnabled); changes += 1; }
-    if (typeof input.codexRemoteControlEnabled === 'boolean') { await api.setCodexRemoteControlEnabled(input.codexRemoteControlEnabled); changes += 1; }
-    if (typeof input.automaticReloadEnabled === 'boolean') { await api.setAutomaticReloadEnabled(input.automaticReloadEnabled); changes += 1; }
-    if (changes === 0) throw new ServiceError(400, '没有可更新的 Workspace 设置');
-    await this.activity(executorAccountId,workspaceId,'workspace_settings_changed',{changes,input});
-    return this.refreshSettings(workspaceId, executorAccountId);
+    switch (input.key) {
+      case 'defaultSeat': await api.setDefaultSeat(input.value); break;
+      case 'workspaceReferralsEnabled': await api.setWorkspaceReferralsEnabled(input.value); break;
+      case 'autoAcceptRequests': await api.setAutoAcceptRequests(input.value); break;
+      case 'personalAccessTokensEnabled': await api.setPersonalAccessTokensEnabled(input.value); break;
+      case 'codexDeviceCodeAuthEnabled': await api.setCodexDeviceCodeAuthEnabled(input.value); break;
+      case 'codexRemoteControlEnabled': await api.setCodexRemoteControlEnabled(input.value); break;
+      case 'automaticReloadEnabled': await api.setAutomaticReloadEnabled(input.value); break;
+    }
+    const latest = await this.db.selectFrom('workspace_setting_snapshots').select('payload')
+      .where('workspace_id', '=', workspaceId).orderBy('observed_at', 'desc').executeTakeFirst();
+    const payload = workspaceSettingPayload(latest?.payload ?? {}, input);
+    await this.db.insertInto('workspace_setting_snapshots').values({ workspace_id: workspaceId, payload, observed_at: new Date() }).execute();
+    await this.activity(executorAccountId,workspaceId,'workspace_settings_changed',{key:input.key,value:input.value});
+    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   private async saveSubscriptionSnapshot(
@@ -551,6 +573,22 @@ export function memberRemovalSummary(remoteUserId:string,member:{email:string|nu
 }
 function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}
 function optional<K extends string,V>(key:K,value:V|undefined):Record<K,V>|Record<string,never>{return value===undefined?{}:{[key]:value} as Record<K,V>;}
+
+export function workspaceSettingPayload(payload: Record<string, unknown>, input: WorkspaceSettingMutationInput): Record<string, unknown> {
+  switch (input.key) {
+    case 'defaultSeat': return { ...payload, default_seat_type: input.value };
+    case 'workspaceReferralsEnabled': return { ...payload, workspace_referrals_enabled: input.value };
+    case 'autoAcceptRequests': return { ...payload, auto_accept_requests: input.value };
+    case 'personalAccessTokensEnabled':
+      return { ...payload, personal_access_tokens: input.value, beta_settings: { ...(record(payload.beta_settings) ?? {}), personal_access_tokens: input.value } };
+    case 'codexDeviceCodeAuthEnabled':
+      return { ...payload, codex_device_code_auth: input.value, beta_settings: { ...(record(payload.beta_settings) ?? {}), codex_device_code_auth: input.value } };
+    case 'codexRemoteControlEnabled':
+      return { ...payload, codex_remote_control: input.value, beta_settings: { ...(record(payload.beta_settings) ?? {}), codex_remote_control: input.value } };
+    case 'automaticReloadEnabled':
+      return { ...payload, automatic_reload_enabled: input.value, automatic_reload: { ...(record(payload.automatic_reload) ?? {}), is_enabled: input.value } };
+  }
+}
 
 function normalizeRole(value: string): 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown' {
   return normalizeWorkspaceRole(value);

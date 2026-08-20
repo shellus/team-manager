@@ -3,9 +3,19 @@ import test from 'node:test';
 import {
   memberRemovalSummary,
   promotionRequiresRenewalAcknowledgement,
+  workspaceSettingPayload,
   workspacePromotionApplyResult,
   workspacePromotionPreview
 } from './services/workspaceOperationService.js';
+
+test('Workspace 单项设置成功后只合并提交值并保留已有快照细节',()=>{
+  const original={default_seat_type:'usage_based',beta_settings:{personal_access_tokens:false,other:true},automatic_reload:{is_enabled:false,recharge_threshold:'10'}};
+  const beta=workspaceSettingPayload(original,{key:'personalAccessTokensEnabled',value:true});
+  assert.deepEqual(beta,{...original,personal_access_tokens:true,beta_settings:{personal_access_tokens:true,other:true}});
+  const reload=workspaceSettingPayload(beta,{key:'automaticReloadEnabled',value:true});
+  assert.deepEqual(reload,{...beta,automatic_reload_enabled:true,automatic_reload:{is_enabled:true,recharge_threshold:'10'}});
+  assert.deepEqual(workspaceSettingPayload(reload,{key:'defaultSeat',value:'default'}),{...reload,default_seat_type:'default'});
+});
 
 test('member removal exposes only the structured billing and policy summary',()=>{
   const summary=memberRemovalSummary('remote-1',{email:'member@example.com',seat_type:'default'}, {success:true,billing_notice:{private:'kept in activity evidence'},policy_notice:{kind:'pending_replacement',billed_seat_delta:1,vacancy_ordinal:6,free_vacancy_threshold:5,replacement_required:true,unknown_field:'not exposed'}});

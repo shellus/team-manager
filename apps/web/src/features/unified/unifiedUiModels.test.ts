@@ -4,8 +4,8 @@ import {
   notificationDeliveryPresentation,
   normalizedArtifactParams,
   parseRrwebRecording,
+  INVITE_MEMBER_INITIAL_VALUES,
   workspaceSettingsFormValues,
-  workspaceSettingsPatch,
 } from "./unifiedUiModels.js";
 
 describe("workspace settings mapping", () => {
@@ -39,24 +39,6 @@ describe("workspace settings mapping", () => {
     });
   });
 
-  test("keeps unknown values out of mutation payload", () => {
-    expect(
-      workspaceSettingsPatch({
-        name: "Team",
-        automaticReloadEnabled: undefined,
-        codexRemoteControlEnabled: false,
-      }),
-    ).toEqual({ codexRemoteControlEnabled: false });
-  });
-
-  test("submits only values changed from the loaded snapshot", () => {
-    expect(workspaceSettingsPatch({defaultSeat:"default",autoAcceptRequests:false,automaticReloadEnabled:true},{defaultSeat:"default",autoAcceptRequests:true,automaticReloadEnabled:true})).toEqual({autoAcceptRequests:false});
-  });
-
-  test("keeps Codex Local permission read-only",()=>{
-    expect(workspaceSettingsPatch({codexLocalAccessEnabled:true},{})).toEqual({});
-  });
-
   test("maps automatic reload only from an explicit independent snapshot", () => {
     expect(
       workspaceSettingsFormValues({ automatic_reload: { is_enabled: true } })
@@ -66,6 +48,14 @@ describe("workspace settings mapping", () => {
       workspaceSettingsFormValues({ automaticReloadEnabled: false })
         .automaticReloadEnabled,
     ).toBeUndefined();
+  });
+
+  test("invites default to a ChatGPT seat with the analytics viewer role", () => {
+    expect(INVITE_MEMBER_INITIAL_VALUES).toEqual({
+      role: "analytics-viewer",
+      seat: "default",
+      expireRemove: false,
+    });
   });
 });
 

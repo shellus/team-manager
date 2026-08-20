@@ -252,6 +252,19 @@ export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationI
   role?: string;
 }
 
+export type WorkspaceSettingMutationInput =
+  | { key: 'defaultSeat'; value: SeatType }
+  | {
+      key:
+        | 'workspaceReferralsEnabled'
+        | 'autoAcceptRequests'
+        | 'personalAccessTokensEnabled'
+        | 'codexDeviceCodeAuthEnabled'
+        | 'codexRemoteControlEnabled'
+        | 'automaticReloadEnabled';
+      value: boolean;
+    };
+
 export interface CredentialPoolGroupView {
   id: string;
   name: string;

@@ -984,6 +984,15 @@ a.parent-overview-remark:hover {
   padding: 0;
 }
 
+.workspace-inline-select {
+  width: 100%;
+  min-width: 150px;
+}
+
+.workspace-name-form {
+  max-width: 520px;
+}
+
 .warning-action-button.ant-btn {
   color: var(--color-warning);
   border-color: color-mix(in srgb, var(--color-warning) 58%, var(--color-border-subtle));

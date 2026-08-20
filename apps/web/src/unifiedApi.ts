@@ -13,6 +13,7 @@ import type {
   ChangePersonalSubscriptionRequest,
   CodexAuthStart,
   CredentialPoolGroupView,
+  EditableMemberRole,
   NotificationDeliveryView,
   NotificationPolicyView,
   LocalWorkspaceDeleteResult,
@@ -29,11 +30,13 @@ import type {
   RegisterAccountRequest,
   ResidentialProxyConfig,
   SeatSlotMutationInput,
+  SeatType,
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
   WorkspaceInvitationMutationInput,
   WorkspaceMemberRemovalResult,
+  WorkspaceSettingMutationInput,
   WorkspacePromotionApplyResultView,
   WorkspacePromotionPreviewView,
   RenewalOperationalOverviewView,
@@ -176,15 +179,19 @@ export const unifiedApi = {
   deleteLocalWorkspace: (id: string) => request<LocalWorkspaceDeleteResult>('DELETE', `/workspaces/${id}`),
   refreshWorkspacePeople: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/people/refresh`, { executorAccountId }),
   refreshWorkspaceSettings: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/settings/refresh`, { executorAccountId }),
-  renameWorkspace: (id: string, executorAccountId: string, name: string) => request<unknown>('PATCH', `/workspaces/${id}`, { executorAccountId, name }),
+  renameWorkspace: (id: string, executorAccountId: string, name: string) => request<WorkspaceDetailView>('PATCH', `/workspaces/${id}`, { executorAccountId, name }),
   invite: (id: string, body: WorkspaceInvitationMutationInput & { executorAccountId: string }) => request<unknown>('POST', `/workspaces/${id}/invitations`, body),
   revokeInvitation: (id: string, executorAccountId: string, email: string) =>
     request<unknown>('DELETE', `/workspaces/${id}/invitations`, {
       executorAccountId,
       email,
     }),
-  patchMember: (id: string, remoteUserId: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, body),
-  patchWorkspaceSettings: (id: string, body: Record<string, unknown>) => request<unknown>('PATCH', `/workspaces/${id}/settings`, body),
+  updateMemberRole: (id: string, remoteUserId: string, executorAccountId: string, role: EditableMemberRole) =>
+    request<WorkspaceDetailView>('PATCH', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId, role }),
+  updateMemberSeat: (id: string, remoteUserId: string, executorAccountId: string, seat: SeatType) =>
+    request<WorkspaceDetailView>('PATCH', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId, seat }),
+  updateWorkspaceSetting: (id: string, executorAccountId: string, input: WorkspaceSettingMutationInput) =>
+    request<WorkspaceDetailView>('PATCH', `/workspaces/${id}/settings`, { executorAccountId, ...input }),
   removeMember: (id: string, remoteUserId: string, executorAccountId: string) => request<WorkspaceMemberRemovalResult>('DELETE', `/workspaces/${id}/members/${encodeURIComponent(remoteUserId)}`, { executorAccountId }),
   workspaceBilling: (id: string, executorAccountId?: string) =>
     request<BillingDetailView | undefined>('GET', `/workspaces/${id}/billing${executorAccountId ? `?executorAccountId=${encodeURIComponent(executorAccountId)}` : ''}`),

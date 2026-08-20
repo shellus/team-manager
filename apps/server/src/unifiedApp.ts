@@ -400,18 +400,33 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.patch('/workspaces/:id/members/:remoteUserId', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; seat?: 'default' | 'usage_based'; role?: unknown };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
-    const role = isEditableMemberRole(body.role) ? body.role : undefined;
-    if (body.seat || role) return wrap(c, () => workspaceOperations.updateMemberStatus(
-      c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), { seat: body.seat, role }
-    ));
-    return c.json({ ok: false, error: '缺少有效 seat 或 role' }, 400);
+    const hasSeat = body.seat !== undefined;
+    const hasRole = body.role !== undefined;
+    if (hasSeat === hasRole) return c.json({ ok: false, error: '每次只能修改 seat 或 role 中的一项' }, 400);
+    if (hasSeat) {
+      if (body.seat !== 'default' && body.seat !== 'usage_based') return c.json({ ok: false, error: '无效 seat' }, 400);
+      return wrap(c, () => workspaceOperations.updateMemberSeat(c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), body.seat!));
+    }
+    if (!isEditableMemberRole(body.role)) return c.json({ ok: false, error: '无效 role' }, 400);
+    const role = body.role;
+    return wrap(c, () => workspaceOperations.updateMemberRole(c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), role));
   });
   api.post('/workspaces/:id/settings/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshSettings(c.req.param('id'), accountId)));
   api.patch('/workspaces/:id/settings', async (c) => {
     const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
     const executor = typeof body.executorAccountId === 'string' ? body.executorAccountId : '';
     if (!executor) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
-    return wrap(c, () => workspaceOperations.patchSettings(c.req.param('id'), executor, body));
+    const key = body.key;
+    const booleanKeys = ['workspaceReferralsEnabled','autoAcceptRequests','personalAccessTokensEnabled','codexDeviceCodeAuthEnabled','codexRemoteControlEnabled','automaticReloadEnabled'] as const;
+    if (key === 'defaultSeat' && (body.value === 'default' || body.value === 'usage_based')) {
+      const value = body.value;
+      return wrap(c, () => workspaceOperations.updateSetting(c.req.param('id'), executor, { key, value }));
+    }
+    if (typeof key === 'string' && (booleanKeys as readonly string[]).includes(key) && typeof body.value === 'boolean') {
+      const value = body.value;
+      return wrap(c, () => workspaceOperations.updateSetting(c.req.param('id'), executor, { key: key as typeof booleanKeys[number], value }));
+    }
+    return c.json({ ok: false, error: '缺少有效的 Workspace 设置项和值' }, 400);
   });
   api.post('/workspaces/:id/billing/refresh', async (c) => withExecutor(c, (accountId) => workspaceOperations.refreshBilling(c.req.param('id'), accountId)));
   api.get('/overview/renewals', (c)=>wrap(c,()=>system.overviewRenewals()));

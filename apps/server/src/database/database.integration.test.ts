@@ -172,6 +172,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const paymentMethodsByTarget = new Map<string, Array<{
         id: string; brand: string; last4: string; isDefault: boolean;
       }>>();
+      const workspaceMutationRequests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
       const completedOperations = new Set<string>();
       const acknowledgedRegistrationDeliveries: string[] = [];
 
@@ -223,6 +224,13 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         },
         transport: {
           fetch: async (request) => {
+            if (request.method !== 'GET') workspaceMutationRequests.push({
+              method: request.method,
+              path: request.path,
+              ...(request.body ? { body: JSON.parse(request.body) as Record<string, unknown> } : {})
+            });
+            if (request.path === `/backend-api/accounts/${workspace.external_id}/settings/default_seat_type`) return { status: 200, body: '{}' };
+            if (request.path === `/backend-api/accounts/${workspace.external_id}/users/member-remote`) return { status: 200, body: '{}' };
             if (request.path === '/backend-api/subscriptions/cancel') {
               renewalByAccount.set(request.headers['chatgpt-account-id'], false);
               return { status: 200, body: '{}' };
@@ -621,6 +629,30 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         '待接受邀请仍是有效的 Account × Workspace 上下文');
       const invitedAccount = await app.request(`/api/accounts/${outsider.account.id}`, { headers });
       assert.equal((await invitedAccount.json() as any).data.workspaces[0].membershipStatus, 'pending');
+      await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'workspace-mutation-token',{status:'valid'});
+      let requestOffset=workspaceMutationRequests.length;
+      const settingMutation=await app.request(`/api/workspaces/${workspace.id}/settings`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,key:'defaultSeat',value:'default'})});
+      assert.equal(settingMutation.status,200,await settingMutation.clone().text());
+      assert.equal((await settingMutation.json() as any).data.latestSettings.payload.default_seat_type,'default');
+      assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{
+        method:'POST',path:`/backend-api/accounts/${workspace.external_id}/settings/default_seat_type`,body:{value:'default'}
+      }],'Workspace 单项设置只写对应上游接口，不自动回读设置');
+      requestOffset=workspaceMutationRequests.length;
+      const roleMutation=await app.request(`/api/workspaces/${workspace.id}/members/member-remote`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,role:'analytics-viewer'})});
+      assert.equal(roleMutation.status,200,await roleMutation.clone().text());
+      assert.equal((await roleMutation.json() as any).data.members.find((item:any)=>item.remoteUserId==='member-remote')?.role,'analytics_viewer');
+      assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{
+        method:'PATCH',path:`/backend-api/accounts/${workspace.external_id}/users/member-remote`,body:{role:'analytics-viewer'}
+      }],'角色修改只写角色，不自动回读成员列表');
+      requestOffset=workspaceMutationRequests.length;
+      const seatMutation=await app.request(`/api/workspaces/${workspace.id}/members/member-remote`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,seat:'default'})});
+      assert.equal(seatMutation.status,200,await seatMutation.clone().text());
+      assert.equal((await seatMutation.json() as any).data.members.find((item:any)=>item.remoteUserId==='member-remote')?.seatType,'default');
+      assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{
+        method:'PATCH',path:`/backend-api/accounts/${workspace.external_id}/users/member-remote`,body:{seat_type:'default'}
+      }],'席位修改只写席位，不自动回读成员列表');
+      const aggregatedMemberMutation=await app.request(`/api/workspaces/${workspace.id}/members/member-remote`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,role:'standard-user',seat:'usage_based'})});
+      assert.equal(aggregatedMemberMutation.status,400,'成员接口拒绝把角色和席位聚合为一次提交');
       await db.updateTable('workspace_memberships').set({ status: 'removed' })
         .where('workspace_id', '=', workspace.id).where('account_id', '=', second.account.id).execute();
       assert.equal((await app.request(`/api/accounts/${second.account.id}/workspaces/${workspace.id}`, { headers })).status, 404,

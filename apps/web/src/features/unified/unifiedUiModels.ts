@@ -1,4 +1,4 @@
-import type { NotificationDeliveryView } from "@team-manager/shared";
+import type { NotificationDeliveryView, WorkspaceInvitationMutationInput } from "@team-manager/shared";
 
 export interface WorkspaceSettingsFormValues {
   name?: string;
@@ -49,22 +49,11 @@ export function workspaceSettingsFormValues(
   };
 }
 
-export function workspaceSettingsPatch(values: WorkspaceSettingsFormValues, initial: WorkspaceSettingsFormValues = {}) {
-  const keys: Array<Exclude<keyof WorkspaceSettingsFormValues, "name">> = [
-    "defaultSeat",
-    "workspaceReferralsEnabled",
-    "autoAcceptRequests",
-    "personalAccessTokensEnabled",
-    "codexDeviceCodeAuthEnabled",
-    "codexRemoteControlEnabled",
-    "automaticReloadEnabled",
-  ];
-  return Object.fromEntries(
-    keys
-      .filter((key) => values[key] !== undefined && values[key] !== initial[key])
-      .map((key) => [key, values[key]]),
-  );
-}
+export const INVITE_MEMBER_INITIAL_VALUES = {
+  role: "analytics-viewer",
+  seat: "default",
+  expireRemove: false,
+} satisfies Partial<WorkspaceInvitationMutationInput>;
 
 export function automaticReloadDetails(payload:Record<string,unknown>):AutomaticReloadDetails{
   const value=record(payload.automatic_reload)??record(payload.auto_top_up)??record(payload.automatic_reload_settings);

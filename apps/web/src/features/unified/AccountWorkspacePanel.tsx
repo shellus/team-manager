@@ -24,8 +24,11 @@ import type {
   RemovedAccountWorkspaceView,
   WorkspaceDetailView,
   WorkspaceMemberRemovalResult,
+  WorkspaceSettingMutationInput,
   SeatSlotView,
   WorkspaceInvitationMutationInput,
+  EditableMemberRole,
+  SeatType,
 } from "@team-manager/shared";
 import { unifiedApi, type SeatSlotInput } from "../../unifiedApi.js";
 import { BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
@@ -37,9 +40,8 @@ import { SNAPSHOT_BOOLEAN_OPTIONS } from "../../components/selectOptions.js";
 import { useRememberedForm } from "../../webPreferences.js";
 import {
   automaticReloadDetails,
+  INVITE_MEMBER_INITIAL_VALUES,
   workspaceSettingsFormValues,
-  workspaceSettingsPatch,
-  type WorkspaceSettingsFormValues,
 } from "./unifiedUiModels.js";
 import {
   accountWorkspacePeople,
@@ -117,6 +119,29 @@ export function AccountWorkspacePanel({
     } catch (reason) {
       const message = errorMessage(reason, "Workspace 操作失败");
       await load({ preserveError: true });
+      setError(message);
+      productMessage.error(message);
+      return false;
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const mutateWorkspace = async (
+    key: string,
+    action: () => Promise<WorkspaceDetailView>,
+    accountChanged = false,
+  ): Promise<boolean> => {
+    setBusy(key);
+    setError("");
+    try {
+      const next = await action();
+      setWorkspace(next);
+      if (accountChanged) await onAccountChanged();
+      productMessage.success("操作已完成");
+      return true;
+    } catch (reason) {
+      const message = errorMessage(reason, "Workspace 操作失败");
       setError(message);
       productMessage.error(message);
       return false;
@@ -274,7 +299,7 @@ export function AccountWorkspacePanel({
           {
             key: "members",
             label: `成员 (${accountWorkspacePeople(workspace).length})`,
-            children: <PeoplePanel workspace={workspace} accountId={account.id} canManage={canManage} loading={loading} busy={busy} lastRemoval={lastRemoval} setLastRemoval={setLastRemoval} run={run} modal={params.get("modal")} personId={params.get("personId")} setParams={setPanelParams} />,
+            children: <PeoplePanel workspace={workspace} accountId={account.id} canManage={canManage} loading={loading} busy={busy} lastRemoval={lastRemoval} setLastRemoval={setLastRemoval} run={run} mutateWorkspace={mutateWorkspace} modal={params.get("modal")} personId={params.get("personId")} setParams={setPanelParams} />,
           },
           {
             key: "billing",
@@ -284,7 +309,7 @@ export function AccountWorkspacePanel({
           {
             key: "settings",
             label: "设置",
-            children: workspace ? <WorkspaceSettings workspace={workspace} accountId={account.id} canManage={canManage} busy={busy} run={run} /> : <LoadingEmpty loading={loading} />,
+            children: workspace ? <WorkspaceSettings workspace={workspace} accountId={account.id} canManage={canManage} busy={busy} run={run} mutateWorkspace={mutateWorkspace} /> : <LoadingEmpty loading={loading} />,
           },
           {
             key: "credentials",
@@ -310,6 +335,7 @@ function PeoplePanel({
   lastRemoval,
   setLastRemoval,
   run,
+  mutateWorkspace,
   modal,
   personId,
   setParams,
@@ -322,6 +348,7 @@ function PeoplePanel({
   lastRemoval?: WorkspaceMemberRemovalResult["summary"];
   setLastRemoval: (value: WorkspaceMemberRemovalResult["summary"]) => void;
   run: (key: string, action: () => Promise<unknown>) => Promise<boolean>;
+  mutateWorkspace: (key: string, action: () => Promise<WorkspaceDetailView>, accountChanged?: boolean) => Promise<boolean>;
   modal: string | null;
   personId: string | null;
   setParams: (values: Record<string, string | undefined>) => void;
@@ -332,12 +359,13 @@ function PeoplePanel({
   const selectedSeatSlot = selectedPerson?.seatSlot;
   const refresh = () => run("people-refresh", () => unifiedApi.refreshWorkspacePeople(workspace.id, accountId));
   const closeModal = () => setParams({ modal: undefined, personId: undefined });
-  const saveStatus = async (value:MemberStatusValues) => {
-    if(selectedPerson?.kind==="member") {
-      await unifiedApi.patchMember(workspace.id,selectedPerson.remoteUserId!,{...value,executorAccountId:accountId});
-      return;
+  const updateMemberRole = (row: AccountWorkspacePersonRow, role: EditableMemberRole) =>
+    mutateWorkspace(`role-${row.id}`, () => unifiedApi.updateMemberRole(workspace.id, row.remoteUserId!, accountId, role), true);
+  const updateSeat = async (row: AccountWorkspacePersonRow, seat: SeatType) => {
+    if (row.kind === "member") {
+      return mutateWorkspace(`seat-${row.id}`, () => unifiedApi.updateMemberSeat(workspace.id, row.remoteUserId!, accountId, seat), true);
     }
-    await unifiedApi.updateSeatSlot(workspace.id,selectedSeatSlot!.id,accountId,{seatType:value.seat});
+    return run(`seat-${row.id}`, () => unifiedApi.updateSeatSlot(workspace.id, row.seatSlot!.id, accountId, { seatType: seat }));
   };
   return (
     <Space direction="vertical" className="panel-stack">
@@ -352,11 +380,17 @@ function PeoplePanel({
         rowKey="rowKey"
         dataSource={rows}
         pagination={false}
-        scroll={{ x: 980 }}
+        scroll={{ x: 1140 }}
         columns={[
-          { title: "成员", width: 290, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark} /> },
-          { title: "状态", width: 310, render: (_, row) => <TwoLineCell primary={<Space size={[4, 4]} wrap><Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag>{row.role && <Tag>{roleLabel(row.role)}</Tag>}<Tag>{seatLabel(row.seatType)}</Tag></Space>} secondary={canManage && canEditStatus(row) ? <Button type="link" size="small" onClick={() => setParams({ modal: "status", personId: row.rowKey })}>编辑状态</Button> : "状态来自远端关系"} /> },
-          { title: "租客信息", width: 300, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
+          { title: "成员", width: 270, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark} /> },
+          { title: "关系", width: 110, render: (_, row) => <Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag> },
+          { title: "角色", width: 180, render: (_, row) => row.kind === "member" && row.remoteUserId && canManage
+            ? <Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" />
+            : row.role ? <Tag>{roleLabel(row.role)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
+          { title: "席位", width: 180, render: (_, row) => canManage && canEditSeat(row)
+            ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
+            : <Tag>{seatLabel(row.seatType)}</Tag> },
+          { title: "租客信息", width: 280, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
           {
             title: "操作",
             fixed: "right",
@@ -374,14 +408,12 @@ function PeoplePanel({
         onClose={closeModal}
         onSubmit={(value) => run("tenant", () => selectedSeatSlot ? unifiedApi.updateSeatSlot(workspace.id, selectedSeatSlot.id, accountId, value) : unifiedApi.createSeatSlot(workspace.id, accountId, value))}
       />
-      <MemberStatusModal open={modal === "status" && Boolean(selectedPerson)} person={selectedPerson} busy={busy === "status"} onClose={closeModal} onSubmit={(value) => run("status", () => saveStatus(value))} />
       <InviteMemberModal open={modal === "invite"} busy={busy === "invite"} onClose={closeModal} onSubmit={(value) => run("invite", () => unifiedApi.invite(workspace.id, { ...value, executorAccountId: accountId }))} />
     </Space>
   );
 }
 
 type TenantDataValues = Pick<SeatSlotInput, "contact" | "remark" | "price" | "expiresOn" | "expireRemove">;
-type MemberStatusValues = { role?: string; seat: "default" | "usage_based" };
 type InviteMemberValues = WorkspaceInvitationMutationInput;
 
 function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, onSubmit }: {
@@ -416,27 +448,9 @@ function TenantDataFields() {
   </>;
 }
 
-function MemberStatusModal({ open, person, busy, onClose, onSubmit }: {
-  open:boolean;
-  person?:AccountWorkspacePersonRow;
-  busy:boolean;
-  onClose:()=>void;
-  onSubmit:(value:MemberStatusValues)=>Promise<boolean>;
-}) {
-  const currentRole=person?.rawRole??person?.role??"standard-user";
-  return <ProductModal title="编辑状态" open={open} onCancel={onClose}>
-    <Form key={person?.rowKey??"status"} layout="vertical" initialValues={{role:currentRole,seat:person?.seatType??"usage_based"}} onFinish={async(value:MemberStatusValues)=>{if(await onSubmit(value))onClose();}} disabled={busy}>
-      <Descriptions size="small" bordered column={1} items={[{key:"relation",label:"关系",children:person?relationLabel(person.kind):"—"}]} />
-      {person?.kind==="member"&&<Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions(currentRole)} /></Form.Item>}
-      <Form.Item name="seat" label="席位"><Select options={SEAT_OPTIONS} /></Form.Item>
-      <Button type="primary" htmlType="submit" loading={busy}>保存状态</Button>
-    </Form>
-  </ProductModal>;
-}
-
 function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boolean;onClose:()=>void;onSubmit:(value:InviteMemberValues)=>Promise<boolean>}) {
   return <ProductModal title="邀请成员" open={open} onCancel={onClose}>
-    <Form layout="vertical" initialValues={{role:"standard-user",seat:"usage_based",expireRemove:false}} onFinish={async(value:InviteMemberValues)=>{if(await onSubmit({...value,...inviteTenantDataInput(value)}))onClose();}} disabled={busy}>
+    <Form layout="vertical" initialValues={INVITE_MEMBER_INITIAL_VALUES} onFinish={async(value:InviteMemberValues)=>{if(await onSubmit({...value,...inviteTenantDataInput(value)}))onClose();}} disabled={busy}>
       <Form.Item name="email" label="账号邮箱" rules={[{required:true,type:"email",message:"请输入有效邮箱"}]}><Input /></Form.Item>
       <div className="responsive-form-grid">
         <Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions("standard-user")} /></Form.Item>
@@ -509,7 +523,8 @@ function personAccount(row: AccountWorkspacePersonRow) { return row.email ?? row
 function relationLabel(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "成员" : kind === "invitation" ? "邀请中" : "未关联"; }
 function relationColor(kind: AccountWorkspacePersonRow["kind"]) { return kind === "member" ? "green" : kind === "invitation" ? "blue" : "default"; }
 function isWorkspaceOwner(row?: AccountWorkspacePersonRow) { return row?.role === "owner"; }
-function canEditStatus(row: AccountWorkspacePersonRow) { return (row.kind === "member" && Boolean(row.remoteUserId)) || (row.kind === "customer" && Boolean(row.seatSlot)); }
+function canEditSeat(row: AccountWorkspacePersonRow) { return (row.kind === "member" && Boolean(row.remoteUserId)) || (row.kind === "customer" && Boolean(row.seatSlot)); }
+function roleForSelect(role?: string) { return role === "analytics_viewer" ? "analytics-viewer" : role === "member" ? "standard-user" : role === "admin" ? "account-admin" : role === "owner" ? "account-owner" : role; }
 function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
 function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
 
@@ -583,46 +598,64 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
   </Space>;
 }
 
-function WorkspaceSettings({ workspace, accountId, canManage, busy, run }: {
+function WorkspaceSettings({ workspace, accountId, canManage, busy, run, mutateWorkspace }: {
   workspace: WorkspaceDetailView;
   accountId: string;
   canManage: boolean;
   busy: string;
   run: (key: string, action: () => Promise<unknown>) => Promise<boolean>;
+  mutateWorkspace: (key: string, action: () => Promise<WorkspaceDetailView>, accountChanged?: boolean) => Promise<boolean>;
 }) {
   const productModal = useProductModal();
   const payload = workspace.latestSettings?.payload ?? {};
   const initialValues = workspaceSettingsFormValues(payload, workspace.name);
   const reloadDetails = automaticReloadDetails(payload);
-  const [form] = Form.useForm<WorkspaceSettingsFormValues>();
-  const switches: Array<[Exclude<keyof WorkspaceSettingsFormValues, "name" | "defaultSeat" | "codexLocalAccessEnabled">, string]> = [
+  const [nameForm] = Form.useForm<{ name: string }>();
+  const booleanSettings: Array<[Exclude<WorkspaceSettingMutationInput["key"], "defaultSeat">, string]> = [
     ["workspaceReferralsEnabled", "推荐"], ["autoAcceptRequests", "自动接受邀请"], ["personalAccessTokensEnabled", "允许 PAT"], ["codexDeviceCodeAuthEnabled", "Device Code 登录"], ["codexRemoteControlEnabled", "远程控制"], ["automaticReloadEnabled", "Automatic reload"],
   ];
-  const submit = (values: WorkspaceSettingsFormValues) => {
-    const settings = workspaceSettingsPatch(values, initialValues);
-    const execute = () => run("settings", async () => {
-      if (values.name !== undefined && values.name !== workspace.name) await unifiedApi.renameWorkspace(workspace.id, accountId, values.name);
-      if (Object.keys(settings).length) await unifiedApi.patchWorkspaceSettings(workspace.id, { executorAccountId: accountId, ...settings });
-    });
-    if (initialValues.automaticReloadEnabled !== true && settings.automaticReloadEnabled === true) {
+  useEffect(() => { nameForm.setFieldsValue({ name: workspace.name ?? "" }); }, [nameForm, workspace.id, workspace.name]);
+  const saveName = async ({ name }: { name: string }) => {
+    const value = name.trim();
+    if (value === workspace.name) return;
+    const saved = await mutateWorkspace("workspace-name", () => unifiedApi.renameWorkspace(workspace.id, accountId, value), true);
+    if (!saved) nameForm.setFieldsValue({ name: workspace.name ?? "" });
+  };
+  const saveSetting = (input: WorkspaceSettingMutationInput) => {
+    const execute = () => mutateWorkspace(`workspace-setting-${input.key}`, () => unifiedApi.updateWorkspaceSetting(workspace.id, accountId, input));
+    if (input.key === "automaticReloadEnabled" && initialValues.automaticReloadEnabled !== true && input.value === true) {
       productModal.confirm({ title: "开启 Automatic reload？", content: "余额低于远端阈值时可能立即使用默认支付方式补款。", okText: "开启自动补款", onOk: execute });
       return;
     }
     void execute();
   };
+  const controlsDisabled = !canManage || Boolean(busy);
   return <Space direction="vertical" className="panel-stack">
     <Space wrap><Typography.Text type="secondary">设置快照：{formatTime(workspace.latestSettings?.observedAt)}</Typography.Text><Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "settings-refresh"} onClick={() => void run("settings-refresh", () => unifiedApi.refreshWorkspaceSettings(workspace.id, accountId))}>刷新设置</Button></Space>
-    <Form form={form} key={workspace.latestSettings?.observedAt ?? workspace.updatedAt} layout="vertical" initialValues={initialValues} onFinish={submit} disabled={!canManage}>
-      <div className="responsive-form-grid"><Form.Item name="name" label="Workspace 名称"><Input /></Form.Item><Form.Item name="defaultSeat" label="默认席位"><Select options={SEAT_OPTIONS} /></Form.Item></div>
-      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} items={[
-        { key: "local", label: "Codex Local 权限", children: initialValues.codexLocalAccessEnabled === undefined ? "快照未提供" : initialValues.codexLocalAccessEnabled ? "允许" : "关闭" },
-        { key: "threshold", label: "自动补款阈值", children: reloadDetails.threshold ?? "快照未提供" },
-        { key: "target", label: "自动补款目标", children: reloadDetails.target ?? "快照未提供" },
-        { key: "monthly", label: "月度补款", children: reloadDetails.monthlyLimit ? `限额 ${reloadDetails.monthlyLimit} · 剩余 ${reloadDetails.monthlyRemaining ?? "未知"}` : "快照未提供" },
-      ]} />
-      <div className="switch-grid">{switches.map(([name, label]) => <Form.Item key={name} name={name} label={label}><Select allowClear placeholder="未知（快照未提供）" options={SNAPSHOT_BOOLEAN_OPTIONS} /></Form.Item>)}</div>
-      <Button type="primary" htmlType="submit" loading={busy === "settings"}>保存全部设置</Button>
+    <Form form={nameForm} layout="vertical" onFinish={saveName} disabled={controlsDisabled} className="workspace-name-form">
+      <Form.Item label="Workspace 名称">
+        <Space.Compact block>
+          <Form.Item name="name" noStyle rules={[{ required: true, whitespace: true, message: "请输入 Workspace 名称" }]}><Input /></Form.Item>
+          <Button type="primary" htmlType="submit" loading={busy === "workspace-name"}>保存名称</Button>
+        </Space.Compact>
+      </Form.Item>
     </Form>
+    <Form layout="vertical" disabled={controlsDisabled}>
+      <div className="responsive-form-grid">
+        <Form.Item label="默认席位">
+          <Select value={initialValues.defaultSeat} placeholder="未知（快照未提供）" options={SEAT_OPTIONS} loading={busy === "workspace-setting-defaultSeat"} onChange={(value: SeatType) => saveSetting({ key: "defaultSeat", value })} />
+        </Form.Item>
+        {booleanSettings.map(([key, label]) => <Form.Item key={key} label={label}>
+          <Select value={initialValues[key]} placeholder="未知（快照未提供）" options={SNAPSHOT_BOOLEAN_OPTIONS} loading={busy === `workspace-setting-${key}`} onChange={(value: boolean) => saveSetting({ key, value })} />
+        </Form.Item>)}
+      </div>
+    </Form>
+    <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} items={[
+      { key: "local", label: "Codex Local 权限", children: initialValues.codexLocalAccessEnabled === undefined ? "快照未提供" : initialValues.codexLocalAccessEnabled ? "允许" : "关闭" },
+      { key: "threshold", label: "自动补款阈值", children: reloadDetails.threshold ?? "快照未提供" },
+      { key: "target", label: "自动补款目标", children: reloadDetails.target ?? "快照未提供" },
+      { key: "monthly", label: "月度补款", children: reloadDetails.monthlyLimit ? `限额 ${reloadDetails.monthlyLimit} · 剩余 ${reloadDetails.monthlyRemaining ?? "未知"}` : "快照未提供" },
+    ]} />
   </Space>;
 }
 
