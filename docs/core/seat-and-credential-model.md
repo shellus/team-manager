@@ -58,12 +58,14 @@
 
 ## Session 与访问上下文
 
-账号完整 Web Session 只由 Team Manager 持久化并在应用层加密。保存新 Session 时原子替换并删除旧 Session，GAM 不保留副本；注册成功时 GAM 只做一次性交付，Team Manager 保存后确认清除。Access Token 按以下上下文隔离：
+账号完整 Web Session 只由 Team Manager 持久化并在应用层加密。保存新 Session 时原子替换并删除旧 Session，GAM 不保留副本；注册成功时 GAM 只做一次性交付，Team Manager 保存后确认清除。账号登录状态只由 Refresh Token / Session Token 的真实可用性决定；Access Token 是可重新换取的短期访问凭证，其无效或过期不得改变账号登录状态。Access Token 按以下上下文隔离：
 
 - `Account × PersonalSpace`；
 - `Account × Workspace`。
 
 同一账号在多个 Workspace 的 Token 不能互相覆盖。Workspace API 必须使用目标 Workspace 上下文，不能把个人 Token 或其他 Workspace Token 当成通用 Token。
+
+Access Token 请求返回 401 时，存在可用 Session Token 的流程应先换取目标上下文的新 Access Token 并重试。只有长期会话凭据也无法换取新 Token 时，才能判定账号登录无效；不得根据 Access Token 的 `exp`、上下文状态或单次 401 直接推断账号掉登录。
 
 ## 席位与账单
 

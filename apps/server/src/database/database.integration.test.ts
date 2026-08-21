@@ -643,7 +643,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'displayName'), false, '账号摘要不保留无业务用途的显示名');
       assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
-      assert.equal(typeof primaryPlanAccounts[0].accessHealth.status, 'string');
+      assert.equal(typeof primaryPlanAccounts[0].accessContextHealth.status, 'string');
       const fixedSeatResponse = await app.request('/api/accounts?primaryPlan=business_fixed_seat', { headers });
       const fixedSeatAccounts = (await fixedSeatResponse.json() as any).data;
       assert.deepEqual(fixedSeatAccounts.find((item: any) => item.id === fixedSeatOwner.account.id)?.primaryPlanSeatUsage, { occupied: 3, capacity: 4 });

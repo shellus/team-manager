@@ -287,11 +287,16 @@ function Overview({
   const invalidContexts = account.accessContexts.filter((item) => item.status === "invalid");
   return (
     <Space direction="vertical" size={16} className="panel-stack">
-      {(account.isBanned || account.lastError || invalidContexts.length > 0) && <Alert type="error" showIcon message="账号需要处理" description={[
+      {(account.isBanned || account.lastError) && <Alert type="error" showIcon message="账号需要处理" description={[
         account.isBanned ? "人工封号" : "",
         account.lastError,
-        invalidContexts.length ? `${invalidContexts.length} 个登录上下文无效` : "",
       ].filter(Boolean).join("；")} />}
+      {invalidContexts.length > 0 && <Alert
+        type="warning"
+        showIcon
+        message="访问凭证需要刷新"
+        description={`${invalidContexts.length} 个访问上下文的 Access Token 无效或过期；这不代表账号登录失效。`}
+      />}
       {manager?.errors && <AccountManagerErrors errors={manager.errors} />}
       {account.latestOperation && <AccountOperationSummary operation={account.latestOperation} onOpen={openOperation} />}
       <Descriptions
@@ -314,7 +319,7 @@ function Overview({
           label: "Profile",
           children: manager?.profile?.status ?? "未知",
         },
-        { key: "health", label: "登录健康", children: account.accessHealth.status === "invalid" ? <Tag color="error">无效</Tag> : account.accessHealth.status === "valid" ? <Tag color="success">有效</Tag> : "未验证" },
+        { key: "health", label: "访问凭证健康", children: account.accessContextHealth.status === "invalid" ? <Tag color="warning">存在异常</Tag> : account.accessContextHealth.status === "valid" ? <Tag color="success">有效</Tag> : "未验证" },
         { key: "remote-user-id", label: "ChatGPT User ID", children: account.remoteUserId ? <Typography.Text copyable>{account.remoteUserId}</Typography.Text> : "—" },
         { key: "remote-account-id", label: "Personal Account ID", children: account.personalSpace.remoteAccountId ? <Typography.Text copyable>{account.personalSpace.remoteAccountId}</Typography.Text> : "—" },
         { key: "limit", label: "限额类型", children: account.limitType },
@@ -327,7 +332,7 @@ function Overview({
       />
       <Table pagination={false} rowKey={(row) => `${row.kind}:${row.workspaceName ?? "personal"}`} dataSource={account.accessContexts}
         columns={[
-          { title: "登录上下文", render: (_, row) => row.kind === "personal" ? "个人空间" : row.workspaceName ?? "Workspace" },
+          { title: "访问上下文", render: (_, row) => row.kind === "personal" ? "个人空间" : row.workspaceName ?? "Workspace" },
           { title: "状态", dataIndex: "status", render: (value) => <Tag color={value === "invalid" ? "error" : value === "valid" ? "success" : "default"}>{value === "invalid" ? "无效" : value === "valid" ? "有效" : "未知"}</Tag> },
           { title: "检查时间", dataIndex: "checkedAt", render: (value) => value ? formatTime(value) : "—" },
           { title: "过期时间", dataIndex: "expiresAt", render: (value) => value ? formatTime(value) : "—" },

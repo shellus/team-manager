@@ -7,15 +7,15 @@ export type PersonalSubscriptionMode = 'start_new' | 'change_existing';
 export type BusinessSubscriptionMode = 'create_workspace' | 'upgrade_existing_workspace';
 export type NormalizedWorkspaceRole = 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown';
 export type AccountLifecycleKind = 'renews' | 'expires' | 'valid_until' | 'expired';
-export type AccountAccessHealthStatus = 'valid' | 'invalid' | 'unknown' | 'missing';
+export type AccessContextHealthStatus = 'valid' | 'invalid' | 'unknown' | 'missing';
 
 export interface AccountPlanLifecycleView {
   kind: AccountLifecycleKind;
   at: string;
 }
 
-export interface AccountAccessHealthView {
-  status: AccountAccessHealthStatus;
+export interface AccessContextHealthSummaryView {
+  status: AccessContextHealthStatus;
   checkedAt?: string;
   expiresAt?: string;
   invalidContextCount: number;
@@ -24,7 +24,7 @@ export interface AccountAccessHealthView {
 export interface AccountAccessContextHealthView {
   kind: 'personal' | 'workspace';
   workspaceName?: string;
-  status: AccountAccessHealthStatus;
+  status: AccessContextHealthStatus;
   checkedAt?: string;
   expiresAt?: string;
 }
@@ -53,7 +53,7 @@ export interface UnifiedAccountSummaryView {
   primaryPlan: PrimaryPlan;
   primaryPlanSeatUsage?: { occupied: number; capacity?: number };
   primaryPlanLifecycle?: AccountPlanLifecycleView;
-  accessHealth: AccountAccessHealthView;
+  accessContextHealth: AccessContextHealthSummaryView;
   latestOperation?: AccountManagerOperationView;
   limitType: AccountLimitType;
   workspaceCount: number;

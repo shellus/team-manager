@@ -299,7 +299,13 @@ export function AccountsPage() {
             {!isRegistration(row) && row.isBanned && (
               <Badge status="error" text="封号" title="人工封号" />
             )}
-            {!isRegistration(row) && row.accessHealth.status === "invalid" && <Badge status="error" text="登录无效" />}
+            {!isRegistration(row) && row.accessContextHealth.status === "invalid" && (
+              <Badge
+                status="warning"
+                text="访问凭证异常"
+                title={`${row.accessContextHealth.invalidContextCount} 个访问上下文的 Access Token 无效或过期，不代表账号登录失效`}
+              />
+            )}
             {!isRegistration(row) && row.lastError && <Badge status="error" text="同步失败" title={row.lastError} />}
             {!isRegistration(row) && ["failed", "interrupted"].includes(row.latestOperation?.status ?? "") && <Badge status="error" text="操作失败" />}
           </Space>

@@ -17,7 +17,10 @@ import type {
 } from '../chatgptApi.js';
 import type { Database } from '../database/schema.js';
 import { ChatGptApi } from '../chatgptApi.js';
-import { fetchWorkspaceExchangeSessionFromSessionToken } from '../chatgptWebSession.js';
+import {
+  fetchChatGptWebAccessTokenFromSessionToken,
+  fetchWorkspaceExchangeSessionFromSessionToken
+} from '../chatgptWebSession.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 import { BillingRepository } from '../repositories/billingRepository.js';
 import { SessionRepository } from '../repositories/sessionRepository.js';
@@ -60,15 +63,34 @@ export class WorkspaceOperationService {
       const session = await this.sessions.currentSession(accountId) as {
         account?: { id?: string };
         accessToken?: string;
+        sessionToken?: string;
       } | undefined;
-      const accessToken = session?.accessToken?.trim();
       const remoteAccountId = personal.remote_account_id ?? session?.account?.id?.trim();
-      if (!accessToken || !remoteAccountId) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
+      if (!remoteAccountId) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
+
+      let accessToken = await this.sessions.accessToken(accountId, {
+        kind: 'personal', personalSpaceId: personal.id
+      }) ?? session?.accessToken?.trim();
+      if (!accessToken) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
+      const proxy = await this.operational.proxy(accountId);
+      const refreshAccessToken = async () => {
+        if (!session?.sessionToken) {
+          throw new ServiceError(409, 'Access Token 已失效，账号缺少可换取新 Token 的 sessionToken');
+        }
+        const refreshed = await fetchChatGptWebAccessTokenFromSessionToken(
+          this.transport, session.sessionToken, remoteAccountId, proxy
+        );
+        await this.sessions.saveAccessToken(accountId, {
+          kind: 'personal', personalSpaceId: personal.id
+        }, refreshed, { status: 'valid', checkedAt: new Date() });
+        return refreshed;
+      };
 
       const api = new ChatGptApi({
         accountId: remoteAccountId,
         accessToken,
-        proxy: await this.operational.proxy(accountId)
+        proxy,
+        refreshWebAccessToken: session?.sessionToken ? refreshAccessToken : undefined
       }, this.transport);
       const observedAt = new Date();
       const visibleWorkspaces = (await api.checkAccounts()).filter((item) =>

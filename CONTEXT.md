@@ -49,11 +49,11 @@ _Avoid_: 母号、`isParent`、Workspace 所有者字段
 _Avoid_: CloakBrowser Profile ID、GAM 数据库 UUID
 
 **当前账号会话（Current Account Session）**:
-Team Manager 独占持久化的账号完整 ChatGPT Web Session。保存新 Session 时原子替换并删除旧 Session，同时使旧 Access Context 失效；管理员可以显式要求 GAM 从受管 Profile 一次性交付新 Session，但 GAM 不保留账号级 Session 副本。
+Team Manager 独占持久化的账号完整 ChatGPT Web Session。账号登录是否有效只由长期会话凭据 Refresh Token / Session Token 的真实可用性决定，Access Token 失效不改变账号登录状态；保存新 Session 时原子替换并删除旧 Session，同时使旧 Access Context 失效。管理员可以显式要求 GAM 从受管 Profile 一次性交付新 Session，但 GAM 不保留账号级 Session 副本。
 _Avoid_: Session 修订历史、GAM Session、GAM 持久 Session
 
 **访问上下文（Account Access Context）**:
-账号在个人空间或指定 Workspace 下换取的 Web Access Token。相同账号的不同上下文互不覆盖，成员关系变化不会推断其有效性，状态以真实请求结果为准。
+账号在个人空间或指定 Workspace 下换取的短期 Web Access Token。相同账号的不同上下文互不覆盖，成员关系变化不会推断其有效性，状态以真实请求结果为准；Access Token 失效只表示该上下文需要重新换取 Token，不表示账号登录失效。
 _Avoid_: 全局账号 Token、跨 Workspace Token
 
 **客户席位（Seat Slot）**:

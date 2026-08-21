@@ -86,8 +86,8 @@ export class UnifiedProjectionRepository {
         ...(row.lifecycle_at ? { primaryPlanLifecycle: {
           kind: lifecycleKind(row.lifecycle_at, row.lifecycle_will_renew), at: iso(row.lifecycle_at)
         } } : {}),
-        accessHealth: {
-          status: normalizeAccessHealth(extra?.access_status),
+        accessContextHealth: {
+          status: normalizeAccessContextHealth(extra?.access_status),
           ...(extra?.access_checked_at ? { checkedAt: iso(extra.access_checked_at) } : {}),
           ...(extra?.access_expires_at ? { expiresAt: iso(extra.access_expires_at) } : {}),
           invalidContextCount: Number(extra?.invalid_context_count ?? 0)
@@ -331,7 +331,7 @@ function accessContextHealth(row: any): AccountAccessContextHealthView {
   const expired = row.expires_at && new Date(row.expires_at).getTime() <= Date.now();
   return { kind: row.personal_space_id ? 'personal' : 'workspace',
     ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}),
-    status: expired ? 'invalid' : normalizeAccessHealth(row.status),
+    status: expired ? 'invalid' : normalizeAccessContextHealth(row.status),
     ...(row.checked_at ? { checkedAt: iso(row.checked_at) } : {}),
     ...(row.expires_at ? { expiresAt: iso(row.expires_at) } : {}) };
 }
@@ -347,7 +347,7 @@ function operationSummary(row: any) {
 function normalizeOperationStatus(value: string): import('@team-manager/shared').AccountManagerOperationView['status'] {
   return ['queued','running','waiting_for_otp','waiting_manual','succeeded','failed','interrupted'].includes(value) ? value as any : 'running';
 }
-function normalizeAccessHealth(value?: string): import('@team-manager/shared').AccountAccessHealthStatus {
+function normalizeAccessContextHealth(value?: string): import('@team-manager/shared').AccessContextHealthStatus {
   return value && ['valid','invalid','unknown','missing'].includes(value) ? value as any : 'missing';
 }
 function lifecycleKind(at: Date, willRenew: boolean | null): import('@team-manager/shared').AccountLifecycleKind {
