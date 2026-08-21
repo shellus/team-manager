@@ -236,6 +236,9 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/accounts/:id/account-manager/enroll', (c) => wrap(c, () => accountManagement.enroll(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/start', (c) => wrap(c, () => accountManagement.startProfile(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/stop', (c) => wrap(c, () => accountManagement.stopProfile(c.req.param('id'))));
+  api.post('/accounts/:id/account-manager/session/refresh', (c) =>
+    wrap(c, () => accountManagement.refreshSession(c.req.param('id')))
+  );
   api.put('/accounts/:id/account-manager/proxy', async (c) => {
     const body = await c.req.json().catch(() => ({})) as ResidentialProxyConfig;
     return wrap(c, () => accountManagement.setProxy(c.req.param('id'), body));

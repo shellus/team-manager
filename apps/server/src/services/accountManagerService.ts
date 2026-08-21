@@ -125,6 +125,31 @@ export class AccountManagerService {
     const profile=await manager.stopAccountProfile!(await this.accountRef(accountId));await this.db.updateTable('account_operational_profiles').set({profile_status:profile.status,profile_checked_at:new Date()}).where('account_id','=',accountId).execute();return profile;
   }
 
+  async refreshSession(accountId: string) {
+    const manager = this.require('refreshAccountSession');
+    const account = await this.#accounts.findById(accountId);
+    if (!account) throw new ServiceError(404, '账号不存在');
+    const delivery = await manager.refreshAccountSession!(await this.accountRef(accountId));
+    if (delivery.email.trim().toLowerCase() !== account.normalized_email
+      || delivery.session.user.email.trim().toLowerCase() !== account.normalized_email) {
+      throw new ServiceError(409, 'GAM 刷新结果与本地账号邮箱不一致');
+    }
+    const personal = await this.db.selectFrom('personal_spaces').select('id')
+      .where('account_id', '=', accountId).executeTakeFirstOrThrow();
+    await this.sessions.replaceCurrent({
+      accountId,
+      personalSpaceId: personal.id,
+      session: delivery.session,
+      source: 'gam_profile_refresh'
+    });
+    await this.#activity.log({
+      accountId,
+      kind: 'session_refreshed_from_gam_profile',
+      payload: { email: account.email }
+    });
+    return { updated: true, email: account.email };
+  }
+
   async setProxy(accountId: string, input: ResidentialProxyConfig) {
     validateProxy(input);
     const manager = this.require('configureAccountProxy');

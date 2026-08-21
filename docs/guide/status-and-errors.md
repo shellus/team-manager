@@ -2,7 +2,7 @@
 
 ## 账号
 
-- 无 Session：使用账号列表或详情的“编辑”弹窗粘贴 Session JSON；GAM 不保存可供回读的账号 Session。
+- 无 Session 或 Session 失效：可以使用账号编辑弹窗粘贴 Session JSON；已绑定 GAM 的账号也可显式通过受管 Profile 刷新，GAM 必要时从 GongXi-Mail 取得验证码并一次性交付，仍不保存账号 Session 副本。
 - GAM 未关联：注册、Profile、代理和浏览器 Checkout 会返回 409；通过 GAM 纳管或注册流程建立自动关联，界面不手工填写 GAM 引用。纯 HTTP 绑卡只在账号缺少可用代理时依赖 GAM 提供代理事实。
 - Profile/代理不可用：检查 GAM 健康、账号引用和运行环境 Token。
 - Session 邮箱不一致：系统拒绝导入，不能覆盖账号身份。

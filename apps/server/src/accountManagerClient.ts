@@ -49,6 +49,7 @@ export interface AccountManagerGateway {
   accountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   startAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   stopAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
+  refreshAccountSession?(accountId: string): Promise<RegistrationSessionDelivery>;
   accountProxyConfig?(accountId: string): Promise<ResidentialProxyConfig>;
   accountHttpProxy?(accountId: string): Promise<{ proxy: string }>;
   configureAccountProxy?(accountId: string, input: ResidentialProxyConfig): Promise<ResidentialProxyConfig>;
@@ -134,6 +135,10 @@ export class AccountManagerClient implements AccountManagerGateway {
 
   stopAccountProfile(accountId: string): Promise<AccountManagerProfileView> {
     return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/profile/stop`, {});
+  }
+
+  refreshAccountSession(accountId: string): Promise<RegistrationSessionDelivery> {
+    return this.request('POST', `/v1/accounts/${encodeURIComponent(accountId)}/session/refresh`, {});
   }
 
   accountProxyConfig(accountId: string): Promise<ResidentialProxyConfig> {

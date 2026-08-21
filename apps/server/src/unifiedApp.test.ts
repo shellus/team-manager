@@ -100,6 +100,23 @@ test('GAM 注册 Session 使用操作级交付并在本地保存后确认清除'
   ]);
 });
 
+test('GAM 账号 Profile 刷新 Session 使用受管账号接口', async () => {
+  const requests: Array<[string, string]> = [];
+  const client = new AccountManagerClient('http://gam.test', 'token', async (input, init) => {
+    requests.push([String(init?.method), new URL(String(input)).pathname]);
+    return new Response(JSON.stringify({ ok: true, data: {
+      email: 'account@example.com',
+      session: {
+        user: { email: 'account@example.com' }, account: { id: 'personal' },
+        accessToken: 'access', sessionToken: 'session'
+      }
+    } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  });
+  const delivery = await client.refreshAccountSession('account@example.com');
+  assert.equal(delivery.session.sessionToken, 'session');
+  assert.deepEqual(requests, [['POST', '/v1/accounts/account%40example.com/session/refresh']]);
+});
+
 test('解析 Codex 五小时与七天额度窗口', () => {
   const quota = quotaFromPayload({ plan_type: 'team', rate_limit: {
     primary_window: { limit_window_seconds: 18000, used_percent: 25, resets_at: 2_000_000_000 },
