@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 describe('账号状态与访问上下文健康', () => {
   it('账号列表不把 Access Token 异常显示为登录无效', () => {
     const source = readFileSync(new URL('./AccountsPage.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('访问凭证异常');
+    expect(source).not.toContain('访问凭证异常');
+    expect(source).not.toContain('accessContextHealth');
     expect(source).not.toContain('登录无效');
   });
 

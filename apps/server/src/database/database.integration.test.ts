@@ -656,7 +656,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'displayName'), false, '账号摘要不保留无业务用途的显示名');
       assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
-      assert.equal(typeof primaryPlanAccounts[0].accessContextHealth.status, 'string');
+      assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'accessContextHealth'), false,
+        '账号摘要不把 Access Token 健康作为账号状态');
       const fixedSeatResponse = await app.request('/api/accounts?primaryPlan=business_fixed_seat', { headers });
       const fixedSeatAccounts = (await fixedSeatResponse.json() as any).data;
       assert.deepEqual(fixedSeatAccounts.find((item: any) => item.id === fixedSeatOwner.account.id)?.primaryPlanSeatUsage, { occupied: 3, capacity: 4 });

@@ -39,20 +39,12 @@ export class UnifiedProjectionRepository {
     const ids = rows.map((row) => row.id);
     const extras = ids.length === 0 ? [] : (await sql<{
       id: string; group_id: string; gam_ref: string | null; has_member: boolean; has_credential: boolean; has_running_profile: boolean;
-      access_status: string; access_checked_at: Date | null;
-      access_expires_at: Date | null; invalid_context_count: number;
     }>`select a.id, a.group_id, gb.external_account_ref gam_ref,
           exists(select 1 from workspace_memberships wm where wm.account_id=a.id and wm.status='active' and wm.normalized_role not in ('owner','admin')) has_member,
           exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential,
-          exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile,
-          case when count(ac.id)=0 then 'missing'
-            when count(ac.id) filter(where ac.status='invalid' or (ac.expires_at is not null and ac.expires_at<=now()))>0 then 'invalid'
-            when count(ac.id) filter(where ac.status='valid')=count(ac.id) then 'valid' else 'unknown' end access_status,
-          max(ac.checked_at) access_checked_at,min(ac.expires_at) filter(where ac.expires_at is not null) access_expires_at,
-          count(ac.id) filter(where ac.status='invalid' or (ac.expires_at is not null and ac.expires_at<=now()))::int invalid_context_count
+          exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile
         from accounts a left join gam_bindings gb on gb.account_id=a.id
         join account_operational_profiles op on op.account_id=a.id
-        left join account_access_contexts ac on ac.account_id=a.id
         where a.id = any(${ids}::uuid[]) group by a.id,gb.external_account_ref`.execute(this.db)).rows;
     const operations = ids.length === 0 ? [] : (await sql<any>`
       select distinct on (ao.account_id) ao.* from automation_operations ao
@@ -86,12 +78,6 @@ export class UnifiedProjectionRepository {
         ...(row.lifecycle_at ? { primaryPlanLifecycle: {
           kind: lifecycleKind(row.lifecycle_at, row.lifecycle_will_renew), at: iso(row.lifecycle_at)
         } } : {}),
-        accessContextHealth: {
-          status: normalizeAccessContextHealth(extra?.access_status),
-          ...(extra?.access_checked_at ? { checkedAt: iso(extra.access_checked_at) } : {}),
-          ...(extra?.access_expires_at ? { expiresAt: iso(extra.access_expires_at) } : {}),
-          invalidContextCount: Number(extra?.invalid_context_count ?? 0)
-        },
         ...(operationByAccount.get(row.id) ? { latestOperation: operationByAccount.get(row.id) } : {}),
         limitType: normalizeLimitType(row.limit_type),
         workspaceCount: row.workspace_count,

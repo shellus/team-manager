@@ -14,13 +14,6 @@ export interface AccountPlanLifecycleView {
   at: string;
 }
 
-export interface AccessContextHealthSummaryView {
-  status: AccessContextHealthStatus;
-  checkedAt?: string;
-  expiresAt?: string;
-  invalidContextCount: number;
-}
-
 export interface AccountAccessContextHealthView {
   kind: 'personal' | 'workspace';
   workspaceName?: string;
@@ -53,7 +46,6 @@ export interface UnifiedAccountSummaryView {
   primaryPlan: PrimaryPlan;
   primaryPlanSeatUsage?: { occupied: number; capacity?: number };
   primaryPlanLifecycle?: AccountPlanLifecycleView;
-  accessContextHealth: AccessContextHealthSummaryView;
   latestOperation?: AccountManagerOperationView;
   limitType: AccountLimitType;
   workspaceCount: number;

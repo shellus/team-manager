@@ -320,7 +320,7 @@ function Overview({
           label: "Profile",
           children: manager?.profile?.status ?? "未知",
         },
-        { key: "health", label: "访问凭证健康", children: account.accessContextHealth.status === "invalid" ? <Tag color="warning">存在异常</Tag> : account.accessContextHealth.status === "valid" ? <Tag color="success">有效</Tag> : "未验证" },
+        { key: "health", label: "访问凭证健康", children: invalidContexts.length > 0 ? <Tag color="warning">存在异常</Tag> : account.accessContexts.length > 0 && account.accessContexts.every((item) => item.status === "valid") ? <Tag color="success">有效</Tag> : "未验证" },
         { key: "remote-user-id", label: "ChatGPT User ID", children: account.remoteUserId ? <Typography.Text copyable>{account.remoteUserId}</Typography.Text> : "—" },
         { key: "remote-account-id", label: "Personal Account ID", children: account.personalSpace.remoteAccountId ? <Typography.Text copyable>{account.personalSpace.remoteAccountId}</Typography.Text> : "—" },
         { key: "limit", label: "限额类型", children: account.limitType },
