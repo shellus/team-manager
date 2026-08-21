@@ -42,6 +42,11 @@ export function accountRemarkLabel(remark?: string): string {
   return remark?.trim() || "";
 }
 
+export function accountDetailDescription(groupName: string, remark?: string): string {
+  const normalizedRemark = accountRemarkLabel(remark);
+  return `账号 · ${groupName}${normalizedRemark ? ` · 备注：${normalizedRemark}` : ""}`;
+}
+
 export function seatUsageColor(occupied: number, capacity?: number): "blue" | "gold" | "green" | "red" {
   if (capacity === undefined) return "blue";
   if (occupied < capacity) return "gold";

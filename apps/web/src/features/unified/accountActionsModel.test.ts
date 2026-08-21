@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   accountRemarkLabel,
+  accountDetailDescription,
   parseSessionEditorInput,
   primaryPlanLabel,
   seatUsageColor,
@@ -47,6 +48,12 @@ describe("account action UI model", () => {
     expect(accountRemarkLabel("Team1")).toBe("Team1");
     expect(accountRemarkLabel("  ")).toBe("");
     expect(accountRemarkLabel(undefined)).toBe("");
+  });
+
+  test("adds the account remark to the detail header description", () => {
+    expect(accountDetailDescription("默认分组", "母号备注")).toBe("账号 · 默认分组 · 备注：母号备注");
+    expect(accountDetailDescription("默认分组", "  ")).toBe("账号 · 默认分组");
+    expect(accountDetailDescription("默认分组")).toBe("账号 · 默认分组");
   });
 
   test("colors fixed-seat usage by capacity", () => {

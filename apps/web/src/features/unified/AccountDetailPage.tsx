@@ -40,6 +40,7 @@ import {
   lifecycleLabel,
   operationStatusLabel,
   primaryPlanLabel,
+  accountDetailDescription,
 } from "./accountActionsModel.js";
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
@@ -159,7 +160,7 @@ export function AccountDetailPage() {
           <Card>
             <PageHeader
               title={account.email}
-              description={`账号 · ${account.group.name}`}
+              description={accountDetailDescription(account.group.name, account.remark)}
               actions={
                 <>
                   <AccountActionButtons
