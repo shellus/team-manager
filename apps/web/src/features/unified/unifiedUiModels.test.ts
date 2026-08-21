@@ -50,10 +50,9 @@ describe("workspace settings mapping", () => {
     ).toBeUndefined();
   });
 
-  test("invites default to a ChatGPT seat with the analytics viewer role", () => {
+  test("invites leave the seat unspecified for the upstream service", () => {
     expect(INVITE_MEMBER_INITIAL_VALUES).toEqual({
       role: "analytics-viewer",
-      seat: "default",
       expireRemove: false,
     });
   });

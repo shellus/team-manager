@@ -284,7 +284,7 @@ export class UnifiedProjectionRepository {
         ...(row.remote_user_id ? { remoteUserId: row.remote_user_id } : {}), ...(row.contact ? { contact: row.contact } : {}),
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
         ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
-        expireRemove: row.expire_remove, seatType: row.seat_type as 'default' | 'usage_based', status: row.status
+        expireRemove: row.expire_remove, ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status
       })),
       ...(settings ? { latestSettings: { payload: settings.payload, observedAt: iso(settings.observed_at) } } : {}),
       ...(billing ? { latestBilling: { payload: billing.payload, observedAt: iso(billing.observed_at) } } : {}),

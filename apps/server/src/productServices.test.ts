@@ -64,6 +64,24 @@ test('个人账单和支付方式可独立请求并合并为完整快照', async
   });
 });
 
+test('Workspace 邀请未选择席位时省略 seat_type', async () => {
+  const requests:any[]=[];const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:'{}'};}};
+  const api=new ChatGptApi({accountId:'workspace-account',accessToken:'token'},transport);
+  await api.invite('member@example.com',undefined,'standard-user');
+  assert.deepEqual(JSON.parse(requests[0].body),{
+    email_addresses:['member@example.com'],role:'standard-user',resend_emails:true
+  });
+});
+
+test('Workspace 成员和邀请响应缺少席位时保持未知', async () => {
+  const transport={fetch:async(request:any)=>({status:200,body:request.path.includes('/invites?')
+    ? JSON.stringify({items:[{id:'invite-1',email_address:'invite@example.com',role:'standard-user',status:0,created_time:'2026-08-21T00:00:00Z',is_scim_managed:false}]})
+    : JSON.stringify({items:[{id:'member-1',email:'member@example.com',role:'standard-user'}]})})};
+  const api=new ChatGptApi({accountId:'workspace-account',accessToken:'token'},transport);
+  assert.equal(Object.hasOwn((await api.listMembers())[0]!,'seat'),false);
+  assert.equal(Object.hasOwn((await api.listPendingInvites())[0]!,'seat'),false);
+});
+
 test('Workspace 优惠码接口复用 Workspace 访问上下文并保留上游请求结构', async () => {
   const requests:any[]=[];const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:request.path.includes('/eligibility/')?'{"is_eligible":true,"ineligible_reason":null}':request.path.includes('/metadata/')?'{"metadata":{"plan_name":"chatgptteamplan"},"is_eligible":true,"ineligible_reason":null}':'{}'};}};
   const api=new ChatGptApi({accountId:'workspace-account',accessToken:'token'},transport);

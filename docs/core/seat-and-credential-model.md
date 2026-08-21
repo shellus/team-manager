@@ -76,6 +76,8 @@ Access Token 请求返回 401 时，存在可用 Session Token 的流程应先�
 | `default` | 固定 ChatGPT 席位，可能产生固定/按比例席位费用 |
 | `usage_based` | Codex/usage-based 席位，不占固定 ChatGPT 位置 |
 
+席位类型是可缺失的上游事实，不设本地默认值。创建邀请时未显式选择席位，发往上游的请求必须省略席位字段，由上游决定；成员、邀请、Workspace 设置或客户资料的上游响应未返回席位类型时，本地保持未知，界面不显示 ChatGPT 或 Codex 类型。只有明确收到或由管理员明确提交 `default`、`usage_based` 时才记录对应类型。
+
 `SeatSlot` 是 Workspace 下必须关联当前邮箱的本地客户资源。换号、邀请转成员或席位类型变化不改变客户备注、价格、到期日、公开 `seatKey` 和历史；移除成员、撤销邀请或删除失效关系时，本地客户资料和公开 `seatKey` 一并删除。Workspace 空位始终由容量与远端关系实时派生，不保存无邮箱的 `SeatSlot`。
 
 当前成员数不等于计费席位数。移除标准 ChatGPT 成员后仍可能临时计费，因此公开换号不得自动移除已接受的 `default` 成员；管理员操作后必须核对 Billing。

@@ -404,10 +404,12 @@ export class WorkspaceOperationService {
     return row ? { payload: row.payload, observedAt: new Date(row.observed_at as any).toISOString() } : undefined;
   }
 
-  async invite(workspaceId: string, executorAccountId: string, input: { email: string; seat: SeatType; role?: string }) {
+  async invite(workspaceId: string, executorAccountId: string, input: { email: string; seat?: SeatType; role?: string }) {
     const { api } = await this.context(workspaceId, executorAccountId);
     await api.invite(input.email, input.seat, input.role || 'standard-user');
-    await this.activity(executorAccountId,workspaceId,'workspace_invitation_created',{email:normalizeEmail(input.email),seat:input.seat,role:input.role||'standard-user'});
+    await this.activity(executorAccountId,workspaceId,'workspace_invitation_created',{
+      email: normalizeEmail(input.email), ...(input.seat ? { seat: input.seat } : {}), role: input.role || 'standard-user'
+    });
     return this.refreshInvitations(workspaceId, executorAccountId);
   }
 

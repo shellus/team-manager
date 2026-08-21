@@ -12,7 +12,7 @@ export interface SaveSeatSlotInput {
   price?: string | null;
   expiresOn?: string | null;
   expireRemove?: boolean;
-  seatType: 'default' | 'usage_based';
+  seatType?: 'default' | 'usage_based' | null;
   status: 'empty' | 'invited' | 'member' | 'unknown' | 'disabled';
 }
 
@@ -31,7 +31,7 @@ export class SeatSlotRepository {
       price: input.price?.trim() || null,
       expires_on: input.expiresOn ?? null,
       expire_remove: input.expireRemove ?? false,
-      seat_type: input.seatType,
+      seat_type: input.seatType ?? null,
       status: input.status
     }).onConflict((oc) => oc.column('seat_key').doUpdateSet({
       workspace_id: input.workspaceId,
@@ -43,7 +43,7 @@ export class SeatSlotRepository {
       price: input.price?.trim() || null,
       expires_on: input.expiresOn ?? null,
       expire_remove: input.expireRemove ?? false,
-      seat_type: input.seatType,
+      seat_type: input.seatType ?? null,
       status: input.status
     })).returningAll().executeTakeFirstOrThrow();
   }

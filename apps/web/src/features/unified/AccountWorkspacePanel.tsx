@@ -382,8 +382,8 @@ function PeoplePanel({
             ? <Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" />
             : row.role ? <Tag>{roleLabel(row.role)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
           { title: "席位", width: 140, render: (_, row) => canManage && canEditSeat(row)
-            ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
-            : <Tag>{seatLabel(row.seatType)}</Tag> },
+            ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} placeholder="—" options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
+            : row.seatType ? <Tag>{seatLabel(row.seatType)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
           { title: "租客信息", width: 280, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
           {
             title: "操作",
@@ -420,7 +420,7 @@ function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, on
   onSubmit: (value: SeatSlotInput) => Promise<boolean>;
 }) {
   const email = initial?.email ?? person?.email ?? person?.accountEmail;
-  const seatType = initial?.seatType ?? person?.seatType ?? "usage_based";
+  const seatType = initial?.seatType ?? person?.seatType;
   return <ProductModal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose}>
     <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues) => { if (await onSubmit({ ...tenantDataInput(value), email, seatType })) onClose(); }} disabled={busy}>
       <Descriptions size="small" bordered column={1} items={[{ key: "email", label: "关联邮箱", children: email ?? "—" }]} />
@@ -448,7 +448,7 @@ function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boole
       <Form.Item name="email" label="账号邮箱" rules={[{required:true,type:"email",message:"请输入有效邮箱"}]}><Input /></Form.Item>
       <div className="responsive-form-grid">
         <Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions("standard-user")} /></Form.Item>
-        <Form.Item name="seat" label="席位"><Select options={SEAT_OPTIONS} /></Form.Item>
+        <Form.Item name="seat" label="席位" extra="留空时不提交席位类型，由服务端决定。"><Select allowClear placeholder="由服务端决定" options={SEAT_OPTIONS} /></Form.Item>
       </div>
       <Typography.Title level={5}>租客信息</Typography.Title>
       <TenantDataFields />
@@ -637,7 +637,7 @@ function WorkspaceSettings({ workspace, accountId, canManage, busy, run, mutateW
     <Form layout="vertical" disabled={controlsDisabled}>
       <div className="responsive-form-grid">
         <Form.Item label="默认席位">
-          <Select value={initialValues.defaultSeat} placeholder="未知（快照未提供）" options={SEAT_OPTIONS} loading={busy === "workspace-setting-defaultSeat"} onChange={(value: SeatType) => saveSetting({ key: "defaultSeat", value })} />
+          <Select value={initialValues.defaultSeat} placeholder="上游未返回" options={SEAT_OPTIONS} loading={busy === "workspace-setting-defaultSeat"} onChange={(value: SeatType) => saveSetting({ key: "defaultSeat", value })} />
         </Form.Item>
         {booleanSettings.map(([key, label]) => <Form.Item key={key} label={label}>
           <Select value={initialValues[key]} placeholder="未知（快照未提供）" options={SNAPSHOT_BOOLEAN_OPTIONS} loading={busy === `workspace-setting-${key}`} onChange={(value: boolean) => saveSetting({ key, value })} />

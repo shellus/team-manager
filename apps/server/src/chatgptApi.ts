@@ -344,7 +344,7 @@ export class ChatGptApi {
           email: u.email,
           remoteName: u.name,
           role: u.role,
-          seat: (u.seat_type as SeatType) ?? 'default',
+          ...optionalSeat(u.seat_type),
           status: u.status
         });
       }
@@ -353,12 +353,12 @@ export class ChatGptApi {
     return all;
   }
   /** 邀请新成员 */
-  async invite(email: string, seat: SeatType, role: MemberRole = 'standard-user'): Promise<unknown> {
+  async invite(email: string, seat?: SeatType, role: MemberRole = 'standard-user'): Promise<unknown> {
     const path = `/backend-api/accounts/${this.account.accountId}/invites`;
     return this.request('POST', path, {
       email_addresses: [email],
       role,
-      seat_type: seat,
+      ...(seat ? { seat_type: seat } : {}),
       resend_emails: true
     });
   }
@@ -385,7 +385,7 @@ export class ChatGptApi {
           email: invite.email_address,
           role: invite.role,
           status: invite.status,
-          seat: invite.seat_type as SeatType,
+          ...optionalSeat(invite.seat_type),
           createdTime: invite.created_time,
           isScimManaged: invite.is_scim_managed
         });
@@ -582,9 +582,13 @@ interface RawPendingInvite {
   email_address: string;
   role: MemberRole;
   status: number;
-  seat_type: string;
+  seat_type?: string;
   created_time: string;
   is_scim_managed: boolean;
+}
+
+function optionalSeat(value: unknown): { seat: SeatType } | Record<string, never> {
+  return value === 'default' || value === 'usage_based' ? { seat: value } : {};
 }
 
 export interface ChatGptMemberRemovalResponse {

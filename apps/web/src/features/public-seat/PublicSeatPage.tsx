@@ -74,7 +74,7 @@ export function PublicSeatPage() {
     try {
       await actionBusy.run('public-seat-swap', async () => {
         setSlot({
-          ...(slot ?? { seatKey, expiresOn: '', seat: 'usage_based' as const, status: 'unknown' as const }),
+          ...(slot ?? { seatKey, expiresOn: '', status: 'unknown' as const }),
           swap: {
             id: 'local-submitting',
             status: 'running',

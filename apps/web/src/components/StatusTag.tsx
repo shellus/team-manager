@@ -47,7 +47,7 @@ export function BannedStatusTag({
 }
 
 export function SeatTag({ seat }: { seat?: SeatType }) {
-  if (!seat) return <Tag>未设置</Tag>;
+  if (!seat) return null;
   return <Tag color={seat === 'default' ? 'blue' : 'purple'}>{seatLabel(seat)}</Tag>;
 }
 

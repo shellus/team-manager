@@ -32,7 +32,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -173,6 +173,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         id: string; brand: string; last4: string; isDefault: boolean;
       }>>();
       const workspaceMutationRequests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+      const workspaceInvites: Array<Record<string, unknown>> = [];
       const completedOperations = new Set<string>();
       const acknowledgedRegistrationDeliveries: string[] = [];
 
@@ -231,6 +232,18 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             });
             if (request.path === `/backend-api/accounts/${workspace.external_id}/settings/default_seat_type`) return { status: 200, body: '{}' };
             if (request.path === `/backend-api/accounts/${workspace.external_id}/users/member-remote`) return { status: 200, body: '{}' };
+            if (request.path === `/backend-api/accounts/${workspace.external_id}/invites` && request.method === 'POST') {
+              const body = JSON.parse(request.body ?? '{}') as { email_addresses?: string[]; role?: string; seat_type?: string };
+              workspaceInvites.push({
+                id: `invite-${workspaceInvites.length + 1}`, email_address: body.email_addresses?.[0],
+                role: body.role ?? 'standard-user', status: 0, ...(body.seat_type ? { seat_type: body.seat_type } : {}),
+                created_time: '2026-08-21T00:00:00Z', is_scim_managed: false
+              });
+              return { status: 200, body: '{}' };
+            }
+            if (request.path.startsWith(`/backend-api/accounts/${workspace.external_id}/invites?`)) {
+              return { status: 200, body: JSON.stringify({ items: workspaceInvites }) };
+            }
             if (request.path === '/backend-api/subscriptions/cancel') {
               renewalByAccount.set(request.headers['chatgpt-account-id'], false);
               return { status: 200, body: '{}' };
@@ -723,6 +736,14 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await invitedAccount.json() as any).data.workspaces[0].membershipStatus, 'pending');
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'workspace-mutation-token',{status:'valid'});
       let requestOffset=workspaceMutationRequests.length;
+      const unspecifiedSeatInvite=await app.request(`/api/workspaces/${workspace.id}/invitations`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id,email:'upstream-decides-seat@example.com',role:'standard-user',contact:'unknown-seat-contact'})});
+      assert.equal(unspecifiedSeatInvite.status,200,await unspecifiedSeatInvite.clone().text());
+      assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{
+        method:'POST',path:`/backend-api/accounts/${workspace.external_id}/invites`,body:{email_addresses:['upstream-decides-seat@example.com'],role:'standard-user',resend_emails:true}
+      }],'未选择邀请席位时不向上游提交 seat_type');
+      assert.equal((await db.selectFrom('workspace_invitations').select('seat_type').where('workspace_id','=',workspace.id).where('normalized_email','=','upstream-decides-seat@example.com').executeTakeFirstOrThrow()).seat_type,null,'上游未返回席位时邀请保持未知');
+      assert.equal((await db.selectFrom('seat_slots').select('seat_type').where('workspace_id','=',workspace.id).where('normalized_current_email','=','upstream-decides-seat@example.com').executeTakeFirstOrThrow()).seat_type,null,'带租客资料的未知席位不补本地默认值');
+      requestOffset=workspaceMutationRequests.length;
       const settingMutation=await app.request(`/api/workspaces/${workspace.id}/settings`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,key:'defaultSeat',value:'default'})});
       assert.equal(settingMutation.status,200,await settingMutation.clone().text());
       assert.equal((await settingMutation.json() as any).data.latestSettings.payload.default_seat_type,'default');

@@ -42,7 +42,7 @@ export interface Member {
   email: string;
   remoteName?: string;
   role: MemberRole;
-  seat: SeatType;
+  seat?: SeatType;
   status?: string;
 }
 
@@ -51,7 +51,7 @@ export interface PendingInvite {
   email: string;
   role: MemberRole;
   status: number;
-  seat: SeatType;
+  seat?: SeatType;
   createdTime: string;
   isScimManaged: boolean;
 }
@@ -101,7 +101,7 @@ export interface PublicSeatSlotView {
   remark?: string;
   expiresOn: string;
   price?: string;
-  seat: SeatType;
+  seat?: SeatType;
   status: AccountSeatSlotStatus;
   swap?: SeatSlotSwapState;
   swapHistory?: SeatSlotSwapState[];

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import type { PublicSeatSlotView, SeatType } from '@team-manager/shared';
+import type { PublicSeatSlotView } from '@team-manager/shared';
 import type { Database, SeatSlotRow } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
@@ -42,7 +42,7 @@ export class PublicSeatService {
         await this.operations.removeMember(row.workspace_id, executor.account_id, row.remote_user_id);
       }
       await this.operations.invite(row.workspace_id, executor.account_id, {
-        email, seat: row.seat_type as SeatType
+        email, ...(row.seat_type === 'default' || row.seat_type === 'usage_based' ? { seat: row.seat_type } : {})
       });
       await this.db.transaction().execute(async (trx) => {
         await trx.insertInto('seat_slot_identity_history').values({
@@ -96,7 +96,7 @@ function seatView(row: SeatSlotRow): PublicSeatSlotView {
     ...(row.remark ? { remark: row.remark } : {}),
     expiresOn: row.expires_on ?? '',
     ...(row.price ? { price: row.price } : {}),
-    seat: row.seat_type as SeatType,
+    ...(row.seat_type === 'default' || row.seat_type === 'usage_based' ? { seat: row.seat_type } : {}),
     status: publicStatus(row.status)
   };
 }

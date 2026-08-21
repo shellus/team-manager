@@ -39,7 +39,7 @@ export class SeatSlotService {
       price: input.price, expiresOn: input.expiresOn, expireRemove: input.expireRemove
     };
     if (existing) await this.update(workspaceId, existing.id, executorAccountId,
-      hasCustomerData ? customerInput : { email: input.email, seatType: input.seat });
+      hasCustomerData ? customerInput : { email: input.email, ...(input.seat ? { seatType: input.seat } : {}) });
     else if (hasCustomerData) await this.create(workspaceId, executorAccountId, customerInput);
   }
 
@@ -52,14 +52,14 @@ export class SeatSlotService {
     if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
     const relation=await this.relation(workspaceId,email);
     const seatType=relation.seatType??input.seatType;
-    if (!['default', 'usage_based'].includes(seatType ?? '')) throw new ServiceError(400, '缺少有效席位类型');
+    if (seatType !== undefined && !['default', 'usage_based'].includes(seatType)) throw new ServiceError(400, '无效席位类型');
     const duplicate = await this.db.selectFrom('seat_slots').select('id').where('workspace_id', '=', workspaceId)
       .where('normalized_current_email', '=', normalizeEmail(email)).executeTakeFirst();
     if (duplicate) throw new ServiceError(409, '该成员或邀请已有客户资料');
     const row = await this.#repository.save({ workspaceId, seatKey, email, remoteUserId: relation.remoteUserId,
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
       expireRemove: input.expireRemove,
-      seatType: seatType!, status: relation.status });
+      seatType, status: relation.status });
     await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,seatType:row.seat_type}); return row;
   }
 

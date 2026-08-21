@@ -51,7 +51,6 @@ export function workspaceSettingsFormValues(
 
 export const INVITE_MEMBER_INITIAL_VALUES = {
   role: "analytics-viewer",
-  seat: "default",
   expireRemove: false,
 } satisfies Partial<WorkspaceInvitationMutationInput>;
 

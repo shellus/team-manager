@@ -277,7 +277,7 @@ export interface SeatSlotMutationInput {
 
 export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationInput, 'contact' | 'remark' | 'price' | 'expiresOn' | 'expireRemove'> {
   email: string;
-  seat: SeatType;
+  seat?: SeatType;
   role?: string;
 }
 
@@ -689,7 +689,7 @@ export interface SeatSlotView {
   price?: string;
   expiresOn?: string;
   expireRemove: boolean;
-  seatType: SeatType;
+  seatType?: SeatType;
   status: string;
 }
 
