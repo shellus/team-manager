@@ -31,7 +31,6 @@ import { ServiceError, asServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
-import { ArtifactStore } from '../artifactStore.js';
 import { normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
 import type { AccountManagerService } from './accountManagerService.js';
 
@@ -45,7 +44,6 @@ export class WorkspaceOperationService {
     private readonly sessions: SessionRepository,
     private readonly operational: AccountOperationalRepository,
     private readonly transport: Transport,
-    private readonly artifacts: ArtifactStore,
     private readonly accountManagement?: AccountManagerService
   ) {
     this.#workspaces = new WorkspaceRepository(db);
@@ -191,50 +189,41 @@ export class WorkspaceOperationService {
     return rows.length;
   }
 
-  async removeLocalWorkspace(workspaceId: string) {
+  async removeAccountWorkspaceExitRecord(accountId: string, workspaceId: string) {
     try {
-      const credentialArtifacts = await this.db.transaction().execute(async (trx) => {
+      return await this.db.transaction().execute(async (trx) => {
+        const account = await trx.selectFrom('accounts').select(['id', 'email'])
+          .where('id', '=', accountId).executeTakeFirst();
+        if (!account) throw new ServiceError(404, '账号不存在');
         const workspace = await trx.selectFrom('workspaces').select(['id', 'external_id', 'name'])
           .where('id', '=', workspaceId).forUpdate().executeTakeFirst();
         if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
 
-        const activeAccountRelationship = await trx.selectFrom('workspace_memberships')
-          .select('id').where('workspace_id', '=', workspaceId).where('account_id', 'is not', null)
-          .where('status', '=', 'active').limit(1).executeTakeFirst();
-        if (activeAccountRelationship) throw new ServiceError(409, 'Workspace 仍有活动账号关系，不能删除本地数据');
+        const activeRelationship = await trx.selectFrom('workspace_memberships').select('id')
+          .where('workspace_id', '=', workspaceId).where('account_id', '=', accountId)
+          .where('status', '=', 'active').executeTakeFirst();
+        if (activeRelationship) throw new ServiceError(409, '账号仍有活动 Workspace 关系，不能删除退出记录');
 
-        const unfinishedOperation = await trx.selectFrom('automation_operations').select('id')
-          .where('workspace_id', '=', workspaceId)
-          .where('status', 'not in', ['succeeded', 'failed', 'interrupted'])
-          .limit(1).executeTakeFirst();
-        if (unfinishedOperation) throw new ServiceError(409, 'Workspace 仍有未完成操作，请等待操作结束或先中断操作');
+        const removedRelationships = await trx.selectFrom('workspace_memberships').select('id')
+          .where('workspace_id', '=', workspaceId).where('account_id', '=', accountId)
+          .where('status', '=', 'removed').execute();
+        if (removedRelationships.length === 0) throw new ServiceError(404, '已退出 Workspace 记录不存在');
 
-        const pendingOrder = await trx.selectFrom('team_upgrade_orders').select('id')
-          .where('workspace_id', '=', workspaceId).where('status', 'in', ['queued', 'running'])
-          .limit(1).executeTakeFirst();
-        if (pendingOrder) throw new ServiceError(409, 'Workspace 仍有待执行或运行中的 Team 订单');
-
-        const credentials = await trx.selectFrom('workspace_credentials')
-          .select(['storage_key']).where('workspace_id', '=', workspaceId).execute();
-        await trx.deleteFrom('automation_operations').where('workspace_id', '=', workspaceId).execute();
-        await trx.deleteFrom('team_upgrade_orders').where('workspace_id', '=', workspaceId).execute();
-        await trx.deleteFrom('workspace_credentials').where('workspace_id', '=', workspaceId).execute();
-        await trx.deleteFrom('seat_slots').where('workspace_id', '=', workspaceId).execute();
-        await trx.deleteFrom('account_activity_logs').where('workspace_id', '=', workspaceId).execute();
+        await trx.deleteFrom('workspace_memberships')
+          .where('id', 'in', removedRelationships.map((item) => item.id)).execute();
         await new ActivityLogRepository(trx).log({
-          kind: 'local_workspace_removed',
-          payload: { workspaceId, externalId: workspace.external_id, name: workspace.name }
+          accountId,
+          workspaceId,
+          kind: 'account_workspace_exit_record_removed',
+          payload: {
+            email: account.email,
+            externalId: workspace.external_id,
+            name: workspace.name,
+            deletedMembershipCount: removedRelationships.length
+          }
         });
-        await trx.deleteFrom('workspaces').where('id', '=', workspaceId).executeTakeFirstOrThrow();
-        return credentials.map((item) => item.storage_key);
+        return { deleted: true as const, deletedMembershipCount: removedRelationships.length };
       });
-
-      const cleanup = await Promise.allSettled(credentialArtifacts.map((storageKey) => this.artifacts.remove(storageKey)));
-      return {
-        deleted: true,
-        removedCredentialArtifactCount: cleanup.filter((item) => item.status === 'fulfilled').length,
-        credentialArtifactCleanupFailures: cleanup.filter((item) => item.status === 'rejected').length
-      };
     } catch (error) {
       throw asServiceError(error);
     }

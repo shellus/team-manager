@@ -560,7 +560,6 @@ export interface AccountWorkspaceLinkView {
 
 export interface RemovedAccountWorkspaceView extends AccountWorkspaceLinkView {
   removedAt: string;
-  canDeleteLocally: boolean;
 }
 
 export interface AccountWorkspaceRelationshipSyncResult {
@@ -570,10 +569,9 @@ export interface AccountWorkspaceRelationshipSyncResult {
   disabledCredentialCount: number;
 }
 
-export interface LocalWorkspaceDeleteResult {
+export interface RemovedAccountWorkspaceRecordDeleteResult {
   deleted: true;
-  removedCredentialArtifactCount: number;
-  credentialArtifactCleanupFailures: number;
+  deletedMembershipCount: number;
 }
 
 export interface WorkspaceCredentialView {

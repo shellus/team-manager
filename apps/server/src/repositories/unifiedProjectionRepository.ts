@@ -156,13 +156,8 @@ export class UnifiedProjectionRepository {
     const removedWorkspaces = await sql<{
       id: string; external_id: string; name: string | null; status: string; normalized_plan: string;
       raw_plan_code: string | null; normalized_role: string; raw_role: string | null; seat_type: string | null;
-      membership_status: string; observed_at: Date; can_delete_locally: boolean;
-    }>`select latest.*,
-          not exists(
-            select 1 from workspace_memberships active
-            where active.workspace_id=latest.id and active.account_id is not null and active.status='active'
-          ) can_delete_locally
-        from (
+      membership_status: string; observed_at: Date;
+    }>`select latest.* from (
           select distinct on (wm.workspace_id)
             w.id,w.external_id,w.name,w.status,w.normalized_plan,w.raw_plan_code,
             wm.normalized_role,wm.raw_role,wm.seat_type,wm.status membership_status,wm.observed_at
@@ -218,8 +213,7 @@ export class UnifiedProjectionRepository {
         ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
         membershipStatus: row.membership_status,
         manageable: false,
-        removedAt: iso(row.observed_at),
-        canDeleteLocally: row.can_delete_locally
+        removedAt: iso(row.observed_at)
       })),
       credentials,
       paymentMethods: paymentMethods.map((row) => ({

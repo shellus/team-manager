@@ -378,6 +378,56 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.deepEqual(workspaceSyncDetailData.workspaces, [], '关系同步后空间切换器不再显示已退出 Workspace');
       assert.deepEqual(workspaceSyncDetailData.removedWorkspaces.map((item: any) => item.id), [workspace.id],
         '已退出 Workspace 保留在本地清理入口中');
+      const deleteActiveWorkspaceRecord = await app.request(
+        `/api/accounts/${first.account.id}/workspaces/${workspace.id}/removed-record`,
+        { method: 'DELETE', headers }
+      );
+      assert.equal(deleteActiveWorkspaceRecord.status, 409,
+        '活动 Workspace 关系不能通过退出记录接口删除');
+      const deleteRemovedWorkspaceRecord = await app.request(
+        `/api/accounts/${workspaceSyncAccount.account.id}/workspaces/${workspace.id}/removed-record`,
+        { method: 'DELETE', headers }
+      );
+      assert.equal(deleteRemovedWorkspaceRecord.status, 200, await deleteRemovedWorkspaceRecord.clone().text());
+      assert.equal((await deleteRemovedWorkspaceRecord.json() as any).data.deletedMembershipCount, 1);
+      assert.equal(await db.selectFrom('workspace_memberships').select('id')
+        .where('workspace_id', '=', workspace.id).where('account_id', '=', workspaceSyncAccount.account.id)
+        .where('status', '=', 'removed').executeTakeFirst(), undefined,
+        '删除已退出记录只移除当前账号的 removed Membership');
+      assert.ok(await db.selectFrom('workspaces').select('id').where('id', '=', workspace.id).executeTakeFirst(),
+        '删除已退出记录保留仍由其他账号使用的 Workspace');
+      assert.equal((await db.selectFrom('workspace_memberships').select('id')
+        .where('workspace_id', '=', workspace.id).where('status', '=', 'active').execute()).length, 2,
+        '删除已退出记录保留其他账号的活动关系');
+      const detailAfterRemovedRecordDelete = await app.request(`/api/accounts/${workspaceSyncAccount.account.id}`, { headers });
+      assert.deepEqual((await detailAfterRemovedRecordDelete.json() as any).data.removedWorkspaces, [],
+        '删除后已退出 Workspace 不再出现在当前账号详情中');
+
+      const soloRemovedAccount = await accounts.create({ email: 'solo-removed-workspace@example.com', groupId: group.id });
+      const soloRemovedWorkspace = await workspaces.upsert({
+        externalId: 'solo-removed-workspace',
+        name: 'Solo removed Workspace',
+        normalizedPlan: 'business'
+      });
+      await workspaces.upsertMembership({
+        workspaceId: soloRemovedWorkspace.id,
+        accountId: soloRemovedAccount.account.id,
+        email: soloRemovedAccount.account.email,
+        normalizedRole: 'member',
+        status: 'removed',
+        observedAt: new Date(),
+        source: 'removed-record-delete-test'
+      });
+      const deleteSoloRemovedRecord = await app.request(
+        `/api/accounts/${soloRemovedAccount.account.id}/workspaces/${soloRemovedWorkspace.id}/removed-record`,
+        { method: 'DELETE', headers }
+      );
+      assert.equal(deleteSoloRemovedRecord.status, 200, await deleteSoloRemovedRecord.clone().text());
+      assert.ok(await db.selectFrom('workspaces').select('id').where('id', '=', soloRemovedWorkspace.id).executeTakeFirst(),
+        '没有其他活动账号时删除退出记录仍保留 Workspace 本体');
+      assert.equal(await db.selectFrom('workspace_memberships').select('id')
+        .where('workspace_id', '=', soloRemovedWorkspace.id).executeTakeFirst(), undefined,
+        '没有其他活动账号时也只删除当前账号的 removed Membership');
 
       const workspaceSyncAddAccount = await accounts.create({ email: 'workspace-sync-add@example.com', groupId: group.id });
       const workspaceSyncAddedWorkspace = await workspaces.upsert({
@@ -571,43 +621,6 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         '活动 owner 删除账号时级联删除其本地 Workspace 及共享成员关系');
       assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', ownerOperation.id).executeTakeFirst(), undefined,
         '级联删除不因未结束操作而阻止用户确认的删除');
-
-      const completedWorkspaceOperation = await db.insertInto('automation_operations').values({
-        account_id: first.account.id,
-        workspace_id: deletableWorkspace.id,
-        target_group_id: null,
-        kind: 'workspace_cleanup_history',
-        idempotency_key: 'delete-completed-workspace-operation',
-        external_operation_id: null,
-        status: 'succeeded',
-        phase: 'completed',
-        progress: 100,
-        safe_request_summary: {},
-        result_summary: {},
-        error_code: null,
-        error_message: null,
-        completed_at: new Date()
-      }).returning('id').executeTakeFirstOrThrow();
-      await db.insertInto('seat_slots').values({
-        workspace_id: deletableWorkspace.id,
-        seat_key: 'delete-workspace-seat',
-        remote_user_id: null,
-        current_email: null,
-        normalized_current_email: null,
-        contact: null,
-        remark: null,
-        price: null,
-        expires_on: null,
-        expire_remove: false,
-        seat_type: 'default',
-        status: 'empty'
-      }).execute();
-      const localWorkspaceDelete = await app.request(`/api/workspaces/${deletableWorkspace.id}`, { method: 'DELETE', headers });
-      assert.equal(localWorkspaceDelete.status, 200, await localWorkspaceDelete.clone().text());
-      assert.equal(await db.selectFrom('workspaces').select('id').where('id', '=', deletableWorkspace.id).executeTakeFirst(), undefined,
-        '本地 Workspace 彻底删除移除 Workspace 本体及其从属数据');
-      assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', completedWorkspaceOperation.id).executeTakeFirst(), undefined,
-        '本地 Workspace 彻底删除一并移除已结束操作历史');
 
       const batchGroup = await accounts.createGroup('Batch target');
       const batchResponse = await app.request('/api/accounts/bulk', {

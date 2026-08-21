@@ -84,7 +84,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const accountManagement = new AccountManagerService(database, sessions, accountManager, operational);
   const personalSpaces = new PersonalSpaceService(database, sessions, operational, transport, accountManagement);
   const workspaceOperations = new WorkspaceOperationService(
-    database, workspaces, sessions, operational, transport, artifactsStore, accountManagement
+    database, workspaces, sessions, operational, transport, accountManagement
   );
   const paymentMethodBinder = providedPaymentMethodBinder ?? new HttpPaymentMethodBinder(
     transport,
@@ -198,6 +198,12 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.get('/accounts/:id', (c) => wrap(c, () => accounts.detail(c.req.param('id'))));
   api.get('/accounts/:accountId/workspaces/:workspaceId', (c) =>
     wrap(c, () => workspaces.detailForAccount(c.req.param('workspaceId'), c.req.param('accountId')))
+  );
+  api.delete('/accounts/:accountId/workspaces/:workspaceId/removed-record', (c) =>
+    wrap(c, () => workspaceOperations.removeAccountWorkspaceExitRecord(
+      c.req.param('accountId'),
+      c.req.param('workspaceId')
+    ))
   );
   api.post('/accounts/:id/workspaces/sync', (c) =>
     wrap(c, () => workspaceOperations.syncAccountRelationships(c.req.param('id')))
@@ -333,7 +339,6 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.delete('/settings/system/:key', (c)=>wrap(c,()=>settings.remove(c.req.param('key'))));
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
-  api.delete('/workspaces/:id', (c) => wrap(c, () => workspaceOperations.removeLocalWorkspace(c.req.param('id'))));
   api.get('/workspaces/:id/settings', (c)=>wrap(c,()=>workspaceOperations.settings(c.req.param('id'))));
   api.get('/workspaces/:id/billing', (c)=>wrap(c,()=>workspaceOperations.billing(c.req.param('id'))));
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));

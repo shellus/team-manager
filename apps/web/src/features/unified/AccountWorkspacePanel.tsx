@@ -166,24 +166,20 @@ export function AccountWorkspacePanel({
     }
   };
 
-  const deleteLocalWorkspace = (item: RemovedAccountWorkspaceView) => {
+  const deleteRemovedWorkspaceRecord = (item: RemovedAccountWorkspaceView) => {
     productModal.confirm({
-      title: "彻底删除本地 Workspace 数据？",
-      content: "将删除 Team Manager 保存的成员历史、邀请、凭证、客户席位、账单与订阅快照、订单和已结束操作历史。不会调用 ChatGPT 删除远端 Workspace。",
-      okText: "删除本地数据",
+      title: "删除这条已退出 Workspace 记录？",
+      content: "只会从当前账号删除这条已退出关系记录，不会删除 Workspace、本地共享数据或其他账号关系，也不会调用 ChatGPT。",
+      okText: "删除退出记录",
       okButtonProps: { danger: true },
       onOk: async () => {
-        const key = `delete-local-workspace-${item.id}`;
+        const key = `delete-removed-workspace-record-${item.id}`;
         setBusy(key);
         setError("");
         try {
-          const result = await unifiedApi.deleteLocalWorkspace(item.id);
+          await unifiedApi.deleteRemovedAccountWorkspaceRecord(account.id, item.id);
           await onAccountChanged();
-          if (result.credentialArtifactCleanupFailures > 0) {
-            productMessage.warning("Workspace 本地记录已删除，部分凭证文件将在制品清理任务中继续处理");
-          } else {
-            productMessage.success("Workspace 本地数据已彻底删除");
-          }
+          productMessage.success("已退出 Workspace 记录已删除");
         } catch (reason) {
           setError((reason as Error).message);
           throw reason;
@@ -259,17 +255,15 @@ export function AccountWorkspacePanel({
           {
             title: "操作",
             width: 190,
-            render: (_, item) => item.canDeleteLocally
-              ? <Button
+            render: (_, item) => <Button
                   size="small"
                   danger
-                  loading={busy === `delete-local-workspace-${item.id}`}
-                  disabled={Boolean(busy) && busy !== `delete-local-workspace-${item.id}`}
-                  onClick={() => deleteLocalWorkspace(item)}
+                  loading={busy === `delete-removed-workspace-record-${item.id}`}
+                  disabled={Boolean(busy) && busy !== `delete-removed-workspace-record-${item.id}`}
+                  onClick={() => deleteRemovedWorkspaceRecord(item)}
                 >
-                  删除本地数据
-                </Button>
-              : <Typography.Text type="secondary">其他账号仍在使用</Typography.Text>,
+                  删除退出记录
+                </Button>,
           },
         ]}
       />

@@ -18,7 +18,7 @@ import type {
   EditableMemberRole,
   NotificationDeliveryView,
   NotificationPolicyView,
-  LocalWorkspaceDeleteResult,
+  RemovedAccountWorkspaceRecordDeleteResult,
   SaveNotificationPolicyRequest,
   OpenBusinessSubscriptionRequest,
   SubscriptionDetailView,
@@ -145,6 +145,8 @@ export const unifiedApi = {
     request<WorkspaceDetailView>('GET', `/accounts/${accountId}/workspaces/${workspaceId}`),
   syncAccountWorkspaces: (accountId: string) =>
     request<AccountWorkspaceRelationshipSyncResult>('POST', `/accounts/${accountId}/workspaces/sync`),
+  deleteRemovedAccountWorkspaceRecord: (accountId: string, workspaceId: string) =>
+    request<RemovedAccountWorkspaceRecordDeleteResult>('DELETE', `/accounts/${accountId}/workspaces/${workspaceId}/removed-record`),
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),
   updateAccount: (id: string, body: Record<string, unknown>) => request<UnifiedAccountDetailView>('PATCH', `/accounts/${id}`, body),
   bulkUpdateAccounts: (body: BulkUpdateAccountsRequest) => request<BulkUpdateAccountsResult>('PATCH', '/accounts/bulk', body),
@@ -179,7 +181,6 @@ export const unifiedApi = {
   supplyOperationCard: (id: string, body: Record<string, unknown>) => request<AccountManagerOperationView>('PUT', `/operations/${id}/payment-card`, body),
   deleteOperation: (id: string) => request<boolean>('DELETE', `/operations/${id}`),
   workspaces: (query = '') => request<WorkspaceSummaryView[]>('GET', `/workspaces${query ? `?query=${encodeURIComponent(query)}` : ''}`),
-  deleteLocalWorkspace: (id: string) => request<LocalWorkspaceDeleteResult>('DELETE', `/workspaces/${id}`),
   refreshWorkspacePeople: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/people/refresh`, { executorAccountId }),
   refreshWorkspaceSettings: (id: string, executorAccountId: string) => request<WorkspaceDetailView>('POST', `/workspaces/${id}/settings/refresh`, { executorAccountId }),
   renameWorkspace: (id: string, executorAccountId: string, name: string) => request<WorkspaceDetailView>('PATCH', `/workspaces/${id}`, { executorAccountId, name }),
