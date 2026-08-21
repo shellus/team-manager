@@ -73,6 +73,43 @@ export interface BulkUpdateAccountsResult {
   updatedCount: number;
 }
 
+export interface AccountDeletionWorkspacePreview {
+  id: string;
+  name?: string;
+  externalId: string;
+  activeMembershipCount: number;
+  credentialCount: number;
+  seatSlotCount: number;
+  orderCount: number;
+}
+
+export interface AccountDeletionPreview {
+  account: { id: string; email: string };
+  ownedWorkspaces: AccountDeletionWorkspacePreview[];
+  resources: {
+    personalSpaces: number;
+    sessionRecords: number;
+    accessContexts: number;
+    gamBindings: number;
+    memberships: number;
+    invitations: number;
+    credentials: number;
+    seatSlots: number;
+    operations: number;
+    maintenances: number;
+    orders: number;
+    activityLogs: number;
+  };
+  remoteWorkspaceDeletion: false;
+}
+
+export interface AccountDeletionResult {
+  deleted: true;
+  deletedWorkspaceCount: number;
+  removedCredentialArtifactCount: number;
+  credentialArtifactCleanupFailures: number;
+}
+
 export interface AccountRegistrationSummaryView {
   kind: 'registration';
   id: string;

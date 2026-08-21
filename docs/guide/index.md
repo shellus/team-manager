@@ -15,6 +15,8 @@
 “拥有可管理空间”来自活动 owner/admin Membership，不是账号类型。通过“管理分组”创建或重命名结构化分组；删除非空分组前先移动账号。
 账号以邮箱作为唯一身份称呼，不保存独立显示名。GAM 引用由纳管或注册流程自动关联，不提供手工输入框。
 
+彻底删除账号前显示将删除的本地 Workspace、成员关系、邀请、凭证、客户席位、订单、维护任务、自动化操作和活动日志数量。确认后，账号作为活动 owner 的 Workspace 一并从 Team Manager 删除；其他 Workspace 只删除该账号的本地关系。关联数据不会禁止删除，该操作也不会登录账号或调用 ChatGPT 删除远程 Workspace。
+
 ## Workspace
 
 Workspace 不设独立列表和详情页。进入 `/accounts/:accountId` 的 Workspace 标签，在该账号的多个活动 Workspace 关系之间切换；URL 中的 `workspaceId`、子标签和分页可直接刷新恢复。

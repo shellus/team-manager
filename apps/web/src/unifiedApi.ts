@@ -1,5 +1,7 @@
 import type {
   AccountActivityView,
+  AccountDeletionPreview,
+  AccountDeletionResult,
   AccountRegistrationSummaryView,
   AccountGroupView,
   AccountManagerStateView,
@@ -146,7 +148,8 @@ export const unifiedApi = {
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),
   updateAccount: (id: string, body: Record<string, unknown>) => request<UnifiedAccountDetailView>('PATCH', `/accounts/${id}`, body),
   bulkUpdateAccounts: (body: BulkUpdateAccountsRequest) => request<BulkUpdateAccountsResult>('PATCH', '/accounts/bulk', body),
-  deleteAccount: (id: string) => request<boolean>('DELETE', `/accounts/${id}`),
+  accountDeletionPreview: (id: string) => request<AccountDeletionPreview>('GET', `/accounts/${id}/deletion-preview`),
+  deleteAccount: (id: string) => request<AccountDeletionResult>('DELETE', `/accounts/${id}`, { confirmLocalCascade: true }),
   changePersonalSubscription: (id: string, body: ChangePersonalSubscriptionRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/personal-subscription`, body),
   previewPersonalSubscriptionChange: (id: string, targetPlan: ChangePersonalSubscriptionRequest['targetPlan']) =>
     request<PersonalSubscriptionChangePreviewView>('GET', `/accounts/${id}/personal-subscription/preview?targetPlan=${encodeURIComponent(targetPlan)}`),

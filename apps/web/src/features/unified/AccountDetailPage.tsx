@@ -49,6 +49,7 @@ import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPay
 import { errorMessage } from "../../api.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 import { AccountWorkspacePanel } from "./AccountWorkspacePanel.js";
+import { AccountDeletionModal } from "./AccountDeletionModal.js";
 import {
   resolvePersonalSpaceTab,
   selectPersonalSpaceTabParams,
@@ -56,7 +57,6 @@ import {
 } from "./accountPersonalModel.js";
 
 export function AccountDetailPage() {
-  const productModal = useProductModal();
   const productMessage = useProductMessage();
   const { accountId } = useParams();
   const navigate = useNavigate();
@@ -170,18 +170,7 @@ export function AccountDetailPage() {
                   />
                   <Button
                     danger
-                    onClick={() =>
-                      productModal.confirm({
-                        title: "彻底删除账号？",
-                        content: "账号、个人空间、Session、GAM 绑定及该账号的已完成操作历史会一起删除，独立的 Workspace 会保留。仍有活动 Workspace 关系、凭证、订单或未完成操作时将拒绝删除。",
-                        okText: "彻底删除",
-                        okButtonProps: { danger: true },
-                        onOk: async () => {
-                          await unifiedApi.deleteAccount(account.id);
-                          navigate("/accounts");
-                        },
-                      })
-                    }
+                    onClick={() => setUrl("delete", "1")}
                   >
                     彻底删除账号
                   </Button>
@@ -272,6 +261,13 @@ export function AccountDetailPage() {
             open={Boolean(params.get("operationId"))}
             onClose={() => setUrl("operationId")}
             onChanged={load}
+          />
+          <AccountDeletionModal
+            accountId={account.id}
+            email={account.email}
+            open={params.get("delete") === "1"}
+            onClose={() => setUrl("delete")}
+            onDeleted={() => navigate("/accounts")}
           />
         </Space>
       )}

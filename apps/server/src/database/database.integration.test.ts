@@ -466,16 +466,24 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         safe_payload: {},
         occurred_at: new Date()
       }).execute();
-      const deleteWithHistory = await app.request(`/api/accounts/${deletableAccount.account.id}`, { method: 'DELETE', headers });
+      const deleteWithoutConfirmation = await app.request(`/api/accounts/${deletableAccount.account.id}`, { method: 'DELETE', headers });
+      assert.equal(deleteWithoutConfirmation.status, 400);
+      assert.match(await deleteWithoutConfirmation.text(), /预览并确认/);
+      const deletePreview = await app.request(`/api/accounts/${deletableAccount.account.id}/deletion-preview`, { headers });
+      assert.equal(deletePreview.status, 200, await deletePreview.clone().text());
+      assert.equal((await deletePreview.json() as any).data.resources.operations, 1);
+      const deleteWithHistory = await app.request(`/api/accounts/${deletableAccount.account.id}`, {
+        method: 'DELETE', headers, body: JSON.stringify({ confirmLocalCascade: true })
+      });
       assert.equal(deleteWithHistory.status, 200, await deleteWithHistory.clone().text());
       assert.equal(await accounts.findById(deletableAccount.account.id), undefined, '彻底删除移除账号本体');
       assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', completedDeleteOperation.id).executeTakeFirst(), undefined,
         '彻底删除一并移除账号的已结束操作历史');
       assert.ok(await db.selectFrom('workspaces').select('id').where('id', '=', deletableWorkspace.id).executeTakeFirst(),
         '彻底删除账号不删除独立 Workspace');
-      const retainedMembership = await db.selectFrom('workspace_memberships').select(['account_id', 'status'])
-        .where('workspace_id', '=', deletableWorkspace.id).executeTakeFirstOrThrow();
-      assert.deepEqual(retainedMembership, { account_id: null, status: 'removed' }, '历史成员事实保留但解除本地账号引用');
+      assert.equal(await db.selectFrom('workspace_memberships').select('id')
+        .where('workspace_id', '=', deletableWorkspace.id).executeTakeFirst(), undefined,
+        '彻底删除账号同时清除该账号在保留 Workspace 中的本地成员关系');
 
       const activeRelationshipAccount = await accounts.create({ email: 'delete-active-workspace@example.com', groupId: group.id });
       await workspaces.upsertMembership({
@@ -487,15 +495,85 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         observedAt: new Date(),
         source: 'delete-test'
       });
-      const activeRelationshipDelete = await app.request(`/api/accounts/${activeRelationshipAccount.account.id}`, { method: 'DELETE', headers });
-      assert.equal(activeRelationshipDelete.status, 409);
-      assert.match(await activeRelationshipDelete.text(), /仍有活动 Workspace 关系/);
-      assert.ok(await accounts.findById(activeRelationshipAccount.account.id), '存在活动 Workspace 关系时账号保持不变');
-      await db.updateTable('workspace_memberships').set({ status: 'removed' })
-        .where('workspace_id', '=', deletableWorkspace.id)
-        .where('account_id', '=', activeRelationshipAccount.account.id).execute();
+      const activeRelationshipDelete = await app.request(`/api/accounts/${activeRelationshipAccount.account.id}`, {
+        method: 'DELETE', headers, body: JSON.stringify({ confirmLocalCascade: true })
+      });
+      assert.equal(activeRelationshipDelete.status, 200, await activeRelationshipDelete.clone().text());
+      assert.equal(await accounts.findById(activeRelationshipAccount.account.id), undefined,
+        '普通成员存在活动 Workspace 关系时仍允许删除账号');
+      assert.ok(await db.selectFrom('workspaces').select('id').where('id', '=', deletableWorkspace.id).executeTakeFirst(),
+        '普通成员删除账号时保留 Workspace');
+
+      const ownerDeleteAccount = await accounts.create({ email: 'delete-owner-workspace@example.com', groupId: group.id });
+      const ownerDeleteWorkspace = await workspaces.upsert({ externalId: 'delete-owner-workspace', name: 'Owned deletion Workspace', normalizedPlan: 'business' });
+      await workspaces.upsertMembership({
+        workspaceId: ownerDeleteWorkspace.id,
+        accountId: ownerDeleteAccount.account.id,
+        remoteUserId: 'owner-delete-user',
+        email: ownerDeleteAccount.account.email,
+        normalizedRole: 'owner',
+        observedAt: new Date(),
+        source: 'delete-test'
+      });
+      await workspaces.upsertMembership({
+        workspaceId: ownerDeleteWorkspace.id,
+        accountId: second.account.id,
+        remoteUserId: 'owner-delete-shared-user',
+        email: second.account.email,
+        normalizedRole: 'member',
+        observedAt: new Date(),
+        source: 'delete-test'
+      });
+      await db.insertInto('seat_slots').values({
+        workspace_id: ownerDeleteWorkspace.id,
+        seat_key: 'delete-owner-workspace-seat',
+        remote_user_id: null,
+        current_email: null,
+        normalized_current_email: null,
+        contact: null,
+        remark: null,
+        price: null,
+        expires_on: null,
+        expire_remove: false,
+        seat_type: 'default',
+        status: 'empty'
+      }).execute();
+      const ownerOperation = await db.insertInto('automation_operations').values({
+        account_id: ownerDeleteAccount.account.id,
+        workspace_id: ownerDeleteWorkspace.id,
+        target_group_id: null,
+        kind: 'workspace_cleanup_history',
+        idempotency_key: 'delete-owner-workspace-operation',
+        external_operation_id: null,
+        status: 'running',
+        phase: 'running',
+        progress: 50,
+        safe_request_summary: {},
+        result_summary: {},
+        error_code: null,
+        error_message: null,
+        completed_at: null
+      }).returning('id').executeTakeFirstOrThrow();
+      const ownerPreview = await app.request(`/api/accounts/${ownerDeleteAccount.account.id}/deletion-preview`, { headers });
+      assert.equal(ownerPreview.status, 200, await ownerPreview.clone().text());
+      const ownerPreviewData = (await ownerPreview.json() as any).data;
+      assert.equal(ownerPreviewData.ownedWorkspaces.length, 1);
+      assert.equal(ownerPreviewData.ownedWorkspaces[0].activeMembershipCount, 2);
+      assert.equal(ownerPreviewData.resources.seatSlots, 1);
+      assert.equal(ownerPreviewData.resources.operations, 1);
+      const ownerDelete = await app.request(`/api/accounts/${ownerDeleteAccount.account.id}`, {
+        method: 'DELETE', headers, body: JSON.stringify({ confirmLocalCascade: true })
+      });
+      assert.equal(ownerDelete.status, 200, await ownerDelete.clone().text());
+      assert.equal((await ownerDelete.json() as any).data.deletedWorkspaceCount, 1);
+      assert.equal(await accounts.findById(ownerDeleteAccount.account.id), undefined);
+      assert.equal(await db.selectFrom('workspaces').select('id').where('id', '=', ownerDeleteWorkspace.id).executeTakeFirst(), undefined,
+        '活动 owner 删除账号时级联删除其本地 Workspace 及共享成员关系');
+      assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', ownerOperation.id).executeTakeFirst(), undefined,
+        '级联删除不因未结束操作而阻止用户确认的删除');
+
       const completedWorkspaceOperation = await db.insertInto('automation_operations').values({
-        account_id: activeRelationshipAccount.account.id,
+        account_id: first.account.id,
         workspace_id: deletableWorkspace.id,
         target_group_id: null,
         kind: 'workspace_cleanup_history',

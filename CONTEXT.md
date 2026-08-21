@@ -33,7 +33,7 @@ _Avoid_: 刷新 Workspace 列表、删除 Workspace、退出 Workspace
 _Avoid_: 远端删除 Workspace、账号退出 Workspace、自动清理
 
 **彻底删除账号**:
-不可逆删除账号及其专属资料和已结束操作历史，但不删除独立的 Workspace。活动 Workspace 关系、凭证、订单或未结束操作仍存在时，账号不满足彻底删除条件。
+用户预览本地关联范围并确认后，不可逆删除账号及其专属资料、全部关联关系与操作历史；账号作为活动 owner 的 Workspace 及其本地从属资料一并删除，其他 Workspace 只删除该账号的本地关系。该动作不调用远端接口，关联数据不构成禁止删除的条件。
 _Avoid_: 退出 Workspace、删除 Workspace、归档账号
 
 **待处理邀请（Workspace Invitation）**:

@@ -23,6 +23,7 @@ import { configureTransportRuntime, createTransport, type Transport } from './tr
 import { isEditableMemberRole } from '@team-manager/shared';
 import type {
   AddSubscriptionPaymentMethodRequest,
+  AccountDeletionResult,
   BulkUpdateAccountsRequest,
   ChangePersonalSubscriptionRequest,
   OpenBusinessSubscriptionRequest,
@@ -74,7 +75,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const operational = new AccountOperationalRepository(database, cipher);
   const projections = new UnifiedProjectionRepository(database, sessions);
   const accounts = new UnifiedAccountService(
-    database, projections, sessions, operational
+    database, projections, sessions, operational, artifactsStore
   );
   const workspaces = new WorkspaceService(projections);
   const accountManager = providedAccountManager ?? (config.accountManagerBaseUrl && config.accountManagerToken
@@ -206,7 +207,14 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({}));
     return wrap(c, () => accounts.update(c.req.param('id'), body));
   });
-  api.delete('/accounts/:id', (c) => wrap(c, () => accounts.remove(c.req.param('id'))));
+  api.get('/accounts/:id/deletion-preview', (c) => wrap(c, () => accounts.deletionPreview(c.req.param('id'))));
+  api.delete('/accounts/:id', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { confirmLocalCascade?: boolean };
+    if (body.confirmLocalCascade !== true) {
+      return c.json({ ok: false, error: '请先预览并确认本地级联删除' }, 400);
+    }
+    return wrap(c, () => accounts.remove(c.req.param('id')) as Promise<AccountDeletionResult>);
+  });
   api.post('/accounts/:id/personal-subscription', async (c) => {
     const body = await c.req.json().catch(() => ({})) as ChangePersonalSubscriptionRequest;
     return wrap(c, () => subscriptions.changePersonalSubscription(c.req.param('id'), body));

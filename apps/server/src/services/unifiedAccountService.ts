@@ -1,5 +1,7 @@
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import {
+  type AccountDeletionPreview,
+  type AccountDeletionResult,
   parseChatGptSessionInput,
   type BulkUpdateAccountsRequest,
   type BulkUpdateAccountsResult,
@@ -15,6 +17,7 @@ import { SessionRepository } from '../repositories/sessionRepository.js';
 import { UnifiedProjectionRepository } from '../repositories/unifiedProjectionRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
+import type { ArtifactStore } from '../artifactStore.js';
 
 export class UnifiedAccountService {
   readonly #accounts: AccountRepository;
@@ -23,7 +26,8 @@ export class UnifiedAccountService {
     private readonly db: Kysely<Database>,
     private readonly projections: UnifiedProjectionRepository,
     private readonly sessions: SessionRepository,
-    private readonly operational: AccountOperationalRepository
+    private readonly operational: AccountOperationalRepository,
+    private readonly artifacts: ArtifactStore
   ) {
     this.#accounts = new AccountRepository(db);
     this.#activity = new ActivityLogRepository(db);
@@ -160,66 +164,171 @@ export class UnifiedAccountService {
     }
   }
 
-  async remove(id: string): Promise<boolean> {
+  async deletionPreview(id: string): Promise<AccountDeletionPreview> {
     try {
-      await this.db.transaction().execute(async (trx) => {
-        const lockedAccount = await trx.selectFrom('accounts')
-          .select(['id', 'email'])
-          .where('id', '=', id)
-          .forUpdate()
-          .executeTakeFirst();
-        if (!lockedAccount) throw new ServiceError(404, '账号不存在');
-
-        const activeMembership = await trx.selectFrom('workspace_memberships')
-          .select('id')
-          .where('account_id', '=', id)
-          .where('status', '=', 'active')
-          .limit(1)
-          .executeTakeFirst();
-        if (activeMembership) {
-          throw new ServiceError(409, '账号仍有活动 Workspace 关系，请先同步账号与 Workspace 关系，并处理仍然存在的成员关系');
-        }
-
-        const credential = await trx.selectFrom('workspace_credentials')
-          .select('id')
-          .where('account_id', '=', id)
-          .limit(1)
-          .executeTakeFirst();
-        if (credential) throw new ServiceError(409, '账号仍有关联 Workspace 凭证，请先删除凭证');
-
-        const maintenance = await trx.selectFrom('team_order_maintenances')
-          .select('id')
-          .where('executor_account_id', '=', id)
-          .limit(1)
-          .executeTakeFirst();
-        if (maintenance) throw new ServiceError(409, '账号仍被订单维护池使用，请先更换或移除执行账号');
-
-        const order = await trx.selectFrom('team_upgrade_orders')
-          .select('id')
-          .where('executor_account_id', '=', id)
-          .limit(1)
-          .executeTakeFirst();
-        if (order) throw new ServiceError(409, '账号仍有关联 Team 升级订单，不能彻底删除');
-
-        const unfinishedOperation = await trx.selectFrom('automation_operations')
-          .select('id')
-          .where('account_id', '=', id)
-          .where('status', 'not in', ['succeeded', 'failed', 'interrupted'])
-          .limit(1)
-          .executeTakeFirst();
-        if (unfinishedOperation) throw new ServiceError(409, '账号仍有未完成操作，请等待操作结束或先中断操作');
-
-        await trx.deleteFrom('automation_operations').where('account_id', '=', id).execute();
-        await new ActivityLogRepository(trx).log({
-          kind: 'account_removed',
-          payload: { accountId: id, email: lockedAccount.email }
-        });
-        await trx.deleteFrom('accounts').where('id', '=', id).executeTakeFirstOrThrow();
-      });
-      return true;
+      const account = await this.db.selectFrom('accounts').select(['id', 'email']).where('id', '=', id).executeTakeFirst();
+      if (!account) throw new ServiceError(404, '账号不存在');
+      return await this.buildDeletionPreview(this.db, account);
     } catch (error) {
       throw asServiceError(error);
     }
+  }
+
+  async remove(id: string): Promise<AccountDeletionResult> {
+    try {
+      const deleted = await this.db.transaction().execute(async (trx) => {
+        const account = await trx.selectFrom('accounts').select(['id', 'email'])
+          .where('id', '=', id).forUpdate().executeTakeFirst();
+        if (!account) throw new ServiceError(404, '账号不存在');
+
+        const preview = await this.buildDeletionPreview(trx, account);
+        const workspaceIds = preview.ownedWorkspaces.map((workspace) => workspace.id);
+        const storageKeys = await this.selectCredentialStorageKeys(trx, id, workspaceIds);
+
+        await this.deleteCascadeRows(trx, 'automation_operations', id, workspaceIds);
+        await this.deleteCascadeRows(trx, 'team_upgrade_orders', id, workspaceIds, 'executor_account_id');
+        await this.deleteCascadeRows(trx, 'team_order_maintenances', id, workspaceIds, 'executor_account_id');
+        await this.deleteCascadeRows(trx, 'workspace_credentials', id, workspaceIds);
+        await this.deleteWorkspaceRows(trx, 'seat_slots', workspaceIds);
+        await this.deleteCascadeRows(trx, 'workspace_invitations', id, workspaceIds);
+        await this.deleteCascadeRows(trx, 'workspace_memberships', id, workspaceIds);
+        await this.deleteCascadeRows(trx, 'account_activity_logs', id, workspaceIds);
+        if (workspaceIds.length) await trx.deleteFrom('workspaces').where('id', 'in', workspaceIds).execute();
+        await trx.deleteFrom('accounts').where('id', '=', id).executeTakeFirstOrThrow();
+        await new ActivityLogRepository(trx).log({
+          kind: 'account_removed',
+          payload: {
+            accountId: id,
+            email: account.email,
+            deletedWorkspaceCount: preview.ownedWorkspaces.length,
+            resources: preview.resources
+          }
+        });
+
+        return { preview, storageKeys };
+      });
+
+      const artifactCleanup = await Promise.allSettled(
+        deleted.storageKeys.map((storageKey) => this.artifacts.remove(storageKey))
+      );
+      return {
+        deleted: true,
+        deletedWorkspaceCount: deleted.preview.ownedWorkspaces.length,
+        removedCredentialArtifactCount: artifactCleanup.filter((item) => item.status === 'fulfilled').length,
+        credentialArtifactCleanupFailures: artifactCleanup.filter((item) => item.status === 'rejected').length
+      };
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  private async buildDeletionPreview(
+    db: Kysely<Database>,
+    account: { id: string; email: string }
+  ): Promise<AccountDeletionPreview> {
+    const ownedRows = await db.selectFrom('workspace_memberships as membership')
+      .innerJoin('workspaces as workspace', 'workspace.id', 'membership.workspace_id')
+      .select(['workspace.id', 'workspace.external_id', 'workspace.name'])
+      .where('membership.account_id', '=', account.id)
+      .where('membership.status', '=', 'active')
+      .where('membership.normalized_role', '=', 'owner')
+      .execute();
+    const workspaceIds = ownedRows.map((workspace) => workspace.id);
+    const count = (
+      table: 'workspace_memberships' | 'workspace_invitations' | 'workspace_credentials' | 'automation_operations' | 'team_order_maintenances' | 'team_upgrade_orders' | 'account_activity_logs',
+      accountColumn: 'account_id' | 'executor_account_id' = 'account_id'
+    ) => this.countCascadeRows(db, table, account.id, workspaceIds, accountColumn);
+    const seatSlotCount = await this.countWorkspaceRows(db, 'seat_slots', workspaceIds);
+
+    const ownedWorkspaces = await Promise.all(ownedRows.map(async (workspace) => ({
+      id: workspace.id,
+      ...(workspace.name ? { name: workspace.name } : {}),
+      externalId: workspace.external_id,
+      activeMembershipCount: (await db.selectFrom('workspace_memberships').select('id')
+        .where('workspace_id', '=', workspace.id).where('status', '=', 'active').execute()).length,
+      credentialCount: (await db.selectFrom('workspace_credentials').select('id')
+        .where('workspace_id', '=', workspace.id).execute()).length,
+      seatSlotCount: (await db.selectFrom('seat_slots').select('id')
+        .where('workspace_id', '=', workspace.id).execute()).length,
+      orderCount: (await db.selectFrom('team_upgrade_orders').select('id')
+        .where('workspace_id', '=', workspace.id).execute()).length
+    })));
+
+    return {
+      account,
+      ownedWorkspaces,
+      resources: {
+        personalSpaces: (await db.selectFrom('personal_spaces').select('id').where('account_id', '=', account.id).execute()).length,
+        sessionRecords: (await db.selectFrom('account_session_revisions').select('id').where('account_id', '=', account.id).execute()).length,
+        accessContexts: (await db.selectFrom('account_access_contexts').select('id').where('account_id', '=', account.id).execute()).length,
+        gamBindings: (await db.selectFrom('gam_bindings').select('id').where('account_id', '=', account.id).execute()).length,
+        memberships: await count('workspace_memberships'),
+        invitations: await count('workspace_invitations'),
+        credentials: await count('workspace_credentials'),
+        seatSlots: seatSlotCount,
+        operations: await count('automation_operations'),
+        maintenances: await count('team_order_maintenances', 'executor_account_id'),
+        orders: await count('team_upgrade_orders', 'executor_account_id'),
+        activityLogs: await count('account_activity_logs')
+      },
+      remoteWorkspaceDeletion: false
+    };
+  }
+
+  private async countCascadeRows(
+    db: Kysely<Database>,
+    table: 'workspace_memberships' | 'workspace_invitations' | 'workspace_credentials' | 'automation_operations' | 'team_order_maintenances' | 'team_upgrade_orders' | 'account_activity_logs',
+    accountId: string,
+    workspaceIds: string[],
+    accountColumn: 'account_id' | 'executor_account_id' = 'account_id'
+  ): Promise<number> {
+    const condition = workspaceIds.length
+      ? sql`(${sql.ref(accountColumn)} = ${accountId} or ${sql.ref('workspace_id')} in (${sql.join(workspaceIds)}))`
+      : sql`${sql.ref(accountColumn)} = ${accountId}`;
+    const result = await sql<{ count: number }>`select count(*)::integer as count from ${sql.table(table)} where ${condition}`.execute(db);
+    return result.rows[0]?.count ?? 0;
+  }
+
+  private async countWorkspaceRows(
+    db: Kysely<Database>, table: 'seat_slots', workspaceIds: string[]
+  ): Promise<number> {
+    if (!workspaceIds.length) return 0;
+    const result = await sql<{ count: number }>`
+      select count(*)::integer as count from ${sql.table(table)}
+      where workspace_id in (${sql.join(workspaceIds)})
+    `.execute(db);
+    return result.rows[0]?.count ?? 0;
+  }
+
+  private async selectCredentialStorageKeys(
+    db: Kysely<Database>, accountId: string, workspaceIds: string[]
+  ): Promise<string[]> {
+    const condition = workspaceIds.length
+      ? sql`(account_id = ${accountId} or workspace_id in (${sql.join(workspaceIds)}))`
+      : sql`account_id = ${accountId}`;
+    const result = await sql<{ storage_key: string }>`
+      select storage_key from workspace_credentials where ${condition}
+    `.execute(db);
+    return result.rows.map((row) => row.storage_key);
+  }
+
+  private async deleteCascadeRows(
+    db: Kysely<Database>,
+    table: 'workspace_memberships' | 'workspace_invitations' | 'workspace_credentials' | 'automation_operations' | 'team_order_maintenances' | 'team_upgrade_orders' | 'account_activity_logs',
+    accountId: string,
+    workspaceIds: string[],
+    accountColumn: 'account_id' | 'executor_account_id' = 'account_id'
+  ): Promise<void> {
+    const condition = workspaceIds.length
+      ? sql`(${sql.ref(accountColumn)} = ${accountId} or ${sql.ref('workspace_id')} in (${sql.join(workspaceIds)}))`
+      : sql`${sql.ref(accountColumn)} = ${accountId}`;
+    await sql`delete from ${sql.table(table)} where ${condition}`.execute(db);
+  }
+
+  private async deleteWorkspaceRows(
+    db: Kysely<Database>, table: 'seat_slots', workspaceIds: string[]
+  ): Promise<void> {
+    if (workspaceIds.length) await db.deleteFrom(table).where('workspace_id', 'in', workspaceIds).execute();
   }
 
   async session(id: string) {
