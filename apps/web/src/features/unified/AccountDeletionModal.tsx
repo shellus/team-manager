@@ -1,4 +1,4 @@
-import { Alert, Button, Descriptions, List, Skeleton, Space, Typography } from "antd";
+import { Alert, Button, Checkbox, Descriptions, List, Skeleton, Space, Typography } from "antd";
 import { useEffect, useState } from "react";
 import type { AccountDeletionPreview } from "@team-manager/shared";
 import { ProductModal } from "../../components/ProductOverlays.js";
@@ -19,6 +19,16 @@ export async function executeAccountDeletion(
   }
 }
 
+export function canSubmitAccountDeletion(
+  preview: AccountDeletionPreview | undefined,
+  loading: boolean,
+  workspaceDeletionAcknowledged: boolean,
+): boolean {
+  return Boolean(preview) && !loading && (
+    preview?.ownedWorkspaces.length === 0 || workspaceDeletionAcknowledged
+  );
+}
+
 export function AccountDeletionModal({
   accountId,
   email,
@@ -36,10 +46,12 @@ export function AccountDeletionModal({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [workspaceDeletionAcknowledged, setWorkspaceDeletionAcknowledged] = useState(false);
 
   const loadPreview = async () => {
     setLoading(true);
     setError("");
+    setWorkspaceDeletionAcknowledged(false);
     try {
       setPreview(await unifiedApi.accountDeletionPreview(accountId));
     } catch (nextError) {
@@ -56,6 +68,7 @@ export function AccountDeletionModal({
       setPreview(undefined);
       setError("");
       setSubmitting(false);
+      setWorkspaceDeletionAcknowledged(false);
     }
   }, [open, accountId]);
 
@@ -77,7 +90,13 @@ export function AccountDeletionModal({
       footer={
         <Space>
           <Button disabled={submitting} onClick={onClose}>取消</Button>
-          <Button danger type="primary" loading={submitting} disabled={!preview || loading} onClick={() => void remove()}>
+          <Button
+            danger
+            type="primary"
+            loading={submitting}
+            disabled={submitting || !canSubmitAccountDeletion(preview, loading, workspaceDeletionAcknowledged)}
+            onClick={() => void remove()}
+          >
             删除全部本地数据
           </Button>
         </Space>
@@ -106,19 +125,28 @@ export function AccountDeletionModal({
               本次将删除 {preview.ownedWorkspaces.length} 个由该账号拥有的本地 Workspace
             </Typography.Text>
             {preview.ownedWorkspaces.length > 0 && (
-              <List
-                size="small"
-                bordered
-                dataSource={preview.ownedWorkspaces}
-                renderItem={(workspace) => (
-                  <List.Item>
-                    <List.Item.Meta
-                      title={workspace.name || workspace.externalId}
-                      description={`活动成员 ${workspace.activeMembershipCount}，凭证 ${workspace.credentialCount}，客户席位 ${workspace.seatSlotCount}，订单 ${workspace.orderCount}`}
-                    />
-                  </List.Item>
-                )}
-              />
+              <>
+                <List
+                  size="small"
+                  bordered
+                  dataSource={preview.ownedWorkspaces}
+                  renderItem={(workspace) => (
+                    <List.Item>
+                      <List.Item.Meta
+                        title={workspace.name || workspace.externalId}
+                        description={`活动成员 ${workspace.activeMembershipCount}，凭证 ${workspace.credentialCount}，客户席位 ${workspace.seatSlotCount}，订单 ${workspace.orderCount}`}
+                      />
+                    </List.Item>
+                  )}
+                />
+                <Checkbox
+                  checked={workspaceDeletionAcknowledged}
+                  disabled={submitting}
+                  onChange={(event) => setWorkspaceDeletionAcknowledged(event.target.checked)}
+                >
+                  我确认删除上述 {preview.ownedWorkspaces.length} 个本地 Workspace 及其关联数据
+                </Checkbox>
+              </>
             )}
             <Descriptions
               bordered
