@@ -20,6 +20,7 @@ describe('产品日期输入', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 24, 12));
     expect(PRODUCT_DATE_PRESETS.map((preset) => preset.label)).toEqual(['今天', '下个月']);
+    expect(resolvePresetLocale(0)).toBe('zh-cn');
     expect(resolvePreset(0)).toBe('2026-08-24');
     expect(resolvePreset(1)).toBe('2026-09-24');
   });
@@ -29,4 +30,10 @@ function resolvePreset(index: number): string {
   const value = PRODUCT_DATE_PRESETS[index]?.value;
   if (!value) throw new Error('日期快捷项不存在');
   return (typeof value === 'function' ? value() : value).format('YYYY-MM-DD');
+}
+
+function resolvePresetLocale(index: number): string {
+  const value = PRODUCT_DATE_PRESETS[index]?.value;
+  if (!value) throw new Error('日期快捷项不存在');
+  return (typeof value === 'function' ? value() : value).locale();
 }

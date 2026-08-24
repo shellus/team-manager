@@ -1,5 +1,8 @@
 import { DatePicker, type DatePickerProps } from 'antd';
 import dayjs from 'dayjs';
+import 'dayjs/locale/zh-cn';
+
+dayjs.locale('zh-cn');
 
 export const PRODUCT_DATE_FORMATS = ['YYYY-MM-DD', 'YYYY/M/D', 'YYYY年M月D日'] as const;
 
