@@ -2,6 +2,8 @@
 
 状态：已完成。
 
+> 本计划记录当时已完成的账号内客户资料恢复范围。后续已接受的待认领席位和公开自助管理入口以 [`固定 GPT 席位自助管理计划`](./fixed-gpt-seat-self-service-management.md) 为准，尚未实施。
+
 ## 产品边界
 
 - `SeatSlot` 继续作为 Workspace 下独立的客户运营资料，不并入 Membership 或 Invitation 表。

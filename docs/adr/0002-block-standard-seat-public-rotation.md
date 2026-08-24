@@ -2,7 +2,7 @@
 
 ## 状态
 
-已接受，2026-07-26。
+已被 [ADR 0009](./0009-fixed-gpt-seat-self-service-claim-and-opt-in-rotation.md) 部分取代，2026-08-24。未显式允许后续自助换号的客户席位继续遵守本文的默认禁止规则。
 
 ## 背景
 

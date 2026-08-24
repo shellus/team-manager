@@ -104,6 +104,7 @@ corepack pnpm --filter @team-manager/server db:migrate
 - [PostgreSQL 数据模型](./docs/dev-spec/data-model.md)
 - [账号运营主套餐和共享操作计划](./docs/plans/account-operational-primary-plan-and-actions.md)
 - [运营可见性恢复实施计划](./docs/plans/operational-visibility-restoration.md)
+- [固定 GPT 席位自助管理计划](./docs/plans/fixed-gpt-seat-self-service-management.md)
 - [Team 升级订单维护](./docs/guide/team-order-maintenance.md)
 - [凭证号池填充](./docs/guide/fill-credential-pool.md)
 - [ChatGPT Web 协议样本](./docs/dev-spec/chatgpt-backend-api/README.md)

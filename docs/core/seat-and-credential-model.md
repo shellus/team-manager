@@ -2,6 +2,8 @@
 
 本文件是 Team Manager 的领域红线。涉及账号、Workspace、成员、邀请、席位、凭证、额度和账单时，以本文为准。
 
+> 待认领席位、自助认领和显式授权换号是已接受但尚未实施的目标模型，实施状态以 [`固定 GPT 席位自助管理计划`](../plans/fixed-gpt-seat-self-service-management.md) 为准。当前运行实例在该计划完成前仍按既有数据库和服务行为运行。
+
 ## 账号与 Workspace
 
 `Account` 是唯一受管 ChatGPT 登录身份，以规范化邮箱唯一。账号不是某种角色：它可以没有 Workspace、管理多个 Workspace，也可以在其他 Workspace 中只是普通成员。
@@ -78,9 +80,17 @@ Access Token 请求返回 401 时，存在可用 Session Token 的流程应先�
 
 席位类型是可缺失的上游事实，不设本地默认值。创建邀请时未显式选择席位，发往上游的请求必须省略席位字段，由上游决定；成员、邀请、Workspace 设置或客户资料的上游响应未返回席位类型时，本地保持未知，界面不显示 ChatGPT 或 Codex 类型。只有明确收到或由管理员明确提交 `default`、`usage_based` 时才记录对应类型。
 
-`SeatSlot` 是 Workspace 下必须关联当前邮箱的本地客户资源。换号、邀请转成员或席位类型变化不改变客户备注、价格、到期日、公开 `seatKey` 和历史；移除成员、撤销邀请或删除失效关系时，本地客户资料和公开 `seatKey` 一并删除。Workspace 空位始终由容量与远端关系实时派生，不保存无邮箱的 `SeatSlot`。
+`SeatSlot` 是 Workspace 下已运营、已售出或已明确预留给客户的本地资源。它可以处于待认领状态，此时没有当前邮箱但已经具有稳定公开 `seatKey`；首次认领、后续换号、邀请转成员或席位类型变化不改变客户备注、价格、到期日、公开 `seatKey` 和历史。普通管理员移除成员、撤销邀请、释放席位或删除失效关系时，本地客户资料和公开 `seatKey` 一并删除；公开认领和公开换号是保留同一 `SeatSlot` 的专用身份转换。
 
-当前成员数不等于计费席位数。移除标准 ChatGPT 成员后仍可能临时计费，因此公开换号不得自动移除已接受的 `default` 成员；管理员操作后必须核对 Billing。
+Workspace 固定席位空位始终由容量与远端关系实时派生，不能批量物化成无主 `SeatSlot`。管理员只能从已知固定 ChatGPT 空位中显式创建待认领席位；待认领席位减少本地可分配固定席位余量，但在创建上游邀请前不计入 `fixedSeatOccupied`。容量未知或没有可分配余量时不得创建待认领席位。Codex/`usage_based` 不使用待认领席位或固定席位空位模型。
+
+公开 URL 是待认领席位的能力凭据，其存在即允许首次认领，不另设首次认领开关。首次认领提交首个邮箱并创建 `default` 固定 ChatGPT 邀请；成功后立即开始换号冷却期。未绑定邮箱时不能导出数据。
+
+后续公开换号默认关闭，只有管理员为对应 `SeatSlot` 显式允许后才能执行。换号冷却默认 7 天，按最近一次成功的公开认领或公开换号完成时间计算；失败、相同邮箱幂等请求和管理员操作不重置冷却。已到期、已停用、缺少可管理账号或已有活动自助操作的席位拒绝认领、换号和导出。
+
+当前成员数不等于计费席位数。管理员显式允许后续换号时，公开流程可以自动移除已接受的 `default` 固定 ChatGPT 成员并邀请新邮箱；开启配置和公开页面必须提示旧成员立即失去访问、凭证可能失效、旧席位可能继续临时计费以及新成员可能产生新增费用。每次操作必须保存完整步骤、失败状态、上游 `billing_notice`、`policy_notice` 和活动审计，最终费用仍以 Workspace Billing 与账单为准。
+
+“允许导出数据”默认关闭。具体导出目标、管理员上游接口、返回形式和频率限制在接口样本提供后补充；公开页面只能调用 Team Manager 的受控后端，不得接触管理员接口凭证。待认领席位没有当前邮箱和可导出目标，即使配置允许也必须显示为不可导出。
 
 固定席位 Business 同时存在四个不能互相替代的数字：
 
@@ -91,9 +101,9 @@ Access Token 请求返回 401 时，存在可用 Session Token 的流程应先�
 | `subscriptionSeatsInUse` | 订阅接口报告的使用数 | 最新 Workspace 订阅的 `seats_in_use` | 保持未知，只用于核对 |
 | `billedSeatQuantity` | 当前账期或下期账单的计费数量 | 对应 Business 周期性发票行的 `quantity` | 保持未知，并保留账单周期语义 |
 
-只有 `fixedSeatCapacity` 可以用于补出固定席位空位和判断关系占用是否超出权益容量。`subscriptionSeatsInUse`、`billedSeatQuantity` 与 `fixedSeatOccupied` 不一致时应并列展示或产生风险提示，不得通过覆盖其中任一事实消除差异。
+只有 `fixedSeatCapacity` 可以用于补出固定席位空位和判断关系占用是否超出权益容量。待认领席位数量只从固定席位空位中扣出本地可分配固定席位余量，不得写入或覆盖 `fixedSeatOccupied`。`subscriptionSeatsInUse`、`billedSeatQuantity` 与 `fixedSeatOccupied` 不一致时应并列展示或产生风险提示，不得通过覆盖其中任一事实消除差异。
 
-席位概览只处理固定 ChatGPT 席位 Workspace，使用远端活动 `default` Membership 与待接受的 `default` Invitation 表达固定席位占用，并以已知 `fixedSeatCapacity` 补出空位。容量未知时仍展示已知占用，但不虚构空位。空位只是查询投影，不写入 `SeatSlot`。`SeatSlot` 只为匹配的邮箱附加联系方式、价格、备注、到期日和公开换号能力；没有 `SeatSlot` 的固定席位成员仍必须出现。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
+席位概览只处理固定 ChatGPT 席位 Workspace，使用远端活动 `default` Membership 与待接受的 `default` Invitation 表达固定席位占用，并以已知 `fixedSeatCapacity` 补出空位。容量未知时仍展示已知占用，但不虚构空位。空位只是查询投影；只有管理员显式预留时才转换为具有稳定 `seatKey` 的待认领 `SeatSlot`。`SeatSlot` 为待认领席位或匹配邮箱附加联系方式、价格、备注、到期日和公开自助管理能力；没有 `SeatSlot` 的固定席位成员仍必须出现。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
 
 ## 凭证与额度
 
