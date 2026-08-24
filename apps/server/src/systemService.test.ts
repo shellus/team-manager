@@ -11,6 +11,11 @@ test('席位概览只在到期前三天开始提醒', () => {
   assert.deepEqual(seatRisks('2026-08-16', 'active', false, now), ['客户席位已到期']);
 });
 
+test('席位概览在北京时间零点后才把前一日席位标记为到期', () => {
+  assert.deepEqual(seatRisks('2026-08-24', 'active', false, new Date('2026-08-24T15:59:59.999Z')), ['三天内到期']);
+  assert.deepEqual(seatRisks('2026-08-24', 'active', false, new Date('2026-08-24T16:00:00.000Z')), ['客户席位已到期']);
+});
+
 test('母号概览在到期前三天统一按到期提醒', () => {
   const now = new Date('2026-08-17T12:00:00Z');
   const withinThreeDays = { renewalAt: '2026-08-20T12:00:00Z', willRenew: true };

@@ -875,10 +875,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const slotData=(await slot.json() as any).data;const slotId = slotData.id;
       assert.equal(slotData.remote_user_id,'owner-remote');assert.equal(slotData.seat_type,'default','成员关系中的席位类型优先于资料提交值');
       assert.equal((await app.request(`/api/workspaces/${workspace.id}/seat-slots/${slotId}`, { method: 'PATCH', headers, body: JSON.stringify({ executorAccountId:first.account.id,remark: 'paid' }) })).status, 200);
-      await db.updateTable('seat_slots').set({ expires_on: '2020-01-01', status: 'invited', expire_remove: false }).where('id', '=', slotId).execute();
+      await db.updateTable('seat_slots').set({ expires_on: '2026-01-01', status: 'invited', expire_remove: false }).where('id', '=', slotId).execute();
       const expirationService = new SeatSlotService(db, {} as any);
-      assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:00:00Z'))).disabled, 1);
-      assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:01:00Z'))).disabled, 0);
+      assert.equal((await expirationService.runExpirations(new Date('2026-01-01T15:59:59.999Z'))).disabled, 0,'到期日北京时间全天仍然有效');
+      assert.equal((await expirationService.runExpirations(new Date('2026-01-01T16:00:00.000Z'))).disabled, 1,'北京时间次日零点后的首次扫描处理到期');
+      assert.equal((await expirationService.runExpirations(new Date('2026-01-01T16:01:00.000Z'))).disabled, 0);
 
       await db.insertInto('workspace_invitations').values({workspace_id:workspace.id,account_id:null,remote_invitation_id:'expiration-removal-invite',email:'expiration-removal@example.com',normalized_email:'expiration-removal@example.com',raw_role:'standard-user',normalized_role:'member',seat_type:'usage_based',status:'pending',invited_at:new Date(),observed_at:new Date()}).execute();
       let removalAttempts=0;const removalAlerts:Record<string,unknown>[]=[];

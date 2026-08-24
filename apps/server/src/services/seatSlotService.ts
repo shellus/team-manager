@@ -10,6 +10,7 @@ import { WorkspaceOperationService } from './workspaceOperationService.js';
 import type { NotificationService } from './notificationService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { LIMITED_MAX_ATTEMPTS, limitedRetryDelay } from '../retryPolicy.js';
+import { addCalendarDays, calendarDateInTimeZone, seatExpirationBusinessDate } from '../domain/businessDate.js';
 
 const REMOVAL_CLAIM_TIMEOUT_MS = 15 * 60_000;
 
@@ -103,10 +104,10 @@ export class SeatSlotService {
     return true;
   }
   async runExpirations(now = new Date()) {
-    const today = dateInTimeZone(now, 'UTC'); const schedules = await this.notificationSchedules();
+    const today = seatExpirationBusinessDate(now); const schedules = await this.notificationSchedules();
     const dueSchedules = schedules.filter((schedule) => !schedule.hasExplicitSchedule || notificationScheduleDue(schedule, now));
     const seatSchedules = dueSchedules.filter((schedule) => schedule.kind !== 'workspace_renewal');
-    const seatWindows=seatSchedules.map(schedule=>({schedule,start:dateInTimeZone(now,schedule.timeZone),end:addCalendarDays(dateInTimeZone(now,schedule.timeZone),schedule.advanceDays)}));
+    const seatWindows=seatSchedules.map(schedule=>({schedule,start:calendarDateInTimeZone(now,schedule.timeZone),end:addCalendarDays(calendarDateInTimeZone(now,schedule.timeZone),schedule.advanceDays)}));
     const reminderStart=seatWindows.map(item=>item.start).sort()[0]??today;const reminderEnd=seatWindows.map(item=>item.end).sort().at(-1)??today;
     const reminders=await this.db.selectFrom('seat_slots').selectAll()
       .where('status','!=','disabled').where('current_email','is not',null)
@@ -115,7 +116,7 @@ export class SeatSlotService {
       .where('expires_on','>=',reminderStart).where('expires_on','<=',reminderEnd).execute();
     let seatReminders = 0;
     for (const {schedule,start,end} of seatWindows) {
-      const reminderKey=`seat-expiry-reminder:${schedule.kind}:${dateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
+      const reminderKey=`seat-expiry-reminder:${schedule.kind}:${calendarDateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
       const matching=reminders.filter(row=>{const expiresOn=dateOnly(row.expires_on!);return expiresOn>=start&&expiresOn<=end;});
       if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();seatReminders+=matching.length;}
     }
@@ -124,8 +125,8 @@ export class SeatSlotService {
       .where('status','=','active').where('next_renewal_at','is not',null).execute() : [];
     let renewalReminders = 0;
     for (const schedule of renewalSchedules) {
-      const localToday=dateInTimeZone(now,schedule.timeZone);const localEnd=addCalendarDays(localToday,schedule.advanceDays);
-      const matching=renewalRows.filter(row=>{const date=dateInTimeZone(new Date(row.next_renewal_at as Date),schedule.timeZone);return date>=localToday&&date<=localEnd;});
+      const localToday=calendarDateInTimeZone(now,schedule.timeZone);const localEnd=addCalendarDays(localToday,schedule.advanceDays);
+      const matching=renewalRows.filter(row=>{const date=calendarDateInTimeZone(new Date(row.next_renewal_at as Date),schedule.timeZone);return date>=localToday&&date<=localEnd;});
       const reminderKey=`workspace-renewal-reminder:${schedule.kind}:${localToday}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
       if(matching.length&&!already){await this.notifications?.notifyWorkspaceRenewal(matching.map(row=>({workspaceId:row.id,externalId:row.external_id,name:row.name,plan:row.normalized_plan,nextRenewalAt:new Date(row.next_renewal_at as Date).toISOString()})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();renewalReminders+=matching.length;}
     }
@@ -204,9 +205,7 @@ export class SeatSlotService {
 }
 
 export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string;hasExplicitSchedule?:boolean},now:Date):boolean{if(schedule.hasExplicitSchedule===false)return true;const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
-function dateInTimeZone(now:Date,timeZone:string){const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);return `${parts.find(item=>item.type==='year')?.value}-${parts.find(item=>item.type==='month')?.value}-${parts.find(item=>item.type==='day')?.value}`;}
 function dateOnly(value:string|Date){return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);}
-function addCalendarDays(value:string,days:number){const date=new Date(`${value}T00:00:00Z`);date.setUTCDate(date.getUTCDate()+days);return date.toISOString().slice(0,10);}
 function expirationRemovalError(error:unknown){const message=error instanceof Error?error.message:String(error);return message.slice(0,2000)||'未知错误';}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
