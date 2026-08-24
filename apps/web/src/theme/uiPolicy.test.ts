@@ -65,7 +65,7 @@ describe('product UI policy', () => {
     expect(popupPolicySource).toContain('transition: none !important');
     expect(popupPolicySource).toContain('animation: none !important');
     expect(applicationStylesSource).not.toContain('ant-select-dropdown');
-    expect(applicationStylesSource).toContain('.product-date-picker-popup .ant-picker-panel-layout');
-    expect(applicationStylesSource).toContain('.product-date-picker-popup .ant-picker-presets ul');
+    expect(applicationStylesSource).toContain('.product-date-picker-popup .ant-picker-presets');
+    expect(applicationStylesSource).toContain('.product-date-picker-mobile-shortcuts');
   });
 });

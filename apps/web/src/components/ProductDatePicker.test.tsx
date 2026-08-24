@@ -14,6 +14,9 @@ describe('产品日期输入', () => {
     const html = renderToStaticMarkup(<ProductDatePicker value="2030-01-02" />);
     expect(html).toContain('placeholder="YYYY-MM-DD"');
     expect(html).toContain('value="2030-01-02"');
+    expect(html).toContain('aria-label="日期快捷选择"');
+    expect(html).toContain('>今天<');
+    expect(html).toContain('>下个月<');
   });
 
   it('提供今天和下个月快捷项', () => {

@@ -176,6 +176,7 @@ body {
 .group-drag-handle:active { cursor: grabbing; }
 .ant-table-wrapper { min-width: 0; }
 .ant-drawer-content-wrapper { max-width: 94vw; }
+.product-date-picker-mobile-shortcuts { display: none; }
 
 @media (max-width: 920px) {
   .app-header { position: static; grid-template-columns: 1fr max-content; height: auto; padding: 12px 16px; }
@@ -196,18 +197,13 @@ body {
   .app-content { padding: 10px; }
   .ant-card-body { padding: 14px; }
   .responsive-form-grid { grid-template-columns: 1fr; }
-  .product-date-picker-popup .ant-picker-panel-layout { flex-direction: column; }
-  .product-date-picker-popup .ant-picker-presets { width: 100%; min-width: 0; max-width: none; }
-  .product-date-picker-popup .ant-picker-presets ul {
+  .product-date-picker-popup .ant-picker-presets { display: none; }
+  .product-date-picker-mobile-shortcuts {
     display: flex;
-    height: auto;
     gap: 8px;
-    padding: 8px;
-    border-inline-end: 0;
-    border-bottom: 1px solid var(--color-border-subtle);
+    margin-top: 4px;
   }
-  .product-date-picker-popup .ant-picker-presets ul li { flex: 1; margin: 0; text-align: center; }
-  .product-date-picker-popup .ant-picker-presets ul li + li { margin-top: 0; }
+  .product-date-picker-mobile-shortcuts .ant-btn { flex: 1; min-height: 36px; }
   .switch-grid { display: block; }
   .page-header > .ant-space { display: grid; grid-template-columns: 1fr; }
   .page-header > .ant-space .ant-btn, .page-header > .ant-space .ant-select { width: 100% !important; }
