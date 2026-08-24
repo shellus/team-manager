@@ -67,9 +67,12 @@ export class NotificationService {
   }
 
   async notifySeatRemovalFailure(item: Record<string, unknown>) {
+    const target=String(item.email ?? item.seatSlotId ?? '未知席位');
+    const attempts=item.attemptCount!==undefined&&item.maxAttempts!==undefined?`\n尝试：${String(item.attemptCount)}/${String(item.maxAttempts)}`:'';
+    const reason=text(item.error)?`\n原因：${text(item.error)}`:'';
     return this.send('seat_expiration', {
       type: 'seat_expiration_removal_failed',
-      text: `客户席位自动移除失败：${String(item.email ?? item.seatSlotId ?? '未知席位')}`,
+      text: `客户席位自动移除失败：${target}${attempts}${reason}`,
       item
     });
   }
