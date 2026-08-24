@@ -196,6 +196,18 @@ body {
   .app-content { padding: 10px; }
   .ant-card-body { padding: 14px; }
   .responsive-form-grid { grid-template-columns: 1fr; }
+  .product-date-picker-popup .ant-picker-panel-layout { flex-direction: column; }
+  .product-date-picker-popup .ant-picker-presets { width: 100%; min-width: 0; max-width: none; }
+  .product-date-picker-popup .ant-picker-presets ul {
+    display: flex;
+    height: auto;
+    gap: 8px;
+    padding: 8px;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .product-date-picker-popup .ant-picker-presets ul li { flex: 1; margin: 0; text-align: center; }
+  .product-date-picker-popup .ant-picker-presets ul li + li { margin-top: 0; }
   .switch-grid { display: block; }
   .page-header > .ant-space { display: grid; grid-template-columns: 1fr; }
   .page-header > .ant-space .ant-btn, .page-header > .ant-space .ant-select { width: 100% !important; }

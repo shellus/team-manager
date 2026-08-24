@@ -13,7 +13,7 @@ export const PRODUCT_DATE_PRESETS: NonNullable<DatePickerProps['presets']> = [
 
 export interface ProductDatePickerProps extends Omit<
   DatePickerProps,
-  'defaultValue' | 'format' | 'multiple' | 'onChange' | 'picker' | 'presets' | 'value'
+  'classNames' | 'defaultValue' | 'format' | 'multiple' | 'onChange' | 'picker' | 'presets' | 'value'
 > {
   value?: string | null;
   onChange?: (value: string | null) => void;
@@ -34,6 +34,7 @@ export function ProductDatePicker({ value, onChange, style, ...props }: ProductD
       onChange={(date) => onChange?.(date ? date.format('YYYY-MM-DD') : null)}
       format={[...PRODUCT_DATE_FORMATS]}
       presets={PRODUCT_DATE_PRESETS}
+      classNames={{ popup: { root: 'product-date-picker-popup' } }}
       placeholder="YYYY-MM-DD"
       needConfirm={false}
       showToday
