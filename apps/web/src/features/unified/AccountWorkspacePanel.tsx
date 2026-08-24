@@ -12,6 +12,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
@@ -384,7 +385,7 @@ function PeoplePanel({
           { title: "席位", width: 140, render: (_, row) => canManage && canEditSeat(row)
             ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} placeholder="—" options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
             : row.seatType ? <Tag>{seatLabel(row.seatType)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
-          { title: "租客信息", width: 280, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
+          { title: "租客信息", width: 320, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{expirationRemovalTag(row.seatSlot)}{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
           {
             title: "操作",
             fixed: "right",
@@ -438,7 +439,7 @@ function TenantDataFields() {
       <Form.Item name="expiresOn" label="到期日" extra="设置到期日后自动参与到期提醒；清空后不提醒。"><Input type="date" /></Form.Item>
     </div>
     <Form.Item name="remark" label="备注"><Input.TextArea rows={3} /></Form.Item>
-    <Form.Item name="expireRemove" label="到期后自动移除远端关系" valuePropName="checked" extra="关闭时，到期后只停用本地租客资料。"><Switch /></Form.Item>
+    <Form.Item name="expireRemove" label="到期后自动移除远端关系" valuePropName="checked" extra="开启后最多尝试 3 次（失败后等待 1 分钟、5 分钟）；仍失败时保留关系和租客资料、停止自动重试并发送告警。关闭时到期后只停用本地租客资料。"><Switch /></Form.Item>
   </>;
 }
 
@@ -521,6 +522,11 @@ function canEditSeat(row: AccountWorkspacePersonRow) { return (row.kind === "mem
 function roleForSelect(role?: string) { return role === "analytics_viewer" ? "analytics-viewer" : role === "member" ? "standard-user" : role === "admin" ? "account-admin" : role === "owner" ? "account-owner" : role; }
 function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
 function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
+function expirationRemovalTag(slot?:SeatSlotView):ReactNode{
+  const removal=slot?.expirationRemoval;if(!removal)return null;
+  if(removal.status==='failed')return <Tooltip title={removal.error??'自动移除已达到最大尝试次数'}><Tag color="red">自动移除失败</Tag></Tooltip>;
+  return <Tooltip title={removal.error}><Tag color="orange">自动移除 {removal.attemptCount}/{removal.maxAttempts}</Tag></Tooltip>;
+}
 
 function BillingPanel({ workspace, accountId, canManage, value, subscription, busy, run, reload, modal, setParams }: {
   workspace?: WorkspaceDetailView;

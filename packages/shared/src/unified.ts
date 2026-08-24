@@ -691,6 +691,15 @@ export interface SeatSlotView {
   expireRemove: boolean;
   seatType?: SeatType;
   status: string;
+  expirationRemoval?: {
+    status: 'retrying' | 'running' | 'failed';
+    attemptCount: number;
+    maxAttempts: number;
+    nextAttemptAt?: string;
+    lastAttemptAt?: string;
+    error?: string;
+    failedAt?: string;
+  };
 }
 
 export interface WorkspaceDetailView extends WorkspaceSummaryView {

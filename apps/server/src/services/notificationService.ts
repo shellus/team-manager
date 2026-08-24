@@ -2,9 +2,7 @@ import type { Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
 import { ServiceError, upstreamHttpError } from '../serviceError.js';
 import { fetchWithRawTrace } from '../transport.js';
-
-const RETRY_DELAYS_MS = [60_000, 5 * 60_000] as const;
-const DEFAULT_MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+import { LIMITED_MAX_ATTEMPTS, limitedRetryDelay } from '../retryPolicy.js';
 
 export class NotificationService {
   constructor(private readonly db: Kysely<Database>, private readonly fetchImpl?: typeof fetch) {}
@@ -33,7 +31,7 @@ export class NotificationService {
     if (!policy) throw new ServiceError(404, '通知策略不存在');
     const delivery = await this.db.insertInto('notification_deliveries').values({
       policy_id: policy.id, status: 'queued', safe_summary: { type: payload.type ?? kind }, payload,
-      error_message: null, delivered_at: null, attempt_count: 0, max_attempts: DEFAULT_MAX_ATTEMPTS,
+      error_message: null, delivered_at: null, attempt_count: 0, max_attempts: LIMITED_MAX_ATTEMPTS,
       next_retry_at: new Date(), last_attempt_at: null
     }).returning('id').executeTakeFirstOrThrow();
     return this.attempt(delivery.id, true);
@@ -66,6 +64,14 @@ export class NotificationService {
       type: 'workspace_renewal', text: `Team Workspace 续费提醒：${items.length} 项`, items
     });
     return { items: items.length };
+  }
+
+  async notifySeatRemovalFailure(item: Record<string, unknown>) {
+    return this.send('seat_expiration', {
+      type: 'seat_expiration_removal_failed',
+      text: `客户席位自动移除失败：${String(item.email ?? item.seatSlotId ?? '未知席位')}`,
+      item
+    });
   }
 
   async retryFailed(limit = 20) {
@@ -101,7 +107,7 @@ export class NotificationService {
       return { deliveryId: id, status: 'delivered', attemptCount };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const delay = RETRY_DELAYS_MS[attemptCount - 1];
+      const delay = limitedRetryDelay(attemptCount);
       const shouldRetry = delay !== undefined && attemptCount < delivery.max_attempts;
       await this.db.updateTable('notification_deliveries').set({
         status: shouldRetry ? 'retrying' : 'exhausted',

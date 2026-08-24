@@ -15,6 +15,7 @@ import { AccountRepository, type AccountListFilters } from './accountRepository.
 import { SessionRepository } from './sessionRepository.js';
 import { AutomationOperationRepository } from './automationOperationRepository.js';
 import { normalizePersonalPlan } from '../domain/personalPlan.js';
+import { LIMITED_MAX_ATTEMPTS } from '../retryPolicy.js';
 
 export class UnifiedProjectionRepository {
   constructor(
@@ -260,6 +261,9 @@ export class UnifiedProjectionRepository {
     const members = await sql<any>`select wm.*,a.email account_email from workspace_memberships wm left join accounts a on a.id=wm.account_id where wm.workspace_id=${id}::uuid order by wm.normalized_role,wm.email`.execute(this.db);
     const invitations = await this.db.selectFrom('workspace_invitations').selectAll().where('workspace_id', '=', id).orderBy('observed_at', 'desc').execute();
     const seats = await this.db.selectFrom('seat_slots').selectAll().where('workspace_id', '=', id).orderBy('created_at').execute();
+    const expirationRemovals = seats.length ? await this.db.selectFrom('seat_expiration_removal_attempts').selectAll()
+      .where('seat_slot_id', 'in', seats.map((row) => row.id)).execute() : [];
+    const expirationRemovalBySeat = new Map(expirationRemovals.map((row) => [row.seat_slot_id, row]));
     const credentials = await credentialViews(this.db, credentialPredicate);
     const settings = await this.db.selectFrom('workspace_setting_snapshots').selectAll().where('workspace_id', '=', id).orderBy('observed_at', 'desc').executeTakeFirst();
     const billing = await this.db.selectFrom('billing_snapshots').selectAll().where('workspace_id', '=', id).orderBy('observed_at', 'desc').executeTakeFirst();
@@ -279,13 +283,22 @@ export class UnifiedProjectionRepository {
         ...(row.invited_at ? { invitedAt: iso(row.invited_at) } : {}), observedAt: iso(row.observed_at)
       })),
       credentials,
-      seatSlots: seats.map((row) => ({
+      seatSlots: seats.map((row) => {
+        const expirationRemoval=expirationRemovalBySeat.get(row.id);
+        return {
         id: row.id, seatKey: row.seat_key, ...(row.current_email ? { email: row.current_email } : {}),
         ...(row.remote_user_id ? { remoteUserId: row.remote_user_id } : {}), ...(row.contact ? { contact: row.contact } : {}),
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
         ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
-        expireRemove: row.expire_remove, ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status
-      })),
+        expireRemove: row.expire_remove, ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status,
+        ...(expirationRemoval ? { expirationRemoval: {
+          status:expirationRemoval.status as 'retrying'|'running'|'failed',attemptCount:expirationRemoval.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS,
+          ...(expirationRemoval.next_attempt_at?{nextAttemptAt:iso(expirationRemoval.next_attempt_at)}:{}),
+          ...(expirationRemoval.last_attempt_at?{lastAttemptAt:iso(expirationRemoval.last_attempt_at)}:{}),
+          ...(expirationRemoval.last_error?{error:expirationRemoval.last_error}:{}),
+          ...(expirationRemoval.failed_at?{failedAt:iso(expirationRemoval.failed_at)}:{})
+        }} : {})
+      };}),
       ...(settings ? { latestSettings: { payload: settings.payload, observedAt: iso(settings.observed_at) } } : {}),
       ...(billing ? { latestBilling: { payload: billing.payload, observedAt: iso(billing.observed_at) } } : {}),
       consistencyRisks: workspaceConsistencyRisks(members.rows, invitations, seats, credentials)

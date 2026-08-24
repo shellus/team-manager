@@ -181,6 +181,16 @@ export interface SeatSlotSwapOperationTable extends AuditedTable {
   completed_at: NullableTimestamp;
 }
 
+export interface SeatExpirationRemovalAttemptTable extends AuditedTable {
+  seat_slot_id: string;
+  status: string;
+  attempt_count: Generated<number>;
+  next_attempt_at: NullableTimestamp;
+  last_attempt_at: NullableTimestamp;
+  last_error: string | null;
+  failed_at: NullableTimestamp;
+}
+
 export interface PersonalSnapshotTable {
   id: Generated<string>;
   personal_space_id: string;
@@ -448,6 +458,7 @@ export interface Database {
   seat_slots: SeatSlotTable;
   seat_slot_identity_history: SeatSlotIdentityHistoryTable;
   seat_slot_swap_operations: SeatSlotSwapOperationTable;
+  seat_expiration_removal_attempts: SeatExpirationRemovalAttemptTable;
   personal_subscription_snapshots: PersonalSubscriptionSnapshotTable;
   personal_setting_snapshots: PersonalSnapshotTable;
   personal_quota_snapshots: PersonalSnapshotTable;

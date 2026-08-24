@@ -163,10 +163,18 @@ test('通知失败在同一投递上有限重试并保留原始正文', async ()
   await assert.rejects(()=>service.retry(deliveries[0].id),/最大重试次数/);
 });
 
+test('席位自动移除最终失败通过到期策略发送独立告警', async () => {
+  const {db,deliveries}=notificationDatabase('seat_expiration');
+  const service=new NotificationService(db,async()=>new Response('{}',{status:200}) as any);
+  await service.notifySeatRemovalFailure({seatSlotId:'seat-1',email:'member@example.com',attemptCount:3,maxAttempts:3,error:'remove failed'});
+  assert.equal(deliveries.length,1);assert.equal(deliveries[0].status,'delivered');
+  assert.deepEqual(deliveries[0].payload,{type:'seat_expiration_removal_failed',text:'客户席位自动移除失败：member@example.com',item:{seatSlotId:'seat-1',email:'member@example.com',attemptCount:3,maxAttempts:3,error:'remove failed'}});
+});
+
 function chain(row:any){const q:any={selectAll:()=>q,select:()=>q,where:()=>q,innerJoin:()=>q,orderBy:()=>q,limit:()=>q,executeTakeFirst:async()=>row,execute:async()=>row?[row]:[]};return q;}
 
-function notificationDatabase(){
-  const policy={id:'policy-1',kind:'expiration',enabled:true,configuration:{webhookUrl:'https://notify.test'}};const deliveries:any[]=[];
+function notificationDatabase(kind='expiration'){
+  const policy={id:'policy-1',kind,enabled:true,configuration:{webhookUrl:'https://notify.test'}};const deliveries:any[]=[];
   const db:any={
     selectFrom(table:string){const filters:any[]=[];const query:any={selectAll:()=>query,select:()=>query,innerJoin:()=>query,orderBy:()=>query,limit:()=>query,where:(column:string,operator:string,value:any)=>{filters.push([column.split('.').at(-1),operator,value]);return query;},executeTakeFirst:async()=>rows(table).find(matches(filters)),executeTakeFirstOrThrow:async()=>rows(table).find(matches(filters))??Promise.reject(new Error('missing')),execute:async()=>rows(table).filter(matches(filters))};return query;},
     insertInto(table:string){return{values:(values:any)=>({returning:()=>({executeTakeFirstOrThrow:async()=>{const row={id:`delivery-${deliveries.length+1}`,created_at:new Date(),...values};if(table==='notification_deliveries')deliveries.push(row);return row;}})})};},

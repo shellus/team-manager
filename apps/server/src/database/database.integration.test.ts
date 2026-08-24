@@ -32,7 +32,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -878,6 +878,27 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const expirationService = new SeatSlotService(db, {} as any);
       assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:00:00Z'))).disabled, 1);
       assert.equal((await expirationService.runExpirations(new Date('2026-01-01T00:01:00Z'))).disabled, 0);
+
+      await db.insertInto('workspace_invitations').values({workspace_id:workspace.id,account_id:null,remote_invitation_id:'expiration-removal-invite',email:'expiration-removal@example.com',normalized_email:'expiration-removal@example.com',raw_role:'standard-user',normalized_role:'member',seat_type:'usage_based',status:'pending',invited_at:new Date(),observed_at:new Date()}).execute();
+      let removalAttempts=0;const removalAlerts:Record<string,unknown>[]=[];
+      const failedRemovalService=new SeatSlotService(db,{revokeInvitation:async()=>{removalAttempts+=1;throw new Error('上游拒绝撤销邀请');}} as any,{notifySeatRemovalFailure:async(item:Record<string,unknown>)=>{removalAlerts.push(item);}} as any);
+      const failedRemovalSlot=await failedRemovalService.create(workspace.id,first.account.id,{email:'expiration-removal@example.com',seatType:'usage_based',expiresOn:'2020-01-01',expireRemove:true});
+      assert.equal((await failedRemovalService.runExpirations(new Date('2026-01-01T00:00:00Z'))).removalRetrying,1);
+      await failedRemovalService.runExpirations(new Date('2026-01-01T00:00:30Z'));assert.equal(removalAttempts,1,'退避期内不能重复调用上游');
+      assert.equal((await failedRemovalService.runExpirations(new Date('2026-01-01T00:01:00Z'))).removalRetrying,1);
+      assert.equal((await failedRemovalService.runExpirations(new Date('2026-01-01T00:06:00Z'))).removalFailed,1);
+      assert.equal(removalAttempts,3);assert.equal(removalAlerts.length,1);
+      await failedRemovalService.runExpirations(new Date('2026-01-02T00:00:00Z'));assert.equal(removalAttempts,3,'最终失败后普通调度不能重新尝试');
+      const preservedRemovalSlot=await db.selectFrom('seat_slots').selectAll().where('id','=',failedRemovalSlot.id).executeTakeFirstOrThrow();
+      assert.equal(preservedRemovalSlot.status,'invited');assert.equal(preservedRemovalSlot.expire_remove,true);
+      const failedRemovalAttempt=await db.selectFrom('seat_expiration_removal_attempts').selectAll().where('seat_slot_id','=',failedRemovalSlot.id).executeTakeFirstOrThrow();
+      assert.equal(failedRemovalAttempt.status,'failed');assert.equal(failedRemovalAttempt.attempt_count,3);assert.match(failedRemovalAttempt.last_error??'',/上游拒绝撤销邀请/);
+      const failedRemovalActivity=await db.selectFrom('account_activity_logs').select(['kind','payload']).where('workspace_id','=',workspace.id).where('kind','=','seat_slot_expiration_removal_failed').executeTakeFirstOrThrow();
+      assert.equal(failedRemovalActivity.payload.attemptCount,3);
+      await failedRemovalService.update(workspace.id,failedRemovalSlot.id,first.account.id,{remark:'保留失败状态'});
+      assert.ok(await db.selectFrom('seat_expiration_removal_attempts').select('seat_slot_id').where('seat_slot_id','=',failedRemovalSlot.id).executeTakeFirst(),'普通资料编辑不能重新启动失败任务');
+      await failedRemovalService.update(workspace.id,failedRemovalSlot.id,first.account.id,{expiresOn:'2030-01-01'});
+      assert.equal(await db.selectFrom('seat_expiration_removal_attempts').select('seat_slot_id').where('seat_slot_id','=',failedRemovalSlot.id).executeTakeFirst(),undefined,'管理员修改到期策略后才允许清除失败终态');
 
       assert.equal((await app.request('/api/credential-pool-groups', { method: 'POST', headers, body: JSON.stringify({ name: 'pool-a' }) })).status, 200);
       const overviewRenewalAt = new Date('2032-08-14T09:10:11Z');
