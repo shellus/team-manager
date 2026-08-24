@@ -28,6 +28,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 - Access Context 必须且只能选择个人空间或 Workspace。
 - Credential 分别外键关联账号与 Workspace；正文为文件制品。
 - `seatKey` 全局唯一；同一 SeatSlot 同时最多一个活动换号操作。
+- `seat_slots.expire_reminder` 是默认开启的显式提醒事实；只有该字段开启且 `expires_on` 存在时才进入到期提醒调度，关闭提醒不改变到期处理策略。
 - Automation Operation 幂等键唯一；支付输入只保存安全摘要。
 - Workspace 订阅快照结构化保存 `fixed_seat_capacity` 与 `subscription_seats_in_use`；两者分别对应上游 `seats_entitled` 与 `seats_in_use`，不能从成员、邀请或发票反推。
 

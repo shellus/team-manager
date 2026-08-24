@@ -11,6 +11,7 @@ export interface SaveSeatSlotInput {
   remark?: string | null;
   price?: string | null;
   expiresOn?: string | null;
+  expireReminder?: boolean;
   expireRemove?: boolean;
   seatType?: 'default' | 'usage_based' | null;
   status: 'empty' | 'invited' | 'member' | 'unknown' | 'disabled';
@@ -30,6 +31,7 @@ export class SeatSlotRepository {
       remark: input.remark?.trim() || null,
       price: input.price?.trim() || null,
       expires_on: input.expiresOn ?? null,
+      expire_reminder: input.expireReminder ?? true,
       expire_remove: input.expireRemove ?? false,
       seat_type: input.seatType ?? null,
       status: input.status
@@ -42,6 +44,7 @@ export class SeatSlotRepository {
       remark: input.remark?.trim() || null,
       price: input.price?.trim() || null,
       expires_on: input.expiresOn ?? null,
+      expire_reminder: input.expireReminder ?? true,
       expire_remove: input.expireRemove ?? false,
       seat_type: input.seatType ?? null,
       status: input.status

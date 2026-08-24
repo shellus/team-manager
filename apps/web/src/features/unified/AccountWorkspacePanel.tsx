@@ -17,6 +17,7 @@ import {
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
+import { ProductDatePicker } from "../../components/ProductDatePicker.js";
 import type {
   BillingDetailView,
   CredentialPoolGroupView,
@@ -408,7 +409,7 @@ function PeoplePanel({
   );
 }
 
-type TenantDataValues = Pick<SeatSlotInput, "contact" | "remark" | "price" | "expiresOn" | "expireRemove">;
+type TenantDataValues = Pick<SeatSlotInput, "contact" | "remark" | "price" | "expiresOn" | "expireReminder" | "expireRemove">;
 type InviteMemberValues = WorkspaceInvitationMutationInput;
 
 function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, onSubmit }: {
@@ -423,7 +424,7 @@ function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, on
   const email = initial?.email ?? person?.email ?? person?.accountEmail;
   const seatType = initial?.seatType ?? person?.seatType;
   return <ProductModal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose}>
-    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues) => { if (await onSubmit({ ...tenantDataInput(value), email, seatType })) onClose(); }} disabled={busy}>
+    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireReminder: initial?.expireReminder ?? true, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues) => { if (await onSubmit({ ...tenantDataInput(value), email, seatType })) onClose(); }} disabled={busy}>
       <Descriptions size="small" bordered column={1} items={[{ key: "email", label: "关联邮箱", children: email ?? "—" }]} />
       <TenantDataFields />
       <Button type="primary" htmlType="submit" loading={busy}>保存租客信息</Button>
@@ -436,7 +437,8 @@ function TenantDataFields() {
     <div className="responsive-form-grid">
       <Form.Item name="contact" label="联系方式"><Input /></Form.Item>
       <Form.Item name="price" label="价格"><Input /></Form.Item>
-      <Form.Item name="expiresOn" label="到期日" extra="设置到期日后自动参与到期提醒；清空后不提醒。"><Input type="date" /></Form.Item>
+      <Form.Item name="expiresOn" label="到期日" extra="可直接输入或粘贴日期，也可快捷选择今天、下个月。"><ProductDatePicker /></Form.Item>
+      <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked" extra="开启后，有到期日的席位会按通知策略发送提醒；关闭后仍照常执行到期处理。"><Switch /></Form.Item>
     </div>
     <Form.Item name="remark" label="备注"><Input.TextArea rows={3} /></Form.Item>
     <Form.Item name="expireRemove" label="到期后自动移除远端关系" valuePropName="checked" extra="开启后最多尝试 3 次（失败后等待 1 分钟、5 分钟）；仍失败时保留关系和租客资料、停止自动重试并发送告警。关闭时到期后只停用本地租客资料。"><Switch /></Form.Item>
@@ -502,7 +504,8 @@ export function relationReleaseCopy(row: Pick<AccountWorkspacePersonRow, "kind">
 function tenantDataInput(value: TenantDataValues): TenantDataValues {
   return {
     contact: optionalText(value.contact), remark: optionalText(value.remark), price: optionalText(value.price),
-    expiresOn: optionalText(value.expiresOn), expireRemove: value.expireRemove === true
+    expiresOn: optionalText(value.expiresOn), expireReminder: value.expireReminder === true,
+    expireRemove: value.expireRemove === true
   };
 }
 function inviteTenantDataInput(value: TenantDataValues): TenantDataValues {
@@ -510,7 +513,8 @@ function inviteTenantDataInput(value: TenantDataValues): TenantDataValues {
   const price = optionalText(value.price), expiresOn = optionalText(value.expiresOn);
   return {
     ...(contact ? { contact } : {}), ...(remark ? { remark } : {}), ...(price ? { price } : {}),
-    ...(expiresOn ? { expiresOn } : {}), expireRemove: value.expireRemove === true
+    ...(expiresOn ? { expiresOn } : {}), expireReminder: value.expireReminder === true,
+    expireRemove: value.expireRemove === true
   };
 }
 function optionalText(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
@@ -521,7 +525,7 @@ function isWorkspaceOwner(row?: AccountWorkspacePersonRow) { return row?.role ==
 function canEditSeat(row: AccountWorkspacePersonRow) { return (row.kind === "member" && Boolean(row.remoteUserId)) || (row.kind === "customer" && Boolean(row.seatSlot)); }
 function roleForSelect(role?: string) { return role === "analytics_viewer" ? "analytics-viewer" : role === "member" ? "standard-user" : role === "admin" ? "account-admin" : role === "owner" ? "account-owner" : role; }
 function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
-function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
+function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireReminder ? "提醒" : "不提醒"} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
 function expirationRemovalTag(slot?:SeatSlotView):ReactNode{
   const removal=slot?.expirationRemoval;if(!removal)return null;
   if(removal.status==='failed')return <Tooltip title={removal.error??'自动移除已达到最大尝试次数'}><Tag color="red">自动移除失败</Tag></Tooltip>;

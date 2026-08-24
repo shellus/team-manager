@@ -39,7 +39,8 @@ export class SeatSlotService {
       .some((value) => typeof value === 'string' && value.trim()) || input.expireRemove === true;
     const customerInput: SeatSlotMutationInput = {
       email: input.email, seatType: input.seat, contact: input.contact, remark: input.remark,
-      price: input.price, expiresOn: input.expiresOn, expireRemove: input.expireRemove
+      price: input.price, expiresOn: input.expiresOn, expireReminder: input.expireReminder,
+      expireRemove: input.expireRemove
     };
     if (existing) await this.update(workspaceId, existing.id, executorAccountId,
       hasCustomerData ? customerInput : { email: input.email, ...(input.seat ? { seatType: input.seat } : {}) });
@@ -61,6 +62,7 @@ export class SeatSlotService {
     if (duplicate) throw new ServiceError(409, '该成员或邀请已有客户资料');
     const row = await this.#repository.save({ workspaceId, seatKey, email, remoteUserId: relation.remoteUserId,
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
+      expireReminder: input.expireReminder,
       expireRemove: input.expireRemove,
       seatType, status: relation.status });
     await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,seatType:row.seat_type}); return row;
@@ -73,12 +75,14 @@ export class SeatSlotService {
     if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工修改，请使用邀请、成员管理或释放操作');
     const relation=await this.relation(workspaceId,row.current_email);
     const nextExpiresOn = input.expiresOn === undefined ? row.expires_on : input.expiresOn;
+    const nextExpireReminder = input.expireReminder ?? row.expire_reminder;
     const nextExpireRemove = input.expireRemove ?? row.expire_remove;
     const removalPolicyChanged = nextExpiresOn !== row.expires_on || nextExpireRemove !== row.expire_remove;
     const updated = await this.#repository.save({ workspaceId, seatKey: row.seat_key, email:row.current_email,
       remoteUserId: relation.remoteUserId,
       contact: input.contact === undefined ? row.contact : input.contact, remark: input.remark === undefined ? row.remark : input.remark,
       price: input.price === undefined ? row.price : input.price, expiresOn: nextExpiresOn,
+      expireReminder: nextExpireReminder,
       expireRemove: nextExpireRemove,
       seatType: relation.seatType ?? input.seatType ?? row.seat_type as SeatType,
       status: relation.status === 'unknown' && row.status === 'disabled' ? 'disabled' : relation.status });
@@ -106,6 +110,7 @@ export class SeatSlotService {
     const reminderStart=seatWindows.map(item=>item.start).sort()[0]??today;const reminderEnd=seatWindows.map(item=>item.end).sort().at(-1)??today;
     const reminders=await this.db.selectFrom('seat_slots').selectAll()
       .where('status','!=','disabled').where('current_email','is not',null)
+      .where('expire_reminder','=',true)
       .where('expires_on','is not',null)
       .where('expires_on','>=',reminderStart).where('expires_on','<=',reminderEnd).execute();
     let seatReminders = 0;

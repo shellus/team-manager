@@ -32,7 +32,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 - 个人空间与 Workspace 都支持绑定、设置默认和移除支付方式，以及取消续费；完整卡号/CVC 只进入当前 Team Manager 请求中的无追踪 Stripe Transport，不写数据库、普通日志或 HTTP trace，支付写操作都在返回前复读上游状态。
 - Business 创建新 Workspace，或升级账号当前可管理的既有 Workspace。
 - 账号详情内切换 Workspace；成员与邀请合并显示，账单集中呈现订阅、续费、金额、计费席位、支付方式和发票，并可校验和应用现有 Workspace 优惠码；凭证严格按 `Account × Workspace` 显示。
-- 客户联系方式、备注、价格和到期日合并显示在账号 Workspace 的成员与邀请列表；设置到期日即自动参与提醒，不设独立提醒开关。
+- 客户联系方式、备注、价格、到期日和显式到期提醒开关合并显示在账号 Workspace 的成员与邀请列表；提醒默认开启，只有同时设置到期日的席位才进入提醒调度。
 - Team 升级订单维护、有限重试通知、客户席位到期任务，以及独立的席位概览和母号概览页面。
 - OAuth/PAT 创建、替换、重新授权、号池排序与 CPA 原子投放。
 - HTTP trace、rrweb、凭证与隔离制品的文件索引、结构化日志、rrweb 回放、哈希复核和保留生命周期；Web UI 不展示或下载正文。
@@ -75,7 +75,7 @@ PostgreSQL 是结构化业务数据的唯一事实源。应用启动只检查 mi
 
 运行配置的唯一事实源是部署目录的 `config.yaml`，结构参考 [`config.example.yaml`](./config.example.yaml)。管理员密码可以在首次迁移时填写明文，配置加载器会在跨进程锁内将其原子改写为 bcrypt cost 12；源码目录不读取 `.env`。本机完整开发实例通过部署目录的 `./tmux-dev-manager.sh` 管理。
 
-前端的产品级组件行为集中维护：`theme/uiPolicy.ts` 负责弹层容器、视口边界、虚拟滚动和分页数量选择器，`theme/popupPolicy.css` 只保存全局弹层定位兜底；声明式弹窗/抽屉使用 `ProductModal`、`ProductDrawer`，非 Table 分页使用 `ProductPagination`，所有分页状态使用 `useUrlPagination`。页面可以直接使用 Ant Design `Select` 传递业务选项，但不得自行设置弹层容器、定位、动画、虚拟滚动或分页数量选择器策略。`theme/uiPolicy.test.ts` 会阻止这些旁路重新进入源码。
+前端的产品级组件行为集中维护：`theme/uiPolicy.ts` 负责弹层容器、视口边界、虚拟滚动和分页数量选择器，`theme/popupPolicy.css` 只保存全局弹层定位兜底；声明式弹窗/抽屉使用 `ProductModal`、`ProductDrawer`，业务日期输入使用支持整段粘贴和快捷项的 `ProductDatePicker`，非 Table 分页使用 `ProductPagination`，所有分页状态使用 `useUrlPagination`。页面可以直接使用 Ant Design `Select` 传递业务选项，但不得自行设置弹层容器、定位、动画、虚拟滚动或分页数量选择器策略。`theme/uiPolicy.test.ts` 会阻止这些旁路重新进入源码。
 
 ```bash
 corepack pnpm install

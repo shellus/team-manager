@@ -405,7 +405,8 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     if (body.seat !== undefined && body.seat !== 'default' && body.seat !== 'usage_based') return c.json({ ok: false, error: '无效 seat' }, 400);
     return wrap(c, () => seatSlots.invite(c.req.param('id'), body.executorAccountId!, {
       email: body.email!, seat: body.seat, role: body.role, contact: body.contact,
-      remark: body.remark, price: body.price, expiresOn: body.expiresOn, expireRemove: body.expireRemove
+      remark: body.remark, price: body.price, expiresOn: body.expiresOn,
+      expireReminder: body.expireReminder, expireRemove: body.expireRemove
     }));
   });
   api.delete('/workspaces/:id/invitations', async (c) => {

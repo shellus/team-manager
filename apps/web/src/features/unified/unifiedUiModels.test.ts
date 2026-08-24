@@ -53,6 +53,7 @@ describe("workspace settings mapping", () => {
   test("invites leave the seat unspecified for the upstream service", () => {
     expect(INVITE_MEMBER_INITIAL_VALUES).toEqual({
       role: "analytics-viewer",
+      expireReminder: true,
       expireRemove: false,
     });
   });

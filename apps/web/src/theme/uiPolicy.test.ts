@@ -50,6 +50,15 @@ describe('product UI policy', () => {
     }
   });
 
+  test('routes every business date field through ProductDatePicker', () => {
+    for (const [path, source] of Object.entries(componentSources)) {
+      if (!path.endsWith('/ProductDatePicker.tsx')) {
+        expect(source, path).not.toMatch(/<DatePicker\b/);
+      }
+      expect(source, path).not.toMatch(/<(?:Input|input)\b[^>]*\btype\s*=\s*["'{]?date\b/);
+    }
+  });
+
   test('keeps Select positioning fixes in the global popup policy stylesheet', () => {
     expect(popupPolicySource).toContain('opacity: 1 !important');
     expect(popupPolicySource).toContain('transform: none !important');

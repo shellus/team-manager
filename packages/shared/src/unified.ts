@@ -270,12 +270,13 @@ export interface SeatSlotMutationInput {
   remark?: string | null;
   price?: string | null;
   expiresOn?: string | null;
+  expireReminder?: boolean;
   expireRemove?: boolean;
   seatType?: SeatType;
   status?: 'empty' | 'invited' | 'member' | 'disabled' | 'unknown';
 }
 
-export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationInput, 'contact' | 'remark' | 'price' | 'expiresOn' | 'expireRemove'> {
+export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationInput, 'contact' | 'remark' | 'price' | 'expiresOn' | 'expireReminder' | 'expireRemove'> {
   email: string;
   seat?: SeatType;
   role?: string;
@@ -688,6 +689,7 @@ export interface SeatSlotView {
   remark?: string;
   price?: string;
   expiresOn?: string;
+  expireReminder: boolean;
   expireRemove: boolean;
   seatType?: SeatType;
   status: string;

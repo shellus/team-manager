@@ -290,7 +290,8 @@ export class UnifiedProjectionRepository {
         ...(row.remote_user_id ? { remoteUserId: row.remote_user_id } : {}), ...(row.contact ? { contact: row.contact } : {}),
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
         ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
-        expireRemove: row.expire_remove, ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status,
+        expireReminder: row.expire_reminder, expireRemove: row.expire_remove,
+        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status,
         ...(expirationRemoval ? { expirationRemoval: {
           status:expirationRemoval.status as 'retrying'|'running'|'failed',attemptCount:expirationRemoval.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS,
           ...(expirationRemoval.next_attempt_at?{nextAttemptAt:iso(expirationRemoval.next_attempt_at)}:{}),
