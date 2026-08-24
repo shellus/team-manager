@@ -162,6 +162,13 @@ export interface ResidentialProxyConfig {
   city: string | null;
 }
 
+export const RESIDENTIAL_PROXY_SID_LENGTH = 8;
+export const RESIDENTIAL_PROXY_SID_PATTERN = /^[a-z0-9]{8}$/i;
+
+export function isResidentialProxySid(value: unknown): value is string {
+  return typeof value === 'string' && RESIDENTIAL_PROXY_SID_PATTERN.test(value.trim());
+}
+
 export interface PersonalPaymentMethodView {
   id: string;
   type?: string;

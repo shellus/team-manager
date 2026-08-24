@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import type {
-  AccountManagerStateView,
-  RegisterAccountRequest,
-  ResidentialProxyConfig
+import {
+  isResidentialProxySid,
+  type AccountManagerStateView,
+  type RegisterAccountRequest,
+  type ResidentialProxyConfig
 } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import type { AccountManagerGateway } from '../accountManagerClient.js';
@@ -285,14 +286,14 @@ function fulfilled<T>(result: PromiseSettledResult<T>): T | undefined {
   return result.status === 'fulfilled' ? result.value : undefined;
 }
 function errorMessage(value: unknown): string { return value instanceof Error ? value.message : String(value); }
-function validateProxy(input: ResidentialProxyConfig) {
-  if (!input.sid.trim()) throw new ServiceError(400, '代理 SID 不能为空');
+export function validateProxy(input: ResidentialProxyConfig) {
+  if (!isResidentialProxySid(input.sid)) throw new ServiceError(400, '代理 SID 必须是 8 位字母或数字');
   if (!/^[A-Z]{2}$/i.test(input.country)) throw new ServiceError(400, '代理国家必须是两个字母');
   if (input.asn && (input.state || input.city)) throw new ServiceError(400, 'ASN 与州/城市不能同时设置');
   if (input.city && !input.state) throw new ServiceError(400, '设置城市时必须同时设置州/省');
 }
-function normalizedProxy(input: ResidentialProxyConfig): ResidentialProxyConfig {
-  return { ...input, country: input.country.toUpperCase() };
+export function normalizedProxy(input: ResidentialProxyConfig): ResidentialProxyConfig {
+  return { ...input, sid: input.sid.trim(), country: input.country.toUpperCase() };
 }
 
 function mergeOperations(local: AccountManagerStateView['operations'], remote: AccountManagerStateView['operations']) {

@@ -205,7 +205,7 @@ function ProxyModal({
       <Alert
         type="info"
         showIcon
-        message="修改 SID 会更换住宅代理的粘性会话并获得新 IP；ASN 与州/省、城市是两种互斥定位方式。"
+        message="修改 8 位 SID 会更换住宅代理的粘性会话并获得新 IP；ASN 与州/省、城市是两种互斥定位方式。"
       />
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}
       <Form
@@ -234,7 +234,7 @@ function ProxyModal({
           }
         }}
       >
-        <ProxyConfigurationFields form={form} />
+        <ProxyConfigurationFields form={form} showRandomSidButton />
         <Button type="primary" htmlType="submit" loading={saving}>
           保存代理配置
         </Button>
