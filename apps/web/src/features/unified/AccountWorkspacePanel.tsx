@@ -15,7 +15,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { ReloadOutlined, UsergroupAddOutlined } from "@ant-design/icons";
 import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 import { ProductDatePicker } from "../../components/ProductDatePicker.js";
 import type {
@@ -168,6 +168,29 @@ export function AccountWorkspacePanel({
     }
   };
 
+  const requestWorkspaceJoin = async (workspaceExternalId: string): Promise<boolean> => {
+    setBusy("account-workspace-join");
+    setError("");
+    try {
+      const result = await unifiedApi.requestWorkspaceJoin(account.id, workspaceExternalId);
+      await onAccountChanged();
+      productMessage.success(result.status === "joined"
+        ? "已加入 Team，并同步了 Workspace 关系"
+        : "加入申请已提交，等待 Workspace 接受");
+      if (result.synchronizationError) {
+        productMessage.warning(`加入申请已提交，但关系同步失败：${result.synchronizationError}`);
+      }
+      return true;
+    } catch (reason) {
+      const message = errorMessage(reason, "加入 Team 失败");
+      setError(message);
+      productMessage.error(message);
+      return false;
+    } finally {
+      setBusy("");
+    }
+  };
+
   const deleteRemovedWorkspaceRecord = (item: RemovedAccountWorkspaceView) => {
     productModal.confirm({
       title: "删除这条已退出 Workspace 记录？",
@@ -232,6 +255,14 @@ export function AccountWorkspacePanel({
       >
         同步账号与 Workspace 关系
       </Button>
+      <Button
+        icon={<UsergroupAddOutlined />}
+        loading={busy === "account-workspace-join"}
+        disabled={Boolean(busy) && busy !== "account-workspace-join"}
+        onClick={() => setPanelParams({ modal: "join-team" })}
+      >
+        加入 Team
+      </Button>
       {relationship && <Tag color={canManage ? "green" : "default"}>{roleLabel(relationship.role)}</Tag>}
       {relationship && !canManage && <Typography.Text type="secondary">普通成员只能查看空间资料并管理自己的凭证</Typography.Text>}
     </Space>
@@ -279,6 +310,12 @@ export function AccountWorkspacePanel({
         {workspaceSwitcher}
         {removedWorkspaceSection}
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该账号没有活动 Workspace 关系" />
+        <JoinTeamModal
+          open={params.get("modal") === "join-team"}
+          busy={busy === "account-workspace-join"}
+          onClose={() => setPanelParams({ modal: undefined })}
+          onSubmit={requestWorkspaceJoin}
+        />
       </Space>
     );
   }
@@ -314,8 +351,49 @@ export function AccountWorkspacePanel({
           },
         ]}
       />
+      <JoinTeamModal
+        open={params.get("modal") === "join-team"}
+        busy={busy === "account-workspace-join"}
+        onClose={() => setPanelParams({ modal: undefined })}
+        onSubmit={requestWorkspaceJoin}
+      />
     </Space>
   );
+}
+
+function JoinTeamModal({ open, busy, onClose, onSubmit }: {
+  open: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (workspaceId: string) => Promise<boolean>;
+}) {
+  return <ProductModal title="加入 Team" open={open} onCancel={onClose}>
+    <Form
+      layout="vertical"
+      disabled={busy}
+      onFinish={async ({ workspaceId }: { workspaceId: string }) => {
+        if (await onSubmit(workspaceId.trim())) onClose();
+      }}
+    >
+      <Alert
+        type="info"
+        showIcon
+        message="使用当前账号申请加入目标 Workspace"
+        description="若目标空间已开启自动接受，同步后会直接显示为活动 Workspace；否则需等待空间管理员接受。"
+      />
+      <Form.Item
+        name="workspaceId"
+        label="Workspace ID"
+        rules={[
+          { required: true, whitespace: true, message: "请输入 Workspace ID" },
+          { pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, message: "请输入有效的 Workspace UUID" },
+        ]}
+      >
+        <Input autoComplete="off" spellCheck={false} placeholder="00000000-0000-0000-0000-000000000000" />
+      </Form.Item>
+      <Button type="primary" htmlType="submit" loading={busy}>申请加入 Team</Button>
+    </Form>
+  </ProductModal>;
 }
 
 function LoadingEmpty({ loading }: { loading: boolean }) {
@@ -603,7 +681,7 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
   </Space>;
 }
 
-function WorkspaceSettings({ workspace, accountId, canManage, busy, run, mutateWorkspace }: {
+export function WorkspaceSettings({ workspace, accountId, canManage, busy, run, mutateWorkspace }: {
   workspace: WorkspaceDetailView;
   accountId: string;
   canManage: boolean;
@@ -637,6 +715,11 @@ function WorkspaceSettings({ workspace, accountId, canManage, busy, run, mutateW
   const controlsDisabled = !canManage || Boolean(busy);
   return <Space direction="vertical" className="panel-stack">
     <Space wrap><Typography.Text type="secondary">设置快照：{formatTime(workspace.latestSettings?.observedAt)}</Typography.Text><Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "settings-refresh"} onClick={() => void run("settings-refresh", () => unifiedApi.refreshWorkspaceSettings(workspace.id, accountId))}>刷新设置</Button></Space>
+    <Form layout="vertical">
+      <Form.Item label="Workspace ID">
+        <Input className="workspace-id-input" value={workspace.externalId} readOnly />
+      </Form.Item>
+    </Form>
     <Form form={nameForm} layout="vertical" onFinish={saveName} disabled={controlsDisabled} className="workspace-name-form">
       <Form.Item label="Workspace 名称">
         <Space.Compact block>

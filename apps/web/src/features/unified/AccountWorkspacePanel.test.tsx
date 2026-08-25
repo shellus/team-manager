@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { UnifiedAccountDetailView } from "@team-manager/shared";
-import { AccountWorkspacePanel, relationReleaseCopy } from "./AccountWorkspacePanel.js";
+import { AccountWorkspacePanel, relationReleaseCopy, WorkspaceSettings } from "./AccountWorkspacePanel.js";
 
 describe("账号 Workspace 面板", () => {
   it("没有活动 Workspace 时仍显示关系同步入口", () => {
@@ -21,7 +21,37 @@ describe("账号 Workspace 面板", () => {
 
     expect(html).toContain("选择 Workspace");
     expect(html).toContain("同步账号与 Workspace 关系");
+    expect(html).toContain("加入 Team");
     expect(html.indexOf("选择 Workspace")).toBeLessThan(html.indexOf("同步账号与 Workspace 关系"));
+    expect(html.indexOf("同步账号与 Workspace 关系")).toBeLessThan(html.indexOf("加入 Team"));
+  });
+
+  it("Workspace 设置显示只读的远端 Workspace ID", () => {
+    const html = renderToStaticMarkup(
+      <App>
+        <WorkspaceSettings
+          workspace={{
+            id: "local-workspace-id",
+            externalId: "0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc",
+            members: [],
+            invitations: [],
+            credentials: [],
+            seatSlots: [],
+            consistencyRisks: [],
+          } as unknown as import("@team-manager/shared").WorkspaceDetailView}
+          accountId="account-id"
+          canManage
+          busy=""
+          run={async () => true}
+          mutateWorkspace={async () => true}
+        />
+      </App>,
+    );
+
+    expect(html).toContain("Workspace ID");
+    expect(html).toContain("0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc");
+    expect(html).toMatch(/readonly=""/);
+    expect(html).not.toContain("local-workspace-id");
   });
 
   it("没有其他账号使用时仍只展示退出关系删除入口", () => {

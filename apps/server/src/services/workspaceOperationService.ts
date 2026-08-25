@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely';
 import type {
+  AccountWorkspaceJoinRequestResult,
   EditableMemberRole,
   SeatType,
   WorkspaceMemberRemovalResult,
@@ -56,39 +57,13 @@ export class WorkspaceOperationService {
       const account = await this.db.selectFrom('accounts').select(['id', 'email', 'normalized_email'])
         .where('id', '=', accountId).executeTakeFirst();
       if (!account) throw new ServiceError(404, '账号不存在');
-      const personal = await this.db.selectFrom('personal_spaces').select(['id', 'remote_account_id'])
-        .where('account_id', '=', accountId).executeTakeFirstOrThrow();
-      const session = await this.sessions.currentSession(accountId) as {
-        account?: { id?: string };
-        accessToken?: string;
-        sessionToken?: string;
-      } | undefined;
-      const remoteAccountId = personal.remote_account_id ?? session?.account?.id?.trim();
-      if (!remoteAccountId) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
-
-      let accessToken = await this.sessions.accessToken(accountId, {
-        kind: 'personal', personalSpaceId: personal.id
-      }) ?? session?.accessToken?.trim();
-      if (!accessToken) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
-      const proxy = await this.operational.proxy(accountId);
-      const refreshAccessToken = async () => {
-        if (!session?.sessionToken) {
-          throw new ServiceError(409, 'Access Token 已失效，账号缺少可换取新 Token 的 sessionToken');
-        }
-        const refreshed = await fetchChatGptWebAccessTokenFromSessionToken(
-          this.transport, session.sessionToken, remoteAccountId, proxy
-        );
-        await this.sessions.saveAccessToken(accountId, {
-          kind: 'personal', personalSpaceId: personal.id
-        }, refreshed, { status: 'valid', checkedAt: new Date() });
-        return refreshed;
-      };
+      const access = await this.personalAccessContext(accountId);
 
       const api = new ChatGptApi({
-        accountId: remoteAccountId,
-        accessToken,
-        proxy,
-        refreshWebAccessToken: session?.sessionToken ? refreshAccessToken : undefined
+        accountId: access.remoteAccountId,
+        accessToken: access.accessToken,
+        proxy: access.proxy,
+        refreshWebAccessToken: access.refreshWebAccessToken
       }, this.transport);
       const observedAt = new Date();
       const visibleWorkspaces = (await api.checkAccounts()).filter((item) =>
@@ -171,6 +146,52 @@ export class WorkspaceOperationService {
           disabledCredentialCount
         };
       });
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  async requestWorkspaceJoin(
+    accountId: string,
+    workspaceExternalId: string
+  ): Promise<AccountWorkspaceJoinRequestResult> {
+    try {
+      const target = normalizeWorkspaceExternalId(workspaceExternalId);
+      const access = await this.personalAccessContext(accountId);
+      const api = new ChatGptApi({
+        accountId: target,
+        accessToken: access.accessToken,
+        proxy: access.proxy,
+        refreshWebAccessToken: access.refreshWebAccessToken
+      }, this.transport);
+      await api.requestWorkspaceInvite();
+      await this.#activity.log({
+        accountId,
+        kind: 'account_workspace_join_requested',
+        payload: { workspaceExternalId: target }
+      });
+
+      let synchronized = false;
+      let synchronizationError: string | undefined;
+      try {
+        await this.syncAccountRelationships(accountId);
+        synchronized = true;
+      } catch (error) {
+        synchronizationError = asServiceError(error).message;
+      }
+      const activeRelationship = await this.db.selectFrom('workspace_memberships as membership')
+        .innerJoin('workspaces as workspace', 'workspace.id', 'membership.workspace_id')
+        .select('membership.id')
+        .where('membership.account_id', '=', accountId)
+        .where('membership.status', '=', 'active')
+        .where('workspace.external_id', '=', target)
+        .executeTakeFirst();
+      return {
+        workspaceExternalId: target,
+        status: activeRelationship ? 'joined' : 'requested',
+        synchronized,
+        ...(synchronizationError ? { synchronizationError } : {})
+      };
     } catch (error) {
       throw asServiceError(error);
     }
@@ -550,6 +571,43 @@ export class WorkspaceOperationService {
     } catch (error) { throw asServiceError(error); }
   }
 
+  private async personalAccessContext(accountId: string) {
+    const personal = await this.db.selectFrom('personal_spaces').select(['id', 'remote_account_id'])
+      .where('account_id', '=', accountId).executeTakeFirst();
+    if (!personal) throw new ServiceError(404, '账号不存在');
+    const session = await this.sessions.currentSession(accountId) as {
+      account?: { id?: string };
+      accessToken?: string;
+      sessionToken?: string;
+    } | undefined;
+    const remoteAccountId = personal.remote_account_id ?? session?.account?.id?.trim();
+    if (!remoteAccountId) throw new ServiceError(409, '账号缺少可用的本地 ChatGPT Session');
+    const proxy = await this.operational.proxy(accountId);
+    const refreshWebAccessToken = async () => {
+      if (!session?.sessionToken) {
+        throw new ServiceError(409, 'Access Token 已失效，账号缺少可换取新 Token 的 sessionToken');
+      }
+      const refreshed = await fetchChatGptWebAccessTokenFromSessionToken(
+        this.transport, session.sessionToken, remoteAccountId, proxy
+      );
+      await this.sessions.saveAccessToken(accountId, {
+        kind: 'personal', personalSpaceId: personal.id
+      }, refreshed, { status: 'valid', checkedAt: new Date() });
+      return refreshed;
+    };
+    const currentSessionAccountId = session?.account?.id?.trim();
+    let accessToken = await this.sessions.accessToken(accountId, {
+      kind: 'personal', personalSpaceId: personal.id
+    }) ?? (currentSessionAccountId === remoteAccountId ? session?.accessToken?.trim() : undefined);
+    if (!accessToken) accessToken = await refreshWebAccessToken();
+    return {
+      remoteAccountId,
+      accessToken,
+      proxy,
+      refreshWebAccessToken: session?.sessionToken ? refreshWebAccessToken : undefined
+    };
+  }
+
   private async reconcileCredentials(workspaceId: string) {
     const rows = await this.db.selectFrom('workspace_credentials as c').innerJoin('accounts as a', 'a.id', 'c.account_id')
       .select(['c.id', 'c.account_id', 'a.normalized_email']).where('c.workspace_id', '=', workspaceId).execute();
@@ -563,6 +621,14 @@ export class WorkspaceOperationService {
     }
   }
   private activity(accountId:string,workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({accountId,workspaceId,kind,payload});}
+}
+
+export function normalizeWorkspaceExternalId(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(normalized)) {
+    throw new ServiceError(400, 'Workspace ID 必须是有效的 UUID');
+  }
+  return normalized;
 }
 
 async function waitForRenewalCancellation(

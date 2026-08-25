@@ -364,10 +364,8 @@ export class ChatGptApi {
   }
 
   /** 当前登录用户向目标 workspace 发起自助加入请求。 */
-  async requestWorkspaceInvite(workspaceId: string): Promise<unknown> {
-    const target = workspaceId.trim();
-    if (!target) throw new Error('缺少 workspace ID');
-    const path = `/backend-api/accounts/${target}/invites/request`;
+  async requestWorkspaceInvite(): Promise<unknown> {
+    const path = `/backend-api/accounts/${encodeURIComponent(this.account.accountId)}/invites/request`;
     return this.request('POST', path, {});
   }
 

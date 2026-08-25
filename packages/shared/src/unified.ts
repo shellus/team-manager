@@ -565,6 +565,13 @@ export interface AccountWorkspaceRelationshipSyncResult {
   disabledCredentialCount: number;
 }
 
+export interface AccountWorkspaceJoinRequestResult {
+  workspaceExternalId: string;
+  status: 'joined' | 'requested';
+  synchronized: boolean;
+  synchronizationError?: string;
+}
+
 export interface RemovedAccountWorkspaceRecordDeleteResult {
   deleted: true;
   deletedMembershipCount: number;

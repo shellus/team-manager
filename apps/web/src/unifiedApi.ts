@@ -7,6 +7,7 @@ import type {
   AccountManagerStateView,
   AccountManagerOperationView,
   AccountWorkspaceRelationshipSyncResult,
+  AccountWorkspaceJoinRequestResult,
   AddSubscriptionPaymentMethodRequest,
   ArtifactIndexView,
   BillingDetailView,
@@ -145,6 +146,8 @@ export const unifiedApi = {
     request<WorkspaceDetailView>('GET', `/accounts/${accountId}/workspaces/${workspaceId}`),
   syncAccountWorkspaces: (accountId: string) =>
     request<AccountWorkspaceRelationshipSyncResult>('POST', `/accounts/${accountId}/workspaces/sync`),
+  requestWorkspaceJoin: (accountId: string, workspaceId: string) =>
+    request<AccountWorkspaceJoinRequestResult>('POST', `/accounts/${accountId}/workspaces/join-request`, { workspaceId }),
   deleteRemovedAccountWorkspaceRecord: (accountId: string, workspaceId: string) =>
     request<RemovedAccountWorkspaceRecordDeleteResult>('DELETE', `/accounts/${accountId}/workspaces/${workspaceId}/removed-record`),
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),

@@ -208,6 +208,11 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/accounts/:id/workspaces/sync', (c) =>
     wrap(c, () => workspaceOperations.syncAccountRelationships(c.req.param('id')))
   );
+  api.post('/accounts/:id/workspaces/join-request', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { workspaceId?: string };
+    if (!body.workspaceId?.trim()) return c.json({ ok: false, error: '缺少 Workspace ID' }, 400);
+    return wrap(c, () => workspaceOperations.requestWorkspaceJoin(c.req.param('id'), body.workspaceId!));
+  });
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
   api.patch('/accounts/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}));

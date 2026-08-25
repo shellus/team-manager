@@ -2,11 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   memberRemovalSummary,
+  normalizeWorkspaceExternalId,
   promotionRequiresRenewalAcknowledgement,
   workspaceSettingPayload,
   workspacePromotionApplyResult,
   workspacePromotionPreview
 } from './services/workspaceOperationService.js';
+
+test('Workspace 加入申请只接受 UUID 并统一为小写',()=>{
+  assert.equal(normalizeWorkspaceExternalId(' 0A9B56EC-C0A2-473F-A8EA-8F25EF8CC5FC '),'0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc');
+  assert.throws(()=>normalizeWorkspaceExternalId('not-a-workspace-id'),/Workspace ID 必须是有效的 UUID/);
+});
 
 test('Workspace 单项设置成功后只合并提交值并保留已有快照细节',()=>{
   const original={default_seat_type:'usage_based',beta_settings:{personal_access_tokens:false,other:true},automatic_reload:{is_enabled:false,recharge_threshold:'10'}};

@@ -168,6 +168,7 @@ body {
 .optional-fields > summary { cursor: pointer; color: var(--color-primary); font-weight: 600; }
 .optional-fields[open] > summary { margin-bottom: 10px; }
 .raw-json textarea, textarea.raw-json { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
+.workspace-id-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .group-row { width: 100%; }
 .group-sortable-list { display: flex; flex-direction: column; gap: 6px; }
 .group-sortable-item { padding: 8px; border-radius: 8px; transition: background-color 160ms ease-out; }
