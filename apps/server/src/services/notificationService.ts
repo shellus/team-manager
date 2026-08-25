@@ -232,8 +232,8 @@ function notificationChannels(value: unknown): NotificationChannel[] {
 function seatExpiryItem(value: unknown): SeatExpiryNotificationItem[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
   const item = value as Record<string, unknown>;
-  if (!text(item.seatSlotId) || !text(item.email) || !text(item.expiresOn) || !text(item.workspaceId)) return [];
-  return [{ seatSlotId:text(item.seatSlotId), email:text(item.email), expiresOn:text(item.expiresOn), workspaceId:text(item.workspaceId),
+  if (!text(item.seatSlotId) || (!text(item.email) && item.relationStatus !== 'unclaimed') || !text(item.expiresOn) || !text(item.workspaceId)) return [];
+  return [{ seatSlotId:text(item.seatSlotId), ...(text(item.email)?{email:text(item.email)}:{relationStatus:'unclaimed' as const}), expiresOn:text(item.expiresOn), expireRemove:item.expireRemove===true, workspaceId:text(item.workspaceId),
     ...(text(item.workspaceName)?{workspaceName:text(item.workspaceName)}:{}), ...(text(item.workspaceExternalId)?{workspaceExternalId:text(item.workspaceExternalId)}:{}) }];
 }
 function numberValue(value: unknown, fallback: number) { const result = Number(value); return Number.isInteger(result) ? result : fallback; }

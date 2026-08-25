@@ -1,7 +1,21 @@
+import type { SeatSlotExpirationStatus } from '@team-manager/shared';
+
 export const SEAT_EXPIRATION_TIME_ZONE = 'Asia/Shanghai';
 
 export function seatExpirationBusinessDate(now: Date): string {
   return calendarDateInTimeZone(now, SEAT_EXPIRATION_TIME_ZONE);
+}
+
+export function seatSlotExpirationStatus(
+  expiresOn: string | Date | null | undefined,
+  now = new Date()
+): SeatSlotExpirationStatus {
+  if (!expiresOn) return 'not_set';
+  const date = expiresOn instanceof Date ? expiresOn.toISOString().slice(0, 10) : String(expiresOn).slice(0, 10);
+  const today = seatExpirationBusinessDate(now);
+  if (date < today) return 'expired';
+  if (date === today) return 'expires_today';
+  return 'active';
 }
 
 export function calendarDateInTimeZone(now: Date, timeZone: string): string {

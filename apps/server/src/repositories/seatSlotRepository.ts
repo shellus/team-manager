@@ -6,7 +6,6 @@ export interface SaveSeatSlotInput {
   workspaceId: string;
   seatKey: string;
   email?: string | null;
-  remoteUserId?: string | null;
   contact?: string | null;
   remark?: string | null;
   price?: string | null;
@@ -14,7 +13,6 @@ export interface SaveSeatSlotInput {
   expireReminder?: boolean;
   expireRemove?: boolean;
   seatType?: 'default' | 'usage_based' | null;
-  status: 'empty' | 'invited' | 'member' | 'unknown' | 'disabled';
 }
 
 export class SeatSlotRepository {
@@ -25,7 +23,6 @@ export class SeatSlotRepository {
       workspace_id: input.workspaceId,
       seat_key: input.seatKey,
       current_email: input.email?.trim() || null,
-      remote_user_id: input.remoteUserId?.trim() || null,
       normalized_current_email: input.email ? normalizeEmail(input.email) : null,
       contact: input.contact?.trim() || null,
       remark: input.remark?.trim() || null,
@@ -33,12 +30,10 @@ export class SeatSlotRepository {
       expires_on: input.expiresOn ?? null,
       expire_reminder: input.expireReminder ?? true,
       expire_remove: input.expireRemove ?? false,
-      seat_type: input.seatType ?? null,
-      status: input.status
+      seat_type: input.seatType ?? null
     }).onConflict((oc) => oc.column('seat_key').doUpdateSet({
       workspace_id: input.workspaceId,
       current_email: input.email?.trim() || null,
-      remote_user_id: input.remoteUserId?.trim() || null,
       normalized_current_email: input.email ? normalizeEmail(input.email) : null,
       contact: input.contact?.trim() || null,
       remark: input.remark?.trim() || null,
@@ -46,8 +41,7 @@ export class SeatSlotRepository {
       expires_on: input.expiresOn ?? null,
       expire_reminder: input.expireReminder ?? true,
       expire_remove: input.expireRemove ?? false,
-      seat_type: input.seatType ?? null,
-      status: input.status
+      seat_type: input.seatType ?? null
     })).returningAll().executeTakeFirstOrThrow();
   }
 

@@ -438,10 +438,10 @@ function TenantDataFields() {
       <Form.Item name="contact" label="联系方式"><Input /></Form.Item>
       <Form.Item name="price" label="价格"><Input /></Form.Item>
       <Form.Item name="expiresOn" label="到期日" extra="可直接输入或粘贴日期，也可快捷选择今天、下个月。"><ProductDatePicker /></Form.Item>
-      <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked" extra="开启后，有到期日的席位会按通知策略发送提醒；关闭后仍照常执行到期处理。"><Switch /></Form.Item>
+      <Form.Item name="expireReminder" label="到期提醒" valuePropName="checked" extra="开启后，有到期日的席位会按通知策略发送提醒；关闭只是不提醒，不影响已到期展示，是否移除由下方开关决定。"><Switch /></Form.Item>
     </div>
     <Form.Item name="remark" label="备注"><Input.TextArea rows={3} /></Form.Item>
-    <Form.Item name="expireRemove" label="到期后自动移除远端关系" valuePropName="checked" extra="开启后最多尝试 3 次（失败后等待 1 分钟、5 分钟）；仍失败时保留关系和租客资料、停止自动重试并发送告警。关闭时到期后只停用本地租客资料。"><Switch /></Form.Item>
+    <Form.Item name="expireRemove" label="到期是否移除席位资格" valuePropName="checked" extra="开启后会移除 Workspace 成员或撤销邀请，最多尝试 3 次（失败后等待 1 分钟、5 分钟）；仍失败时保留关系和租客资料、停止自动重试并发送告警。关闭时不修改席位资格，租客资料继续显示为已到期。"><Switch /></Form.Item>
   </>;
 }
 
@@ -476,7 +476,7 @@ function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}
   const productModal = useProductModal();
   if(isWorkspaceOwner(row))return null;
   if(!canManage)return <Typography.Text type="secondary">—</Typography.Text>;
-  if(row.seatSlot?.status==="empty")return <Button size="small" danger onClick={()=>productModal.confirm({title:"删除异常租客资料？",content:"该资料没有关联邮箱，删除后无法恢复。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
+  if(row.seatSlot?.relationStatus==="unclaimed")return <Button size="small" danger onClick={()=>productModal.confirm({title:"删除待认领租客资料？",content:"该资料没有关联邮箱，删除后无法恢复。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
   if(row.seatSlot){const copy=relationReleaseCopy(row);return <Button size="small" danger={row.kind==="member"} className={row.kind==="member"?undefined:"warning-action-button"} onClick={()=>productModal.confirm({...copy,onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>{copy.okText}</Button>;}
   if(row.kind==="invitation")return <Button size="small" className="warning-action-button" onClick={()=>productModal.confirm({title:"撤销邀请？",content:`${row.email??"该账号"} 将无法接受当前邀请。`,okText:"撤销",onOk:()=>run(`revoke-${row.id}`,()=>unifiedApi.revokeInvitation(workspaceId,accountId,row.email!))})}>撤销</Button>;
   if(row.kind==="member"&&row.remoteUserId)return <Button size="small" danger onClick={()=>productModal.confirm({title:"移除成员？",content:"成员会立即失去 Workspace 访问权限；ChatGPT 固定席位仍可能临时计费，完成后请核对账单。",okText:"移除成员",onOk:()=>run(`remove-${row.id}`,async()=>{const result=await unifiedApi.removeMember(workspaceId,row.remoteUserId!,accountId);setLastRemoval(result.summary);})})}>移除成员</Button>;
@@ -525,10 +525,11 @@ function isWorkspaceOwner(row?: AccountWorkspacePersonRow) { return row?.role ==
 function canEditSeat(row: AccountWorkspacePersonRow) { return (row.kind === "member" && Boolean(row.remoteUserId)) || (row.kind === "customer" && Boolean(row.seatSlot)); }
 function roleForSelect(role?: string) { return role === "analytics_viewer" ? "analytics-viewer" : role === "member" ? "standard-user" : role === "admin" ? "account-admin" : role === "owner" ? "account-owner" : role; }
 function tenantPrimary(slot?: SeatSlotView): ReactNode { return <Space size={8}><span>{slot?.contact ? `联系 ${slot.contact}` : "无联系方式"}</span>{slot?.price && <Tag>价格 {slot.price}</Tag>}</Space>; }
-function tenantExpiry(slot?: SeatSlotView) { return slot?.expiresOn ? `到期 ${slot.expiresOn} · ${slot.expireReminder ? "提醒" : "不提醒"} · ${slot.expireRemove ? "到期移除" : "到期停用"}` : "未设置到期日"; }
+function tenantExpiry(slot?: SeatSlotView) { if(!slot?.expiresOn)return "未设置到期日";const state=slot.expirationStatus==="expired"?"已到期":slot.expirationStatus==="expires_today"?"今日到期":"到期";return `${state} ${slot.expiresOn} · ${slot.expireReminder ? "提醒" : "不提醒"} · ${slot.expireRemove ? "自动移除" : "不自动移除"}`; }
 function expirationRemovalTag(slot?:SeatSlotView):ReactNode{
   const removal=slot?.expirationRemoval;if(!removal)return null;
   if(removal.status==='failed')return <Tooltip title={removal.error??'自动移除已达到最大尝试次数'}><Tag color="red">自动移除失败</Tag></Tooltip>;
+  if(removal.status==='succeeded')return <Tooltip title={removal.succeededAt?`完成于 ${formatTime(removal.succeededAt)}`:undefined}><Tag color="green">自动移除成功</Tag></Tooltip>;
   return <Tooltip title={removal.error}><Tag color="orange">自动移除 {removal.attemptCount}/{removal.maxAttempts}</Tag></Tooltip>;
 }
 

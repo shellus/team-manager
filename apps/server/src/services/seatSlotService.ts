@@ -4,6 +4,7 @@ import type { SeatSlotMutationInput, SeatType, WorkspaceInvitationMutationInput 
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 import { SeatSlotRepository } from '../repositories/seatSlotRepository.js';
+import { SeatSlotRelationRepository } from '../repositories/seatSlotRelationRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError, asServiceError } from '../serviceError.js';
 import { WorkspaceOperationService } from './workspaceOperationService.js';
@@ -16,6 +17,7 @@ const REMOVAL_CLAIM_TIMEOUT_MS = 15 * 60_000;
 
 export class SeatSlotService {
   readonly #repository: SeatSlotRepository;
+  readonly #relations: SeatSlotRelationRepository;
   readonly #activity: ActivityLogRepository;
   readonly #workspaces: WorkspaceRepository;
   constructor(
@@ -23,6 +25,7 @@ export class SeatSlotService {
     private readonly notifications?: NotificationService
   ) {
     this.#repository = new SeatSlotRepository(db);
+    this.#relations = new SeatSlotRelationRepository(db);
     this.#activity = new ActivityLogRepository(db);
     this.#workspaces = new WorkspaceRepository(db);
   }
@@ -32,7 +35,8 @@ export class SeatSlotService {
     const existing = await this.db.selectFrom('seat_slots').selectAll()
       .where('workspace_id', '=', workspaceId)
       .where('normalized_current_email', '=', normalizeEmail(input.email)).executeTakeFirst();
-    if (existing && ['member', 'invited'].includes(existing.status)) throw new ServiceError(409, '该邮箱已有生效中的客户资料');
+    const existingRelation = existing ? await this.#relations.resolve(existing.workspace_id, existing.current_email) : undefined;
+    if (existingRelation && ['member', 'invited'].includes(existingRelation.status)) throw new ServiceError(409, '该邮箱已有生效中的客户资料');
     await this.workspaceOperations.invite(workspaceId, executorAccountId, {
       email: input.email, seat: input.seat, role: input.role
     });
@@ -54,18 +58,18 @@ export class SeatSlotService {
     if (!email || !normalizeEmail(email).includes('@')) throw new ServiceError(400, '缺少有效关联邮箱');
     const seatKey = input.seatKey?.trim() || randomBytes(24).toString('base64url');
     await this.assertWorkspace(workspaceId);
-    if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
-    const relation=await this.relation(workspaceId,email);
+    if((input as Record<string,unknown>).remoteUserId!==undefined||(input as Record<string,unknown>).status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
+    const relation=await this.#relations.resolve(workspaceId,email);
     const seatType=relation.seatType??input.seatType;
     if (seatType !== undefined && !['default', 'usage_based'].includes(seatType)) throw new ServiceError(400, '无效席位类型');
     const duplicate = await this.db.selectFrom('seat_slots').select('id').where('workspace_id', '=', workspaceId)
       .where('normalized_current_email', '=', normalizeEmail(email)).executeTakeFirst();
     if (duplicate) throw new ServiceError(409, '该成员或邀请已有客户资料');
-    const row = await this.#repository.save({ workspaceId, seatKey, email, remoteUserId: relation.remoteUserId,
+    const row = await this.#repository.save({ workspaceId, seatKey, email,
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
       expireReminder: input.expireReminder,
       expireRemove: input.expireRemove,
-      seatType, status: relation.status });
+      seatType });
     await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,seatType:row.seat_type}); return row;
   }
 
@@ -73,31 +77,29 @@ export class SeatSlotService {
     await this.requireManageableBy(workspaceId, executorAccountId);
     const row = await this.require(workspaceId, id);
     if(input.email!==undefined&&normalizeEmail(input.email??'')!==normalizeEmail(row.current_email??''))throw new ServiceError(400,'当前邮箱不能在资料编辑中修改，请先释放占用');
-    if(input.remoteUserId!==undefined||input.status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工修改，请使用邀请、成员管理或释放操作');
-    const relation=await this.relation(workspaceId,row.current_email);
+    if((input as Record<string,unknown>).remoteUserId!==undefined||(input as Record<string,unknown>).status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工修改，请使用邀请、成员管理或释放操作');
+    const relation=await this.#relations.resolve(workspaceId,row.current_email);
     const nextExpiresOn = input.expiresOn === undefined ? row.expires_on : input.expiresOn;
     const nextExpireReminder = input.expireReminder ?? row.expire_reminder;
     const nextExpireRemove = input.expireRemove ?? row.expire_remove;
     const removalPolicyChanged = nextExpiresOn !== row.expires_on || nextExpireRemove !== row.expire_remove;
     const updated = await this.#repository.save({ workspaceId, seatKey: row.seat_key, email:row.current_email,
-      remoteUserId: relation.remoteUserId,
       contact: input.contact === undefined ? row.contact : input.contact, remark: input.remark === undefined ? row.remark : input.remark,
       price: input.price === undefined ? row.price : input.price, expiresOn: nextExpiresOn,
       expireReminder: nextExpireReminder,
       expireRemove: nextExpireRemove,
-      seatType: relation.seatType ?? input.seatType ?? row.seat_type as SeatType,
-      status: relation.status === 'unknown' && row.status === 'disabled' ? 'disabled' : relation.status });
+      seatType: relation.seatType ?? input.seatType ?? row.seat_type as SeatType });
     if (removalPolicyChanged) await this.db.deleteFrom('seat_expiration_removal_attempts').where('seat_slot_id', '=', id).execute();
     const before=seatAuditState(row);const after=seatAuditState(updated);const changedFields=Object.keys(after).filter(key=>before[key]!==after[key]);
-    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,status:updated.status,seatType:updated.seat_type,changedFields,before,after});
+    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,relationStatus:relation.status,seatType:updated.seat_type,changedFields,before,after});
     return updated;
   }
 
-  async remove(workspaceId: string, id: string, executorAccountId: string) { await this.requireManageableBy(workspaceId, executorAccountId);const row = await this.require(workspaceId, id); if (['member', 'invited'].includes(row.status)) throw new ServiceError(409, '占用中的席位不能删除，请先释放'); await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();await this.activity(workspaceId,'seat_slot_removed',{seatSlotId:id}); return true; }
+  async remove(workspaceId: string, id: string, executorAccountId: string) { await this.requireManageableBy(workspaceId, executorAccountId);const row = await this.require(workspaceId, id); const relation=await this.#relations.resolve(workspaceId,row.current_email);if (['member', 'invited'].includes(relation.status)) throw new ServiceError(409, '占用中的席位不能删除，请先释放'); await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();await this.activity(workspaceId,'seat_slot_removed',{seatSlotId:id}); return true; }
   async release(workspaceId: string, id: string, executorAccountId: string, force = false) {
     await this.requireManageableBy(workspaceId, executorAccountId);
     const row = await this.require(workspaceId, id);
-    const relation = await this.relation(workspaceId, row.current_email);
+    const relation = await this.#relations.resolve(workspaceId, row.current_email);
     if (relation.status === 'member' && relation.remoteUserId && !force) await this.workspaceOperations.removeMember(workspaceId, executorAccountId, relation.remoteUserId);
     else if (relation.status === 'invited' && row.current_email && !force) await this.workspaceOperations.revokeInvitation(workspaceId, executorAccountId, row.current_email);
     await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();
@@ -111,7 +113,6 @@ export class SeatSlotService {
     const seatWindows=seatSchedules.map(schedule=>({schedule,start:calendarDateInTimeZone(now,schedule.timeZone),end:addCalendarDays(calendarDateInTimeZone(now,schedule.timeZone),schedule.advanceDays)}));
     const reminderStart=seatWindows.map(item=>item.start).sort()[0]??today;const reminderEnd=seatWindows.map(item=>item.end).sort().at(-1)??today;
     const reminders=await this.db.selectFrom('seat_slots').selectAll()
-      .where('status','!=','disabled').where('current_email','is not',null)
       .where('expire_reminder','=',true)
       .where('expires_on','is not',null)
       .where('expires_on','>=',reminderStart).where('expires_on','<=',reminderEnd).execute();
@@ -122,7 +123,7 @@ export class SeatSlotService {
     for (const {schedule,start,end} of seatWindows) {
       const reminderKey=`seat-expiry-reminder:${schedule.kind}:${calendarDateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
       const matching=reminders.filter(row=>{const expiresOn=dateOnly(row.expires_on!);return expiresOn>=start&&expiresOn<=end;});
-      if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>{const workspace=reminderWorkspaceById.get(row.workspace_id);return{seatSlotId:row.id,email:row.current_email!,expiresOn:dateOnly(row.expires_on!),workspaceId:row.workspace_id,...(workspace?.name?{workspaceName:workspace.name}:{}),...(workspace?.external_id?{workspaceExternalId:workspace.external_id}:{})};}),schedule.kind,{observedAt:now.toISOString(),timeZone:schedule.timeZone,windowStart:start,windowEnd:end});await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();seatReminders+=matching.length;}
+      if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>{const workspace=reminderWorkspaceById.get(row.workspace_id);return{seatSlotId:row.id,...(row.current_email?{email:row.current_email}:{relationStatus:'unclaimed' as const}),expiresOn:dateOnly(row.expires_on!),expireRemove:row.expire_remove,workspaceId:row.workspace_id,...(workspace?.name?{workspaceName:workspace.name}:{}),...(workspace?.external_id?{workspaceExternalId:workspace.external_id}:{})};}),schedule.kind,{observedAt:now.toISOString(),timeZone:schedule.timeZone,windowStart:start,windowEnd:end});await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();seatReminders+=matching.length;}
     }
     const renewalSchedules = dueSchedules.filter((schedule) => schedule.kind === 'workspace_renewal');
     const renewalRows = renewalSchedules.length ? await this.db.selectFrom('workspaces').select(['id','external_id','name','normalized_plan','next_renewal_at'])
@@ -134,10 +135,16 @@ export class SeatSlotService {
       const reminderKey=`workspace-renewal-reminder:${schedule.kind}:${localToday}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
       if(matching.length&&!already){await this.notifications?.notifyWorkspaceRenewal(matching.map(row=>({workspaceId:row.id,externalId:row.external_id,...(row.name?{name:row.name}:{}),plan:row.normalized_plan,nextRenewalAt:new Date(row.next_renewal_at as Date).toISOString()})),schedule.kind,{observedAt:now.toISOString(),timeZone:schedule.timeZone,windowStart:localToday,windowEnd:localEnd});await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();renewalReminders+=matching.length;}
     }
-    const rows = await this.db.selectFrom('seat_slots').selectAll().where('expires_on', '<', today).execute();
-    let disabled = 0; let removed = 0; let removalRetrying = 0; let removalFailed = 0;
+    const rows = await this.db.selectFrom('seat_slots as slot')
+      .leftJoin('seat_expiration_removal_attempts as removal', 'removal.seat_slot_id', 'slot.id')
+      .selectAll('slot').where('slot.expires_on', '<', today)
+      .where((eb) => eb.or([
+        eb('slot.expire_remove', '=', false),
+        eb('removal.status', 'is', null),
+        eb('removal.status', 'in', ['retrying', 'running'])
+      ])).execute();
+    let expiredWithoutRemoval = 0; let removed = 0; let removalRetrying = 0; let removalFailed = 0;
     for (const row of rows) {
-      if (row.status === 'empty' || row.status === 'disabled') continue;
       if (row.expire_remove) {
         const outcome = await this.attemptExpirationRemoval(row, now);
         if (outcome === 'removed') removed += 1;
@@ -145,15 +152,15 @@ export class SeatSlotService {
         else if (outcome === 'failed') removalFailed += 1;
         continue;
       }
-      await this.db.updateTable('seat_slots').set({ status: 'disabled' }).where('id', '=', row.id).execute(); disabled += 1;
+      expiredWithoutRemoval += 1;
     }
-    return { checked: rows.length, reminders:seatReminders, renewalReminders, schedules: dueSchedules.length, disabled, removed, removalRetrying, removalFailed };
+    return { checked: rows.length, reminders:seatReminders, renewalReminders, schedules: dueSchedules.length, expiredWithoutRemoval, removed, removalRetrying, removalFailed };
   }
   private async attemptExpirationRemoval(row: {
-    id:string;workspace_id:string;current_email:string|null;expires_on:string|null;status:string
+    id:string;workspace_id:string;current_email:string|null;expires_on:string|null
   }, now:Date):Promise<'removed'|'retrying'|'failed'|'skipped'> {
     await this.db.insertInto('seat_expiration_removal_attempts').values({
-      seat_slot_id:row.id,status:'retrying',attempt_count:0,next_attempt_at:now,last_attempt_at:null,last_error:null,failed_at:null
+      seat_slot_id:row.id,status:'retrying',attempt_count:0,next_attempt_at:now,last_attempt_at:null,last_error:null,failed_at:null,succeeded_at:null
     }).onConflict((oc)=>oc.column('seat_slot_id').doNothing()).execute();
     const claimed=await this.db.updateTable('seat_expiration_removal_attempts').set((eb)=>({
       status:'running',attempt_count:eb('attempt_count','+',1),last_attempt_at:now,
@@ -163,10 +170,22 @@ export class SeatSlotService {
       .returningAll().executeTakeFirst();
     if(!claimed)return'skipped';
     try{
-      if(!['member','invited'].includes(row.status))throw new Error(`客户席位状态 ${row.status} 无法确认远端关系`);
       const executor=await this.executor(row.workspace_id);
       if(!executor)throw new Error('Workspace 缺少可执行自动移除的 owner/admin 账号');
-      await this.release(row.workspace_id,row.id,executor,false);
+      await this.workspaceOperations.refreshPeople(row.workspace_id,executor);
+      const relation=await this.#relations.resolve(row.workspace_id,row.current_email);
+      if(relation.status==='member'){
+        if(!relation.remoteUserId)throw new Error('上游成员关系缺少远端用户 ID');
+        await this.workspaceOperations.removeMember(row.workspace_id,executor,relation.remoteUserId);
+      }else if(relation.status==='invited'&&row.current_email){
+        await this.workspaceOperations.revokeInvitation(row.workspace_id,executor,row.current_email);
+      }
+      const remaining=await this.#relations.resolve(row.workspace_id,row.current_email);
+      if(remaining.status==='member'||remaining.status==='invited')throw new Error(`上游关系仍为 ${remaining.status}`);
+      await this.db.updateTable('seat_expiration_removal_attempts').set({
+        status:'succeeded',next_attempt_at:null,last_error:null,failed_at:null,succeeded_at:now
+      }).where('seat_slot_id','=',row.id).execute();
+      await this.#activity.log({workspaceId:row.workspace_id,kind:'seat_slot_expiration_removal_succeeded',payload:{seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,relationStatus:relation.status,alreadyAbsent:relation.status==='unclaimed'||relation.status==='unlinked',attemptCount:claimed.attempt_count}});
       return'removed';
     }catch(error){
       const message=expirationRemovalError(error);
@@ -181,8 +200,9 @@ export class SeatSlotService {
         status:'failed',next_attempt_at:null,last_error:message,failed_at:now
       }).where('seat_slot_id','=',row.id).execute();
       const workspace=await this.db.selectFrom('workspaces').select(['name','external_id']).where('id','=',row.workspace_id).executeTakeFirst();
+      const relation=await this.#relations.resolve(row.workspace_id,row.current_email);
       const payload={seatSlotId:row.id,email:row.current_email,workspaceId:row.workspace_id,...(workspace?.name?{workspaceName:workspace.name}:{}),...(workspace?.external_id?{workspaceExternalId:workspace.external_id}:{}),expiresOn:row.expires_on,
-        status:row.status,error:message,attemptCount:claimed.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS};
+        relationStatus:relation.status,error:message,attemptCount:claimed.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS};
       await this.#activity.log({workspaceId:row.workspace_id,kind:'seat_slot_expiration_removal_failed',payload});
       try{await this.notifications?.notifySeatRemovalFailure(payload);}catch(notificationError){
         console.warn('[team-manager] 席位自动移除失败告警投递失败:',notificationError);
@@ -194,25 +214,15 @@ export class SeatSlotService {
   private async require(workspaceId: string, id: string) { const row = await this.db.selectFrom('seat_slots').selectAll().where('id', '=', id).where('workspace_id', '=', workspaceId).executeTakeFirst(); if (!row) throw new ServiceError(404, '客户席位不存在'); return row; }
   private async requireManageableBy(workspaceId:string,accountId:string){try{await this.#workspaces.requireManageableBy(workspaceId,accountId);}catch(error){throw asServiceError(error);}}
   private async assertWorkspace(id: string) { if (!await this.db.selectFrom('workspaces').select('id').where('id', '=', id).executeTakeFirst()) throw new ServiceError(404, 'Workspace 不存在'); }
-  private async relation(workspaceId:string,email:string|null|undefined):Promise<{status:'empty'|'member'|'invited'|'unknown';remoteUserId:null|string;seatType?:SeatType}>{
-    if(!email)return{status:'empty',remoteUserId:null};
-    const normalized=normalizeEmail(email);
-    const members=await this.db.selectFrom('workspace_memberships').select(['remote_user_id','seat_type']).where('workspace_id','=',workspaceId).where('normalized_email','=',normalized).where('status','=','active').execute();
-    const member=members.find(row=>Boolean(row.remote_user_id))??members[0];
-    if(member)return{status:'member',remoteUserId:member.remote_user_id,seatType:member.seat_type as SeatType|undefined};
-    const invitation=await this.db.selectFrom('workspace_invitations').select('seat_type').where('workspace_id','=',workspaceId).where('normalized_email','=',normalized).where('status','=','pending').executeTakeFirst();
-    if(invitation)return{status:'invited',remoteUserId:null,seatType:invitation.seat_type as SeatType|undefined};
-    return{status:'unknown',remoteUserId:null};
-  }
   private log(id: string, previous: string | null, next: string | null, reason: string) { return this.db.insertInto('seat_slot_identity_history').values({ seat_slot_id: id, previous_email: previous, next_email: next, changed_at: new Date(), reason }).execute(); }
   private activity(workspaceId:string,kind:string,payload:Record<string,unknown>){return this.#activity.log({workspaceId,kind,payload});}
   private async executor(workspaceId: string) { return (await this.db.selectFrom('workspace_memberships').select('account_id').where('workspace_id', '=', workspaceId).where('status', '=', 'active').where('normalized_role', 'in', ['owner', 'admin']).where('account_id', 'is not', null).executeTakeFirst())?.account_id ?? undefined; }
 }
 
-export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string;hasExplicitSchedule?:boolean},now:Date):boolean{if(schedule.hasExplicitSchedule===false)return true;const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
+export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string;hasExplicitSchedule?:boolean},now:Date):boolean{if(schedule.hasExplicitSchedule===false)return true;const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`>=schedule.triggerTime;}
 function dateOnly(value:string|Date){return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);}
 function expirationRemovalError(error:unknown){const message=error instanceof Error?error.message:String(error);return message.slice(0,2000)||'未知错误';}
-function seatAuditState(row:{contact:string|null;remark:string|null;price:string|null;expires_on:string|null;expire_reminder:boolean;expire_remove:boolean;seat_type:string|null;status:string}){return{contact:row.contact,remark:row.remark,price:row.price,expiresOn:row.expires_on,expireReminder:row.expire_reminder,expireRemove:row.expire_remove,seatType:row.seat_type,status:row.status} as Record<string,unknown>;}
+function seatAuditState(row:{contact:string|null;remark:string|null;price:string|null;expires_on:string|null;expire_reminder:boolean;expire_remove:boolean;seat_type:string|null}){return{contact:row.contact,remark:row.remark,price:row.price,expiresOn:row.expires_on,expireReminder:row.expire_reminder,expireRemove:row.expire_remove,seatType:row.seat_type} as Record<string,unknown>;}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
   const tick = () => void service.runExpirations().catch((error) => console.warn('[team-manager] 席位到期任务失败:', error));

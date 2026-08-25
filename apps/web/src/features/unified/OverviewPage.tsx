@@ -304,7 +304,7 @@ export function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
         {item.remark && <OverviewField wide inline label="备注"><span title={item.remark}>{item.remark}</span></OverviewField>}
       </div>
       <div className="seat-position-footer">
-        <Typography.Text type="secondary">{item.hasCustomerProfile ? '已关联租客资料' : statusLabel(item.status)}</Typography.Text>
+        <Typography.Text type="secondary">{item.hasCustomerProfile ? (item.expirationStatus==='expired'?'租客资料已到期':'已关联租客资料') : statusLabel(item.relationStatus)}</Typography.Text>
         <RiskTags level={item.riskLevel} risks={item.risks} />
       </div>
     </Card>

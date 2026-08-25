@@ -457,8 +457,6 @@ export class WorkspaceOperationService {
         seat_type: seat, observed_at: new Date(), source: 'upstream_mutation'
       }).where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
         .where('status', '=', 'active').execute();
-      await trx.updateTable('seat_slots').set({ seat_type: seat })
-        .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId).execute();
       if (member.normalized_email) await trx.updateTable('seat_slots').set({ seat_type: seat })
         .where('workspace_id', '=', workspaceId).where('normalized_current_email', '=', member.normalized_email).execute();
     });

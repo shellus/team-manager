@@ -43,7 +43,8 @@ export function PublicSeatPage() {
   const [form] = Form.useForm<{ email: string }>();
   const actionBusy = useActionBusy();
   const submitting = actionBusy.isBusy('public-seat-swap');
-  const blocksStandardMemberSwap = slot?.seat === 'default' && slot.status === 'member';
+  const blocksStandardMemberSwap = slot?.seat === 'default' && slot.relationStatus === 'member';
+  const expired = slot?.expirationStatus === 'expired';
 
   const steps = useMemo(() => buildStepItems(slot?.swap?.steps), [slot?.swap?.steps]);
   const historyItems = useMemo(
@@ -74,7 +75,7 @@ export function PublicSeatPage() {
     try {
       await actionBusy.run('public-seat-swap', async () => {
         setSlot({
-          ...(slot ?? { seatKey, expiresOn: '', status: 'unknown' as const }),
+          ...(slot ?? { seatKey, expiresOn: '', relationStatus: 'unlinked' as const, expirationStatus: 'not_set' as const }),
           swap: {
             id: 'local-submitting',
             status: 'running',
@@ -125,10 +126,11 @@ export function PublicSeatPage() {
               <Typography.Title level={1}>Team 客户席位</Typography.Title>
               <Typography.Text type="secondary">席位 Key：{slot.seatKey}</Typography.Text>
             </div>
-            <SeatSlotStatusTag status={slot.status} memberLabel="已绑定" />
+            <SeatSlotStatusTag status={slot.relationStatus} memberLabel="已绑定" />
           </div>
 
           {error && <Alert type="error" showIcon message={error} />}
+          {expired && <Alert type="error" showIcon message="客户席位已到期" description="到期资料保留用于查询，但不能继续认领或换号。" />}
           {slot.seat === 'default' && (
             <Alert
               type="warning"
@@ -151,7 +153,7 @@ export function PublicSeatPage() {
           <Form
             form={form}
             layout="vertical"
-            disabled={submitting || blocksStandardMemberSwap}
+            disabled={submitting || blocksStandardMemberSwap || expired}
             onFinish={(values) => void submit(values)}
           >
             <Form.Item

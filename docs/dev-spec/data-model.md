@@ -28,8 +28,9 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 - Access Context 必须且只能选择个人空间或 Workspace。
 - Credential 分别外键关联账号与 Workspace；正文为文件制品。
 - `seatKey` 全局唯一；同一 SeatSlot 同时最多一个活动换号操作。
+- `seat_slots` 不保存关系状态或远端用户 ID；关系状态由活动 Membership 和待接受 Invitation 派生，到期状态由 `expires_on` 与北京时间业务日期派生。
 - `seat_slots.expire_reminder` 是默认开启的显式提醒事实；只有该字段开启且 `expires_on` 存在时才进入到期提醒调度，关闭提醒不改变到期处理策略。
-- `seat_slots.expires_on` 是北京时间自然日；该日全天有效，次日北京时间零点后的第一次扫描才进入到期处理。
+- `seat_slots.expires_on` 是北京时间自然日；该日全天有效，次日北京时间零点后派生为已到期。`expire_remove` 关闭时不产生写操作，开启时才执行最多三次的远端移除；成功或最终失败均进入终态并保留客户资料。
 - `notification_deliveries.configuration_snapshot` 冻结入队时的渠道目标，`delivered_channels` 记录已经业务成功的渠道；有限重试只处理剩余渠道。
 - 通知策略的 `kind` 只表达 `seat_expiration`、`workspace_renewal` 等业务事件；`wecom`、`feishu` 等渠道名不能作为启用的业务策略。
 - Automation Operation 幂等键唯一；支付输入只保存安全摘要。
@@ -44,7 +45,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 | 个人空间 | `personal_spaces`、`personal_subscription_snapshots`、`personal_setting_snapshots`、`personal_quota_snapshots` |
 | Workspace | `workspaces`、`workspace_memberships`、`workspace_invitations`、`workspace_subscription_snapshots`、`workspace_setting_snapshots` |
 | 凭证 | `credential_pool_groups`、`workspace_credentials`、`credential_quota_snapshots` |
-| 席位 | `seat_slots`、`seat_slot_identity_history`、`seat_slot_swap_operations` |
+| 席位 | `seat_slots`、`seat_slot_identity_history`、`seat_slot_swap_operations`、`seat_expiration_removal_attempts` |
 | 财务 | `billing_snapshots`、`billing_invoices`、`payment_method_summaries` |
 | 自动化 | `automation_operations`、`automation_operation_events`、`payment_attempt_summaries` |
 | 订单与设置 | `team_order_configurations`、`team_order_maintenances`、`team_upgrade_orders`、`system_settings`、`notification_policies`、`notification_deliveries` |

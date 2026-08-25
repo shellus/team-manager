@@ -50,7 +50,7 @@ const PLAN_LABELS: Record<string, string> = {
   team: 'Business'
 };
 
-const STATUS_LABELS:Record<string,string>={active:'生效中',inactive:'未生效',unknown:'未知',pending:'待接受',revoked:'已撤销',removed:'已移除',empty:'空置',invited:'已邀请',member:'已绑定成员',disabled:'已停用',error:'错误',success:'成功',unavailable:'不可用'};
+const STATUS_LABELS:Record<string,string>={active:'生效中',inactive:'未生效',unknown:'未知',pending:'待接受',revoked:'已撤销',removed:'已移除',unclaimed:'待认领',unlinked:'未关联',invited:'已邀请',member:'已绑定成员',disabled:'已停用',error:'错误',success:'成功',unavailable:'不可用'};
 
 export function seatLabel(seat?: SeatType | null): string {
   return seat ? SEAT_LABEL[seat] : '未设置';

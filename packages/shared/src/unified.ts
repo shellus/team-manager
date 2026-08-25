@@ -1,4 +1,4 @@
-import type { AccountLimitType, AccountManagerOperationView, AccountManagerProfileView, AccountProfileStatus, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatType } from './index.js';
+import type { AccountLimitType, AccountManagerOperationView, AccountManagerProfileView, AccountProfileStatus, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatSlotExpirationStatus, SeatSlotRelationStatus, SeatType } from './index.js';
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export type PersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
@@ -265,7 +265,6 @@ export type OperationControl = 'retry' | 'rotate-ip' | 'terminate';
 export interface SeatSlotMutationInput {
   seatKey?: string;
   email?: string | null;
-  remoteUserId?: string | null;
   contact?: string | null;
   remark?: string | null;
   price?: string | null;
@@ -273,7 +272,6 @@ export interface SeatSlotMutationInput {
   expireReminder?: boolean;
   expireRemove?: boolean;
   seatType?: SeatType;
-  status?: 'empty' | 'invited' | 'member' | 'disabled' | 'unknown';
 }
 
 export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationInput, 'contact' | 'remark' | 'price' | 'expiresOn' | 'expireReminder' | 'expireRemove'> {
@@ -461,7 +459,8 @@ export interface SeatOperationalOverviewView {
   workspaceExternalId: string;
   email?: string;
   seatType: SeatType;
-  status: string;
+  relationStatus: SeatSlotRelationStatus;
+  expirationStatus: SeatSlotExpirationStatus;
   role?: NormalizedWorkspaceRole;
   seatSlotId?: string;
   hasCustomerProfile: boolean;
@@ -688,7 +687,6 @@ export interface SeatSlotView {
   id: string;
   seatKey: string;
   email?: string;
-  remoteUserId?: string;
   contact?: string;
   remark?: string;
   price?: string;
@@ -696,15 +694,17 @@ export interface SeatSlotView {
   expireReminder: boolean;
   expireRemove: boolean;
   seatType?: SeatType;
-  status: string;
+  relationStatus: SeatSlotRelationStatus;
+  expirationStatus: SeatSlotExpirationStatus;
   expirationRemoval?: {
-    status: 'retrying' | 'running' | 'failed';
+    status: 'retrying' | 'running' | 'failed' | 'succeeded';
     attemptCount: number;
     maxAttempts: number;
     nextAttemptAt?: string;
     lastAttemptAt?: string;
     error?: string;
     failedAt?: string;
+    succeededAt?: string;
   };
 }
 

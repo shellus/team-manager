@@ -11,6 +11,7 @@ import { ChatGptApi } from './chatgptApi.js';
 import { notificationScheduleDue } from './services/seatSlotService.js';
 import { mergeBillingSnapshotPayload } from './repositories/billingRepository.js';
 import { MAX_NOTIFICATION_TEXT_BYTES, notificationTextBytes, notificationTestMessage, seatExpiryMessage } from './domain/notificationMessage.js';
+import { seatSlotRelationFromFacts } from './repositories/seatSlotRelationRepository.js';
 
 test('Codex OAuth 会话使用 PKCE 且固定回调', () => {
   const session=createCodexAuthSession('account@example.com');const url=new URL(session.authUrl);
@@ -146,7 +147,19 @@ test('通知策略的触发时间按配置时区生效', () => {
   const now = new Date('2026-08-13T01:30:00Z');
   assert.equal(notificationScheduleDue({ triggerTime: '09:30', timeZone: 'Asia/Shanghai' }, now), true);
   assert.equal(notificationScheduleDue({ triggerTime: '09:31', timeZone: 'Asia/Shanghai' }, now), false);
+  assert.equal(notificationScheduleDue({ triggerTime: '09:00', timeZone: 'Asia/Shanghai' }, now), true,'错过精确分钟后当天仍应补发');
   assert.equal(notificationScheduleDue({ triggerTime: '01:30', timeZone: 'UTC' }, now), true);
+});
+
+test('客户席位关系只由当前成员和待接受邀请派生', () => {
+  const slot = { workspace_id: 'workspace-1', current_email: 'Member@Example.com', normalized_current_email: 'member@example.com' };
+  const memberships = [{ workspace_id: 'workspace-1', normalized_email: 'member@example.com', remote_user_id: 'remote-1', seat_type: 'default', status: 'active' }];
+  const invitations = [{ workspace_id: 'workspace-1', normalized_email: 'member@example.com', seat_type: 'usage_based', status: 'pending' }];
+  assert.deepEqual(seatSlotRelationFromFacts(slot, memberships, invitations), { status: 'member', remoteUserId: 'remote-1', seatType: 'default' });
+  assert.deepEqual(seatSlotRelationFromFacts(slot, [], invitations), { status: 'invited', remoteUserId: null, seatType: 'usage_based' });
+  assert.deepEqual(seatSlotRelationFromFacts(slot, [], []), { status: 'unlinked', remoteUserId: null });
+  assert.deepEqual(seatSlotRelationFromFacts(slot, [{ ...memberships[0]!, normalized_email: null, account_email: 'Member@Example.com' }], []), { status: 'member', remoteUserId: 'remote-1', seatType: 'default' });
+  assert.deepEqual(seatSlotRelationFromFacts({ ...slot, current_email: null, normalized_current_email: null }, memberships, invitations), { status: 'unclaimed', remoteUserId: null });
 });
 
 test('通知渠道可独立停用且兼容旧配置', () => {
@@ -172,9 +185,9 @@ test('渠道 HTTP 200 中的业务错误不会误记为成功', async () => {
 });
 
 test('到期正文包含可执行明细、变更摘要并受跨渠道长度限制', () => {
-  const items=Array.from({length:20},(_,index)=>({seatSlotId:`seat-${index}`,email:`member-${index}@example.com`,expiresOn:index%2?'2026-08-27':'2026-08-28',workspaceId:'workspace-1',workspaceName:'示例 Workspace'}));
+  const items=Array.from({length:20},(_,index)=>({seatSlotId:`seat-${index}`,email:`member-${index}@example.com`,expiresOn:'2026-08-27',expireRemove:index%2===0,workspaceId:'workspace-1',workspaceName:'示例 Workspace'}));
   const message=seatExpiryMessage(items,{observedAt:'2026-08-25T01:00:00Z',timeZone:'Asia/Shanghai',windowStart:'2026-08-25',windowEnd:'2026-09-01',managementUrl:'https://manager.test/seat-overview'},items.slice(1));
-  assert.match(message.text,/客户席位到期提醒｜20 项/);assert.match(message.text,/较上次：新增 1 项，移出提醒范围 0 项/);assert.match(message.text,/示例 Workspace｜member-/);assert.match(message.text,/另有 10 项未展开/);assert.match(message.text,/https:\/\/manager.test\/seat-overview/);assert.ok(notificationTextBytes(message.text)<=MAX_NOTIFICATION_TEXT_BYTES);
+  assert.match(message.text,/客户席位到期提醒｜20 项/);assert.match(message.text,/较上次：新增 1 项，移出提醒范围 0 项/);assert.match(message.text,/到期后自动移除/);assert.match(message.text,/到期后仅标记已到期/);assert.match(message.text,/另有 10 项未展开/);assert.match(message.text,/https:\/\/manager.test\/seat-overview/);assert.ok(notificationTextBytes(message.text)<=MAX_NOTIFICATION_TEXT_BYTES);
   assert.match(notificationTestMessage('seat_expiration',{observedAt:'2026-08-25T01:00:00Z',timeZone:'Asia/Shanghai'}).text,/测试通知｜不会触发业务操作/);
 });
 

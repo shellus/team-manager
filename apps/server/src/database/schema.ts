@@ -148,7 +148,6 @@ export interface WorkspaceCredentialTable extends AuditedTable {
 export interface SeatSlotTable extends AuditedTable {
   workspace_id: string;
   seat_key: string;
-  remote_user_id: string | null;
   current_email: string | null;
   normalized_current_email: string | null;
   contact: string | null;
@@ -158,7 +157,6 @@ export interface SeatSlotTable extends AuditedTable {
   expire_reminder: Generated<boolean>;
   expire_remove: Generated<boolean>;
   seat_type: string | null;
-  status: string;
 }
 
 export interface SeatSlotIdentityHistoryTable {
@@ -190,6 +188,7 @@ export interface SeatExpirationRemovalAttemptTable extends AuditedTable {
   last_attempt_at: NullableTimestamp;
   last_error: string | null;
   failed_at: NullableTimestamp;
+  succeeded_at: NullableTimestamp;
 }
 
 export interface PersonalSnapshotTable {

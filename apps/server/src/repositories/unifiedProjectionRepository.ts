@@ -15,6 +15,8 @@ import { AccountRepository, type AccountListFilters } from './accountRepository.
 import { SessionRepository } from './sessionRepository.js';
 import { AutomationOperationRepository } from './automationOperationRepository.js';
 import { normalizePersonalPlan } from '../domain/personalPlan.js';
+import { seatSlotExpirationStatus } from '../domain/businessDate.js';
+import { seatSlotRelationFromFacts } from './seatSlotRelationRepository.js';
 import { LIMITED_MAX_ATTEMPTS } from '../retryPolicy.js';
 
 export class UnifiedProjectionRepository {
@@ -285,19 +287,22 @@ export class UnifiedProjectionRepository {
       credentials,
       seatSlots: seats.map((row) => {
         const expirationRemoval=expirationRemovalBySeat.get(row.id);
+        const relation=seatSlotRelationFromFacts(row,members.rows,invitations);
         return {
         id: row.id, seatKey: row.seat_key, ...(row.current_email ? { email: row.current_email } : {}),
-        ...(row.remote_user_id ? { remoteUserId: row.remote_user_id } : {}), ...(row.contact ? { contact: row.contact } : {}),
+        ...(row.contact ? { contact: row.contact } : {}),
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
         ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
         expireReminder: row.expire_reminder, expireRemove: row.expire_remove,
-        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status,
+        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
+        relationStatus:relation.status,expirationStatus:seatSlotExpirationStatus(row.expires_on),
         ...(expirationRemoval ? { expirationRemoval: {
-          status:expirationRemoval.status as 'retrying'|'running'|'failed',attemptCount:expirationRemoval.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS,
+          status:expirationRemoval.status as 'retrying'|'running'|'failed'|'succeeded',attemptCount:expirationRemoval.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS,
           ...(expirationRemoval.next_attempt_at?{nextAttemptAt:iso(expirationRemoval.next_attempt_at)}:{}),
           ...(expirationRemoval.last_attempt_at?{lastAttemptAt:iso(expirationRemoval.last_attempt_at)}:{}),
           ...(expirationRemoval.last_error?{error:expirationRemoval.last_error}:{}),
-          ...(expirationRemoval.failed_at?{failedAt:iso(expirationRemoval.failed_at)}:{})
+          ...(expirationRemoval.failed_at?{failedAt:iso(expirationRemoval.failed_at)}:{}),
+          ...(expirationRemoval.succeeded_at?{succeededAt:iso(expirationRemoval.succeeded_at)}:{})
         }} : {})
       };}),
       ...(settings ? { latestSettings: { payload: settings.payload, observedAt: iso(settings.observed_at) } } : {}),
@@ -311,10 +316,9 @@ function workspaceConsistencyRisks(members:any[],invitations:any[],seats:any[],c
   const activeMembers=new Set(members.filter(row=>row.status==='active').map(row=>String(row.email??row.account_email??'').trim().toLowerCase()).filter(Boolean));
   const pendingInvites=new Set(invitations.filter(row=>row.status==='pending').map(row=>String(row.email).trim().toLowerCase()));
   const risks:WorkspaceDetailView['consistencyRisks']=[];
-  for(const seat of seats.filter(row=>row.current_email&& !['empty','disabled'].includes(row.status))){const email=String(seat.current_email).trim().toLowerCase();
+  for(const seat of seats.filter(row=>row.current_email)){const email=String(seat.current_email).trim().toLowerCase();
     const actual=activeMembers.has(email)?'member':pendingInvites.has(email)?'invited':undefined;
     if(!actual)risks.push({key:`seat-${seat.id}`,severity:'warning',title:'失联客户席位',detail:`${seat.current_email} 保留了客户资料，但远端成员和待处理邀请中都找不到对应邮箱。`,targetTab:'seats'});
-    else if(seat.status!==actual)risks.push({key:`seat-${seat.id}`,severity:'warning',title:'客户席位状态与远端关系不一致',detail:`${seat.current_email} 的本地状态为 ${seat.status}，远端实际关系为 ${actual}。`,targetTab:'seats'});
   }
   const activeAccountIds=new Set(members.filter(row=>row.status==='active'&&row.account_id).map(row=>row.account_id));
   for(const credential of credentials.filter(row=>row.status==='active'&&!activeAccountIds.has(row.accountId)))risks.push({key:`credential-${credential.id}`,severity:'error',title:'活动凭证缺少有效成员关系',detail:`${credential.accountEmail} 的凭证仍为活动状态，但账号不是当前 Workspace 的活动成员。`,targetTab:'credentials'});

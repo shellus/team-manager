@@ -1,7 +1,7 @@
 import type {
   AccountLimitType,
-  AccountSeatSlotStatus,
   MemberRole,
+  SeatSlotRelationStatus,
   SeatType
 } from '@team-manager/shared';
 import { Tag } from 'antd';
@@ -16,18 +16,18 @@ const MEMBER_ROLE_TAG_COLOR: Record<string, string | undefined> = {
   'account-owner': 'magenta'
 };
 
-const SEAT_SLOT_STATUS_LABEL: Record<AccountSeatSlotStatus, string> = {
-  empty: '空位',
+const SEAT_SLOT_STATUS_LABEL: Record<SeatSlotRelationStatus, string> = {
+  unclaimed: '待认领',
   invited: '邀请中',
   member: '成员',
-  unknown: '关系失联'
+  unlinked: '未关联'
 };
 
-const SEAT_SLOT_STATUS_COLOR: Record<AccountSeatSlotStatus, string | undefined> = {
-  empty: undefined,
+const SEAT_SLOT_STATUS_COLOR: Record<SeatSlotRelationStatus, string | undefined> = {
+  unclaimed: undefined,
   invited: 'processing',
   member: 'success',
-  unknown: 'warning'
+  unlinked: 'warning'
 };
 
 export function AccountStatusTag({ status }: { status?: 'active' | 'invalid' | 'unknown' }) {
@@ -60,7 +60,7 @@ export function SeatSlotStatusTag({
   status,
   memberLabel = SEAT_SLOT_STATUS_LABEL.member
 }: {
-  status: AccountSeatSlotStatus;
+  status: SeatSlotRelationStatus;
   memberLabel?: string;
 }) {
   const label = status === 'member' ? memberLabel : SEAT_SLOT_STATUS_LABEL[status];

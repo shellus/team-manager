@@ -4,7 +4,7 @@ import { TeamOrderRepository } from '../repositories/teamOrderRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { hasOutstandingInvoice } from '../repositories/billingRepository.js';
 import { ServiceError } from '../serviceError.js';
-import { addCalendarDays, seatExpirationBusinessDate } from '../domain/businessDate.js';
+import { addCalendarDays, seatExpirationBusinessDate, seatSlotExpirationStatus } from '../domain/businessDate.js';
 import type {
   NotificationPolicyConfiguration,
   NotificationPolicyView,
@@ -128,7 +128,7 @@ export class SystemService {
       this.db.selectFrom('workspace_invitations').select([
         'id', 'workspace_id', 'email', 'normalized_role', 'seat_type'
       ]).where('status', '=', 'pending').where('seat_type', '=', 'default').execute(),
-      this.db.selectFrom('seat_slots').selectAll().where('status', '!=', 'disabled').where('seat_type', '=', 'default').execute(),
+      this.db.selectFrom('seat_slots').selectAll().where('seat_type', '=', 'default').execute(),
       manageableAccounts(this.db),
       this.db.selectFrom('workspace_subscription_snapshots').selectAll()
         .distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at', 'desc').orderBy('created_at', 'desc').execute(),
@@ -145,22 +145,21 @@ export class SystemService {
       if (!isFixedSeatOverviewWorkspace(workspace.normalized_plan, subscription?.normalized_plan, billingPlan)) continue;
       const managingAccounts = managers.get(workspace.id) ?? [];
       const remainingSlots = new Map((slotsByWorkspace.get(workspace.id) ?? []).map((slot) => [slot.id, slot]));
-      const takeSlot = (email?: string | null, remoteUserId?: string | null) => {
+      const takeSlot = (email?: string | null) => {
         const normalizedEmail = normalizeOverviewEmail(email);
         const match = [...remainingSlots.values()].find((slot) =>
-          Boolean(remoteUserId && slot.remote_user_id === remoteUserId)
-          || Boolean(normalizedEmail && slot.normalized_current_email === normalizedEmail));
+          Boolean(normalizedEmail && slot.normalized_current_email === normalizedEmail));
         if (match) remainingSlots.delete(match.id);
         return match;
       };
       const workspaceMemberships = membershipsByWorkspace.get(workspace.id) ?? [];
       const workspaceInvitations = invitationsByWorkspace.get(workspace.id) ?? [];
       for (const membership of workspaceMemberships) {
-        const slot = takeSlot(membership.resolved_email, membership.remote_user_id);
+        const slot = takeSlot(membership.resolved_email);
         result.push(seatOverviewItem({
           id: `member:${membership.id}`, subject: 'member', workspace, managingAccounts,
           email: membership.resolved_email, role: membership.normalized_role,
-          seatType: membership.seat_type, status: 'member', slot
+          seatType: membership.seat_type, relationStatus: 'member', slot
         }));
       }
       for (const invitation of workspaceInvitations) {
@@ -168,7 +167,7 @@ export class SystemService {
         result.push(seatOverviewItem({
           id: `invitation:${invitation.id}`, subject: 'invitation', workspace, managingAccounts,
           email: invitation.email, role: invitation.normalized_role,
-          seatType: invitation.seat_type, status: 'invited', slot
+          seatType: invitation.seat_type, relationStatus: 'invited', slot
         }));
       }
       const fixedOccupied = workspaceMemberships.length + workspaceInvitations.length;
@@ -176,17 +175,18 @@ export class SystemService {
       const fixedAvailable = workspace.status === 'active' && fixedSeatCapacity !== undefined
         ? Math.max(fixedSeatCapacity - fixedOccupied, 0) : 0;
       for (let index = 0; index < fixedAvailable; index += 1) {
-        const slot = [...remainingSlots.values()].find((row) => row.seat_type === 'default' && row.status === 'empty');
+        const slot = [...remainingSlots.values()].find((row) => row.seat_type === 'default' && row.current_email === null);
         if (slot) remainingSlots.delete(slot.id);
         result.push(seatOverviewItem({
           id: `vacancy:${workspace.id}:${index + 1}`, subject: 'vacancy', workspace, managingAccounts,
-          seatType: 'default', status: 'empty', slot
+          seatType: 'default', relationStatus: 'unclaimed', slot
         }));
       }
       for (const slot of remainingSlots.values()) {
         result.push(seatOverviewItem({
           id: `customer:${slot.id}`, subject: 'customer', workspace, managingAccounts,
-          email: slot.current_email, seatType: slot.seat_type, status: slot.status, slot
+          email: slot.current_email, seatType: slot.seat_type,
+          relationStatus: slot.current_email ? 'unlinked' : 'unclaimed', slot
         }));
       }
     }
@@ -206,7 +206,7 @@ function seatOverviewItem(input: {
   email?: string | null;
   role?: string | null;
   seatType?: string | null;
-  status: string;
+  relationStatus: SeatOperationalOverviewView['relationStatus'];
   slot?: SeatOverviewSlot;
 }): SeatOperationalOverviewView {
   const expiresOn = input.slot?.expires_on ? dateKey(input.slot.expires_on) : undefined;
@@ -215,7 +215,8 @@ function seatOverviewItem(input: {
   return {
     id: input.id, subject: input.subject, workspaceId: input.workspace.id, workspaceExternalId: input.workspace.external_id,
     ...(input.workspace.name ? { workspaceName: input.workspace.name } : {}), ...(input.email ? { email: input.email } : {}),
-    seatType: input.seatType === 'usage_based' ? 'usage_based' : 'default', status: input.status,
+    seatType: input.seatType === 'usage_based' ? 'usage_based' : 'default', relationStatus: input.relationStatus,
+    expirationStatus:seatSlotExpirationStatus(expiresOn),
     ...(normalizeOverviewRole(input.role) ? { role: normalizeOverviewRole(input.role) } : {}),
     ...(input.slot ? { seatSlotId: input.slot.id } : {}), hasCustomerProfile: Boolean(input.slot),
     ...(input.slot?.contact ? { contact: input.slot.contact } : {}), ...(input.slot?.remark ? { remark: input.slot.remark } : {}),

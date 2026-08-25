@@ -53,10 +53,10 @@ export function accountWorkspacePeople(
 ): AccountWorkspacePersonRow[] {
   if (!workspace) return [];
   const remainingSlots = new Map(workspace.seatSlots.map((slot) => [slot.id, slot]));
-  const takeSlot = (email?: string, remoteUserId?: string) => {
+  const takeSlot = (email?: string) => {
     const normalized = normalizeEmail(email);
     const match = [...remainingSlots.values()].find((slot) =>
-      Boolean(remoteUserId && slot.remoteUserId === remoteUserId) || Boolean(normalized && normalizeEmail(slot.email) === normalized));
+      Boolean(normalized && normalizeEmail(slot.email) === normalized));
     if (match) remainingSlots.delete(match.id);
     return match;
   };
@@ -64,7 +64,7 @@ export function accountWorkspacePeople(
     ...member,
     kind: "member" as const,
     rowKey: `member:${member.id}`,
-    seatSlot: takeSlot(member.email ?? member.accountEmail, member.remoteUserId),
+    seatSlot: takeSlot(member.email ?? member.accountEmail),
   }));
   const invitations = workspace.invitations.filter((invitation) => invitation.status === "pending").map((invitation) => ({
     ...invitation,
@@ -77,7 +77,6 @@ export function accountWorkspacePeople(
     rowKey: `customer:${seatSlot.id}`,
     id: seatSlot.id,
     email: seatSlot.email,
-    remoteUserId: seatSlot.remoteUserId,
     seatType: seatSlot.seatType,
     seatSlot,
   }));

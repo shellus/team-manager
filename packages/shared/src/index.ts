@@ -63,7 +63,8 @@ export interface ChatGptWebSessionCookies {
   oaiIs?: string;
 }
 
-export type AccountSeatSlotStatus = 'empty' | 'invited' | 'member' | 'unknown';
+export type SeatSlotRelationStatus = 'unclaimed' | 'invited' | 'member' | 'unlinked';
+export type SeatSlotExpirationStatus = 'not_set' | 'active' | 'expires_today' | 'expired';
 export type SeatSlotSwapStatus = 'running' | 'succeeded' | 'failed';
 export type SeatSlotSwapStepKey =
   | 'refreshing_workspace'
@@ -102,7 +103,8 @@ export interface PublicSeatSlotView {
   expiresOn: string;
   price?: string;
   seat?: SeatType;
-  status: AccountSeatSlotStatus;
+  relationStatus: SeatSlotRelationStatus;
+  expirationStatus: SeatSlotExpirationStatus;
   swap?: SeatSlotSwapState;
   swapHistory?: SeatSlotSwapState[];
 }

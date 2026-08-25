@@ -3,8 +3,10 @@ const MAX_DETAIL_ITEMS = 10;
 
 export interface SeatExpiryNotificationItem {
   seatSlotId: string;
-  email: string;
+  email?: string;
+  relationStatus?: 'unclaimed';
   expiresOn: string;
+  expireRemove: boolean;
   workspaceId: string;
   workspaceName?: string;
   workspaceExternalId?: string;
@@ -37,11 +39,12 @@ export function seatExpiryMessage(
   previousItems?: SeatExpiryNotificationItem[]
 ): NotificationMessage {
   const sorted = [...items].sort((left, right) => left.expiresOn.localeCompare(right.expiresOn)
-    || workspaceLabel(left).localeCompare(workspaceLabel(right)) || left.email.localeCompare(right.email));
+    || workspaceLabel(left).localeCompare(workspaceLabel(right)) || seatLabel(left).localeCompare(seatLabel(right)));
   const lines = [
     `客户席位到期提醒｜${items.length} 项`,
     `统计时间：${formatInstant(context.observedAt, context.timeZone)}（${context.timeZone}）`,
-    ...(context.windowStart && context.windowEnd ? [`提醒范围：${context.windowStart} 至 ${context.windowEnd}`] : [])
+    ...(context.windowStart && context.windowEnd ? [`提醒范围：${context.windowStart} 至 ${context.windowEnd}`] : []),
+    `到期处理：自动移除 ${items.filter((item) => item.expireRemove).length} 项，仅标记已到期 ${items.filter((item) => !item.expireRemove).length} 项`
   ];
   const change = expiryChange(items, previousItems);
   if (change) lines.push(`较上次：新增 ${change.added} 项，移出提醒范围 ${change.removed} 项`);
@@ -53,7 +56,7 @@ export function seatExpiryMessage(
       currentDate = date;
       lines.push('', `${date}（${remainingDays(date, context.observedAt, context.timeZone)}）`);
     }
-    lines.push(`• ${workspaceLabel(item)}｜${item.email}`);
+    lines.push(`• ${workspaceLabel(item)}｜${seatLabel(item)}｜${item.expireRemove ? '到期后自动移除' : '到期后仅标记已到期'}`);
   }
   appendRemainder(lines, items.length);
   return { summaryText: lines[0], text: fitMessage(lines, context.managementUrl) };
@@ -113,7 +116,7 @@ export function notificationTestMessage(kind: string, context: NotificationMessa
   const sampleDate = context.windowEnd || dateInTimeZone(context.observedAt, context.timeZone);
   const sample = seatExpiryMessage([{
     seatSlotId: 'sample-seat', email: 'sample@example.com', expiresOn: sampleDate,
-    workspaceId: 'sample-workspace', workspaceName: '示例 Workspace'
+    expireRemove: false, workspaceId: 'sample-workspace', workspaceName: '示例 Workspace'
   }], context);
   return { summaryText: `[测试] ${sample.summaryText}`, text: `[测试通知｜不会触发业务操作]\n${sample.text}` };
 }
@@ -134,6 +137,7 @@ function expiryChange(current: SeatExpiryNotificationItem[], previous?: SeatExpi
 
 function expiryKey(item: SeatExpiryNotificationItem) { return `${item.seatSlotId}\u0000${item.expiresOn.slice(0, 10)}`; }
 function workspaceLabel(item: Partial<SeatExpiryNotificationItem>) { return item.workspaceName || item.workspaceExternalId || item.workspaceId || '未知 Workspace'; }
+function seatLabel(item: Partial<SeatExpiryNotificationItem>) { return item.email || (item.relationStatus === 'unclaimed' ? '待认领席位' : item.seatSlotId) || '未知席位'; }
 function renewalWorkspaceLabel(item: WorkspaceRenewalNotificationItem) { return item.name || item.externalId || item.workspaceId; }
 function appendRemainder(lines: string[], count: number) { if (count > MAX_DETAIL_ITEMS) lines.push('', `另有 ${count - MAX_DETAIL_ITEMS} 项未展开，请进入管理后台查看。`); }
 
