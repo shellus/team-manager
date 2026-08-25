@@ -5,11 +5,12 @@ import { temporaryDirectory } from './testHelpers.js';
 import { ArtifactStore } from './artifactStore.js';
 import { createCodexAuthSession } from './codexAuth.js';
 import { TeamCodeClient, teamCodeOrderPayload } from './teamCodeClient.js';
-import { configuredNotificationChannels, NotificationService } from './services/notificationService.js';
+import { configuredNotificationChannels, notificationRequests, NotificationService, sendConfiguration } from './services/notificationService.js';
 import { teamOrderScheduledFor } from './services/teamOrderService.js';
 import { ChatGptApi } from './chatgptApi.js';
 import { notificationScheduleDue } from './services/seatSlotService.js';
 import { mergeBillingSnapshotPayload } from './repositories/billingRepository.js';
+import { MAX_NOTIFICATION_TEXT_BYTES, notificationTextBytes, notificationTestMessage, seatExpiryMessage } from './domain/notificationMessage.js';
 
 test('Codex OAuth 会话使用 PKCE 且固定回调', () => {
   const session=createCodexAuthSession('account@example.com');const url=new URL(session.authUrl);
@@ -154,6 +155,29 @@ test('通知渠道可独立停用且兼容旧配置', () => {
   assert.deepEqual(configuredNotificationChannels({telegramEnabled:true,telegramBotToken:'token'}),[]);
 });
 
+test('四类通知渠道使用各自协议且只发送统一正文', () => {
+  const payload={type:'seat_expiration',text:'统一正文',items:[{email:'member@example.com'}]};
+  const requests=notificationRequests({webhookEnabled:true,webhookUrl:'https://generic.test',feishuEnabled:true,feishuWebhookUrl:'https://feishu.test',wecomEnabled:true,wecomWebhookUrl:'https://wecom.test',telegramEnabled:true,telegramBotToken:'token',telegramChatId:'chat'},payload);
+  assert.deepEqual(requests.map(item=>item.channel),['webhook','feishu','wecom','telegram']);
+  assert.deepEqual(requests[0].body,payload);
+  assert.deepEqual(requests[1].body,{msg_type:'text',content:{text:'统一正文'}});
+  assert.deepEqual(requests[2].body,{msgtype:'text',text:{content:'统一正文'}});
+  assert.deepEqual(requests[3].body,{chat_id:'chat',text:'统一正文'});
+});
+
+test('渠道 HTTP 200 中的业务错误不会误记为成功', async () => {
+  await assert.rejects(()=>sendConfiguration({wecomEnabled:true,wecomWebhookUrl:'https://wecom.test'},{text:'test'},[],async()=>undefined,async()=>new Response('{"errcode":40013,"errmsg":"invalid"}',{status:200}) as any),/wecom 返回失败：40013 invalid/);
+  await assert.rejects(()=>sendConfiguration({feishuEnabled:true,feishuWebhookUrl:'https://feishu.test'},{text:'test'},[],async()=>undefined,async()=>new Response('{"code":19001,"msg":"bad"}',{status:200}) as any),/feishu 返回失败：19001 bad/);
+  await assert.rejects(()=>sendConfiguration({telegramEnabled:true,telegramBotToken:'token',telegramChatId:'chat'},{text:'test'},[],async()=>undefined,async()=>new Response('{"ok":false}',{status:200}) as any),/telegram 返回失败/);
+});
+
+test('到期正文包含可执行明细、变更摘要并受跨渠道长度限制', () => {
+  const items=Array.from({length:20},(_,index)=>({seatSlotId:`seat-${index}`,email:`member-${index}@example.com`,expiresOn:index%2?'2026-08-27':'2026-08-28',workspaceId:'workspace-1',workspaceName:'示例 Workspace'}));
+  const message=seatExpiryMessage(items,{observedAt:'2026-08-25T01:00:00Z',timeZone:'Asia/Shanghai',windowStart:'2026-08-25',windowEnd:'2026-09-01',managementUrl:'https://manager.test/seat-overview'},items.slice(1));
+  assert.match(message.text,/客户席位到期提醒｜20 项/);assert.match(message.text,/较上次：新增 1 项，移出提醒范围 0 项/);assert.match(message.text,/示例 Workspace｜member-/);assert.match(message.text,/另有 10 项未展开/);assert.match(message.text,/https:\/\/manager.test\/seat-overview/);assert.ok(notificationTextBytes(message.text)<=MAX_NOTIFICATION_TEXT_BYTES);
+  assert.match(notificationTestMessage('seat_expiration',{observedAt:'2026-08-25T01:00:00Z',timeZone:'Asia/Shanghai'}).text,/测试通知｜不会触发业务操作/);
+});
+
 test('通知失败在同一投递上有限重试并保留原始正文', async () => {
   const {db,deliveries}=notificationDatabase();let body='';const fakeFetch=async(_input:RequestInfo|URL,init?:RequestInit)=>{body=String(init?.body??'');return new Response('{}',{status:500});};
   const service=new NotificationService(db,fakeFetch as typeof fetch);const payload={type:'expiration',text:'raw notification',secret:'unredacted-value'};
@@ -168,7 +192,14 @@ test('席位自动移除最终失败通过到期策略发送独立告警', async
   const service=new NotificationService(db,async()=>new Response('{}',{status:200}) as any);
   await service.notifySeatRemovalFailure({seatSlotId:'seat-1',email:'member@example.com',attemptCount:3,maxAttempts:3,error:'remove failed'});
   assert.equal(deliveries.length,1);assert.equal(deliveries[0].status,'delivered');
-  assert.deepEqual(deliveries[0].payload,{type:'seat_expiration_removal_failed',text:'客户席位自动移除失败：member@example.com\n尝试：3/3\n原因：remove failed',item:{seatSlotId:'seat-1',email:'member@example.com',attemptCount:3,maxAttempts:3,error:'remove failed'}});
+  assert.equal(deliveries[0].payload.type,'seat_expiration_removal_failed');assert.equal(deliveries[0].payload.summaryText,'客户席位自动移除失败｜需要人工处理');assert.match(deliveries[0].payload.text,/member@example.com/);assert.match(deliveries[0].payload.text,/有限重试已耗尽/);assert.match(deliveries[0].payload.text,/remove failed/);
+});
+
+test('多渠道部分成功后仅重试尚未成功的渠道', async () => {
+  const {db,deliveries,policy}=notificationDatabase('seat_expiration');policy.configuration={webhookEnabled:true,webhookUrl:'https://generic.test',wecomEnabled:true,wecomWebhookUrl:'https://wecom.test'};
+  const calls:string[]=[];let wecomAttempts=0;const service=new NotificationService(db,async(input)=>{const url=String(input);calls.push(url);if(url.includes('wecom')){wecomAttempts+=1;return new Response(wecomAttempts===1?'{"errcode":1,"errmsg":"busy"}':'{"errcode":0,"errmsg":"ok"}',{status:200});}return new Response('{}',{status:200});});
+  await assert.rejects(()=>service.send('seat_expiration',{type:'test',text:'test'}),/wecom 返回失败/);assert.deepEqual(deliveries[0].delivered_channels,{webhook:true});
+  await service.retry(deliveries[0].id);assert.equal(calls.filter(url=>url.includes('generic')).length,1);assert.equal(calls.filter(url=>url.includes('wecom')).length,2);assert.deepEqual(deliveries[0].delivered_channels,{webhook:true,wecom:true});assert.equal(deliveries[0].status,'delivered');
 });
 
 function chain(row:any){const q:any={selectAll:()=>q,select:()=>q,where:()=>q,innerJoin:()=>q,orderBy:()=>q,limit:()=>q,executeTakeFirst:async()=>row,execute:async()=>row?[row]:[]};return q;}
@@ -181,6 +212,6 @@ function notificationDatabase(kind='expiration'){
     updateTable(_table:string){return{set:(values:any)=>{const filters:any[]=[];const query:any={where:(column:string,operator:string,value:any)=>{filters.push([column.split('.').at(-1),operator,value]);return query;},returning:()=>query,executeTakeFirst:async()=>{const row=deliveries.find(matches(filters));if(row)Object.assign(row,values);return row;},execute:async()=>{for(const row of deliveries.filter(matches(filters)))Object.assign(row,values);}};return query;}};}
   };
   function rows(table:string){if(table.startsWith('notification_policies'))return[policy];if(table.startsWith('notification_deliveries as'))return deliveries.map(row=>({...row,configuration:policy.configuration,kind:policy.kind}));return deliveries;}
-  return{db,deliveries};
+  return{db,deliveries,policy};
 }
 function matches(filters:any[]){return(row:any)=>filters.every(([key,operator,value])=>operator==='='?row[key]===value:operator==='in'?value.includes(row[key]):operator==='<'?row[key]<value:operator==='<='?row[key]<=value:true);}

@@ -256,12 +256,13 @@ function notificationConfiguration(value: Record<string, unknown>): Notification
     telegramEnabled: enabled(value.telegramEnabled, Boolean(text(value.telegramBotToken) && text(value.telegramChatId))),
     wecomEnabled: enabled(value.wecomEnabled, value.wecomWebhookUrl),
     ...optionalText(value, 'webhookUrl'), ...optionalText(value, 'feishuWebhookUrl'), ...optionalText(value, 'telegramBotToken'),
-    ...optionalText(value, 'telegramChatId'), ...optionalText(value, 'wecomWebhookUrl') };
+    ...optionalText(value, 'telegramChatId'), ...optionalText(value, 'wecomWebhookUrl'), ...optionalText(value, 'managementUrl') };
 }
 function validateNotificationConfiguration(value: NotificationPolicyConfiguration, policyEnabled: boolean) {
   if (value.advanceDays < 0 || value.advanceDays > 365) throw new ServiceError(400,'提前提醒天数必须在 0 到 365 之间');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value.triggerTime)) throw new ServiceError(400,'触发时间格式无效');
   try { new Intl.DateTimeFormat('en-US',{timeZone:value.timeZone}).format(); } catch { throw new ServiceError(400,'通知时区无效'); }
+  if (value.managementUrl && (!/^https?:\/\/[^\s]+$/i.test(value.managementUrl) || value.managementUrl.length > 500)) throw new ServiceError(400,'管理入口必须是 500 字符以内的完整 HTTP(S) URL');
   const valid = (value.webhookEnabled&&value.webhookUrl)||(value.feishuEnabled&&value.feishuWebhookUrl)||(value.wecomEnabled&&value.wecomWebhookUrl)||(value.telegramEnabled&&value.telegramBotToken&&value.telegramChatId);
   if (policyEnabled && !valid) throw new ServiceError(400,'启用通知策略前，至少启用并完整配置一个通知渠道');
 }

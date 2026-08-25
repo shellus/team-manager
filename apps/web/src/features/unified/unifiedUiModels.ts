@@ -68,7 +68,7 @@ export function notificationDeliveryPresentation(
     return {
       label: "已投递",
       color: "green",
-      detail: `尝试 ${attempts}`,
+      detail: `尝试 ${attempts}，${delivery.deliveredChannels.length}/${delivery.channels.length} 个渠道成功`,
       canRetry: false,
     };
   }
@@ -78,7 +78,7 @@ export function notificationDeliveryPresentation(
       label: canRetry ? "等待重试" : "重试已耗尽",
       color: canRetry ? "orange" : "red",
       detail: canRetry
-        ? `尝试 ${attempts}${delivery.nextRetryAt ? `，下次 ${delivery.nextRetryAt}` : ""}`
+        ? `尝试 ${attempts}，待发送 ${delivery.pendingChannels.length} 个渠道${delivery.nextRetryAt ? `，下次 ${delivery.nextRetryAt}` : ""}`
         : `已达到最大尝试次数 ${attempts}`,
       canRetry,
     };

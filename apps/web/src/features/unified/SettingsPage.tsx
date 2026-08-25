@@ -248,6 +248,7 @@ export function SettingsPage() {
 function notificationChannels(configuration: NotificationPolicyView["configuration"]) {
   return [configuration.webhookEnabled && configuration.webhookUrl && "通用 Webhook", configuration.feishuEnabled && configuration.feishuWebhookUrl && "飞书", configuration.wecomEnabled && configuration.wecomWebhookUrl && "企业微信", configuration.telegramEnabled && configuration.telegramBotToken && configuration.telegramChatId && "Telegram"].filter((value): value is string => Boolean(value));
 }
+function deliveryChannelNames(channels:string[]){const labels:Record<string,string>={webhook:"通用 Webhook",feishu:"飞书",wecom:"企业微信",telegram:"Telegram"};return channels.map(channel=>labels[channel]??channel).join("、")||"—";}
 
 function NotificationPolicies({
   policies,
@@ -296,8 +297,8 @@ function NotificationPolicies({
       <Form
         key={selected?.id ?? "new-policy"}
         layout="vertical"
-        initialValues={{ kind: selected?.kind ?? "seat_expiration", enabled: selected?.enabled ?? true, advanceDays: selected?.configuration.advanceDays ?? 7, triggerTime: selected?.configuration.triggerTime ?? "09:00", timeZone: selected?.configuration.timeZone ?? "Asia/Shanghai", webhookEnabled: selected?.configuration.webhookEnabled ?? false, feishuEnabled: selected?.configuration.feishuEnabled ?? false, wecomEnabled: selected?.configuration.wecomEnabled ?? false, telegramEnabled: selected?.configuration.telegramEnabled ?? false, webhookUrl: selected?.configuration.webhookUrl, feishuWebhookUrl: selected?.configuration.feishuWebhookUrl, telegramBotToken: selected?.configuration.telegramBotToken, telegramChatId: selected?.configuration.telegramChatId, wecomWebhookUrl: selected?.configuration.wecomWebhookUrl }}
-        onFinish={(value) => run("policy", () => unifiedApi.saveNotificationPolicy(value.kind, { enabled: value.enabled === true, configuration: { advanceDays: value.advanceDays, triggerTime: value.triggerTime, timeZone: value.timeZone, webhookEnabled:value.webhookEnabled===true,feishuEnabled:value.feishuEnabled===true,wecomEnabled:value.wecomEnabled===true,telegramEnabled:value.telegramEnabled===true, ...(value.webhookUrl ? { webhookUrl: value.webhookUrl } : {}), ...(value.feishuWebhookUrl ? { feishuWebhookUrl: value.feishuWebhookUrl } : {}), ...(value.telegramBotToken ? { telegramBotToken: value.telegramBotToken } : {}), ...(value.telegramChatId ? { telegramChatId: value.telegramChatId } : {}), ...(value.wecomWebhookUrl ? { wecomWebhookUrl: value.wecomWebhookUrl } : {}) } }))}
+        initialValues={{ kind: selected?.kind ?? "seat_expiration", enabled: selected?.enabled ?? true, advanceDays: selected?.configuration.advanceDays ?? 7, triggerTime: selected?.configuration.triggerTime ?? "09:00", timeZone: selected?.configuration.timeZone ?? "Asia/Shanghai", managementUrl:selected?.configuration.managementUrl, webhookEnabled: selected?.configuration.webhookEnabled ?? false, feishuEnabled: selected?.configuration.feishuEnabled ?? false, wecomEnabled: selected?.configuration.wecomEnabled ?? false, telegramEnabled: selected?.configuration.telegramEnabled ?? false, webhookUrl: selected?.configuration.webhookUrl, feishuWebhookUrl: selected?.configuration.feishuWebhookUrl, telegramBotToken: selected?.configuration.telegramBotToken, telegramChatId: selected?.configuration.telegramChatId, wecomWebhookUrl: selected?.configuration.wecomWebhookUrl }}
+        onFinish={(value) => run("policy", () => unifiedApi.saveNotificationPolicy(value.kind, { enabled: value.enabled === true, configuration: { advanceDays: value.advanceDays, triggerTime: value.triggerTime, timeZone: value.timeZone, webhookEnabled:value.webhookEnabled===true,feishuEnabled:value.feishuEnabled===true,wecomEnabled:value.wecomEnabled===true,telegramEnabled:value.telegramEnabled===true, ...(value.managementUrl ? { managementUrl:value.managementUrl } : {}), ...(value.webhookUrl ? { webhookUrl: value.webhookUrl } : {}), ...(value.feishuWebhookUrl ? { feishuWebhookUrl: value.feishuWebhookUrl } : {}), ...(value.telegramBotToken ? { telegramBotToken: value.telegramBotToken } : {}), ...(value.telegramChatId ? { telegramChatId: value.telegramChatId } : {}), ...(value.wecomWebhookUrl ? { wecomWebhookUrl: value.wecomWebhookUrl } : {}) } }))}
       >
         <Typography.Title level={4}>{selected ? `编辑 ${selected.kind}` : "新建通知策略"}</Typography.Title>
         <div className="responsive-form-grid">
@@ -308,6 +309,7 @@ function NotificationPolicies({
             <Switch />
           </Form.Item>
         </div>
+        <Form.Item name="managementUrl" label="通知管理入口" rules={[{ type:"url", message:"请输入完整的 HTTP(S) URL" }]} extra="通知正文末尾的管理页面链接；席位策略建议填写席位概览，续费策略建议填写母号概览。"><Input allowClear maxLength={500} placeholder="https://example.com/seat-overview" /></Form.Item>
         <div className="responsive-form-grid">
           <Form.Item name="advanceDays" label="提前提醒天数" rules={[{ required: true }]}><InputNumber min={0} max={365} precision={0} /></Form.Item>
           <Form.Item name="triggerTime" label="每日触发时间" rules={[{ required: true, pattern: /^([01]\d|2[0-3]):[0-5]\d$/ }]}><Input type="time" /></Form.Item>
@@ -364,6 +366,7 @@ function NotificationDeliveries({
           },
         },
         { title: "错误", dataIndex: "error" },
+        { title:"渠道",render:(_,row)=> <Space direction="vertical" size={0}><Typography.Text>{deliveryChannelNames(row.deliveredChannels)} 已成功</Typography.Text>{row.pendingChannels.length>0&&<Typography.Text type="secondary">待发送：{deliveryChannelNames(row.pendingChannels)}</Typography.Text>}</Space> },
         {
           title: "投递摘要",
           dataIndex: "summaryText",

@@ -82,6 +82,9 @@ describe("notification retry state", () => {
     summaryText: "通知投递",
     attemptCount: 1,
     maxAttempts: 3,
+    channels: ["wecom"],
+    deliveredChannels: [],
+    pendingChannels: ["wecom"],
     createdAt: "2026-08-13T00:00:00Z",
     ...partial,
   });

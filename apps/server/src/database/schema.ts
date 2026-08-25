@@ -370,6 +370,7 @@ export interface NotificationDeliveryTable {
   payload: JsonObject; error_message: string | null; delivered_at: NullableTimestamp;
   attempt_count: Generated<number>; max_attempts: Generated<number>;
   next_retry_at: NullableTimestamp; last_attempt_at: NullableTimestamp;
+  configuration_snapshot: JsonObject; delivered_channels: JsonObject;
   created_at: Generated<Timestamp>;
 }
 

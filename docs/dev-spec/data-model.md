@@ -30,6 +30,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 - `seatKey` 全局唯一；同一 SeatSlot 同时最多一个活动换号操作。
 - `seat_slots.expire_reminder` 是默认开启的显式提醒事实；只有该字段开启且 `expires_on` 存在时才进入到期提醒调度，关闭提醒不改变到期处理策略。
 - `seat_slots.expires_on` 是北京时间自然日；该日全天有效，次日北京时间零点后的第一次扫描才进入到期处理。
+- `notification_deliveries.configuration_snapshot` 冻结入队时的渠道目标，`delivered_channels` 记录已经业务成功的渠道；有限重试只处理剩余渠道。
 - Automation Operation 幂等键唯一；支付输入只保存安全摘要。
 - Workspace 订阅快照结构化保存 `fixed_seat_capacity` 与 `subscription_seats_in_use`；两者分别对应上游 `seats_entitled` 与 `seats_in_use`，不能从成员、邀请或发票反推。
 
@@ -45,7 +46,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 | 席位 | `seat_slots`、`seat_slot_identity_history`、`seat_slot_swap_operations` |
 | 财务 | `billing_snapshots`、`billing_invoices`、`payment_method_summaries` |
 | 自动化 | `automation_operations`、`automation_operation_events`、`payment_attempt_summaries` |
-| 订单与设置 | `team_order_configurations`、`team_order_maintenances`、`team_upgrade_orders`、`system_settings`、`notification_policies` |
+| 订单与设置 | `team_order_configurations`、`team_order_maintenances`、`team_upgrade_orders`、`system_settings`、`notification_policies`、`notification_deliveries` |
 | 文件证据 | `upstream_trace_segments`、`rrweb_recordings`、`quarantined_artifacts` |
 
 低频上游快照可以保存 `jsonb` 原文，但稳定查询字段必须拆列。Session、Token 与秘密设置在应用层加密；完整 HTTP trace、rrweb 和凭证 JSON 只保存为文件。

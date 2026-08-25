@@ -36,7 +36,7 @@ Business 支持：
 
 `/team-orders` 管理 Workspace 升级订单配置和维护池。维护记录显式保存 Workspace 与执行账号，但不把 Workspace 永久归属于账号。
 
-`/settings` 管理 PostgreSQL 中的通知策略。部署秘密不在普通配置 JSON 中填写。
+`/settings` 管理 PostgreSQL 中的通知策略。每个策略可设置通知管理入口；席位到期建议指向 `/seat-overview`，Workspace 续费建议指向 `/parent-overview`。正式提醒会列出 Workspace、客户邮箱、到期日、剩余天数和名单变化，最多展开 10 项；测试通知沿用同一模板但只使用示例数据。投递历史分别显示已成功和待发送渠道，失败后总共最多尝试 3 次，且不会向已成功渠道重复发送。部署秘密不在普通配置 JSON 中填写。
 
 ## 公开客户席位
 

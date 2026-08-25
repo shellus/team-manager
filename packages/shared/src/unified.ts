@@ -371,6 +371,9 @@ export interface NotificationDeliveryView {
   nextRetryAt?: string;
   error?: string;
   deliveredAt?: string;
+  channels: string[];
+  deliveredChannels: string[];
+  pendingChannels: string[];
   createdAt: string;
 }
 
@@ -378,6 +381,7 @@ export interface NotificationPolicyConfiguration {
   advanceDays: number;
   triggerTime: string;
   timeZone: string;
+  managementUrl?: string;
   webhookUrl?: string;
   webhookEnabled: boolean;
   feishuWebhookUrl?: string;

@@ -88,7 +88,8 @@ export class SeatSlotService {
       seatType: relation.seatType ?? input.seatType ?? row.seat_type as SeatType,
       status: relation.status === 'unknown' && row.status === 'disabled' ? 'disabled' : relation.status });
     if (removalPolicyChanged) await this.db.deleteFrom('seat_expiration_removal_attempts').where('seat_slot_id', '=', id).execute();
-    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,status:updated.status,seatType:updated.seat_type});
+    const before=seatAuditState(row);const after=seatAuditState(updated);const changedFields=Object.keys(after).filter(key=>before[key]!==after[key]);
+    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,status:updated.status,seatType:updated.seat_type,changedFields,before,after});
     return updated;
   }
 
@@ -114,11 +115,14 @@ export class SeatSlotService {
       .where('expire_reminder','=',true)
       .where('expires_on','is not',null)
       .where('expires_on','>=',reminderStart).where('expires_on','<=',reminderEnd).execute();
+    const reminderWorkspaceIds=[...new Set(reminders.map(row=>row.workspace_id))];
+    const reminderWorkspaces=reminderWorkspaceIds.length?await this.db.selectFrom('workspaces').select(['id','name','external_id']).where('id','in',reminderWorkspaceIds).execute():[];
+    const reminderWorkspaceById=new Map(reminderWorkspaces.map(row=>[row.id,row]));
     let seatReminders = 0;
     for (const {schedule,start,end} of seatWindows) {
       const reminderKey=`seat-expiry-reminder:${schedule.kind}:${calendarDateInTimeZone(now,schedule.timeZone)}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
       const matching=reminders.filter(row=>{const expiresOn=dateOnly(row.expires_on!);return expiresOn>=start&&expiresOn<=end;});
-      if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>({seatSlotId:row.id,email:row.current_email,expiresOn:row.expires_on,workspaceId:row.workspace_id})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();seatReminders+=matching.length;}
+      if(matching.length&&!already){await this.notifications?.notifySeatExpiry(matching.map(row=>{const workspace=reminderWorkspaceById.get(row.workspace_id);return{seatSlotId:row.id,email:row.current_email!,expiresOn:dateOnly(row.expires_on!),workspaceId:row.workspace_id,...(workspace?.name?{workspaceName:workspace.name}:{}),...(workspace?.external_id?{workspaceExternalId:workspace.external_id}:{})};}),schedule.kind,{observedAt:now.toISOString(),timeZone:schedule.timeZone,windowStart:start,windowEnd:end});await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();seatReminders+=matching.length;}
     }
     const renewalSchedules = dueSchedules.filter((schedule) => schedule.kind === 'workspace_renewal');
     const renewalRows = renewalSchedules.length ? await this.db.selectFrom('workspaces').select(['id','external_id','name','normalized_plan','next_renewal_at'])
@@ -128,7 +132,7 @@ export class SeatSlotService {
       const localToday=calendarDateInTimeZone(now,schedule.timeZone);const localEnd=addCalendarDays(localToday,schedule.advanceDays);
       const matching=renewalRows.filter(row=>{const date=calendarDateInTimeZone(new Date(row.next_renewal_at as Date),schedule.timeZone);return date>=localToday&&date<=localEnd;});
       const reminderKey=`workspace-renewal-reminder:${schedule.kind}:${localToday}`;const already=await this.db.selectFrom('system_settings').select('key').where('key','=',reminderKey).executeTakeFirst();
-      if(matching.length&&!already){await this.notifications?.notifyWorkspaceRenewal(matching.map(row=>({workspaceId:row.id,externalId:row.external_id,name:row.name,plan:row.normalized_plan,nextRenewalAt:new Date(row.next_renewal_at as Date).toISOString()})),schedule.kind);await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();renewalReminders+=matching.length;}
+      if(matching.length&&!already){await this.notifications?.notifyWorkspaceRenewal(matching.map(row=>({workspaceId:row.id,externalId:row.external_id,...(row.name?{name:row.name}:{}),plan:row.normalized_plan,nextRenewalAt:new Date(row.next_renewal_at as Date).toISOString()})),schedule.kind,{observedAt:now.toISOString(),timeZone:schedule.timeZone,windowStart:localToday,windowEnd:localEnd});await this.db.insertInto('system_settings').values({key:reminderKey,value:{count:matching.length,runAt:now.toISOString()},is_secret:false,ciphertext:null,nonce:null,auth_tag:null,key_version:null}).onConflict(oc=>oc.column('key').doNothing()).execute();renewalReminders+=matching.length;}
     }
     const rows = await this.db.selectFrom('seat_slots').selectAll().where('expires_on', '<', today).execute();
     let disabled = 0; let removed = 0; let removalRetrying = 0; let removalFailed = 0;
@@ -176,7 +180,8 @@ export class SeatSlotService {
       await this.db.updateTable('seat_expiration_removal_attempts').set({
         status:'failed',next_attempt_at:null,last_error:message,failed_at:now
       }).where('seat_slot_id','=',row.id).execute();
-      const payload={seatSlotId:row.id,email:row.current_email,workspaceId:row.workspace_id,expiresOn:row.expires_on,
+      const workspace=await this.db.selectFrom('workspaces').select(['name','external_id']).where('id','=',row.workspace_id).executeTakeFirst();
+      const payload={seatSlotId:row.id,email:row.current_email,workspaceId:row.workspace_id,...(workspace?.name?{workspaceName:workspace.name}:{}),...(workspace?.external_id?{workspaceExternalId:workspace.external_id}:{}),expiresOn:row.expires_on,
         status:row.status,error:message,attemptCount:claimed.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS};
       await this.#activity.log({workspaceId:row.workspace_id,kind:'seat_slot_expiration_removal_failed',payload});
       try{await this.notifications?.notifySeatRemovalFailure(payload);}catch(notificationError){
@@ -207,6 +212,7 @@ export class SeatSlotService {
 export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string;hasExplicitSchedule?:boolean},now:Date):boolean{if(schedule.hasExplicitSchedule===false)return true;const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`===schedule.triggerTime;}
 function dateOnly(value:string|Date){return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);}
 function expirationRemovalError(error:unknown){const message=error instanceof Error?error.message:String(error);return message.slice(0,2000)||'未知错误';}
+function seatAuditState(row:{contact:string|null;remark:string|null;price:string|null;expires_on:string|null;expire_reminder:boolean;expire_remove:boolean;seat_type:string|null;status:string}){return{contact:row.contact,remark:row.remark,price:row.price,expiresOn:row.expires_on,expireReminder:row.expire_reminder,expireRemove:row.expire_remove,seatType:row.seat_type,status:row.status} as Record<string,unknown>;}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
   const tick = () => void service.runExpirations().catch((error) => console.warn('[team-manager] 席位到期任务失败:', error));
