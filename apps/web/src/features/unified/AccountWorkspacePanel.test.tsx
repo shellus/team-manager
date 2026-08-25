@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { UnifiedAccountDetailView } from "@team-manager/shared";
-import { AccountWorkspacePanel, relationReleaseCopy, WorkspaceSettings } from "./AccountWorkspacePanel.js";
+import { AccountWorkspacePanel, PeoplePanel, relationReleaseCopy, WorkspaceSettings } from "./AccountWorkspacePanel.js";
 
 describe("账号 Workspace 面板", () => {
   it("没有活动 Workspace 时仍显示关系同步入口", () => {
@@ -54,6 +54,46 @@ describe("账号 Workspace 面板", () => {
     expect(html).toContain("0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc");
     expect(html).toMatch(/readonly=""/);
     expect(html).not.toContain("local-workspace-id");
+  });
+
+  it("普通成员仍可刷新成员并打开邀请表单", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <App>
+          <PeoplePanel
+            workspace={{
+              id: "workspace-id",
+              externalId: "remote-workspace-id",
+              members: [],
+              invitations: [],
+              credentials: [],
+              seatSlots: [],
+              consistencyRisks: [],
+            } as unknown as import("@team-manager/shared").WorkspaceDetailView}
+            accountId="member-account-id"
+            canManage={false}
+            loading={false}
+            busy=""
+            setLastRemoval={() => undefined}
+            run={async () => true}
+            mutateWorkspace={async () => true}
+            modal={null}
+            personId={null}
+            setParams={() => undefined}
+          />
+        </App>
+      </MemoryRouter>,
+    );
+
+    const buttonTag = (label: string) => {
+      const labelIndex = html.indexOf(label);
+      const start = html.lastIndexOf("<button", labelIndex);
+      return html.slice(start, html.indexOf(">", start) + 1);
+    };
+    expect(buttonTag("刷新成员")).not.toContain("disabled");
+    expect(buttonTag("邀请成员")).not.toContain("disabled");
+    expect(html).toContain("是否允许以上游响应为准");
+    expect(html).not.toContain("空间级操作已禁用");
   });
 
   it("没有其他账号使用时仍只展示退出关系删除入口", () => {

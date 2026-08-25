@@ -276,7 +276,7 @@ export function AccountWorkspacePanel({
         生成订单链接
       </Button>
       {relationship && <Tag color={canManage ? "green" : "default"}>{roleLabel(relationship.role)}</Tag>}
-      {relationship && !canManage && <Typography.Text type="secondary">普通成员只能查看空间资料并管理自己的凭证</Typography.Text>}
+      {relationship && !canManage && <Typography.Text type="secondary">普通成员的操作权限以上游实际响应为准</Typography.Text>}
     </Space>
   );
   const removedWorkspaceSection = removedWorkspaces.length > 0 ? (
@@ -427,7 +427,7 @@ function LoadingEmpty({ loading }: { loading: boolean }) {
   return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loading ? "正在读取…" : "暂无资料"} />;
 }
 
-function PeoplePanel({
+export function PeoplePanel({
   workspace,
   accountId,
   canManage,
@@ -472,10 +472,10 @@ function PeoplePanel({
     <Space direction="vertical" className="panel-stack">
       <Space wrap className="member-list-toolbar">
         <Typography.Text type="secondary">最后刷新：{formatTime(latestTime(rows.map((row) => row.observedAt).filter((value): value is string => Boolean(value))))}</Typography.Text>
-        <Button icon={<ReloadOutlined />} disabled={!canManage} loading={busy === "people-refresh"} onClick={() => void refresh()}>刷新成员</Button>
-        <Button type="primary" disabled={!canManage} onClick={() => setParams({ modal: "invite", personId: undefined })}>邀请成员</Button>
+        <Button icon={<ReloadOutlined />} loading={busy === "people-refresh"} onClick={() => void refresh()}>刷新成员</Button>
+        <Button type="primary" onClick={() => setParams({ modal: "invite", personId: undefined })}>邀请成员</Button>
       </Space>
-      {!canManage && <Alert type="info" showIcon message="当前账号不是 Workspace 所有者或管理员，空间级操作已禁用。" />}
+      {!canManage && <Alert type="info" showIcon message="当前账号不是 Workspace 所有者或管理员，刷新与邀请仍会提交上游，是否允许以上游响应为准。" />}
       {lastRemoval && <Alert type={lastRemoval.hasBillingNotice ? "warning" : "info"} showIcon message={`最近移除成员：${lastRemoval.email ?? lastRemoval.remoteUserId}`} description={removalSummaryText(lastRemoval)} />}
       <Table<AccountWorkspacePersonRow>
         rowKey="rowKey"

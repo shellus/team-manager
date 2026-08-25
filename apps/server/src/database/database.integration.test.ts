@@ -261,6 +261,13 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             });
             if (request.path === `/backend-api/accounts/${workspace.external_id}/settings/default_seat_type`) return { status: 200, body: '{}' };
             if (request.path === `/backend-api/accounts/${workspace.external_id}/users/member-remote`) return { status: 200, body: '{}' };
+            if (request.path.startsWith(`/backend-api/accounts/${workspace.external_id}/users?`)) return {
+              status: 200,
+              body: JSON.stringify({ items: [
+                { id: 'owner-remote', email: first.account.email, role: 'account-owner', seat_type: 'default', status: 'active' },
+                { id: 'member-remote', email: second.account.email, role: 'standard-user', seat_type: 'usage_based', status: 'active' }
+              ] })
+            };
             if (request.path === `/backend-api/accounts/${workspace.external_id}/invites` && request.method === 'POST') {
               const body = JSON.parse(request.body ?? '{}') as { email_addresses?: string[]; role?: string; seat_type?: string };
               workspaceInvites.push({
@@ -802,7 +809,17 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const invitedAccount = await app.request(`/api/accounts/${outsider.account.id}`, { headers });
       assert.equal((await invitedAccount.json() as any).data.workspaces[0].membershipStatus, 'pending');
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'workspace-mutation-token',{status:'valid'});
+      await sessions.saveAccessToken(second.account.id,{kind:'workspace',workspaceId:workspace.id},'member-workspace-token',{status:'valid'});
       let requestOffset=workspaceMutationRequests.length;
+      const memberPeopleRefresh=await app.request(`/api/workspaces/${workspace.id}/people/refresh`,{method:'POST',headers,body:JSON.stringify({executorAccountId:second.account.id})});
+      assert.equal(memberPeopleRefresh.status,200,await memberPeopleRefresh.clone().text());
+      const memberInvite=await app.request(`/api/workspaces/${workspace.id}/invitations`,{method:'POST',headers,body:JSON.stringify({executorAccountId:second.account.id,email:'member-requested-invite@example.com',role:'standard-user',contact:'member-created-contact'})});
+      assert.equal(memberInvite.status,200,await memberInvite.clone().text());
+      assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{
+        method:'POST',path:`/backend-api/accounts/${workspace.external_id}/invites`,body:{email_addresses:['member-requested-invite@example.com'],role:'standard-user',resend_emails:true}
+      }],'普通成员的邀请请求直接提交上游，不做本地管理员拦截');
+      assert.equal((await db.selectFrom('seat_slots').select('contact').where('workspace_id','=',workspace.id).where('normalized_current_email','=','member-requested-invite@example.com').executeTakeFirstOrThrow()).contact,'member-created-contact','上游接受普通成员邀请后仍保存随邀请填写的租客资料');
+      requestOffset=workspaceMutationRequests.length;
       const unspecifiedSeatInvite=await app.request(`/api/workspaces/${workspace.id}/invitations`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id,email:'upstream-decides-seat@example.com',role:'standard-user',contact:'unknown-seat-contact'})});
       assert.equal(unspecifiedSeatInvite.status,200,await unspecifiedSeatInvite.clone().text());
       assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{

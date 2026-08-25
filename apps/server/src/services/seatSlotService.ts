@@ -31,7 +31,6 @@ export class SeatSlotService {
   }
 
   async invite(workspaceId: string, executorAccountId: string, input: WorkspaceInvitationMutationInput) {
-    await this.requireManageableBy(workspaceId, executorAccountId);
     const existing = await this.db.selectFrom('seat_slots').selectAll()
       .where('workspace_id', '=', workspaceId)
       .where('normalized_current_email', '=', normalizeEmail(input.email)).executeTakeFirst();
@@ -47,13 +46,17 @@ export class SeatSlotService {
       price: input.price, expiresOn: input.expiresOn, expireReminder: input.expireReminder,
       expireRemove: input.expireRemove
     };
-    if (existing) await this.update(workspaceId, existing.id, executorAccountId,
+    if (existing) await this.updateRecord(workspaceId, existing.id,
       hasCustomerData ? customerInput : { email: input.email, ...(input.seat ? { seatType: input.seat } : {}) });
-    else if (hasCustomerData) await this.create(workspaceId, executorAccountId, customerInput);
+    else if (hasCustomerData) await this.createRecord(workspaceId, customerInput);
   }
 
   async create(workspaceId: string, executorAccountId: string, input: SeatSlotMutationInput) {
     await this.requireManageableBy(workspaceId, executorAccountId);
+    return this.createRecord(workspaceId, input);
+  }
+
+  private async createRecord(workspaceId: string, input: SeatSlotMutationInput) {
     const email = input.email?.trim();
     if (!email || !normalizeEmail(email).includes('@')) throw new ServiceError(400, '缺少有效关联邮箱');
     const seatKey = input.seatKey?.trim() || randomBytes(24).toString('base64url');
@@ -75,6 +78,10 @@ export class SeatSlotService {
 
   async update(workspaceId: string, id: string, executorAccountId: string, input: SeatSlotMutationInput) {
     await this.requireManageableBy(workspaceId, executorAccountId);
+    return this.updateRecord(workspaceId, id, input);
+  }
+
+  private async updateRecord(workspaceId: string, id: string, input: SeatSlotMutationInput) {
     const row = await this.require(workspaceId, id);
     if(input.email!==undefined&&normalizeEmail(input.email??'')!==normalizeEmail(row.current_email??''))throw new ServiceError(400,'当前邮箱不能在资料编辑中修改，请先释放占用');
     if((input as Record<string,unknown>).remoteUserId!==undefined||(input as Record<string,unknown>).status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工修改，请使用邀请、成员管理或释放操作');

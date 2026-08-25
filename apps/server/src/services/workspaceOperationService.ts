@@ -251,7 +251,7 @@ export class WorkspaceOperationService {
   }
 
   async refreshMembers(workspaceId: string, executorAccountId: string) {
-    const { api } = await this.context(workspaceId, executorAccountId);
+    const { api } = await this.context(workspaceId, executorAccountId, { requireManageable: false });
     const members = await api.listMembers();
     const observedAt = new Date();
     const existing = await this.db.selectFrom('workspace_memberships').selectAll().where('workspace_id', '=', workspaceId).execute();
@@ -276,7 +276,7 @@ export class WorkspaceOperationService {
   }
 
   async refreshInvitations(workspaceId: string, executorAccountId: string) {
-    const { api } = await this.context(workspaceId, executorAccountId);
+    const { api } = await this.context(workspaceId, executorAccountId, { requireManageable: false });
     const invitations = await api.listPendingInvites();
     const observedAt = new Date();
     const seenEmails = new Set<string>();
@@ -426,7 +426,7 @@ export class WorkspaceOperationService {
   }
 
   async invite(workspaceId: string, executorAccountId: string, input: { email: string; seat?: SeatType; role?: string }) {
-    const { api } = await this.context(workspaceId, executorAccountId);
+    const { api } = await this.context(workspaceId, executorAccountId, { requireManageable: false });
     await api.invite(input.email, input.seat, input.role || 'standard-user');
     await this.activity(executorAccountId,workspaceId,'workspace_invitation_created',{
       email: normalizeEmail(input.email), ...(input.seat ? { seat: input.seat } : {}), role: input.role || 'standard-user'
@@ -547,9 +547,13 @@ export class WorkspaceOperationService {
     });
   }
 
-  private async context(workspaceId: string, executorAccountId: string) {
+  private async context(
+    workspaceId: string,
+    executorAccountId: string,
+    options: { requireManageable?: boolean } = {},
+  ) {
     try {
-      await this.#workspaces.requireManageableBy(workspaceId, executorAccountId);
+      if (options.requireManageable !== false) await this.#workspaces.requireManageableBy(workspaceId, executorAccountId);
       const workspace = await this.#workspaces.findById(workspaceId);
       if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
       let accessToken = await this.sessions.accessToken(executorAccountId, { kind: 'workspace', workspaceId });
