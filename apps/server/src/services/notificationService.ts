@@ -63,7 +63,7 @@ export class NotificationService {
 
   async notifySeatExpiry(items: SeatExpiryNotificationItem[], kind?: string, inputContext?: Partial<NotificationMessageContext>) {
     let query = this.db.selectFrom('notification_policies').select(['id', 'kind', 'configuration']).where('enabled', '=', true);
-    if (kind) query = query.where('kind', '=', kind);
+    query = query.where('kind', '=', kind || 'seat_expiration');
     const policies = await query.execute();
     for (const policy of policies) {
       const context = { ...messageContext(policy.configuration, inputContext?.observedAt), ...inputContext } as NotificationMessageContext;

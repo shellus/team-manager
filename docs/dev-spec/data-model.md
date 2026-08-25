@@ -31,6 +31,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 - `seat_slots.expire_reminder` 是默认开启的显式提醒事实；只有该字段开启且 `expires_on` 存在时才进入到期提醒调度，关闭提醒不改变到期处理策略。
 - `seat_slots.expires_on` 是北京时间自然日；该日全天有效，次日北京时间零点后的第一次扫描才进入到期处理。
 - `notification_deliveries.configuration_snapshot` 冻结入队时的渠道目标，`delivered_channels` 记录已经业务成功的渠道；有限重试只处理剩余渠道。
+- 通知策略的 `kind` 只表达 `seat_expiration`、`workspace_renewal` 等业务事件；`wecom`、`feishu` 等渠道名不能作为启用的业务策略。
 - Automation Operation 幂等键唯一；支付输入只保存安全摘要。
 - Workspace 订阅快照结构化保存 `fixed_seat_capacity` 与 `subscription_seats_in_use`；两者分别对应上游 `seats_entitled` 与 `seats_in_use`，不能从成员、邀请或发票反推。
 
