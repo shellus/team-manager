@@ -67,7 +67,7 @@ export class AccountManagerService {
   }
 
   async enroll(accountId: string) {
-    const manager = this.require('startAccountImport');
+    this.require('startAccountImport');
     const account = await this.#accounts.findById(accountId);
     if (!account) throw new ServiceError(404, '账号不存在');
     const existingBinding = await this.db.selectFrom('gam_bindings').select('external_account_ref')
@@ -85,22 +85,71 @@ export class AccountManagerService {
     }
     const session = await this.sessions.currentSession(accountId);
     if (!session) throw new ServiceError(409, '账号没有可用于 GAM 纳管的 Session');
-    const operationId = await this.#operations.start({
+    const operation = await this.startEnrollment(
       accountId,
-      kind: 'import_account',
-      idempotencyKey: randomUUID(),
-      safeRequestSummary: { email: account.email, authMethod: 'existing_session' }
+      account.email,
+      session as Parameters<NonNullable<AccountManagerGateway['startAccountImport']>>[0]['session']
+    );
+    await this.#activity.log({
+      accountId,
+      kind: 'gam_enrollment_requested',
+      payload: { operationId: operation.id, authMethod: 'existing_session' }
     });
-    const operation = await manager.startAccountImport!({
-      email: account.email,
-      authMethod: 'existing_session',
-      session: session as Parameters<NonNullable<AccountManagerGateway['startAccountImport']>>[0]['session'],
-      requestTag: `team-manager:${operationId}`,
-      clientReference: accountId
-    });
-    await this.#operations.attach(operationId, operation);
-    await this.#activity.log({ accountId, kind: 'gam_enrollment_requested', payload: { operationId, authMethod: 'existing_session' } });
-    return this.#operations.view(operationId);
+    return operation;
+  }
+
+  async rebuild(accountId: string) {
+    const manager = this.require('deleteAccount');
+    this.require('startAccountImport');
+    const account = await this.#accounts.findById(accountId);
+    if (!account) throw new ServiceError(404, '账号不存在');
+    const session = await this.sessions.currentSession(accountId) as
+      Parameters<NonNullable<AccountManagerGateway['startAccountImport']>>[0]['session'] | undefined;
+    if (!session?.sessionToken?.trim()) {
+      throw new ServiceError(409, '账号没有可用于重建 GAM 的完整 Session Token');
+    }
+    const activeEnrollment = (await this.#operations.listForAccount(accountId)).find((item) =>
+      item.type === 'import_account' && !['succeeded', 'failed', 'interrupted'].includes(item.status)
+    );
+    if (activeEnrollment) return activeEnrollment;
+    const binding = await this.db.selectFrom('gam_bindings').select('external_account_ref')
+      .where('account_id', '=', accountId).executeTakeFirst();
+    if (binding) {
+      try {
+        await manager.deleteAccount!(binding.external_account_ref);
+      } catch (error) {
+        if (!isMissingManagerAccount(error)) throw error;
+      }
+      await this.db.transaction().execute(async (trx) => {
+        await new AccountRepository(trx).unbindGamAccount(accountId);
+        await trx.updateTable('account_operational_profiles').set({
+          proxy_url_ciphertext: null,
+          proxy_url_nonce: null,
+          proxy_url_auth_tag: null,
+          proxy_url_key_version: null,
+          account_manager_plan_code: null,
+          account_manager_synced_at: null,
+          profile_status: 'unknown',
+          profile_checked_at: null
+        }).where('account_id', '=', accountId).execute();
+      });
+    }
+    try {
+      const operation = await this.startEnrollment(accountId, account.email, session, true);
+      await this.#activity.log({
+        accountId,
+        kind: 'gam_rebuild_requested',
+        payload: { operationId: operation.id, authMethod: 'existing_session' }
+      });
+      return operation;
+    } catch (error) {
+      await this.#activity.log({
+        accountId,
+        kind: 'gam_rebuild_import_failed',
+        payload: { error: errorMessage(error), authMethod: 'existing_session' }
+      });
+      throw error;
+    }
   }
 
   async registrationProxy(operationId: string) {
@@ -276,6 +325,43 @@ export class AccountManagerService {
     return operation;
   }
 
+  private async startEnrollment(
+    accountId: string,
+    email: string,
+    session: Parameters<NonNullable<AccountManagerGateway['startAccountImport']>>[0]['session'],
+    rebuild = false
+  ) {
+    const manager = this.require('startAccountImport');
+    const operationId = await this.#operations.start({
+      accountId,
+      kind: 'import_account',
+      idempotencyKey: randomUUID(),
+      safeRequestSummary: {
+        email,
+        authMethod: 'existing_session',
+        ...(rebuild ? { rebuild: true } : {})
+      }
+    });
+    try {
+      const operation = await manager.startAccountImport!({
+        email,
+        authMethod: 'existing_session',
+        session,
+        requestTag: `team-manager:${operationId}`,
+        clientReference: accountId
+      });
+      await this.#operations.attach(operationId, operation);
+      return this.#operations.view(operationId);
+    } catch (error) {
+      await this.#operations.failLocal(operationId, {
+        phase: 'gam_import_request_failed',
+        errorCode: 'gam_import_request_failed',
+        errorMessage: errorMessage(error)
+      });
+      throw error;
+    }
+  }
+
   private require<K extends keyof AccountManagerGateway>(method: K): AccountManagerGateway {
     if (!this.manager?.[method]) throw new ServiceError(503, `GAM ${String(method)} 未配置`);
     return this.manager;
@@ -305,4 +391,8 @@ function mergeOperations(local: AccountManagerStateView['operations'], remote: A
 function stringFrom(value: Record<string, unknown> | undefined, key: string): string | undefined {
   const item = value?.[key];
   return typeof item === 'string' && item.trim() ? item.trim().toLowerCase() : undefined;
+}
+
+function isMissingManagerAccount(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'status' in error && error.status === 404);
 }

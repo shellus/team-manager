@@ -166,6 +166,7 @@ export const unifiedApi = {
   openBusiness: (id: string, body: OpenBusinessSubscriptionRequest) => request<AccountManagerOperationView>('POST', `/accounts/${id}/business-subscription`, body),
   accountManagerState: (id: string) => request<AccountManagerStateView>('GET', `/accounts/${id}/account-manager`),
   enrollAccountManager: (id: string) => request<AccountManagerOperationView>('POST', `/accounts/${id}/account-manager/enroll`),
+  rebuildAccountManager: (id: string) => request<AccountManagerOperationView>('POST', `/accounts/${id}/account-manager/rebuild`),
   startProfile: (id: string) => request<unknown>('POST', `/accounts/${id}/account-manager/profile/start`),
   stopProfile: (id: string) => request<unknown>('POST', `/accounts/${id}/account-manager/profile/stop`),
   configureProxy: (id: string, body: ResidentialProxyConfig) => request<ResidentialProxyConfig>('PUT', `/accounts/${id}/account-manager/proxy`, body),

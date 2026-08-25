@@ -46,6 +46,7 @@ export interface AccountManagerGateway {
   registrationSessionDelivery?(operationId: string): Promise<RegistrationSessionDelivery>;
   acknowledgeRegistrationSessionDelivery?(operationId: string): Promise<boolean>;
   listAccountOperations?(accountId: string): Promise<AccountManagerOperationView[]>;
+  deleteAccount?(accountId: string): Promise<boolean>;
   accountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   startAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
   stopAccountProfile?(accountId: string): Promise<AccountManagerProfileView>;
@@ -123,6 +124,11 @@ export class AccountManagerClient implements AccountManagerGateway {
   async listAccountOperations(accountId: string): Promise<AccountManagerOperationView[]> {
     const items = await this.request<RawOperation[]>('GET', `/v1/accounts/${encodeURIComponent(accountId)}/operations`);
     return items.map(toOperation);
+  }
+
+  async deleteAccount(accountId: string): Promise<boolean> {
+    await this.request('DELETE', `/v1/accounts/${encodeURIComponent(accountId)}`);
+    return true;
   }
 
   accountProfile(accountId: string): Promise<AccountManagerProfileView> {

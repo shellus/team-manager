@@ -198,6 +198,7 @@ export function AccountDetailPage() {
                       manager={manager}
                       busy={busy}
                       run={run}
+                      onRebuildGam={() => openAccountAction("rebuild-gam")}
                     />
                   ),
                 },
@@ -342,16 +343,18 @@ function Overview({
   );
 }
 
-function Management({
+export function Management({
   account,
   manager,
   busy,
   run,
+  onRebuildGam,
 }: {
   account: UnifiedAccountDetailView;
   manager?: AccountManagerStateView;
   busy: string;
   run: (k: string, a: () => Promise<unknown>) => Promise<void>;
+  onRebuildGam: () => void;
 }) {
   return (
     <Space direction="vertical" size={16} className="panel-stack">
@@ -393,6 +396,21 @@ function Management({
           },
         ]}
       />
+      {account.gamAccountRef && (
+        <Alert
+          type="warning"
+          showIcon
+          message="GAM 资料异常时可从当前 Session 重建"
+          description={account.hasSession
+            ? "重建会清理现有 GAM 账号和 CloakBrowser Profile，再按首次纳管流程应用登录态。"
+            : "当前账号没有完整 Session，请先编辑账号并保存 Session JSON。"}
+          action={(
+            <Button danger disabled={!account.hasSession} onClick={onRebuildGam}>
+              重建 GAM
+            </Button>
+          )}
+        />
+      )}
     </Space>
   );
 }

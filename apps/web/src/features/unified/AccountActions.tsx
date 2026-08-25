@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Alert, Button, Form, Input, Select, Space, Switch, Tooltip } from "antd";
+import { Alert, Button, Descriptions, Form, Input, Select, Space, Switch, Tooltip } from "antd";
 import type {
   AccountGroupView,
   AccountLimitType,
@@ -153,6 +153,13 @@ export function AccountActionModals({
         onChanged={onChanged}
         onOperationCreated={onOperationCreated}
       />
+      <RebuildGamModal
+        account={account}
+        open={action === "rebuild-gam"}
+        onClose={onClose}
+        onChanged={onChanged}
+        onOperationCreated={onOperationCreated}
+      />
       <AccountEditorModal
         account={account}
         open={action === "edit"}
@@ -160,6 +167,89 @@ export function AccountActionModals({
         onSaved={onChanged}
       />
     </>
+  );
+}
+
+export function RebuildGamModal({
+  account,
+  open,
+  onClose,
+  onChanged,
+  onOperationCreated,
+}: {
+  account: AccountActionSummary;
+  open: boolean;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+  onOperationCreated?: (operation: AccountManagerOperationView) => void;
+}) {
+  const productMessage = useProductMessage();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setError("");
+  }, [open]);
+
+  return (
+    <ProductModal
+      title={`重建 GAM · ${account.email}`}
+      open={open}
+      onCancel={onClose}
+      footer={(
+        <Space>
+          <Button onClick={onClose} disabled={saving}>取消</Button>
+          <Button
+            danger
+            type="primary"
+            loading={saving}
+            disabled={!account.hasSession}
+            onClick={async () => {
+              setSaving(true);
+              setError("");
+              try {
+                const operation = await unifiedApi.rebuildAccountManager(account.id);
+                productMessage.success("旧 GAM 资料已清理，正在应用当前 Session");
+                await onChanged();
+                onClose();
+                onOperationCreated?.(operation);
+              } catch (reason) {
+                setError((reason as Error).message);
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            重建 GAM
+          </Button>
+        </Space>
+      )}
+      width={620}
+    >
+      <Space direction="vertical" size={16} className="panel-stack">
+        <Alert
+          type="warning"
+          showIcon
+          message="该操作会删除现有 GAM 账号资料和 CloakBrowser Profile"
+          description="正在运行的 GAM 业务操作必须先结束。Team Manager 保存的当前 Session 不会被删除。"
+        />
+        {error && <Alert type="error" showIcon message={error} />}
+        {!account.hasSession && (
+          <Alert type="error" showIcon message="当前账号没有完整 Session，请先编辑账号并保存 Session JSON。" />
+        )}
+        <Descriptions
+          bordered
+          size="small"
+          column={1}
+          items={[
+            { key: "remove", label: "清理范围", children: "GAM 账号凭据、浏览器身份归档、运行及旧 CloakBrowser Profile" },
+            { key: "keep", label: "保留内容", children: "Team Manager 中的账号、Workspace 关系和当前 Session" },
+            { key: "recreate", label: "重建方式", children: "按首次纳管流程把当前 Session 写入新运行 Profile，校验邮箱后建立新的 GAM 浏览器身份" },
+          ]}
+        />
+      </Space>
+    </ProductModal>
   );
 }
 

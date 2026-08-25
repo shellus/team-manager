@@ -7,6 +7,7 @@ import type {
 export type AccountActionModal =
   | "proxy"
   | "subscription"
+  | "rebuild-gam"
   | "edit";
 
 export type AccountActionSummary = UnifiedAccountSummaryView & {
@@ -114,6 +115,7 @@ export function actionModalFromParams(
   const modal = params.get("modal");
   return modal === "proxy" ||
     modal === "subscription" ||
+    modal === "rebuild-gam" ||
     modal === "edit"
     ? modal
     : undefined;

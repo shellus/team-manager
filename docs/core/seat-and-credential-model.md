@@ -62,6 +62,8 @@
 
 账号完整 Web Session 只由 Team Manager 持久化并在应用层加密。保存新 Session 时原子替换并删除旧 Session，GAM 不保留副本；注册成功时 GAM 只做一次性交付，Team Manager 保存后确认清除。账号登录状态只由 Refresh Token / Session Token 的真实可用性决定；Access Token 是可重新换取的短期访问凭证，其无效或过期不得改变账号登录状态。Access Token 按以下上下文隔离：
 
+“重建 GAM”是管理员显式触发的灾难恢复操作，界面入口只对已有 GAM 绑定且 Team Manager 持有完整 Session Token 的账号展示。GAM 在没有活动业务操作时关闭并删除运行资料实例、旧 CloakBrowser Profile、浏览器身份归档和账号资料；Team Manager 保留账号、Workspace 关系与当前 Session，清除旧 GAM 绑定、Profile 状态和代理缓存，再以 `existing_session` 重新纳管。重新导入成功后才恢复 GAM 绑定；导入失败时账号保持未绑定，当前 Session 仍可用于同一接口恢复重试，不得回写旧 GAM 状态伪装成功。
+
 - `Account × PersonalSpace`；
 - `Account × Workspace`。
 

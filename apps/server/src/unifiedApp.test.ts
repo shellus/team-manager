@@ -73,6 +73,19 @@ test('GAM existing_session 纳管和注册任务代理使用既有上游契约',
   ]);
 });
 
+test('GAM 账号删除使用规范化邮箱资源路径', async () => {
+  const requests: Array<[string, string]> = [];
+  const client = new AccountManagerClient('http://gam.test', 'token', async (input, init) => {
+    requests.push([String(init?.method), new URL(String(input)).pathname]);
+    return new Response(JSON.stringify({ ok: true, data: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  });
+  assert.equal(await client.deleteAccount('Account+test@example.com'), true);
+  assert.deepEqual(requests, [['DELETE', '/v1/accounts/Account%2Btest%40example.com']]);
+});
+
 test('GAM 注册 Session 使用操作级交付并在本地保存后确认清除', async () => {
   const requests: Array<[string, string]> = [];
   const client = new AccountManagerClient('http://gam.test', 'token', async (input, init) => {

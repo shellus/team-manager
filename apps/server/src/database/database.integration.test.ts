@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { TeamOrderService } from '../services/teamOrderService.js';
 import { NotificationService } from '../services/notificationService.js';
 import { BillingRepository } from '../repositories/billingRepository.js';
+import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
 import { hashPassword } from '../auth/password.js';
 
 const adminUrl = process.env.TEAMMGR_TEST_ADMIN_DATABASE_URL;
@@ -46,6 +47,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const first = await accounts.create({ email: 'owner@example.com', groupId: group.id });
       const second = await accounts.create({ email: 'member@example.com', groupId: group.id });
       const outsider = await accounts.create({ email: 'outsider@example.com', groupId: group.id });
+      const rebuildAccount = await accounts.create({ email: 'rebuild@example.com', groupId: group.id });
       await assert.rejects(accounts.create({ email: 'OWNER@example.com', groupId: group.id }), /duplicate key/i);
       const olderSortAccount = await accounts.create({ email: 'sort-order-older@example.com', groupId: group.id });
       const newerSortAccount = await accounts.create({ email: 'sort-order-newer@example.com', groupId: group.id });
@@ -154,6 +156,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const historical=await db.insertInto('billing_snapshots').values({personal_space_id:first.personalSpace.id,workspace_id:null,payload:{invoices:{data:[{id:'historical-invoice',amount_due:9900,currency:'usd',status:'open',created:1781591356}]},payment_methods:{default_payment_method_id:'historical-pm',payment_methods:[{id:'historical-pm',card:{brand:'mastercard',last4:'4444',exp_month:11,exp_year:2031}}]},seat_type_counts:{seat_type_counts:{default:3,usage_based:4}}},observed_at:new Date('2026-08-14T00:00:00Z')}).returning('id').executeTakeFirstOrThrow();assert.equal((await db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id','=',historical.id).execute()).length,0);const historicalDetail=await billing.detail({kind:'personal',personalSpaceId:first.personalSpace.id});assert.equal(historicalDetail?.invoices[0].externalId,'historical-invoice');assert.equal(historicalDetail?.paymentMethods[0].last4,'4444');assert.equal(historicalDetail?.paymentMethods[0].isDefault,true);assert.equal((await billing.invoice({kind:'personal',personalSpaceId:first.personalSpace.id},'historical-invoice') as any)?.amount,9900);
 
       const sessions = new SessionRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
+      const operational = new AccountOperationalRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'));
       await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'secret', sessionToken: 'session-token' }, source: 'test' });
       assert.equal((await sessions.currentSession(first.account.id) as any).accessToken, 'secret');
       await sessions.saveRevision({ accountId: first.account.id, session: { user: { email: first.account.email }, account: { id: 'personal' }, accessToken: 'replacement', sessionToken: 'replacement-session-token' }, source: 'test-replacement' });
@@ -166,6 +169,20 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(await sessions.invalidateWorkspaceAccessTokens(first.account.id),1);
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),undefined,'新 Session 保存后不能继续使用旧 Workspace Token');
       await accounts.bindGamAccount(first.account.id, first.account.email);
+      await sessions.saveRevision({
+        accountId: rebuildAccount.account.id,
+        session: {
+          user: { email: rebuildAccount.account.email },
+          account: { id: 'rebuild-personal' },
+          accessToken: 'rebuild-access-token',
+          sessionToken: 'rebuild-session-token'
+        },
+        source: 'test-rebuild'
+      });
+      await accounts.bindGamAccount(rebuildAccount.account.id, rebuildAccount.account.email);
+      await operational.setProxy(rebuildAccount.account.id, 'http://stale-proxy.example:8080');
+      await db.updateTable('account_operational_profiles').set({ profile_status: 'running' })
+        .where('account_id', '=', rebuildAccount.account.id).execute();
       const renewalByAccount = new Map<string, boolean>();
       const personalPlanByAccount = new Map<string, string>();
       const paymentInputs: Array<Record<string, unknown>> = [];
@@ -176,6 +193,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const workspaceInvites: Array<Record<string, unknown>> = [];
       const completedOperations = new Set<string>();
       const acknowledgedRegistrationDeliveries: string[] = [];
+      const removedGamAccounts: string[] = [];
+      const importedGamAccounts: Array<Record<string, unknown>> = [];
       const workspaceOrderLinkInputs: any[] = [];
 
       const app = await buildUnifiedApp({
@@ -188,6 +207,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
           changePersonalSubscription: async () => operation('personal-operation'),
           openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId }),
           accountHttpProxy: async()=>({proxy:'http://proxy.example:8080'}),
+          deleteAccount: async(id)=>{removedGamAccounts.push(id);return true;},
+          startAccountImport:async(input)=>{importedGamAccounts.push(input as unknown as Record<string, unknown>);return operation('rebuild-import-operation');},
           startRegistration:async()=>operation('registration-operation'),
           registrationSessionDelivery:async()=>({
             email:'new@example.com',
@@ -365,6 +386,24 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         }
       });
       const headers = { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' };
+      const rebuilt = await app.request(`/api/accounts/${rebuildAccount.account.id}/account-manager/rebuild`, {
+        method: 'POST',
+        headers
+      });
+      assert.equal(rebuilt.status, 200, await rebuilt.clone().text());
+      const rebuildOperation = (await rebuilt.json() as any).data;
+      assert.match(rebuildOperation.id, /^[0-9a-f-]{36}$/);
+      assert.equal(rebuildOperation.requestSummary.rebuild, true);
+      assert.deepEqual(removedGamAccounts, [rebuildAccount.account.email]);
+      assert.equal((importedGamAccounts[0] as any).authMethod, 'existing_session');
+      assert.equal((importedGamAccounts[0] as any).session.sessionToken, 'rebuild-session-token');
+      assert.equal(await db.selectFrom('gam_bindings').select('account_id')
+        .where('account_id', '=', rebuildAccount.account.id).executeTakeFirst(), undefined,
+      '发起重建后旧 GAM 绑定必须立即清除');
+      assert.equal(await operational.proxy(rebuildAccount.account.id), undefined,
+        '发起重建后旧 GAM 代理缓存必须清除');
+      assert.equal((await db.selectFrom('account_operational_profiles').select('profile_status')
+        .where('account_id', '=', rebuildAccount.account.id).executeTakeFirstOrThrow()).profile_status, 'unknown');
       assert.equal((await app.request('/health')).status, 200);
       const unauthorizedResponse = await app.request('/api/accounts', {
         headers: { Authorization: 'Bearer invalid-token' }

@@ -7,6 +7,7 @@ import {
   seatUsageColor,
   profileAction,
   executeProfileAction,
+  actionModalFromParams,
   lifecycleLabel,
   selectUpgradeableWorkspaces,
 } from "./accountActionsModel.js";
@@ -83,5 +84,9 @@ describe("account action UI model", () => {
     expect(() => parseSessionEditorInput("[]")).toThrow(
       "Session 必须是 JSON 对象",
     );
+  });
+
+  test("restores the GAM rebuild confirmation from the account detail URL", () => {
+    expect(actionModalFromParams(new URLSearchParams("modal=rebuild-gam"))).toBe("rebuild-gam");
   });
 });

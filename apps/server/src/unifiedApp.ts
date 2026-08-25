@@ -253,6 +253,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   });
   api.get('/accounts/:id/account-manager', (c) => wrap(c, () => accountManagement.state(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/enroll', (c) => wrap(c, () => accountManagement.enroll(c.req.param('id'))));
+  api.post('/accounts/:id/account-manager/rebuild', (c) => wrap(c, () => accountManagement.rebuild(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/start', (c) => wrap(c, () => accountManagement.startProfile(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/profile/stop', (c) => wrap(c, () => accountManagement.stopProfile(c.req.param('id'))));
   api.post('/accounts/:id/account-manager/session/refresh', (c) =>

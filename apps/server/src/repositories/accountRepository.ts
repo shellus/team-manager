@@ -156,6 +156,10 @@ export class AccountRepository {
     })).execute();
   }
 
+  async unbindGamAccount(accountId: string): Promise<void> {
+    await this.db.deleteFrom('gam_bindings').where('account_id', '=', accountId).execute();
+  }
+
   async remove(id: string): Promise<void> {
     const result = await this.db.deleteFrom('accounts').where('id', '=', id).executeTakeFirst();
     if (Number(result.numDeletedRows) === 0) throw new Error('账号不存在');
