@@ -15,7 +15,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { ReloadOutlined, UsergroupAddOutlined } from "@ant-design/icons";
+import { LinkOutlined, ReloadOutlined, UsergroupAddOutlined } from "@ant-design/icons";
 import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 import { ProductDatePicker } from "../../components/ProductDatePicker.js";
 import type {
@@ -31,6 +31,7 @@ import type {
   WorkspaceInvitationMutationInput,
   EditableMemberRole,
   SeatType,
+  WorkspaceOrderLinkMode,
 } from "@team-manager/shared";
 import { unifiedApi, type SeatSlotInput } from "../../unifiedApi.js";
 import { BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
@@ -55,6 +56,7 @@ import { WorkspacePromotionModal } from "./WorkspacePromotionModal.js";
 import { useSearchParams } from "react-router-dom";
 import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
 import { errorMessage } from "../../api.js";
+import { WorkspaceOrderLinkModal } from "./WorkspaceOrderLinkModal.js";
 
 export function AccountWorkspacePanel({
   account,
@@ -232,6 +234,9 @@ export function AccountWorkspacePanel({
     setParams(next);
   };
   const canManage = relationship?.manageable === true;
+  const workspaceOrderLinkMode: WorkspaceOrderLinkMode = params.get("workspaceOrderMode") === "upgrade_existing_workspace"
+    ? "upgrade_existing_workspace"
+    : "create_workspace";
   const removedWorkspaces = account.removedWorkspaces ?? [];
   const workspaceSwitcher = (
     <Space wrap>
@@ -262,6 +267,12 @@ export function AccountWorkspacePanel({
         onClick={() => setPanelParams({ modal: "join-team" })}
       >
         加入 Team
+      </Button>
+      <Button
+        icon={<LinkOutlined />}
+        onClick={() => setPanelParams({ modal: "workspace-order-link", workspaceOrderMode: workspaceOrderLinkMode })}
+      >
+        生成订单链接
       </Button>
       {relationship && <Tag color={canManage ? "green" : "default"}>{roleLabel(relationship.role)}</Tag>}
       {relationship && !canManage && <Typography.Text type="secondary">普通成员只能查看空间资料并管理自己的凭证</Typography.Text>}
@@ -302,6 +313,19 @@ export function AccountWorkspacePanel({
       />
     </Space>
   ) : null;
+  const workspaceOrderLinkModal = (
+    <WorkspaceOrderLinkModal
+      accountId={account.id}
+      accountEmail={account.email}
+      workspaces={account.workspaces}
+      selectedWorkspaceId={workspaceId}
+      mode={workspaceOrderLinkMode}
+      open={params.get("modal") === "workspace-order-link"}
+      onModeChange={(mode) => setPanelParams({ workspaceOrderMode: mode })}
+      onClose={() => setPanelParams({ modal: undefined, workspaceOrderMode: undefined })}
+      onGenerated={onAccountChanged}
+    />
+  );
 
   if (account.workspaces.length === 0) {
     return (
@@ -316,6 +340,7 @@ export function AccountWorkspacePanel({
           onClose={() => setPanelParams({ modal: undefined })}
           onSubmit={requestWorkspaceJoin}
         />
+        {workspaceOrderLinkModal}
       </Space>
     );
   }
@@ -357,6 +382,7 @@ export function AccountWorkspacePanel({
         onClose={() => setPanelParams({ modal: undefined })}
         onSubmit={requestWorkspaceJoin}
       />
+      {workspaceOrderLinkModal}
     </Space>
   );
 }

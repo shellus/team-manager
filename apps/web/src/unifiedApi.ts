@@ -14,6 +14,7 @@ import type {
   BulkUpdateAccountsRequest,
   BulkUpdateAccountsResult,
   ChangePersonalSubscriptionRequest,
+  GenerateWorkspaceOrderLinkRequest,
   CodexAuthStart,
   CredentialPoolGroupView,
   EditableMemberRole,
@@ -37,6 +38,7 @@ import type {
   UnifiedAccountDetailView,
   UnifiedAccountSummaryView,
   WorkspaceDetailView,
+  WorkspaceOrderLinkView,
   WorkspaceInvitationMutationInput,
   WorkspaceMemberRemovalResult,
   WorkspaceSettingMutationInput,
@@ -148,6 +150,8 @@ export const unifiedApi = {
     request<AccountWorkspaceRelationshipSyncResult>('POST', `/accounts/${accountId}/workspaces/sync`),
   requestWorkspaceJoin: (accountId: string, workspaceId: string) =>
     request<AccountWorkspaceJoinRequestResult>('POST', `/accounts/${accountId}/workspaces/join-request`, { workspaceId }),
+  generateWorkspaceOrderLink: (accountId: string, body: GenerateWorkspaceOrderLinkRequest) =>
+    request<WorkspaceOrderLinkView>('POST', `/accounts/${accountId}/workspace-order-link`, body),
   deleteRemovedAccountWorkspaceRecord: (accountId: string, workspaceId: string) =>
     request<RemovedAccountWorkspaceRecordDeleteResult>('DELETE', `/accounts/${accountId}/workspaces/${workspaceId}/removed-record`),
   createAccount: (body: Record<string, unknown>) => request<UnifiedAccountDetailView>('POST', '/accounts', body),

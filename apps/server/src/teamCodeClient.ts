@@ -5,7 +5,22 @@ interface TeamCodeTaskResult {
   payUrl?: unknown;
   created?: unknown;
   expires_at?: unknown;
-  calibration?: { workspaceStatus?: unknown } | null;
+  country?: unknown;
+  currency?: unknown;
+  requestedQuantity?: unknown;
+  calibration?: {
+    total?: unknown;
+    subtotal?: unknown;
+    discount?: unknown;
+    tax?: unknown;
+    currency?: unknown;
+    status?: unknown;
+    paymentStatus?: unknown;
+    automaticTaxStatus?: unknown;
+    actualWorkspaceId?: unknown;
+    workspaceStatus?: unknown;
+    quantity?: unknown;
+  } | null;
 }
 
 interface TeamCodeTaskState {
@@ -19,10 +34,26 @@ export interface TeamCodeOrderResult {
   payUrl: string;
   stripeCreatedAt: number;
   expiresAt: number;
+  orderInformation: {
+    country: string;
+    currency: string;
+    requestedQuantity: number;
+    quantity: number;
+    subtotalMinor: number;
+    discountMinor: number;
+    taxMinor: number;
+    totalMinor: number;
+    checkoutStatus?: string;
+    paymentStatus?: string;
+    automaticTaxStatus?: string;
+    actualWorkspaceId?: string;
+    workspaceStatus: string;
+  };
 }
 
 export interface TeamCodeOrderInput {
   account: { email: string; accountId: string; accessToken: string; sessionToken?: string };
+  targetWorkspaceId?: string;
   workspaceName: string;
   config: { promoCode: string; country: string; currency: string; seatQuantity: number };
 }
@@ -40,6 +71,13 @@ function readObject(value: unknown): Record<string, unknown> {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function readNumber(value: unknown, fallback?: number): number {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) return parsed;
+  if (fallback !== undefined) return fallback;
+  throw new Error('TeamCode 返回的订单金额或席位数无效');
 }
 
 function errorMessage(body: unknown, fallback: string): string {
@@ -118,18 +156,39 @@ export class TeamCodeClient implements TeamCodeGateway {
         const payUrl = readString(result?.payUrl);
         const created = Number(result?.created);
         const expiresAt = Number(result?.expires_at);
-        const workspaceStatus = readString(result?.calibration?.workspaceStatus);
-        if (workspaceStatus === 'mismatch') throw new Error('TeamCode 校准发现订单 Workspace 不匹配');
+        const orderInformation = result?.calibration;
+        const workspaceStatus = readString(orderInformation?.workspaceStatus) || 'unknown';
+        if (workspaceStatus === 'mismatch') {
+          throw new Error('订单信息显示绑定的 Workspace 与目标 Workspace 不匹配，已拒绝返回付款链接');
+        }
         if (!payUrl) throw new Error('TeamCode 任务完成但未返回支付 URL');
         if (!Number.isFinite(created) || created <= 0) throw new Error('TeamCode 任务未返回 Stripe created');
         if (!Number.isFinite(expiresAt) || expiresAt <= created) {
           throw new Error('TeamCode 任务未返回有效的 Stripe expires_at');
         }
+        if (!orderInformation) throw new Error('TeamCode 任务完成但未返回订单信息');
+        const requestedQuantity = readNumber(result?.requestedQuantity, input.config.seatQuantity);
+        const totalMinor = readNumber(orderInformation.total);
         return {
           taskId,
           payUrl,
           stripeCreatedAt: created * 1000,
-          expiresAt: expiresAt * 1000
+          expiresAt: expiresAt * 1000,
+          orderInformation: {
+            country: readString(result?.country) || input.config.country,
+            currency: readString(orderInformation.currency) || readString(result?.currency) || input.config.currency,
+            requestedQuantity,
+            quantity: readNumber(orderInformation.quantity, requestedQuantity),
+            subtotalMinor: readNumber(orderInformation.subtotal, totalMinor),
+            discountMinor: readNumber(orderInformation.discount, 0),
+            taxMinor: readNumber(orderInformation.tax, 0),
+            totalMinor,
+            ...(readString(orderInformation.status) ? { checkoutStatus: readString(orderInformation.status) } : {}),
+            ...(readString(orderInformation.paymentStatus) ? { paymentStatus: readString(orderInformation.paymentStatus) } : {}),
+            ...(readString(orderInformation.automaticTaxStatus) ? { automaticTaxStatus: readString(orderInformation.automaticTaxStatus) } : {}),
+            ...(readString(orderInformation.actualWorkspaceId) ? { actualWorkspaceId: readString(orderInformation.actualWorkspaceId) } : {}),
+            workspaceStatus
+          }
         };
       }
     } catch (error) {
@@ -152,7 +211,7 @@ export function teamCodeOrderPayload(input: TeamCodeOrderInput) {
     order: {
       mode: 'normal',
       seatQuantity: input.config.seatQuantity,
-      workspaceId: input.account.accountId,
+      workspaceId: input.targetWorkspaceId ?? '',
       workspaceName: input.workspaceName,
       promoCode: input.config.promoCode,
       country: input.config.country,

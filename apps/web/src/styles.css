@@ -169,6 +169,18 @@ body {
 .optional-fields[open] > summary { margin-bottom: 10px; }
 .raw-json textarea, textarea.raw-json { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
 .workspace-id-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.workspace-order-target-id { margin-top: -12px; }
+.workspace-order-link-form { width: 100%; }
+.workspace-order-link-result {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.workspace-order-link-result h5.ant-typography { margin: 0; }
+.workspace-order-link-url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .group-row { width: 100%; }
 .group-sortable-list { display: flex; flex-direction: column; gap: 6px; }
 .group-sortable-item { padding: 8px; border-radius: 8px; transition: background-color 160ms ease-out; }

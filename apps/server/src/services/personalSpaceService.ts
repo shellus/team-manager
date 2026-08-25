@@ -98,6 +98,18 @@ export class PersonalSpaceService {
   async quota(accountId: string) { const p = await this.personal(accountId); const v = await this.db.selectFrom('personal_quota_snapshots').selectAll().where('personal_space_id', '=', p.id).orderBy('observed_at', 'desc').executeTakeFirst(); return v ? snapshot(v) : undefined; }
   async settings(accountId: string) { const p = await this.personal(accountId); const v = await this.db.selectFrom('personal_setting_snapshots').selectAll().where('personal_space_id', '=', p.id).orderBy('observed_at', 'desc').executeTakeFirst(); return v ? snapshot(v) : undefined; }
   async activities(accountId: string, limit = 200) { return new ActivityLogRepository(this.db).list({ accountId, limit }); }
+  async checkoutSession(accountId: string) {
+    const account = await this.db.selectFrom('accounts').select(['id', 'email'])
+      .where('id', '=', accountId).executeTakeFirst();
+    if (!account) throw new ServiceError(404, '账号不存在');
+    const context = await this.context(accountId);
+    return {
+      email: account.email,
+      accountId: context.accountIdHeader,
+      accessToken: context.accessToken,
+      ...(context.sessionToken ? { sessionToken: context.sessionToken } : {})
+    };
+  }
   async patchSettings(accountId: string, input: Record<string, unknown>) {
     const { api } = await this.context(accountId); const me = await api.getMe();
     const remoteUserId = typeof me.id === 'string' ? me.id : undefined;
@@ -193,10 +205,15 @@ export class PersonalSpaceService {
   }
 
   private async context(accountId: string) {
-    const personal = await this.personal(accountId); const session = await this.sessions.currentSession(accountId) as { sessionToken?: string; account?: { id?: string } } | undefined;
-    let token = await this.sessions.accessToken(accountId, { kind: 'personal', personalSpaceId: personal.id });
-    const accountIdHeader = personal.remote_account_id ?? (session as any)?.account?.id;
-    if (!accountIdHeader) throw new ServiceError(409, '个人空间缺少远端账号 ID');
+    const personal = await this.personal(accountId); const session = await this.sessions.currentSession(accountId) as { sessionToken?: string; accessToken?: string; account?: { id?: string } } | undefined;
+    const currentSessionAccountId = session?.account?.id?.trim();
+    const currentSessionWorkspace = currentSessionAccountId
+      ? await this.db.selectFrom('workspaces').select('id').where('external_id', '=', currentSessionAccountId).executeTakeFirst()
+      : undefined;
+    const accountIdHeader = personal.remote_account_id ?? (currentSessionWorkspace ? undefined : currentSessionAccountId);
+    if (!accountIdHeader) throw new ServiceError(409, '账号缺少可用的个人态 ChatGPT Session');
+    let token = await this.sessions.accessToken(accountId, { kind: 'personal', personalSpaceId: personal.id })
+      ?? (currentSessionAccountId === accountIdHeader ? session?.accessToken?.trim() : undefined);
     let proxy = await this.operational.proxy(accountId);
     if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(accountId).catch(() => undefined);
     const refresh = async (remoteAccountId: string) => {
@@ -218,6 +235,8 @@ export class PersonalSpaceService {
       personalSpaceId: personal.id,
       storedRemoteAccountId: personal.remote_account_id,
       accountIdHeader,
+      accessToken: token!,
+      sessionToken: session?.sessionToken,
       api: apiForAccount(accountIdHeader),
       apiForAccount
     };

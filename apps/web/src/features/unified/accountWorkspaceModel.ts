@@ -25,6 +25,7 @@ const CHILD_QUERY_KEYS = [
   "credentialsPage",
   "credentialsPageSize",
   "modal",
+  "workspaceOrderMode",
   "operationId",
   "personId",
 ];

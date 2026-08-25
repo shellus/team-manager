@@ -22,8 +22,10 @@ describe("账号 Workspace 面板", () => {
     expect(html).toContain("选择 Workspace");
     expect(html).toContain("同步账号与 Workspace 关系");
     expect(html).toContain("加入 Team");
+    expect(html).toContain("生成订单链接");
     expect(html.indexOf("选择 Workspace")).toBeLessThan(html.indexOf("同步账号与 Workspace 关系"));
     expect(html.indexOf("同步账号与 Workspace 关系")).toBeLessThan(html.indexOf("加入 Team"));
+    expect(html.indexOf("加入 Team")).toBeLessThan(html.indexOf("生成订单链接"));
   });
 
   it("Workspace 设置显示只读的远端 Workspace ID", () => {

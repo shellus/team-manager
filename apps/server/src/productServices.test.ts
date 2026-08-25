@@ -32,9 +32,13 @@ test('TeamCode 未配置时明确拒绝生成', async () => {
   const client=new TeamCodeClient();await assert.rejects(()=>client.generateOrder({account:{email:'a@example.com',accountId:'w',accessToken:'t'},workspaceName:'W',config:{promoCode:'',country:'US',currency:'USD',seatQuantity:4}}),/尚未配置/);
 });
 
-test('TeamCode 使用订单合同中的显式席位数', () => {
-  const payload=teamCodeOrderPayload({account:{email:'a@example.com',accountId:'w',accessToken:'t'},workspaceName:'W',config:{promoCode:'P',country:'US',currency:'USD',seatQuantity:4}});
+test('TeamCode 使用订单合同中的显式席位数，并区分 Session 与目标 Workspace', () => {
+  const payload=teamCodeOrderPayload({account:{email:'a@example.com',accountId:'personal',accessToken:'t'},targetWorkspaceId:'workspace',workspaceName:'W',config:{promoCode:'P',country:'US',currency:'USD',seatQuantity:4}});
   assert.equal(payload.order.seatQuantity,4);
+  assert.equal(payload.session.account.id,'personal');
+  assert.equal(payload.order.workspaceId,'workspace');
+  const createPayload=teamCodeOrderPayload({account:{email:'a@example.com',accountId:'personal',accessToken:'t'},workspaceName:'New',config:{promoCode:'',country:'US',currency:'USD',seatQuantity:2}});
+  assert.equal(createPayload.order.workspaceId,'');
 });
 
 test('个人账单只请求个人账号支持的三类接口', async () => {

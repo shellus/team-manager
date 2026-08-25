@@ -176,6 +176,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const workspaceInvites: Array<Record<string, unknown>> = [];
       const completedOperations = new Set<string>();
       const acknowledgedRegistrationDeliveries: string[] = [];
+      const workspaceOrderLinkInputs: any[] = [];
 
       const app = await buildUnifiedApp({
         database: db,
@@ -196,6 +197,34 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             }
           }),
           acknowledgeRegistrationSessionDelivery:async(id)=>{acknowledgedRegistrationDeliveries.push(id);return true;}
+        },
+        teamCode: {
+          configured: true,
+          generateOrder: async (input) => {
+            workspaceOrderLinkInputs.push(input);
+            const index = workspaceOrderLinkInputs.length;
+            return {
+              taskId: `workspace-order-task-${index}`,
+              payUrl: `https://checkout.stripe.com/c/pay/cs_test_workspace_order_${index}`,
+              stripeCreatedAt: new Date('2026-08-25T08:00:00Z').getTime(),
+              expiresAt: new Date('2026-08-26T08:00:00Z').getTime(),
+              orderInformation: {
+                country: input.config.country,
+                currency: input.config.currency,
+                requestedQuantity: input.config.seatQuantity,
+                quantity: input.config.seatQuantity,
+                subtotalMinor: 6000,
+                discountMinor: input.config.promoCode ? 3000 : 0,
+                taxMinor: 0,
+                totalMinor: input.config.promoCode ? 3000 : 6000,
+                checkoutStatus: 'open',
+                paymentStatus: 'unpaid',
+                automaticTaxStatus: 'complete',
+                ...(input.targetWorkspaceId ? { actualWorkspaceId: input.targetWorkspaceId } : {}),
+                workspaceStatus: input.targetWorkspaceId ? 'matched' : 'not_requested'
+              }
+            };
+          }
         },
         paymentMethodBinder: {
           add: async (input) => {
@@ -684,6 +713,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const sessionResponse = await app.request(`/api/accounts/${first.account.id}/session`, { headers });
       assert.equal(sessionResponse.status, 200);
       assert.equal((await sessionResponse.json() as any).data.accessToken, 'workspace-session-token');
+      const workspaceSessionOrderLink = await app.request(`/api/accounts/${first.account.id}/workspace-order-link`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ mode: 'create_workspace', workspaceName: 'Must Use Personal Session', country: 'US', currency: 'USD', seatQuantity: 2 })
+      });
+      assert.equal(workspaceSessionOrderLink.status, 409, '只有 Workspace Session 且未知个人账号 ID 时不能生成订单链接');
       const editAccount = await app.request(`/api/accounts/${first.account.id}`, {
         method: 'PATCH', headers,
         body: JSON.stringify({ remark: 'Edited with session', session: { user: { email: first.account.email }, account: { id: 'personal-remote' }, accessToken: 'replacement-secret', sessionToken: 'replacement-session-token' } })
@@ -697,6 +731,41 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         '替换 Session 后个人 Access Token 必须更新');
       assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id').where('id', '=', first.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id,
         'personal-remote', '替换 Session 后个人远端 account id 必须更新');
+      const createWorkspaceOrderLink = await app.request(`/api/accounts/${first.account.id}/workspace-order-link`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ mode: 'create_workspace', workspaceName: 'New Workspace', country: 'US', currency: 'USD', seatQuantity: 2, promoCode: 'HALF' })
+      });
+      assert.equal(createWorkspaceOrderLink.status, 200, await createWorkspaceOrderLink.clone().text());
+      const createWorkspaceOrderLinkData = (await createWorkspaceOrderLink.json() as any).data;
+      assert.equal(createWorkspaceOrderLinkData.workspaceBindingStatus, 'new_workspace');
+      assert.equal(createWorkspaceOrderLinkData.totalMinor, 3000);
+      assert.equal(workspaceOrderLinkInputs[0].account.accountId, 'personal-remote');
+      assert.equal(workspaceOrderLinkInputs[0].account.accessToken, 'replacement-secret');
+      assert.equal(workspaceOrderLinkInputs[0].account.sessionToken, 'replacement-session-token');
+      assert.equal(workspaceOrderLinkInputs[0].targetWorkspaceId, undefined);
+      const upgradeWorkspaceOrderLink = await app.request(`/api/accounts/${first.account.id}/workspace-order-link`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, workspaceName: 'Ignored client value', country: 'SG', currency: 'SGD', seatQuantity: 4 })
+      });
+      assert.equal(upgradeWorkspaceOrderLink.status, 200, await upgradeWorkspaceOrderLink.clone().text());
+      const upgradeWorkspaceOrderLinkData = (await upgradeWorkspaceOrderLink.json() as any).data;
+      assert.equal(upgradeWorkspaceOrderLinkData.workspaceBindingStatus, 'matched');
+      assert.equal(upgradeWorkspaceOrderLinkData.workspaceName, 'Business');
+      assert.equal(upgradeWorkspaceOrderLinkData.actualWorkspaceId, workspace.external_id);
+      assert.equal(workspaceOrderLinkInputs[1].targetWorkspaceId, workspace.external_id);
+      assert.equal(workspaceOrderLinkInputs[1].workspaceName, 'Business');
+      const unauthorizedWorkspaceOrderLink = await app.request(`/api/accounts/${second.account.id}/workspace-order-link`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, country: 'US', currency: 'USD', seatQuantity: 2 })
+      });
+      assert.equal(unauthorizedWorkspaceOrderLink.status, 409, '普通成员不能生成已有 Workspace 的升级链接');
+      assert.equal(Number((await db.selectFrom('team_upgrade_orders').select(({fn}) => fn.countAll().as('count')).executeTakeFirstOrThrow()).count), 0,
+        '一次性 Workspace 订单链接不能写入现有订单历史');
+      const workspaceOrderActivities = await db.selectFrom('account_activity_logs').select(['kind', 'payload'])
+        .where('account_id', '=', first.account.id).where('kind', '=', 'workspace_order_link_generated').execute();
+      assert.equal(workspaceOrderActivities.length, 2);
+      assert.equal(JSON.stringify(workspaceOrderActivities).includes('checkout.stripe.com'), false, '活动日志不能记录完整付款链接');
+      assert.equal(JSON.stringify(workspaceOrderActivities).includes('HALF'), false, '活动日志只记录是否填写优惠码');
       assert.equal((await app.request(`/api/accounts/${first.account.id}/session`, { method: 'PUT', headers, body: '{}' })).status, 404,
         'Session 更新只保留账号 PATCH 入口');
       const mismatchedEdit = await app.request(`/api/accounts/${first.account.id}`, {

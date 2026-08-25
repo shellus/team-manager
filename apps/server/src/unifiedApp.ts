@@ -26,6 +26,7 @@ import type {
   AccountDeletionResult,
   BulkUpdateAccountsRequest,
   ChangePersonalSubscriptionRequest,
+  GenerateWorkspaceOrderLinkRequest,
   OpenBusinessSubscriptionRequest,
   RegisterAccountRequest,
   ResidentialProxyConfig,
@@ -45,7 +46,8 @@ import { NotificationService } from './services/notificationService.js';
 import { ArtifactService, startArtifactCleanupScheduler } from './services/artifactService.js';
 import { SettingsService } from './services/settingsService.js';
 import { TeamOrderService, startTeamOrderScheduler } from './services/teamOrderService.js';
-import { TeamCodeClient } from './teamCodeClient.js';
+import { TeamCodeClient, type TeamCodeGateway } from './teamCodeClient.js';
+import { WorkspaceOrderLinkService } from './services/workspaceOrderLinkService.js';
 import {
   HttpPaymentMethodBinder,
   NoTraceStripeTransport,
@@ -59,13 +61,14 @@ export interface UnifiedAppDeps {
   artifactStore?: ArtifactStore;
   transport?: Transport;
   accountManager?: AccountManagerGateway;
+  teamCode?: TeamCodeGateway;
   paymentMethodBinder?: PaymentMethodBinder;
   startBackgroundTasks?: boolean;
 }
 
 export type UnifiedApp = Hono & { stopBackgroundTasks(): void };
 
-export async function buildUnifiedApp({ config, database, artifactStore, transport: providedTransport, accountManager: providedAccountManager, paymentMethodBinder: providedPaymentMethodBinder, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
+export async function buildUnifiedApp({ config, database, artifactStore, transport: providedTransport, accountManager: providedAccountManager, teamCode: providedTeamCode, paymentMethodBinder: providedPaymentMethodBinder, startBackgroundTasks = false }: UnifiedAppDeps): Promise<UnifiedApp> {
   const app = new Hono();
   configureTransportRuntime(config);
   const transport = providedTransport ?? createTransport(config.curlCffiUrl);
@@ -104,7 +107,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const subscriptions = new SubscriptionService(database, accountManager, personalSpaces);
   const publicSeats = new PublicSeatService(database, workspaceOperations);
   const artifactIndexes = new ArtifactIndexRepository(database, artifactsStore);
-  const teamCode = new TeamCodeClient(config.teamCodeBaseUrl, config.teamCodePasscode);
+  const teamCode = providedTeamCode ?? new TeamCodeClient(config.teamCodeBaseUrl, config.teamCodePasscode);
   const system = new SystemService(database, teamCode.configured);
   const credentials = new CredentialService(
     database,
@@ -120,6 +123,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const artifacts = new ArtifactService(database, artifactsStore, config.artifactDir);
   const settings = new SettingsService(database, cipher);
   const teamOrders = new TeamOrderService(database, sessions, operational, teamCode);
+  const workspaceOrderLinks = new WorkspaceOrderLinkService(database, personalSpaces, teamCode);
   const stops: Array<() => void> = [];
   if (startBackgroundTasks) {
     stops.push(startOperationPoller(operations), startTeamOrderScheduler(teamOrders),
@@ -212,6 +216,10 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({})) as { workspaceId?: string };
     if (!body.workspaceId?.trim()) return c.json({ ok: false, error: '缺少 Workspace ID' }, 400);
     return wrap(c, () => workspaceOperations.requestWorkspaceJoin(c.req.param('id'), body.workspaceId!));
+  });
+  api.post('/accounts/:id/workspace-order-link', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as GenerateWorkspaceOrderLinkRequest;
+    return wrap(c, () => workspaceOrderLinks.generate(c.req.param('id'), body));
   });
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
   api.patch('/accounts/:id', async (c) => {

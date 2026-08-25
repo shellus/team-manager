@@ -482,6 +482,41 @@ export interface TeamOrderConfigurationView {
   seatQuantity?: number;
 }
 
+export type WorkspaceOrderLinkMode = 'create_workspace' | 'upgrade_existing_workspace';
+
+export interface GenerateWorkspaceOrderLinkRequest {
+  mode: WorkspaceOrderLinkMode;
+  workspaceId?: string;
+  workspaceName?: string;
+  country: string;
+  currency: string;
+  seatQuantity: number;
+  promoCode?: string;
+}
+
+export interface WorkspaceOrderLinkView {
+  taskId: string;
+  mode: WorkspaceOrderLinkMode;
+  checkoutUrl: string;
+  workspaceName: string;
+  requestedWorkspaceId?: string;
+  actualWorkspaceId?: string;
+  workspaceBindingStatus: 'new_workspace' | 'matched' | 'unknown';
+  requestedSeatQuantity: number;
+  orderSeatQuantity: number;
+  country: string;
+  currency: string;
+  subtotalMinor: number;
+  discountMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  checkoutStatus?: string;
+  paymentStatus?: string;
+  automaticTaxStatus?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface TeamOrderMaintenanceView {
   id: string;
   workspaceId: string;

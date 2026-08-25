@@ -18,7 +18,7 @@ describe("account workspace model", () => {
   });
 
   it("切换 Workspace 时清理凭证分页和弹窗状态并保留子标签", () => {
-    const input = new URLSearchParams("tab=workspaces&workspaceTab=billing&credentialsPage=2&modal=unused&personId=old&operationId=old");
+    const input = new URLSearchParams("tab=workspaces&workspaceTab=billing&credentialsPage=2&modal=unused&workspaceOrderMode=upgrade_existing_workspace&personId=old&operationId=old");
     expect(selectAccountWorkspaceParams(input, "second").toString()).toBe(
       "tab=workspaces&workspaceTab=billing&workspaceId=second",
     );
