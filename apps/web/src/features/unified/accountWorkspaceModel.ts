@@ -49,6 +49,15 @@ export function selectAccountWorkspaceParams(
   return next;
 }
 
+export function resolveAccountWorkspaceParams(
+  params: URLSearchParams,
+  workspaceId: string,
+): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.set("workspaceId", workspaceId);
+  return next;
+}
+
 export function accountWorkspacePeople(
   workspace?: Pick<WorkspaceDetailView, "members" | "invitations" | "seatSlots">,
 ): AccountWorkspacePersonRow[] {

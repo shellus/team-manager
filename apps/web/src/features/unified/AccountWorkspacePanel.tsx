@@ -49,6 +49,7 @@ import {
 import {
   accountWorkspacePeople,
   resolveAccountWorkspaceId,
+  resolveAccountWorkspaceParams,
   selectAccountWorkspaceParams,
   type AccountWorkspacePersonRow,
 } from "./accountWorkspaceModel.js";
@@ -82,7 +83,7 @@ export function AccountWorkspacePanel({
 
   useEffect(() => {
     if (!workspaceId || params.get("workspaceId") === workspaceId) return;
-    setParams(selectAccountWorkspaceParams(params, workspaceId), { replace: true });
+    setParams(resolveAccountWorkspaceParams(params, workspaceId), { replace: true });
   }, [params, setParams, workspaceId]);
 
   const load = async (options: { preserveError?: boolean } = {}) => {

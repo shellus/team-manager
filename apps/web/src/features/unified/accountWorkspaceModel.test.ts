@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   accountWorkspacePeople,
   resolveAccountWorkspaceId,
+  resolveAccountWorkspaceParams,
   selectAccountWorkspaceParams,
 } from "./accountWorkspaceModel.js";
 
@@ -21,6 +22,13 @@ describe("account workspace model", () => {
     const input = new URLSearchParams("tab=workspaces&workspaceTab=billing&credentialsPage=2&modal=unused&workspaceOrderMode=upgrade_existing_workspace&personId=old&operationId=old");
     expect(selectAccountWorkspaceParams(input, "second").toString()).toBe(
       "tab=workspaces&workspaceTab=billing&workspaceId=second",
+    );
+  });
+
+  it("自动补全默认 Workspace 时保留弹窗和子页面状态", () => {
+    const input = new URLSearchParams("tab=workspaces&modal=workspace-order-link&workspaceOrderMode=create_workspace");
+    expect(resolveAccountWorkspaceParams(input, "first").toString()).toBe(
+      "tab=workspaces&modal=workspace-order-link&workspaceOrderMode=create_workspace&workspaceId=first",
     );
   });
 
