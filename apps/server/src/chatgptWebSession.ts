@@ -113,6 +113,7 @@ async function fetchWorkspaceWebSessionWithCookies(
     );
   }
   const data = parseJsonObject(response.body, response.status, '获取目标 workspace Web session 返回不是 JSON');
+  throwIfSessionRefreshFailed(data);
   const accessToken = readWorkspaceSessionAccessToken(data);
   if (!accessToken) throw new ChatGptWebSessionError(502, '目标 workspace Web session 响应缺少 accessToken');
   const claims = chatGptAuthClaimsFromAccessToken(accessToken);
@@ -150,6 +151,7 @@ export async function fetchWorkspaceExchangeSessionFromSessionToken(
     );
   }
   const data = parseJsonObject(response.body, response.status, '获取目标 workspace Web session 返回不是 JSON');
+  throwIfSessionRefreshFailed(data);
   const accessToken =
     readOptionalString(data, 'accessToken') ??
     readOptionalString(data, 'access_token') ??
@@ -296,6 +298,16 @@ function readWorkspaceSessionAccessToken(data: Record<string, unknown>): string 
     readOptionalString(data, 'access_token') ??
     readNestedOptionalString(data, ['tokens', 'access_token'])
   );
+}
+
+function throwIfSessionRefreshFailed(data: Record<string, unknown>): void {
+  const error = readOptionalString(data, 'error');
+  if (!error) return;
+  const description =
+    readOptionalString(data, 'error_description') ??
+    readOptionalString(data, 'message');
+  const detail = description ? `：${trimForLog(description)}` : '';
+  throw new ChatGptWebSessionError(502, `目标 workspace Web session 刷新失败：${trimForLog(error)}${detail}`);
 }
 
 function trimForLog(value: string): string {
