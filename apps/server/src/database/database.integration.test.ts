@@ -365,7 +365,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
                 account: {
                   account_id: personalAccountId,
                   account_user_role: 'account-owner',
-                  structure: 'personal',
+                  structure: personalAccountId === workspace.external_id ? 'workspace' : 'personal',
                   plan_type: personalPlanByAccount.get(personalAccountId) ?? 'free'
                 },
                 can_access_with_session: true
@@ -573,6 +573,29 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id')
         .where('id', '=', workspaceSyncAddAccount.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id,
         'workspace-sync-add-personal-account', '个人刷新保存 accounts/check 确认的个人账号 ID');
+
+      const legacyPersonalCollisionAccount = await accounts.create({ email: 'legacy-personal-collision@example.com', groupId: group.id });
+      await workspaces.upsert({ externalId: 'legacy-personal-account', normalizedPlan: 'free' });
+      await sessions.saveRevision({
+        accountId: legacyPersonalCollisionAccount.account.id,
+        session: {
+          user: { email: legacyPersonalCollisionAccount.account.email },
+          account: { id: 'legacy-personal-account' },
+          accessToken: 'legacy-personal-access-token',
+          sessionToken: 'legacy-personal-session-token'
+        },
+        source: 'legacy-personal-collision-test'
+      });
+      missingPersonalSubscriptionAccounts.add('legacy-personal-account');
+      const legacyPersonalRefresh = await app.request(`/api/accounts/${legacyPersonalCollisionAccount.account.id}/personal-space/refresh`, {
+        method: 'POST', headers, body: JSON.stringify({ resources: ['subscription'] })
+      });
+      assert.equal(legacyPersonalRefresh.status, 200, await legacyPersonalRefresh.clone().text());
+      assert.equal((await legacyPersonalRefresh.json() as any).data.subscription.plan, 'free',
+        '已存在同名 Workspace 记录时仍应以 accounts/check 的 personal 结构识别个人账号');
+      assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id')
+        .where('id', '=', legacyPersonalCollisionAccount.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id,
+        'legacy-personal-account');
 
       const deletableAccount = await accounts.create({ email: 'delete-with-history@example.com', groupId: group.id });
       const deletableWorkspace = await workspaces.upsert({ externalId: 'delete-history-workspace', name: 'Retained Workspace', normalizedPlan: 'business' });

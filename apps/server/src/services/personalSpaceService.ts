@@ -210,23 +210,44 @@ export class PersonalSpaceService {
   private async context(accountId: string) {
     const personal = await this.personal(accountId); const session = await this.sessions.currentSession(accountId) as { sessionToken?: string; accessToken?: string; account?: { id?: string } } | undefined;
     const currentSessionAccountId = session?.account?.id?.trim();
-    const currentSessionWorkspace = currentSessionAccountId
-      ? await this.db.selectFrom('workspaces').select('id').where('external_id', '=', currentSessionAccountId).executeTakeFirst()
-      : undefined;
-    const accountIdHeader = personal.remote_account_id ?? (currentSessionWorkspace ? undefined : currentSessionAccountId);
+    let accountIdHeader = personal.remote_account_id ?? currentSessionAccountId;
     if (!accountIdHeader) throw new ServiceError(409, '账号缺少可用的个人态 ChatGPT Session');
     let token = await this.sessions.accessToken(accountId, { kind: 'personal', personalSpaceId: personal.id })
       ?? (currentSessionAccountId === accountIdHeader ? session?.accessToken?.trim() : undefined);
     let proxy = await this.operational.proxy(accountId);
     if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(accountId).catch(() => undefined);
-    const refresh = async (remoteAccountId: string) => {
+    const fetchFreshWebAccessToken = async (remoteAccountId: string) => {
       if (!session?.sessionToken) throw new ServiceError(409, '执行账号缺少可刷新 Access Token 的 sessionToken');
-      const refreshed = await fetchChatGptWebAccessTokenFromSessionToken(
+      return fetchChatGptWebAccessTokenFromSessionToken(
         this.transport, session.sessionToken, remoteAccountId, proxy
       );
+    };
+    const refresh = async (remoteAccountId: string) => {
+      const refreshed = await fetchFreshWebAccessToken(remoteAccountId);
       await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId: personal.id }, refreshed, { status: 'valid', checkedAt: new Date() });
       return refreshed;
     };
+    if (!personal.remote_account_id && currentSessionAccountId) {
+      if (!token) token = await fetchFreshWebAccessToken(currentSessionAccountId);
+      const observedAccounts = await new ChatGptApi({
+        accountId: currentSessionAccountId,
+        accessToken: token ?? '',
+        proxy,
+        refreshWebAccessToken: async () => {
+          const refreshed = await fetchFreshWebAccessToken(currentSessionAccountId);
+          token = refreshed;
+          return refreshed;
+        }
+      }, this.transport).checkAccounts();
+      const observedPersonal = resolvePersonalPlan(observedAccounts, currentSessionAccountId);
+      if (!observedPersonal.accountId) throw new ServiceError(409, '账号缺少可用的个人态 ChatGPT Session');
+      accountIdHeader = observedPersonal.accountId;
+      await this.db.updateTable('personal_spaces').set({ remote_account_id: accountIdHeader })
+        .where('id', '=', personal.id).executeTakeFirstOrThrow();
+      if (token) {
+        await this.sessions.saveAccessToken(accountId, { kind: 'personal', personalSpaceId: personal.id }, token, { status: 'unknown' });
+      }
+    }
     if (!token) token = await refresh(accountIdHeader);
     const apiForAccount = (remoteAccountId: string) => new ChatGptApi({
       accountId: remoteAccountId,
@@ -236,7 +257,7 @@ export class PersonalSpaceService {
     }, this.transport);
     return {
       personalSpaceId: personal.id,
-      storedRemoteAccountId: personal.remote_account_id,
+      storedRemoteAccountId: accountIdHeader,
       accountIdHeader,
       accessToken: token!,
       sessionToken: session?.sessionToken,
