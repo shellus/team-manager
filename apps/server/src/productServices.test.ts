@@ -123,6 +123,22 @@ test('空 Workspace 订阅响应按未知订阅处理', async () => {
   assert.deepEqual(await api.getSubscription(),{});
 });
 
+test('个人订阅缺少上游记录时按 Free 处理', async () => {
+  const transport={fetch:async()=>({status:404,body:JSON.stringify({detail:'No subscription found for account'})})};
+  const api=new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport);
+  assert.deepEqual(await api.getPersonalSubscriptionObservation(), {
+    subscription: { plan_type: 'free' },
+    missing: true
+  });
+  assert.deepEqual(await api.getPersonalSubscription(), { plan_type: 'free' });
+});
+
+test('个人订阅其他 404 仍按上游错误处理', async () => {
+  const transport={fetch:async()=>({status:404,body:JSON.stringify({detail:'Account context is not available'})})};
+  const api=new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport);
+  await assert.rejects(() => api.getPersonalSubscription(), /backend-api 404/);
+});
+
 test('个人套餐升级预览和提交复用 subscriptions/update 的实测协议', async () => {
   const requests:any[]=[];const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:request.method==='GET'?'{"total_amount":481902,"positive_line_item_total":579464,"negative_line_item_total":-97562,"currency":"php"}':'{"success":true}'};}};
   const api=new ChatGptApi({accountId:'personal-account',accessToken:'token'},transport);

@@ -40,8 +40,11 @@ export class PersonalSpaceService {
             .where('id', '=', personalSpaceId).execute();
         }
       }
-      const payload = await api.getPersonalSubscription();
-      const currentPlan = resolvePersonalPlan(accountObservation, context.accountIdHeader, payload.plan_type);
+      const subscriptionObservation = await api.getPersonalSubscriptionObservation();
+      const payload = subscriptionObservation.subscription;
+      const currentPlan = subscriptionObservation.missing
+        ? resolvePersonalPlan([], context.accountIdHeader, 'free')
+        : resolvePersonalPlan(accountObservation, context.accountIdHeader, payload.plan_type);
       await this.db.insertInto('personal_subscription_snapshots').values({
         personal_space_id: personalSpaceId, normalized_plan: currentPlan.normalizedPlan, raw_plan_code: currentPlan.rawPlanCode,
         status: payload.is_delinquent ? 'delinquent' : 'active', will_renew: payload.will_renew ?? null,

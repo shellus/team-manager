@@ -106,6 +106,11 @@ export interface ChatGptSubscriptionResponse extends Record<string, unknown> {
 
 export type ChatGptPersonalSubscriptionResponse = ChatGptSubscriptionResponse;
 
+export interface ChatGptPersonalSubscriptionObservation {
+  subscription: ChatGptPersonalSubscriptionResponse;
+  missing: boolean;
+}
+
 export interface ChatGptSubscriptionUpdatePreviewResponse extends Record<string, unknown> {
   total_amount?: number;
   positive_line_item_total?: number;
@@ -285,8 +290,19 @@ export class ChatGptApi {
     return subscription ?? {};
   }
 
+  async getPersonalSubscriptionObservation(): Promise<ChatGptPersonalSubscriptionObservation> {
+    try {
+      return { subscription: await this.getSubscription(), missing: false };
+    } catch (error) {
+      if (isMissingPersonalSubscription(error)) {
+        return { subscription: { plan_type: 'free' }, missing: true };
+      }
+      throw error;
+    }
+  }
+
   async getPersonalSubscription(): Promise<ChatGptPersonalSubscriptionResponse> {
-    return this.getSubscription();
+    return (await this.getPersonalSubscriptionObservation()).subscription;
   }
 
   async previewPersonalSubscriptionUpdate(updatedPlan: string): Promise<ChatGptSubscriptionUpdatePreviewResponse> {
@@ -640,6 +656,16 @@ function isMissingUpcomingInvoice(error: unknown): boolean {
   try {
     const body = JSON.parse(error.body) as { detail?: unknown };
     return body.detail === 'Error fetching upcoming invoice';
+  } catch {
+    return false;
+  }
+}
+
+function isMissingPersonalSubscription(error: unknown): boolean {
+  if (!(error instanceof ChatGptApiError) || error.status !== 404) return false;
+  try {
+    const body = JSON.parse(error.body) as { detail?: unknown };
+    return body.detail === 'No subscription found for account';
   } catch {
     return false;
   }

@@ -185,6 +185,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         .where('account_id', '=', rebuildAccount.account.id).execute();
       const renewalByAccount = new Map<string, boolean>();
       const personalPlanByAccount = new Map<string, string>();
+      const missingPersonalSubscriptionAccounts = new Set<string>();
       const paymentInputs: Array<Record<string, unknown>> = [];
       const paymentMethodsByTarget = new Map<string, Array<{
         id: string; brand: string; last4: string; isDefault: boolean;
@@ -325,6 +326,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
             }
             if (request.path.startsWith('/backend-api/subscriptions?')) {
               const targetAccountId = request.headers['chatgpt-account-id'];
+              if (missingPersonalSubscriptionAccounts.has(targetAccountId)) {
+                return { status: 404, body: JSON.stringify({ detail: 'No subscription found for account' }) };
+              }
               return {
                 status: 200,
                 body: JSON.stringify({
@@ -557,13 +561,14 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(preservedWorkspace?.raw_plan_code, 'chatgptteamplan');
       assert.equal(preservedWorkspace?.next_renewal_at?.toISOString(), '2033-09-10T00:00:00.000Z',
         'accounts/check 省略 Workspace 资料时不清空已有业务事实');
+      missingPersonalSubscriptionAccounts.add('workspace-sync-add-personal-account');
       const personalRefresh = await app.request(`/api/accounts/${workspaceSyncAddAccount.account.id}/personal-space/refresh`, {
         method: 'POST', headers, body: JSON.stringify({ resources: ['subscription'] })
       });
       assert.equal(personalRefresh.status, 200, await personalRefresh.clone().text());
       const personalRefreshData = (await personalRefresh.json() as any).data;
       assert.equal(personalRefreshData.subscription.plan, 'free',
-        '个人刷新以 accounts/check 的 personal 当前套餐覆盖历史 Plus 订阅记录');
+        '个人订阅不存在 404 应按 Free 快照处理');
       assert.equal(personalRefreshData.subscription.rawPlanCode, 'free');
       assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id')
         .where('id', '=', workspaceSyncAddAccount.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id,
