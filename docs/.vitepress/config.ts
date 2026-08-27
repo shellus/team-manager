@@ -18,6 +18,7 @@ export default defineConfig({
         items: [
           { text: '业务流程总览', link: '/guide/' },
           { text: '账号与 Workspace', link: '/guide/' },
+          { text: '账号与 Workspace 运营 SOP', link: '/guide/account-cleanup-and-refresh-sop' },
           { text: 'Team 升级订单维护', link: '/guide/team-order-maintenance' },
           { text: '额度与席位轮转', link: '/guide/quota-and-seats' },
           { text: '新号填充凭证号池', link: '/guide/fill-credential-pool' },

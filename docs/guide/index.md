@@ -17,7 +17,9 @@
 
 彻底删除账号前显示将删除的本地 Workspace、成员关系、邀请、凭证、客户席位、订单、维护任务、自动化操作和活动日志数量。确认后，账号作为活动 owner 的 Workspace 一并从 Team Manager 删除；其他 Workspace 只删除该账号的本地关系。关联数据不会禁止删除，该操作也不会登录账号或调用 ChatGPT 删除远程 Workspace。
 
-批量清理、分组迁移、账单刷新和 Workspace 成员同步按[账号清理与状态刷新 SOP](./account-cleanup-and-refresh-sop.md)执行。
+批量清理、分组迁移、账单刷新和 Workspace 成员同步按[账号与 Workspace 运营 SOP](./account-cleanup-and-refresh-sop.md)执行。
+
+账号套餐数据源、封号邮件分流、三类 Workspace 识别和备用 owner 替换也统一按该 SOP 执行，避免在一次性核验记录中复制规则。
 
 ## Workspace
 

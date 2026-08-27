@@ -10,6 +10,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 4. [`docs/plans/unified-account-postgresql-refactor.md`](./docs/plans/unified-account-postgresql-refactor.md)：本次重构实施与验收台账。
 5. [`docs/plans/account-operational-primary-plan-and-actions.md`](./docs/plans/account-operational-primary-plan-and-actions.md)：账号运营主套餐和共享操作实施计划。
 6. [`docs/plans/operational-visibility-restoration.md`](./docs/plans/operational-visibility-restoration.md)：旧版运营可见性恢复和最终 UI 验收台账。
+7. [`docs/guide/account-cleanup-and-refresh-sop.md`](./docs/guide/account-cleanup-and-refresh-sop.md)：账号、Workspace 刷新、封号清理和备用 owner 操作 SOP。
 
 开始和结束任务时检查 `git status --short --branch`。
 

@@ -24,6 +24,18 @@ _Avoid_: 母号、账号、个人空间
 账号或远端身份在一个 Workspace 中已经接受的关系，包含角色、席位类型和状态。账号是否拥有可管理空间由活动 owner/admin 成员关系派生。
 _Avoid_: 客户席位、待处理邀请、账号类型
 
+**备用 owner**:
+为 Workspace 保留的普通 Account，其活动 Membership 角色为 owner，用于主管理账号不可用时继续管理该 Workspace。备用 owner 不是账号类型、Workspace 字段或独立实体。
+_Avoid_: 备用账号类型、隐藏母号、Workspace 所有者字段
+
+**历史开通分类**:
+根据 Workspace 首次开通的可靠历史证据、订阅演进和 owner 席位事实，将 Workspace 区分为早期开通可改席位、Codex owner 保留型和 052-only 三类运营类别。证据不足时保持待人工确认，不从账号当前显示套餐推断。
+_Avoid_: 账号套餐分类、当前主套餐、052 账号类型
+
+**Workspace 套餐事实**:
+Workspace 的 Team/Business 套餐事实，来源是 Workspace 订阅的 `plan_type`；账号在该空间的席位上下文不改变 Workspace 套餐。
+_Avoid_: 账号席位类型、账号主套餐、`checkAccounts` 的 planType
+
 **同步账号与 Workspace 关系**:
 根据受管账号当前可访问的 Workspace 集合校准其成员关系；远端不再存在的成员关系进入已移除状态，Workspace 本身不受影响。
 _Avoid_: 刷新 Workspace 列表、删除 Workspace、退出 Workspace
@@ -187,6 +199,14 @@ _Avoid_: 账号状态、Workspace owner 字段
 **封号标记**:
 由用户人工维护、独立于远端状态和 Web Session 可用性的账号运营标记。
 _Avoid_: 自动封号检测、删除账号
+
+**封号邮件核验**:
+通过受控邮箱中的 OpenAI/ChatGPT 封号、停用或策略违规邮件确认远端风险，再决定是否设置封号标记。邮件证据与 Session、代理和网络错误属于不同事实。
+_Avoid_: Session 失败即封号、网络错误即封号、自动删除
+
+**无个人订阅记录**:
+个人订阅接口明确返回没有该账号订阅记录时的 Free 事实，不等同于接口异常或套餐未知。
+_Avoid_: 404 一律 Free、账单为空、未知套餐
 
 **Profile 控制**:
 Team Manager 通过受管账号引用请求 GPT Account Manager 启动或关闭账号运行 Profile。Team Manager 不拥有浏览器 Profile，也不提供 VNC。
