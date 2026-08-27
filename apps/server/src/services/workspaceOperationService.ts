@@ -83,10 +83,10 @@ export class WorkspaceOperationService {
             externalId: item.accountId,
             name: item.workspaceName ?? knownWorkspace?.name ?? null,
             status: 'active',
-            rawPlanCode: item.planType ?? knownWorkspace?.raw_plan_code ?? null,
-            normalizedPlan: item.planType
-              ? normalizeWorkspacePlan(item.planType)
-              : normalizeWorkspacePlan(knownWorkspace?.normalized_plan),
+            // accounts/check 返回的是当前账号在该 Workspace 中的上下文，
+            // 不是 Workspace 订阅类型；Workspace 套餐由 subscription 刷新维护。
+            rawPlanCode: knownWorkspace?.raw_plan_code ?? null,
+            normalizedPlan: normalizeWorkspacePlan(knownWorkspace?.normalized_plan),
             nextRenewalAt: item.nextRenewalOn ?? knownWorkspace?.next_renewal_at ?? null
           });
           seen.add(workspace.id);

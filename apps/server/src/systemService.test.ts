@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hasOutstandingInvoice } from './repositories/billingRepository.js';
-import { renewalOperationalStatus, renewalRisks, seatRisks } from './services/systemService.js';
+import { isFixedSeatOverviewWorkspace, renewalOperationalStatus, renewalRisks, seatRisks } from './services/systemService.js';
+
+test('席位概览以 Workspace 订阅套餐优先于账号上下文套餐', () => {
+  assert.equal(isFixedSeatOverviewWorkspace('business_usage_based', 'business', 'business'), true);
+  assert.equal(isFixedSeatOverviewWorkspace('business', 'business_usage_based', 'business'), false);
+  assert.equal(isFixedSeatOverviewWorkspace('business_usage_based', undefined, 'business'), false);
+});
 
 test('席位概览只在到期前三天开始提醒', () => {
   const now = new Date('2026-08-17T12:00:00Z');

@@ -377,7 +377,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
                   account_id: 'workspace-sync-added-workspace',
                   account_user_id: 'workspace-sync-added-user',
                   account_user_role: 'account-owner',
-                  structure: 'workspace'
+                  structure: 'workspace',
+                  plan_type: 'self_serve_business_usage_based'
                 },
                 can_access_with_session: true
               };

@@ -245,9 +245,12 @@ function seatSubjectOrder(value: SeatOperationalOverviewView['subject']): number
   return { member: 0, invitation: 1, vacancy: 2, customer: 3 }[value];
 }
 
-function isFixedSeatOverviewWorkspace(workspacePlan?: string | null, subscriptionPlan?: string | null, billingPlan?: string): boolean {
+export function isFixedSeatOverviewWorkspace(workspacePlan?: string | null, subscriptionPlan?: string | null, billingPlan?: string): boolean {
+  // Workspace 订阅接口才是 Workspace 套餐事实；accounts/check 的 plan_type
+  // 只是当前账号上下文，不能覆盖订阅快照的 Team/Codex 判定。
+  if (subscriptionPlan === 'business_usage_based') return false;
+  if (subscriptionPlan === 'business') return true;
   if (workspacePlan === 'business_usage_based') return false;
-  if (workspacePlan !== 'business' && subscriptionPlan === 'business_usage_based') return false;
   return resolveWorkspacePlan(workspacePlan ?? undefined, subscriptionPlan ?? undefined, billingPlan) === 'business';
 }
 
