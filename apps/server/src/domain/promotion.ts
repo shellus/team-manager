@@ -32,18 +32,20 @@ export function promotionLookupView(
     targetLabel,
     isEligible: eligibility.is_eligible === true && (metadata === undefined || metadata.is_eligible !== false),
     ...(normalizedReason ? { ineligibleReason: normalizedReason } : {}),
-    ...(rawMetadata ? { metadata: promotionMetadata(rawMetadata) } : {}),
+    ...(rawMetadata ? { metadata: promotionMetadataView(rawMetadata) } : {}),
     ...(subscription ? { subscription: promotionSubscription(subscription) } : {}),
     ...(subscription ? { wouldEnableRenewal: subscription.will_renew !== true } : {})
   };
 }
 
-function promotionMetadata(value: NonNullable<ChatGptPromotionMetadataResponse['metadata']>): WorkspacePromotionMetadataView {
+export function promotionMetadataView(value: NonNullable<ChatGptPromotionMetadataResponse['metadata']>): WorkspacePromotionMetadataView {
   return {
     planName: value.plan_name ?? '',
     ...(text(value.title) ? { title: text(value.title) } : {}),
     ...(text(value.summary) ? { summary: text(value.summary) } : {}),
     ...(finite(value.discount?.quantity_off) !== undefined ? { quantityOff: finite(value.discount?.quantity_off) } : {}),
+    ...(finite(value.discount?.value) !== undefined ? { discountValue: finite(value.discount?.value) } : {}),
+    ...(text(value.discount?.currency_code) ? { discountCurrency: text(value.discount?.currency_code)?.toUpperCase() } : {}),
     ...(finite(value.duration?.num_periods) !== undefined ? { durationPeriods: finite(value.duration?.num_periods) } : {}),
     ...(text(value.duration?.period) ? { durationPeriod: text(value.duration?.period) } : {}),
     ...(typeof value.no_auto_renewal_at_discount_end === 'boolean' ? { noAutoRenewalAtDiscountEnd: value.no_auto_renewal_at_discount_end } : {}),

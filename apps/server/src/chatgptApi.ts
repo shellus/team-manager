@@ -139,7 +139,11 @@ export interface ChatGptPromotionMetadataResponse extends ChatGptPromotionEligib
     plan_name?: string;
     title?: string;
     summary?: string;
-    discount?: { quantity_off?: number } | null;
+    discount?: {
+      quantity_off?: number;
+      value?: number;
+      currency_code?: string;
+    } | null;
     duration?: { num_periods?: number; period?: string } | null;
     no_auto_renewal_at_discount_end?: boolean;
     promotion_type?: string;

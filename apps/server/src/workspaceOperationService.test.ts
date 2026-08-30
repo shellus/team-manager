@@ -42,6 +42,11 @@ test('Workspace 优惠码预览展示优惠期限并标记恢复续费风险',()
   assert.deepEqual(preview.metadata,{planName:'chatgptteamplan',summary:'最高可享 1 个 Business 席位 48 个月优惠。',quantityOff:1,durationPeriods:48,durationPeriod:'month',noAutoRenewalAtDiscountEnd:false,promotionType:'discount',processor:'stripe'});
 });
 
+test('Workspace 优惠码预览保留金额与币种',()=>{
+  const preview=workspacePromotionPreview('PROMO',{is_eligible:true,ineligible_reason:null},{is_eligible:true,ineligible_reason:null,metadata:{plan_name:'chatgptteamplan',discount:{value:25,currency_code:'usd'},duration:{num_periods:48,period:'month'},price_period:'recurring'}},{plan_type:'team',will_renew:true});
+  assert.deepEqual(preview.metadata,{planName:'chatgptteamplan',discountValue:25,discountCurrency:'USD',durationPeriods:48,durationPeriod:'month',pricePeriod:'recurring'});
+});
+
 test('Workspace 优惠码回读识别续费已恢复',()=>{
   const result=workspacePromotionApplyResult('PROMO',{plan_type:'team',will_renew:false,cancellation_outcome:'deactivate'},{plan_type:'team',will_renew:true,cancellation_outcome:null});
   assert.equal(result.verified,true);assert.equal(result.renewalEnabled,true);
@@ -56,9 +61,11 @@ test('Workspace 优惠码对关闭或未知的续费状态都要求显式确认'
 });
 
 test('优惠码查询结果保留个人空间和 Workspace 的独立上下文',()=>{
-  const personal=promotionLookupView({kind:'personal'},'个人空间','PROMO',{is_eligible:true,ineligible_reason:null},{is_eligible:true,ineligible_reason:null,metadata:{plan_name:'chatgptteamplan'}},{plan_type:'free',will_renew:false});
+  const personal=promotionLookupView({kind:'personal'},'个人空间','PROMO',{is_eligible:true,ineligible_reason:null},{is_eligible:true,ineligible_reason:null,metadata:{plan_name:'chatgptteamplan',discount:{value:25,currency_code:'USD'}}},{plan_type:'free',will_renew:false});
   const workspace=promotionLookupView({kind:'workspace',workspaceId:'workspace-1'},'Business A','PROMO',{is_eligible:false,ineligible_reason:{code:'not_eligible'}},undefined,undefined);
   assert.equal(personal.target.kind,'personal');
+  assert.equal(personal.metadata?.discountValue,25);
+  assert.equal(personal.metadata?.discountCurrency,'USD');
   assert.equal(personal.subscription?.planType,'free');
   assert.equal(personal.wouldEnableRenewal,true);
   assert.deepEqual(workspace.target,{kind:'workspace',workspaceId:'workspace-1'});

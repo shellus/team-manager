@@ -143,6 +143,8 @@ export interface WorkspacePromotionMetadataView {
   title?: string;
   summary?: string;
   quantityOff?: number;
+  discountValue?: number;
+  discountCurrency?: string;
   durationPeriods?: number;
   durationPeriod?: string;
   noAutoRenewalAtDiscountEnd?: boolean;

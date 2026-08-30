@@ -167,7 +167,7 @@ export function WorkspacePromotionModal({
             <Alert
               type="success"
               showIcon
-              message={preview.metadata.title || "优惠码可以应用"}
+              message={preview.metadata.title || `优惠码可用 · ${preview.targetLabel}`}
               description={preview.metadata.summary}
             />
             <Descriptions size="small" column={1} bordered items={promotionDetails(preview.metadata, preview)} />
@@ -208,17 +208,64 @@ export function WorkspacePromotionModal({
 }
 
 export function promotionDetails(metadata: WorkspacePromotionMetadataView, preview: PromotionLookupView) {
+  const discountRows = promotionDiscountRows(metadata);
   return [
+    ...discountRows,
     { key: "plan", label: "适用套餐", children: metadata.planName === "chatgptteamplan" ? "Business" : metadata.planName || "未知" },
-    { key: "quantity", label: "优惠席位", children: metadata.quantityOff === undefined ? "未说明" : `${metadata.quantityOff} 个席位` },
     { key: "duration", label: "优惠期限", children: promotionDuration(metadata) },
-    { key: "promotion-type", label: "优惠类型", children: metadata.promotionType || "未说明" },
-    { key: "price-period", label: "计价周期", children: metadata.pricePeriod || "未说明" },
-    { key: "processor", label: "支付处理方", children: metadata.processor || "未说明" },
+    { key: "promotion-type", label: "优惠类型", children: promotionTypeText(metadata) },
+    { key: "price-period", label: "生效方式", children: pricePeriodText(metadata.pricePeriod) },
     { key: "discount-end", label: "优惠结束", children: metadata.noAutoRenewalAtDiscountEnd === undefined ? "未说明" : metadata.noAutoRenewalAtDiscountEnd ? "优惠结束时不自动续费" : "继续按订阅规则续费" },
     { key: "subscription", label: "当前订阅", children: subscriptionText(preview) },
     { key: "renewal", label: "续费影响", children: preview.wouldEnableRenewal ? "应用后可能恢复续费" : "保持当前续费状态" },
+    { key: "processor", label: "支付处理方", children: processorText(metadata.processor) },
   ];
+}
+
+function promotionDiscountRows(metadata: WorkspacePromotionMetadataView) {
+  const rows = [];
+  if (metadata.discountValue !== undefined) {
+    rows.push({
+      key: "amount",
+      label: "优惠金额",
+      children: <Typography.Text strong>{promotionDiscountText(metadata.discountValue, metadata.discountCurrency)}</Typography.Text>,
+    });
+  }
+  if (metadata.quantityOff !== undefined) {
+    rows.push({
+      key: "quantity",
+      label: "优惠席位",
+      children: <Typography.Text strong>{`${metadata.quantityOff} 个席位`}</Typography.Text>,
+    });
+  }
+  return rows.length > 0 ? rows : [{ key: "discount", label: "优惠内容", children: "上游未说明" }];
+}
+
+export function promotionDiscountText(value: number, currency?: string): string {
+  if (!currency) return `${value}（币种未说明）`;
+  const normalized = currency.toUpperCase();
+  try {
+    const amount = new Intl.NumberFormat("zh-CN", { style: "currency", currency: normalized }).format(value);
+    return `${amount}（${normalized}）`;
+  } catch {
+    return `${value} ${normalized}`;
+  }
+}
+
+function promotionTypeText(metadata: WorkspacePromotionMetadataView): string {
+  if (metadata.discountValue !== undefined) return "固定金额减免";
+  if (metadata.quantityOff !== undefined) return "按席位减免";
+  return metadata.promotionType === "discount" ? "折扣" : metadata.promotionType || "未说明";
+}
+
+function pricePeriodText(value?: string): string {
+  if (value === "recurring") return "每个账期重复生效";
+  return value || "未说明";
+}
+
+function processorText(value?: string): string {
+  if (value?.toLowerCase() === "stripe") return "Stripe";
+  return value || "未说明";
 }
 
 function promotionDuration(metadata: WorkspacePromotionMetadataView): string {

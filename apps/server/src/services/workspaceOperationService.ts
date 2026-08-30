@@ -35,7 +35,7 @@ import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
-import { promotionLookupView } from '../domain/promotion.js';
+import { promotionLookupView, promotionMetadataView } from '../domain/promotion.js';
 import type { AccountManagerService } from './accountManagerService.js';
 
 export class WorkspaceOperationService {
@@ -745,17 +745,7 @@ export function workspacePromotionPreview(
       ...(text(rawReason.message) ? { message: text(rawReason.message) } : {}),
       ...(text(rawReason.code) ? { code: text(rawReason.code) } : {})
     } } : {}),
-    ...(eligible && rawMetadata ? { metadata: {
-      planName: rawMetadata.plan_name ?? '',
-      ...(text(rawMetadata.title) ? { title: text(rawMetadata.title) } : {}),
-      ...(text(rawMetadata.summary) ? { summary: text(rawMetadata.summary) } : {}),
-      ...(finite(rawMetadata.discount?.quantity_off) !== undefined ? { quantityOff: finite(rawMetadata.discount?.quantity_off) } : {}),
-      ...(finite(rawMetadata.duration?.num_periods) !== undefined ? { durationPeriods: finite(rawMetadata.duration?.num_periods) } : {}),
-      ...(text(rawMetadata.duration?.period) ? { durationPeriod: text(rawMetadata.duration?.period) } : {}),
-      ...(typeof rawMetadata.no_auto_renewal_at_discount_end === 'boolean' ? { noAutoRenewalAtDiscountEnd: rawMetadata.no_auto_renewal_at_discount_end } : {}),
-      ...(text(rawMetadata.promotion_type) ? { promotionType: text(rawMetadata.promotion_type) } : {}),
-      ...(text(rawMetadata.processor) ? { processor: text(rawMetadata.processor) } : {})
-    } } : {}),
+    ...(eligible && rawMetadata ? { metadata: promotionMetadataView(rawMetadata) } : {}),
     subscription: promotionSubscription(subscription),
     wouldEnableRenewal: eligible && promotionRequiresRenewalAcknowledgement(subscription)
   };
