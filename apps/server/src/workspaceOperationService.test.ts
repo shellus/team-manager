@@ -8,6 +8,7 @@ import {
   workspacePromotionApplyResult,
   workspacePromotionPreview
 } from './services/workspaceOperationService.js';
+import { promotionLookupView } from './domain/promotion.js';
 
 test('Workspace 加入申请只接受 UUID 并统一为小写',()=>{
   assert.equal(normalizeWorkspaceExternalId(' 0A9B56EC-C0A2-473F-A8EA-8F25EF8CC5FC '),'0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc');
@@ -52,4 +53,15 @@ test('Workspace 优惠码对关闭或未知的续费状态都要求显式确认'
   assert.equal(promotionRequiresRenewalAcknowledgement({will_renew:false}),true);
   assert.equal(promotionRequiresRenewalAcknowledgement({}),true);
   assert.equal(promotionRequiresRenewalAcknowledgement({will_renew:true}),false);
+});
+
+test('优惠码查询结果保留个人空间和 Workspace 的独立上下文',()=>{
+  const personal=promotionLookupView({kind:'personal'},'个人空间','PROMO',{is_eligible:true,ineligible_reason:null},{is_eligible:true,ineligible_reason:null,metadata:{plan_name:'chatgptteamplan'}},{plan_type:'free',will_renew:false});
+  const workspace=promotionLookupView({kind:'workspace',workspaceId:'workspace-1'},'Business A','PROMO',{is_eligible:false,ineligible_reason:{code:'not_eligible'}},undefined,undefined);
+  assert.equal(personal.target.kind,'personal');
+  assert.equal(personal.subscription?.planType,'free');
+  assert.equal(personal.wouldEnableRenewal,true);
+  assert.deepEqual(workspace.target,{kind:'workspace',workspaceId:'workspace-1'});
+  assert.equal(workspace.isEligible,false);
+  assert.equal(workspace.ineligibleReason?.code,'not_eligible');
 });

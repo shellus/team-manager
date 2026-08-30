@@ -1,12 +1,13 @@
 import type { Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
-import type { TeamOrderDashboardView, TeamOrderConfigurationView } from '@team-manager/shared';
+import { isSeatType, type SeatQuantity, type TeamOrderDashboardView, type TeamOrderConfigurationView } from '@team-manager/shared';
 
 export interface TeamOrderConfigInput {
   promoCode?: string | null;
   country?: string | null;
   currency?: string | null;
   seatQuantity?: number | null;
+  seatQuantities?: SeatQuantity[] | null;
 }
 
 export class TeamOrderRepository {
@@ -18,7 +19,8 @@ export class TeamOrderRepository {
       promo_code: input.promoCode?.trim() || null,
       country: input.country?.trim().toUpperCase() || null,
       currency: input.currency?.trim().toUpperCase() || null,
-      seat_quantity: positiveInteger(input.seatQuantity) ?? null
+      seat_quantity: nonNegativeInteger(input.seatQuantity) ?? null,
+      seat_quantities: input.seatQuantities?.length ? { items: input.seatQuantities } : null
     };
     const existing = workspaceId
       ? await this.db.selectFrom('team_order_configurations').select('id').where('workspace_id', '=', workspaceId).executeTakeFirst()
@@ -91,7 +93,8 @@ export class TeamOrderRepository {
       promo_code: input.overrides?.promoCode?.trim() || null,
       country: input.overrides?.country?.trim().toUpperCase() || null,
       currency: input.overrides?.currency?.trim().toUpperCase() || null,
-      seat_quantity: positiveInteger(input.overrides?.seatQuantity) ?? null,
+      seat_quantity: nonNegativeInteger(input.overrides?.seatQuantity) ?? null,
+      seat_quantities: input.overrides?.seatQuantities?.length ? { items: input.overrides.seatQuantities } : null,
       next_run_at: input.nextRunAt ?? null,
       pause_reason: input.pauseReason?.trim() || null,
       last_success_at: input.lastSuccessAt ?? null,
@@ -122,16 +125,33 @@ export class TeamOrderRepository {
   }
 }
 
-function configurationView(row: { workspace_id?: string | null; workspace_name?: string | null; promo_code?: string | null; country?: string | null; currency?: string | null; seat_quantity?: number | null }): TeamOrderConfigurationView {
+function configurationView(row: { workspace_id?: string | null; workspace_name?: string | null; promo_code?: string | null; country?: string | null; currency?: string | null; seat_quantity?: number | null; seat_quantities?: unknown }): TeamOrderConfigurationView {
   return { ...(row.workspace_id ? { workspaceId: row.workspace_id } : {}), ...(row.workspace_name ? { workspaceName: row.workspace_name } : {}),
     ...(row.promo_code ? { promoCode: row.promo_code } : {}), ...(row.country ? { country: row.country } : {}), ...(row.currency ? { currency: row.currency } : {}),
-    ...(row.seat_quantity ? { seatQuantity: row.seat_quantity } : {}) };
+    ...(row.seat_quantity === null || row.seat_quantity === undefined ? {} : { seatQuantity: row.seat_quantity }),
+    ...(parseSeatQuantities(row.seat_quantities) ? { seatQuantities: parseSeatQuantities(row.seat_quantities) } : {}) };
 }
 function configurationSnapshot(value: Record<string, unknown>, workspaceId: string, workspaceName?: string | null): TeamOrderConfigurationView {
   return { workspaceId, ...(workspaceName ? { workspaceName } : {}), ...(text(value.promoCode) ? { promoCode: text(value.promoCode) } : {}),
     ...(text(value.country) ? { country: text(value.country) } : {}), ...(text(value.currency) ? { currency: text(value.currency) } : {}),
-    ...(positiveInteger(value.seatQuantity) ? { seatQuantity: positiveInteger(value.seatQuantity) } : {}) };
+    ...(nonNegativeInteger(value.seatQuantity) === undefined ? {} : { seatQuantity: nonNegativeInteger(value.seatQuantity) }),
+    ...(parseSeatQuantities(value.seatQuantities) ? { seatQuantities: parseSeatQuantities(value.seatQuantities) } : {}) };
 }
 function text(value: unknown): string | undefined { return typeof value === 'string' && value.trim() ? value.trim() : undefined; }
-function positiveInteger(value: unknown): number | undefined { const parsed=Number(value);return Number.isSafeInteger(parsed)&&parsed>0?parsed:undefined; }
+function nonNegativeInteger(value: unknown): number | undefined { const parsed=Number(value);return Number.isSafeInteger(parsed)&&parsed>=0?parsed:undefined; }
 function iso(value: unknown): string { return value instanceof Date ? value.toISOString() : new Date(String(value)).toISOString(); }
+
+function parseSeatQuantities(value: unknown): SeatQuantity[] | undefined {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>).items : value;
+  if (!Array.isArray(source)) return undefined;
+  const rows: SeatQuantity[] = [];
+  for (const item of source) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const seatType = row.seatType ?? row.seat_type;
+    const quantity = Number(row.quantity);
+    if (!isSeatType(seatType) || !Number.isSafeInteger(quantity) || quantity < 0) continue;
+    rows.push({ seatType, quantity });
+  }
+  return rows.length ? rows : undefined;
+}

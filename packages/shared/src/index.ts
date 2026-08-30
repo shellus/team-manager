@@ -21,7 +21,12 @@ export type {
   ChatGptSessionParseResult
 } from './sessionInput.js';
 
-export type SeatType = 'default' | 'usage_based';
+export const SEAT_TYPES = ['default', 'usage_based', 'prolite'] as const;
+export type SeatType = (typeof SEAT_TYPES)[number];
+
+export function isSeatType(value: unknown): value is SeatType {
+  return typeof value === 'string' && (SEAT_TYPES as readonly string[]).includes(value);
+}
 export type AccountLimitType = 'unknown' | 'weekly' | 'monthly';
 
 export const EDITABLE_MEMBER_ROLES = [

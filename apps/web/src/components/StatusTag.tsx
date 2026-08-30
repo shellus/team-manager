@@ -48,7 +48,7 @@ export function BannedStatusTag({
 
 export function SeatTag({ seat }: { seat?: SeatType }) {
   if (!seat) return null;
-  return <Tag color={seat === 'default' ? 'blue' : 'purple'}>{seatLabel(seat)}</Tag>;
+  return <Tag color={seat === 'default' ? 'blue' : seat === 'prolite' ? 'gold' : 'purple'}>{seatLabel(seat)}</Tag>;
 }
 
 export function MemberRoleTag({ role }: { role?: MemberRole }) {
@@ -69,6 +69,7 @@ export function SeatSlotStatusTag({
 
 export function DefaultSeatTag({ seat }: { seat?: SeatType }) {
   if (seat === 'usage_based') return <Tag className="default-codex-seat-tag">Codex 席位 · 绝版</Tag>;
+  if (seat === 'prolite') return <Tag color="gold">Premium 席位</Tag>;
   return <SeatTag seat={seat} />;
 }
 

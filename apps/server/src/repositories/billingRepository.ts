@@ -124,7 +124,8 @@ function billingSnapshotSummary(payload:Record<string,unknown>):Pick<BillingDeta
     }}:{}),
     ...(counts?{seatTypeCounts:{
       default:number(counts.default??counts.default_seats)??0,
-      usageBased:number(counts.usage_based??counts.usageBased)??0
+      usageBased:number(counts.usage_based??counts.usageBased)??0,
+      ...(number(counts.prolite) !== null ? { prolite: number(counts.prolite)! } : {})
     }}:{})
   };
 }

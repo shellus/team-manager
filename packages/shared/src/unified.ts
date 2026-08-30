@@ -147,6 +147,7 @@ export interface WorkspacePromotionMetadataView {
   durationPeriod?: string;
   noAutoRenewalAtDiscountEnd?: boolean;
   promotionType?: string;
+  pricePeriod?: string;
   processor?: string;
 }
 
@@ -178,6 +179,29 @@ export interface WorkspacePromotionApplyResultView {
   after?: WorkspacePromotionSubscriptionView;
   renewalEnabled?: boolean;
   verificationError?: string;
+}
+
+export type PromotionContextKind = 'personal' | 'workspace';
+
+export interface PromotionContextTarget {
+  kind: PromotionContextKind;
+  workspaceId?: string;
+}
+
+export interface PromotionLookupRequest {
+  target: PromotionContextTarget;
+  promoCode: string;
+}
+
+export interface PromotionLookupView {
+  promoCode: string;
+  target: PromotionContextTarget;
+  targetLabel: string;
+  isEligible: boolean;
+  ineligibleReason?: WorkspacePromotionReasonView;
+  metadata?: WorkspacePromotionMetadataView;
+  subscription?: WorkspacePromotionSubscriptionView;
+  wouldEnableRenewal?: boolean;
 }
 
 export interface SnapshotView<T = Record<string, unknown>> {
@@ -219,6 +243,7 @@ export interface BillingIdentityView {
 export interface BillingSeatTypeCountsView {
   default: number;
   usageBased: number;
+  prolite?: number;
 }
 
 export interface BillingDetailView {
@@ -480,6 +505,12 @@ export interface TeamOrderConfigurationView {
   country?: string;
   currency?: string;
   seatQuantity?: number;
+  seatQuantities?: SeatQuantity[];
+}
+
+export interface SeatQuantity {
+  seatType: SeatType;
+  quantity: number;
 }
 
 export type WorkspaceOrderLinkMode = 'create_workspace' | 'upgrade_existing_workspace';
@@ -491,6 +522,7 @@ export interface GenerateWorkspaceOrderLinkRequest {
   country: string;
   currency: string;
   seatQuantity: number;
+  seatQuantities?: SeatQuantity[];
   promoCode?: string;
 }
 
@@ -506,10 +538,11 @@ export interface WorkspaceOrderLinkView {
   orderSeatQuantity: number;
   country: string;
   currency: string;
-  subtotalMinor: number;
-  discountMinor: number;
-  taxMinor: number;
-  totalMinor: number;
+  subtotalMinor?: number;
+  discountMinor?: number;
+  taxMinor?: number;
+  totalMinor?: number;
+  seatQuantities?: SeatQuantity[];
   checkoutStatus?: string;
   paymentStatus?: string;
   automaticTaxStatus?: string;

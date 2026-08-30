@@ -14,6 +14,7 @@ import type {
   RenewalOperationalStatus,
   SeatOperationalOverviewView
 } from '@team-manager/shared';
+import { isSeatType, type SeatQuantity } from '@team-manager/shared';
 
 const SUPPORTED_NOTIFICATION_POLICY_KINDS = ['seat_expiration', 'workspace_renewal'] as const;
 
@@ -29,13 +30,15 @@ export class SystemService {
     return this.#orders.dashboard(this.teamCodeConfigured);
   }
 
-  saveTeamOrderConfiguration(input: { workspaceId?: string; promoCode?: string; country?: string; currency?: string; seatQuantity?: number }) {
+  saveTeamOrderConfiguration(input: { workspaceId?: string; promoCode?: string; country?: string; currency?: string; seatQuantity?: number; seatQuantities?: SeatQuantity[] }) {
     validateOptionalSeatQuantity(input.seatQuantity);
+    validateSeatQuantities(input.seatQuantities, input.seatQuantity);
     return this.#orders.saveConfiguration(input.workspaceId ?? null, input);
   }
 
-  async saveMaintenance(input: { workspaceId: string; executorAccountId: string; enabled: boolean; promoCode?: string; country?: string; currency?: string; seatQuantity?: number }) {
+  async saveMaintenance(input: { workspaceId: string; executorAccountId: string; enabled: boolean; promoCode?: string; country?: string; currency?: string; seatQuantity?: number; seatQuantities?: SeatQuantity[] }) {
     validateOptionalSeatQuantity(input.seatQuantity);
+    validateSeatQuantities(input.seatQuantities, input.seatQuantity);
     await this.#workspaces.requireManageableBy(input.workspaceId, input.executorAccountId);
     await this.#orders.saveMaintenance({
       workspaceId: input.workspaceId,
@@ -72,10 +75,10 @@ export class SystemService {
         sql<number>`(
           select count(*)::int from (
             select member.id from workspace_memberships member
-            where member.workspace_id = w.id and member.status = 'active' and member.seat_type = 'default'
+            where member.workspace_id = w.id and member.status = 'active' and member.seat_type in ('default', 'prolite')
             union all
             select invitation.id from workspace_invitations invitation
-            where invitation.workspace_id = w.id and invitation.status = 'pending' and invitation.seat_type = 'default'
+            where invitation.workspace_id = w.id and invitation.status = 'pending' and invitation.seat_type in ('default', 'prolite')
           ) fixed_seats
         )`.as('fixed_occupied')
       ]).execute(),
@@ -124,11 +127,11 @@ export class SystemService {
         .select([
           'wm.id', 'wm.workspace_id', 'wm.remote_user_id', 'wm.email', 'wm.normalized_role', 'wm.seat_type',
           sql<string | null>`coalesce(wm.email, a.email)`.as('resolved_email')
-        ]).where('wm.status', '=', 'active').where('wm.seat_type', '=', 'default').execute(),
+        ]).where('wm.status', '=', 'active').where('wm.seat_type', 'in', ['default', 'prolite']).execute(),
       this.db.selectFrom('workspace_invitations').select([
         'id', 'workspace_id', 'email', 'normalized_role', 'seat_type'
-      ]).where('status', '=', 'pending').where('seat_type', '=', 'default').execute(),
-      this.db.selectFrom('seat_slots').selectAll().where('seat_type', '=', 'default').execute(),
+      ]).where('status', '=', 'pending').where('seat_type', 'in', ['default', 'prolite']).execute(),
+      this.db.selectFrom('seat_slots').selectAll().where('seat_type', 'in', ['default', 'prolite']).execute(),
       manageableAccounts(this.db),
       this.db.selectFrom('workspace_subscription_snapshots').selectAll()
         .distinctOn('workspace_id').orderBy('workspace_id').orderBy('observed_at', 'desc').orderBy('created_at', 'desc').execute(),
@@ -175,11 +178,11 @@ export class SystemService {
       const fixedAvailable = workspace.status === 'active' && fixedSeatCapacity !== undefined
         ? Math.max(fixedSeatCapacity - fixedOccupied, 0) : 0;
       for (let index = 0; index < fixedAvailable; index += 1) {
-        const slot = [...remainingSlots.values()].find((row) => row.seat_type === 'default' && row.current_email === null);
+        const slot = [...remainingSlots.values()].find((row) => ['default', 'prolite'].includes(row.seat_type ?? '') && row.current_email === null);
         if (slot) remainingSlots.delete(slot.id);
         result.push(seatOverviewItem({
           id: `vacancy:${workspace.id}:${index + 1}`, subject: 'vacancy', workspace, managingAccounts,
-          seatType: 'default', relationStatus: 'unclaimed', slot
+          seatType: slot?.seat_type ?? 'default', relationStatus: 'unclaimed', slot
         }));
       }
       for (const slot of remainingSlots.values()) {
@@ -215,7 +218,7 @@ function seatOverviewItem(input: {
   return {
     id: input.id, subject: input.subject, workspaceId: input.workspace.id, workspaceExternalId: input.workspace.external_id,
     ...(input.workspace.name ? { workspaceName: input.workspace.name } : {}), ...(input.email ? { email: input.email } : {}),
-    seatType: input.seatType === 'usage_based' ? 'usage_based' : 'default', relationStatus: input.relationStatus,
+    seatType: isSeatType(input.seatType) ? input.seatType : 'default', relationStatus: input.relationStatus,
     expirationStatus:seatSlotExpirationStatus(expiresOn),
     ...(normalizeOverviewRole(input.role) ? { role: normalizeOverviewRole(input.role) } : {}),
     ...(input.slot ? { seatSlotId: input.slot.id } : {}), hasCustomerProfile: Boolean(input.slot),
@@ -291,4 +294,13 @@ async function latestWorkspaceBilling(db:Kysely<Database>){const [rows,defaultCa
 function billingSummary(payload:Record<string,unknown>,normalizedPlan?:string|null):BillingSummary{const upcoming=record(payload.upcomingInvoice??payload.upcoming_invoice);const invoice=record(upcoming?.upcoming_invoice)??upcoming;const amount=invoice?.amount_due??invoice?.amount_remaining;const currency=text(invoice?.currency);const billedSeatQuantity=invoiceSeatQuantity(invoice);return{...(amount!==undefined?{expectedAmount:String(amount)}:{}),...(currency?{expectedCurrency:currency}: {}),...(normalizedPlan?{normalizedPlan}:{}),...(billedSeatQuantity===undefined?{}:{billedSeatQuantity}),paymentDue:hasOutstandingInvoice(payload)};}
 function invoiceSeatQuantity(invoice:Record<string,unknown>|undefined):number|undefined{const lines=record(invoice?.lines);const items=Array.isArray(lines?.data)?lines.data.map(record).filter(Boolean) as Record<string,unknown>[]:[];const recurring=items.find(item=>item.type==='subscription'||record(item.price)?.recurring!==undefined)??items[0];const quantity=Number(recurring?.quantity);return Number.isSafeInteger(quantity)&&quantity>0?quantity:undefined;}
 function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}
-function validateOptionalSeatQuantity(value:unknown):void{if(value!==undefined&&(!Number.isSafeInteger(value)||Number(value)<=0))throw new ServiceError(400,'订单席位数必须是正整数');}
+function validateOptionalSeatQuantity(value:unknown):void{if(value!==undefined&&(!Number.isSafeInteger(value)||Number(value)<0))throw new ServiceError(400,'订单席位数必须是非负安全整数');}
+function validateSeatQuantities(value: unknown, declaredTotal?: unknown): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.some((item) => !item || typeof item !== 'object' || !isSeatType((item as any).seatType) || !Number.isSafeInteger(Number((item as any).quantity)) || Number((item as any).quantity) < 0)) {
+    throw new ServiceError(400, '订单席位类型配置无效');
+  }
+  const total = value.reduce((sum, item) => sum + Number((item as any).quantity), 0);
+  if (declaredTotal !== undefined && Number(declaredTotal) !== total) throw new ServiceError(400, '订单总席位数必须等于席位类型明细之和');
+  if (!Number.isSafeInteger(total) || total < 0) throw new ServiceError(400, '订单席位数必须是非负安全整数');
+}

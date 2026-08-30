@@ -6,6 +6,8 @@
 - `team_order_maintenances`：Workspace、执行账号、启用状态、运行时间和错误。
 - `team_upgrade_orders`：订单配置快照、上游引用、Checkout URL、状态和重试元数据。
 
+订单配置兼容旧的 `seatQuantity` 总数，并可通过 `seatQuantities` 保存订单明细；用于 `chatgptteamplan` Checkout 的 `seat_type` 只能是 `default` 或 `prolite`，`usage_based`/Codex 不是该 Checkout 的固定席位类型。新明细总数必须与总席位数一致，席位数量不在本地设置最低值或业务上限，由 Business 上游判定。
+
 维护关系的主对象是 Workspace；`executor_account_id` 必须在执行时拥有活动 owner/admin Membership。Workspace 不永久属于账号。
 
 ## API

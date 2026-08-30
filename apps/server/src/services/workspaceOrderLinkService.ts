@@ -5,6 +5,7 @@ import {
   type GenerateWorkspaceOrderLinkRequest,
   type WorkspaceOrderLinkView
 } from '@team-manager/shared';
+import { isSeatType, type SeatQuantity } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
@@ -43,12 +44,13 @@ export class WorkspaceOrderLinkService {
     }
     const country = input.country?.trim().toUpperCase() ?? '';
     const currency = input.currency?.trim().toUpperCase() ?? '';
-    const seatQuantity = Number(input.seatQuantity);
+    const seatQuantities = normalizeSeatQuantities(input.seatQuantities, input.seatQuantity);
+    const seatQuantity = seatQuantities.reduce((sum, item) => sum + item.quantity, 0);
     const promoCode = input.promoCode?.trim() ?? '';
     if (!checkoutCountries.has(country)) throw new ServiceError(400, '请选择有效的 Checkout 国家');
     if (!checkoutCurrencies.has(currency)) throw new ServiceError(400, '请选择有效的 Checkout 货币');
-    if (!Number.isSafeInteger(seatQuantity) || seatQuantity < 2) {
-      throw new ServiceError(400, 'Workspace 订单席位数必须是大于或等于 2 的整数');
+    if (!Number.isSafeInteger(seatQuantity) || seatQuantity < 0) {
+      throw new ServiceError(400, 'Workspace 订单席位数必须是非负安全整数');
     }
     if (promoCode.length > 256) throw new ServiceError(400, '优惠码长度不能超过 256 个字符');
 
@@ -77,6 +79,7 @@ export class WorkspaceOrderLinkService {
       country,
       currency,
       seatQuantity,
+      seatQuantities,
       hasPromoCode: Boolean(promoCode)
     };
 
@@ -87,7 +90,7 @@ export class WorkspaceOrderLinkService {
         account,
         ...(targetWorkspaceId ? { targetWorkspaceId } : {}),
         workspaceName,
-        config: { promoCode, country, currency, seatQuantity }
+        config: { promoCode, country, currency, seatQuantity, seatQuantities }
       });
       const information = result.orderInformation;
       const workspaceBindingStatus = mode === 'create_workspace'
@@ -107,10 +110,11 @@ export class WorkspaceOrderLinkService {
         orderSeatQuantity: information.quantity,
         country: information.country,
         currency: information.currency,
-        subtotalMinor: information.subtotalMinor,
-        discountMinor: information.discountMinor,
-        taxMinor: information.taxMinor,
-        totalMinor: information.totalMinor,
+        ...(information.subtotalMinor === undefined ? {} : { subtotalMinor: information.subtotalMinor }),
+        ...(information.discountMinor === undefined ? {} : { discountMinor: information.discountMinor }),
+        ...(information.taxMinor === undefined ? {} : { taxMinor: information.taxMinor }),
+        ...(information.totalMinor === undefined ? {} : { totalMinor: information.totalMinor }),
+        seatQuantities: information.seatQuantities ?? seatQuantities,
         ...(information.checkoutStatus ? { checkoutStatus: information.checkoutStatus } : {}),
         ...(information.paymentStatus ? { paymentStatus: information.paymentStatus } : {}),
         ...(information.automaticTaxStatus ? { automaticTaxStatus: information.automaticTaxStatus } : {}),
@@ -144,4 +148,26 @@ export class WorkspaceOrderLinkService {
       throw asServiceError(error);
     }
   }
+}
+
+function normalizeSeatQuantities(value: unknown, totalValue: unknown): SeatQuantity[] {
+  const input = Array.isArray(value) ? value : [{ seatType: 'default' as const, quantity: Number(totalValue) }];
+  const result: SeatQuantity[] = [];
+  for (const row of input) {
+    if (!row || typeof row !== 'object') throw new ServiceError(400, '订单席位明细无效');
+    const source = row as Record<string, unknown>;
+    const seatType = source.seatType ?? source.seat_type;
+    const quantity = Number(source.quantity);
+    if (!isSeatType(seatType) || !Number.isSafeInteger(quantity) || quantity < 0) throw new ServiceError(400, '订单席位明细无效');
+    const existing = result.find((item) => item.seatType === seatType);
+    if (existing) existing.quantity += quantity;
+    else result.push({ seatType, quantity });
+  }
+  if (!result.length) throw new ServiceError(400, '订单席位明细不能为空');
+  const total = result.reduce((sum, item) => sum + item.quantity, 0);
+  if (Array.isArray(value) && totalValue !== undefined && (!Number.isSafeInteger(Number(totalValue)) || Number(totalValue) !== total)) {
+    throw new ServiceError(400, '订单总席位数必须等于席位类型明细之和');
+  }
+  if (!Number.isSafeInteger(total) || total < 0) throw new ServiceError(400, 'Workspace 订单席位数必须是非负安全整数');
+  return result;
 }

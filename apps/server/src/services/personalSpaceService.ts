@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely';
-import type { PersonalPlan, PersonalSubscriptionChangePreviewView } from '@team-manager/shared';
+import type { PersonalPlan, PersonalSubscriptionChangePreviewView, PromotionLookupView } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { ChatGptApi, ChatGptApiError } from '../chatgptApi.js';
 import { AccountOperationalRepository } from '../repositories/accountOperationalRepository.js';
@@ -15,6 +15,7 @@ import {
   resolvePersonalPlan
 } from '../domain/personalPlan.js';
 import { fetchChatGptWebAccessTokenFromSessionToken } from '../chatgptWebSession.js';
+import { promotionLookupView } from '../domain/promotion.js';
 import type { AccountManagerService } from './accountManagerService.js';
 
 export class PersonalSpaceService {
@@ -112,6 +113,22 @@ export class PersonalSpaceService {
       accessToken: context.accessToken,
       ...(context.sessionToken ? { sessionToken: context.sessionToken } : {})
     };
+  }
+
+  async lookupPromotion(accountId: string, promoCode: string): Promise<PromotionLookupView> {
+    const normalized = promoCode.trim();
+    if (!normalized) throw new ServiceError(400, '请输入优惠码');
+    if (normalized.length > 256) throw new ServiceError(400, '优惠码长度不能超过 256 个字符');
+    const { api } = await this.context(accountId);
+    const eligibility = await api.getPromotionEligibility(normalized);
+    if (eligibility.is_eligible !== true) {
+      return promotionLookupView({ kind: 'personal' }, '个人空间', normalized, eligibility);
+    }
+    const [metadata, subscription] = await Promise.all([
+      api.getPromotionMetadata(normalized),
+      api.getPersonalSubscription()
+    ]);
+    return promotionLookupView({ kind: 'personal' }, '个人空间', normalized, eligibility, metadata, subscription);
   }
   async patchSettings(accountId: string, input: Record<string, unknown>) {
     const { api } = await this.context(accountId); const me = await api.getMe();

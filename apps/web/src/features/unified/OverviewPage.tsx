@@ -106,7 +106,7 @@ export function OverviewPage({ kind }: { kind: 'renewals' | 'seats' }) {
     [query, renewalStatus, renewals],
   );
   const visibleSeats = useMemo(
-    () => seats.filter((row) => row.seatType === 'default' && matches(row, query, risk)
+    () => seats.filter((row) => ['default', 'prolite'].includes(row.seatType) && matches(row, query, risk)
       && (seatSubject === 'all' || row.subject === seatSubject)),
     [query, risk, seatSubject, seats],
   );
@@ -177,8 +177,8 @@ function RenewalStats({ rows }: { rows: RenewalOperationalOverviewView[] }) {
 
 function SeatStats({ rows }: { rows: SeatOperationalOverviewView[] }) {
   return <OverviewStats items={[
-    ['固定成员', rows.filter((row) => row.subject === 'member' && row.seatType === 'default').length],
-    ['固定邀请', rows.filter((row) => row.subject === 'invitation' && row.seatType === 'default').length],
+    ['固定成员', rows.filter((row) => row.subject === 'member').length],
+    ['固定邀请', rows.filter((row) => row.subject === 'invitation').length],
     ['空位', rows.filter((row) => row.subject === 'vacancy').length],
   ]} />;
 }
@@ -284,7 +284,7 @@ export function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
         <Space size={4} wrap>
           <Tag color={subject.color}>{subject.label}</Tag>
           {item.role && <Tag>{roleLabel(item.role)}</Tag>}
-          <Tag color={item.seatType === 'usage_based' ? 'purple' : 'blue'}>{seatLabel(item.seatType)}</Tag>
+          <Tag color={item.seatType === 'usage_based' ? 'purple' : item.seatType === 'prolite' ? 'gold' : 'blue'}>{seatLabel(item.seatType)}</Tag>
         </Space>
       </div>
       <div className="overview-context-line">
@@ -293,7 +293,7 @@ export function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
       </div>
       <div className="overview-fact-grid">
         {item.subject === 'vacancy' ? (
-          <OverviewField wide inline emphasis label="状态">可分配固定 ChatGPT 成员</OverviewField>
+          <OverviewField wide inline emphasis label="状态">可分配固定席位成员</OverviewField>
         ) : (
           <>
             <OverviewField inline emphasis label="到期">{item.hasCustomerProfile ? item.expiresOn ?? '未设置' : '未录入租客资料'}</OverviewField>

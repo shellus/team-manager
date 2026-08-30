@@ -1,4 +1,5 @@
 import type { Kysely } from 'kysely';
+import type { SeatType } from '@team-manager/shared';
 import type { Database, SeatSlotRow } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 
@@ -12,7 +13,7 @@ export interface SaveSeatSlotInput {
   expiresOn?: string | null;
   expireReminder?: boolean;
   expireRemove?: boolean;
-  seatType?: 'default' | 'usage_based' | null;
+  seatType?: SeatType | null;
 }
 
 export class SeatSlotRepository {

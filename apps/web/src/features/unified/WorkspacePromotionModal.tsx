@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Checkbox, Descriptions, Form, Input, Space, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Checkbox, Descriptions, Form, Input, Select, Space, Typography } from "antd";
 import type {
+  AccountWorkspaceLinkView,
   WorkspacePromotionApplyResultView,
   WorkspacePromotionMetadataView,
-  WorkspacePromotionPreviewView,
+  PromotionLookupView,
 } from "@team-manager/shared";
 import { ProductModal, useProductMessage } from "../../components/ProductOverlays.js";
 import { formatTime } from "../../components/ProductPrimitives.js";
@@ -14,40 +15,51 @@ interface PromotionFormValues {
 }
 
 export function WorkspacePromotionModal({
-  workspaceId,
   accountId,
+  workspaces,
+  selectedWorkspaceId,
   open,
   onClose,
   onApplied,
 }: {
-  workspaceId: string;
   accountId: string;
+  workspaces: AccountWorkspaceLinkView[];
+  selectedWorkspaceId?: string;
   open: boolean;
   onClose: () => void;
   onApplied: (result: WorkspacePromotionApplyResultView) => Promise<void>;
 }) {
   const productMessage = useProductMessage();
   const [form] = Form.useForm<PromotionFormValues>();
-  const [preview, setPreview] = useState<WorkspacePromotionPreviewView>();
+  const [preview, setPreview] = useState<PromotionLookupView>();
+  const manageableWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.manageable && workspace.membershipStatus === "active"),
+    [workspaces],
+  );
+  const [target, setTarget] = useState<{ kind: "personal" | "workspace"; workspaceId?: string }>({ kind: "personal" });
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState<"preview" | "apply">();
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (open) return;
+    if (open) {
+      const defaultWorkspace = manageableWorkspaces.find((item) => item.id === selectedWorkspaceId) ?? manageableWorkspaces[0];
+      setTarget(defaultWorkspace ? { kind: "workspace", workspaceId: defaultWorkspace.id } : { kind: "personal" });
+      return;
+    }
     form.resetFields();
     setPreview(undefined);
     setAcknowledged(false);
     setBusy(undefined);
     setError("");
-  }, [form, open]);
+  }, [form, manageableWorkspaces, open, selectedWorkspaceId]);
 
   const previewPromotion = async ({ promoCode }: PromotionFormValues) => {
     setBusy("preview");
     setError("");
     setAcknowledged(false);
     try {
-      setPreview(await unifiedApi.previewWorkspacePromotion(workspaceId, accountId, promoCode.trim()));
+      setPreview(await unifiedApi.lookupPromotion(accountId, target, promoCode.trim()));
     } catch (reason) {
       setPreview(undefined);
       setError((reason as Error).message);
@@ -57,11 +69,11 @@ export function WorkspacePromotionModal({
   };
 
   const applyPromotion = async () => {
-    if (!preview?.isEligible) return;
+    if (!preview?.isEligible || preview.target.kind !== "workspace" || !preview.target.workspaceId) return;
     setBusy("apply");
     setError("");
     try {
-      const result = await unifiedApi.applyWorkspacePromotion(workspaceId, accountId, preview.promoCode, acknowledged);
+      const result = await unifiedApi.applyWorkspacePromotion(preview.target.workspaceId, accountId, preview.promoCode, acknowledged);
       if (!result.verified) {
         productMessage.warning("上游已接受优惠码更新，但回读或本地记录失败，请刷新账单确认");
       } else if (result.renewalEnabled) {
@@ -78,19 +90,20 @@ export function WorkspacePromotionModal({
     }
   };
 
-  const requiresRenewalAcknowledgement = preview?.wouldEnableRenewal === true;
-  const canApply = preview?.isEligible === true
-    && Boolean(preview.metadata)
+  const requiresRenewalAcknowledgement = preview?.wouldEnableRenewal === true && preview.target.kind === "workspace";
+  const isBusinessWorkspacePromotion = preview?.metadata?.planName === "chatgptteamplan";
+  const canApply = preview?.isEligible === true && preview.target.kind === "workspace"
+    && isBusinessWorkspacePromotion
     && (!requiresRenewalAcknowledgement || acknowledged);
 
   return (
-    <ProductModal title="更新 Workspace 优惠码" open={open} onCancel={onClose} width={620}>
+    <ProductModal title="查询 / 更新优惠码" open={open} onCancel={onClose} width={620}>
       <Space direction="vertical" size={16} className="panel-stack">
         <Alert
           type="info"
           showIcon
-          message="先校验优惠码，再确认应用到当前 Workspace 订阅。"
-          description="应用优惠码属于订阅写操作。若当前已取消续费，上游可能在应用后恢复续费。"
+          message="先选择目标空间，再校验优惠码。"
+          description="优惠码结果绑定 chatgpt-account-id；不同 Workspace 和个人空间可能返回不同结果。个人空间只支持查询，不会写入 Workspace 订阅。"
         />
         {error && <Alert type="error" showIcon message={error} />}
         <Form
@@ -103,6 +116,25 @@ export function WorkspacePromotionModal({
             setError("");
           }}
         >
+          <Form.Item label="查询上下文">
+            <Select
+              value={target.kind === "personal" ? "personal" : `workspace:${target.workspaceId}`}
+              onChange={(value: string) => {
+                if (value === "personal") setTarget({ kind: "personal" });
+                else setTarget({ kind: "workspace", workspaceId: value.slice("workspace:".length) });
+                setPreview(undefined);
+                setAcknowledged(false);
+                setError("");
+              }}
+              options={[
+                { value: "personal", label: "个人空间" },
+                ...manageableWorkspaces.map((workspace) => ({
+                  value: `workspace:${workspace.id}`,
+                  label: `${workspace.name ?? workspace.externalId} · ${workspace.role}`,
+                })),
+              ]}
+            />
+          </Form.Item>
           <Form.Item
             name="promoCode"
             label="优惠码"
@@ -139,11 +171,14 @@ export function WorkspacePromotionModal({
               description={preview.metadata.summary}
             />
             <Descriptions size="small" column={1} bordered items={promotionDetails(preview.metadata, preview)} />
+            {preview.target.kind === "workspace" && !isBusinessWorkspacePromotion && (
+              <Alert type="warning" showIcon message="该优惠码不是 Business Workspace 优惠码" description="当前仅展示上游返回的信息，不会提供应用入口。" />
+            )}
             {requiresRenewalAcknowledgement && (
               <Alert
                 type="warning"
                 showIcon
-                message={preview.subscription.willRenew === false ? "当前 Workspace 已取消续费" : "当前 Workspace 续费状态未知"}
+                message={preview.subscription?.willRenew === false ? "当前 Workspace 已取消续费" : "当前 Workspace 续费状态未知"}
                 description="应用此优惠码后，上游可能恢复 Workspace 续费。请确认已了解该订阅变化。"
               />
             )}
@@ -161,7 +196,9 @@ export function WorkspacePromotionModal({
               >
                 {requiresRenewalAcknowledgement ? "确认续费影响并应用" : "应用优惠码"}
               </Button>
-              <Typography.Text type="secondary">写入后将自动回读最新订阅状态。</Typography.Text>
+              <Typography.Text type="secondary">
+                {preview.target.kind === "personal" ? "个人空间只读查询，不能在此应用。" : "写入后将自动回读最新订阅状态。"}
+              </Typography.Text>
             </Space>
           </>
         )}
@@ -170,11 +207,14 @@ export function WorkspacePromotionModal({
   );
 }
 
-function promotionDetails(metadata: WorkspacePromotionMetadataView, preview: WorkspacePromotionPreviewView) {
+export function promotionDetails(metadata: WorkspacePromotionMetadataView, preview: PromotionLookupView) {
   return [
     { key: "plan", label: "适用套餐", children: metadata.planName === "chatgptteamplan" ? "Business" : metadata.planName || "未知" },
     { key: "quantity", label: "优惠席位", children: metadata.quantityOff === undefined ? "未说明" : `${metadata.quantityOff} 个席位` },
     { key: "duration", label: "优惠期限", children: promotionDuration(metadata) },
+    { key: "promotion-type", label: "优惠类型", children: metadata.promotionType || "未说明" },
+    { key: "price-period", label: "计价周期", children: metadata.pricePeriod || "未说明" },
+    { key: "processor", label: "支付处理方", children: metadata.processor || "未说明" },
     { key: "discount-end", label: "优惠结束", children: metadata.noAutoRenewalAtDiscountEnd === undefined ? "未说明" : metadata.noAutoRenewalAtDiscountEnd ? "优惠结束时不自动续费" : "继续按订阅规则续费" },
     { key: "subscription", label: "当前订阅", children: subscriptionText(preview) },
     { key: "renewal", label: "续费影响", children: preview.wouldEnableRenewal ? "应用后可能恢复续费" : "保持当前续费状态" },
@@ -189,8 +229,9 @@ function promotionDuration(metadata: WorkspacePromotionMetadataView): string {
     : `${metadata.durationPeriods} ${unit}`;
 }
 
-function subscriptionText(preview: WorkspacePromotionPreviewView): string {
+function subscriptionText(preview: PromotionLookupView): string {
   const value = preview.subscription;
+  if (!value) return "未读取到订阅摘要";
   return [
     value.planType,
     value.seatsEntitled === undefined ? undefined : `${value.seatsInUse ?? 0}/${value.seatsEntitled} 席位`,

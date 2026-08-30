@@ -407,6 +407,7 @@ export interface TeamOrderConfigurationTable extends AuditedTable {
   country: string | null;
   currency: string | null;
   seat_quantity: Generated<number | null>;
+  seat_quantities: JsonObject | null;
 }
 
 export interface TeamOrderMaintenanceTable extends AuditedTable {
@@ -418,6 +419,7 @@ export interface TeamOrderMaintenanceTable extends AuditedTable {
   country: string | null;
   currency: string | null;
   seat_quantity: Generated<number | null>;
+  seat_quantities: JsonObject | null;
   next_run_at: NullableTimestamp;
   pause_reason: string | null;
   last_success_at: NullableTimestamp;

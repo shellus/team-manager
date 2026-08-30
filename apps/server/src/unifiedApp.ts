@@ -20,7 +20,7 @@ import { WorkspaceOperationService } from './services/workspaceOperationService.
 import { ServiceError, asServiceError } from './serviceError.js';
 import type { AccountListFilters } from './repositories/accountRepository.js';
 import { configureTransportRuntime, createTransport, type Transport } from './transport.js';
-import { isEditableMemberRole } from '@team-manager/shared';
+import { isEditableMemberRole, isSeatType } from '@team-manager/shared';
 import type {
   AddSubscriptionPaymentMethodRequest,
   AccountDeletionResult,
@@ -221,6 +221,22 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     const body = await c.req.json().catch(() => ({})) as GenerateWorkspaceOrderLinkRequest;
     return wrap(c, () => workspaceOrderLinks.generate(c.req.param('id'), body));
   });
+  api.post('/accounts/:id/promotion/lookup', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      target?: { kind?: string; workspaceId?: string };
+      promoCode?: string;
+    };
+    const target = body.target;
+    if (!target || (target.kind !== 'personal' && target.kind !== 'workspace')) {
+      return c.json({ ok: false, error: '请选择个人空间或 Workspace' }, 400);
+    }
+    if (target.kind === 'workspace' && !target.workspaceId?.trim()) {
+      return c.json({ ok: false, error: '请选择要查询的 Workspace' }, 400);
+    }
+    return wrap(c, () => target.kind === 'personal'
+      ? personalSpaces.lookupPromotion(c.req.param('id'), body.promoCode ?? '')
+      : workspaceOperations.lookupPromotion(target.workspaceId!, c.req.param('id'), { promoCode: body.promoCode }));
+  });
   api.get('/accounts/:id/session', (c) => wrap(c, () => accounts.session(c.req.param('id'))));
   api.patch('/accounts/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}));
@@ -416,7 +432,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/workspaces/:id/invitations', async (c) => {
     const body = await c.req.json().catch(() => ({})) as Partial<WorkspaceInvitationMutationInput> & { executorAccountId?: string };
     if (!body.executorAccountId || !body.email) return c.json({ ok: false, error: '缺少 executorAccountId 或 email' }, 400);
-    if (body.seat !== undefined && body.seat !== 'default' && body.seat !== 'usage_based') return c.json({ ok: false, error: '无效 seat' }, 400);
+    if (body.seat !== undefined && !isSeatType(body.seat)) return c.json({ ok: false, error: '无效 seat' }, 400);
     return wrap(c, () => seatSlots.invite(c.req.param('id'), body.executorAccountId!, {
       email: body.email!, seat: body.seat, role: body.role, contact: body.contact,
       remark: body.remark, price: body.price, expiresOn: body.expiresOn,
@@ -430,14 +446,15 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   });
   api.delete('/workspaces/:id/members/:remoteUserId', async (c) => withExecutor(c, (accountId) => workspaceOperations.removeMember(c.req.param('id'), accountId, c.req.param('remoteUserId'))));
   api.patch('/workspaces/:id/members/:remoteUserId', async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; seat?: 'default' | 'usage_based'; role?: unknown };
+    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; seat?: string; role?: unknown };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
     const hasSeat = body.seat !== undefined;
     const hasRole = body.role !== undefined;
     if (hasSeat === hasRole) return c.json({ ok: false, error: '每次只能修改 seat 或 role 中的一项' }, 400);
     if (hasSeat) {
-      if (body.seat !== 'default' && body.seat !== 'usage_based') return c.json({ ok: false, error: '无效 seat' }, 400);
-      return wrap(c, () => workspaceOperations.updateMemberSeat(c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), body.seat!));
+      if (!isSeatType(body.seat)) return c.json({ ok: false, error: '无效 seat' }, 400);
+      const seat = body.seat;
+      return wrap(c, () => workspaceOperations.updateMemberSeat(c.req.param('id'), body.executorAccountId!, c.req.param('remoteUserId'), seat));
     }
     if (!isEditableMemberRole(body.role)) return c.json({ ok: false, error: '无效 role' }, 400);
     const role = body.role;
@@ -450,7 +467,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     if (!executor) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);
     const key = body.key;
     const booleanKeys = ['workspaceReferralsEnabled','autoAcceptRequests','personalAccessTokensEnabled','codexDeviceCodeAuthEnabled','codexRemoteControlEnabled','automaticReloadEnabled'] as const;
-    if (key === 'defaultSeat' && (body.value === 'default' || body.value === 'usage_based')) {
+    if (key === 'defaultSeat' && isSeatType(body.value)) {
       const value = body.value;
       return wrap(c, () => workspaceOperations.updateSetting(c.req.param('id'), executor, { key, value }));
     }

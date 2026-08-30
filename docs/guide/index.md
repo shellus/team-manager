@@ -32,6 +32,8 @@ Business 支持：
 - 为账号创建新 Workspace；
 - 把账号可管理的既有 Workspace 升级为 Business。
 
+席位类型、按个人空间或 Workspace 查询优惠码以及 Checkout 返回/取消语义见[Workspace 席位计价与优惠码](./workspace-seat-pricing-and-promotions.md)。
+
 ## 套餐与支付
 
 个人空间支持 Go、Plus、Pro 5x、Pro 20x。Free 账号可以首次开通；付费套餐间切换在上游协议验证完成前禁用。个人空间与 Workspace 都可以直接绑定、设置默认和移除支付方式；完整卡号/CVC 只在当前请求内发送给 Stripe，不保存到 Team Manager。

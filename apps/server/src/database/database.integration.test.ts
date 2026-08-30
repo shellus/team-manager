@@ -33,7 +33,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -808,7 +808,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         'personal-remote', '替换 Session 后个人远端 account id 必须更新');
       const createWorkspaceOrderLink = await app.request(`/api/accounts/${first.account.id}/workspace-order-link`, {
         method: 'POST', headers,
-        body: JSON.stringify({ mode: 'create_workspace', workspaceName: 'New Workspace', country: 'US', currency: 'USD', seatQuantity: 2, promoCode: 'HALF' })
+        body: JSON.stringify({ mode: 'create_workspace', workspaceName: 'New Workspace', country: 'US', currency: 'USD', seatQuantity: 10, seatQuantities: [
+          { seatType: 'default', quantity: 0 }, { seatType: 'prolite', quantity: 10 }
+        ], promoCode: 'HALF' })
       });
       assert.equal(createWorkspaceOrderLink.status, 200, await createWorkspaceOrderLink.clone().text());
       const createWorkspaceOrderLinkData = (await createWorkspaceOrderLink.json() as any).data;
@@ -818,6 +820,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(workspaceOrderLinkInputs[0].account.accessToken, 'replacement-secret');
       assert.equal(workspaceOrderLinkInputs[0].account.sessionToken, 'replacement-session-token');
       assert.equal(workspaceOrderLinkInputs[0].targetWorkspaceId, undefined);
+      assert.equal(workspaceOrderLinkInputs[0].config.seatQuantity, 10);
+      assert.deepEqual(workspaceOrderLinkInputs[0].config.seatQuantities, [
+        { seatType: 'default', quantity: 0 }, { seatType: 'prolite', quantity: 10 }
+      ]);
+      assert.deepEqual(createWorkspaceOrderLinkData.seatQuantities, workspaceOrderLinkInputs[0].config.seatQuantities);
       const upgradeWorkspaceOrderLink = await app.request(`/api/accounts/${first.account.id}/workspace-order-link`, {
         method: 'POST', headers,
         body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, workspaceName: 'Ignored client value', country: 'SG', currency: 'SGD', seatQuantity: 4 })

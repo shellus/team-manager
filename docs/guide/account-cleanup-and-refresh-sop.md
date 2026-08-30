@@ -12,7 +12,7 @@ Team Manager 中必须区分以下事实：
 - 个人套餐来自个人空间刷新结果：刷新内先采用 `/accounts/check` 中 `structure=personal` 的当前账号条目，缺少该条目时才使用订阅响应的 `plan_type`。个人订阅接口返回 HTTP 404 且 `detail` 精确为 `No subscription found for account` 时，表示没有个人订阅，写入 `free`；其他 404 或错误必须失败。
 - Workspace 套餐只来自 Workspace 订阅响应的 `subscription.plan_type`，保存为 Workspace 订阅快照并更新 `workspaces.normalized_plan`。`/checkAccounts` 的 `item.planType` 只表示当前账号在该 Workspace 中的席位上下文，不能写入 Workspace 套餐字段。
 - Workspace 路由中的 `:workspaceId` 是 Team Manager 本地 UUID；账号申请加入接口的请求体 `workspaceId` 是上游 Workspace external ID，二者不能混用。
-- `owner`、`admin` 是 Team Manager 的规范化角色；上游请求使用 `account-owner`、`account-admin` 等角色值。`default` 是 ChatGPT 固定席位，`usage_based` 是 Codex 席位。
+- `owner`、`admin` 是 Team Manager 的规范化角色；上游请求使用 `account-owner`、`account-admin` 等角色值。`default` 是 ChatGPT 固定席位，`usage_based` 是 Codex/按用量席位，`prolite` 是 Premium 固定席位；Business 固定席位 Checkout 的 `seat_quantities[]` 只接受 `default` 与 `prolite`，Codex 使用独立的按用量 Workspace 产品。
 
 停用账号默认不纳入普通刷新、候选或清理批次；封号标记是人工运营事实，不能由网络错误、Session 失效或某次 API 失败自动推导。
 非盈利组织 Workspace 默认不纳入批量刷新、清理或备用 owner 调整，除非任务另行明确授权。
@@ -45,7 +45,7 @@ Team Manager 中必须区分以下事实：
 
 ### 3.1 席位概览缺行排查
 
-席位概览只展示 Workspace 固定 ChatGPT（`default`）席位；`usage_based`/Codex Workspace 本来就不进入该页面。发现概览数量从历史值减少时，依次检查：
+席位概览展示 Workspace 固定 ChatGPT（`default`）和 Premium（`prolite`）席位；`usage_based`/Codex Workspace 本来就不进入该页面。发现概览数量从历史值减少时，依次检查：
 
 1. `workspace_subscription_snapshots.normalized_plan` 和 `workspaces.normalized_plan` 是否有最新成功刷新；
 2. 以活动 owner/admin 调用 `POST /api/workspaces/:workspaceId/subscription/refresh` 或完整的 `POST /api/workspaces/:workspaceId/refresh`，必要时再刷新成员和邀请；
@@ -104,7 +104,7 @@ Workspace 先以 `052`/`usage_based` Codex 空间开通，再升级为双席位 
 
 ### 6.3 052-only
 
-Workspace 只有 `052`/`usage_based` Codex 空间，没有双席位 Team 订阅。加入、确认 Membership、设置 owner 和恢复 `auto_accept_requests=false` 的步骤与 6.2 相同；替补账号完成后移动到 `052备用onwer` 分组。
+Workspace 只有 `052`/`usage_based` Codex 空间，没有双席位 Team 订阅。加入、确认 Membership、设置 owner 和恢复 `auto_accept_requests=false` 的步骤与 6.2 相同；替补账号完成后移动到 `052备用owner` 分组。
 
 ### 6.4 替换顺序与已有双 owner
 
@@ -114,7 +114,7 @@ Workspace 只有 `052`/`usage_based` Codex 空间，没有双席位 Team 订阅�
 - 一个 Workspace 已经存在两个活动 owner 时，视为备用 owner 已由人工配置：按活动 Membership 的加入时间识别后加入者，只移动其账号分组和备注，不重复邀请、不移除 owner。
 - 一个管理账号拥有两个 052 Workspace 时，只有任务明确允许才复用同一个 Free Account；必须分别确认两个 Workspace 都有新的活动 owner 后，再移除原 owner。
 
-备用账号完成后，统一使用业务规范词“备用 owner”；现有数据分组名 `备用onwer`、`052备用onwer` 的拼写保持兼容。备注格式为“作为 `<管理账号邮箱>` 的备用onwer”。
+备用账号完成后，统一使用业务规范词“备用 owner”；现有数据分组名统一为 `备用owner`、`052备用owner`。备注格式为“作为 `<管理账号邮箱>` 的备用 owner”。
 
 ## 7. API 操作参考
 

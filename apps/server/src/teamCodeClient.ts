@@ -1,5 +1,6 @@
 import { fetchWithRawTrace } from './transport.js';
 import { upstreamHttpError } from './serviceError.js';
+import { isSeatType, type SeatQuantity } from '@team-manager/shared';
 
 interface TeamCodeTaskResult {
   payUrl?: unknown;
@@ -20,6 +21,7 @@ interface TeamCodeTaskResult {
     actualWorkspaceId?: unknown;
     workspaceStatus?: unknown;
     quantity?: unknown;
+    seatQuantities?: unknown;
   } | null;
 }
 
@@ -39,10 +41,11 @@ export interface TeamCodeOrderResult {
     currency: string;
     requestedQuantity: number;
     quantity: number;
-    subtotalMinor: number;
-    discountMinor: number;
-    taxMinor: number;
-    totalMinor: number;
+    subtotalMinor?: number;
+    discountMinor?: number;
+    taxMinor?: number;
+    totalMinor?: number;
+    seatQuantities?: SeatQuantity[];
     checkoutStatus?: string;
     paymentStatus?: string;
     automaticTaxStatus?: string;
@@ -55,7 +58,7 @@ export interface TeamCodeOrderInput {
   account: { email: string; accountId: string; accessToken: string; sessionToken?: string };
   targetWorkspaceId?: string;
   workspaceName: string;
-  config: { promoCode: string; country: string; currency: string; seatQuantity: number };
+  config: { promoCode: string; country: string; currency: string; seatQuantity: number; seatQuantities?: SeatQuantity[] };
 }
 
 export interface TeamCodeGateway {
@@ -168,7 +171,9 @@ export class TeamCodeClient implements TeamCodeGateway {
         }
         if (!orderInformation) throw new Error('TeamCode 任务完成但未返回订单信息');
         const requestedQuantity = readNumber(result?.requestedQuantity, input.config.seatQuantity);
-        const totalMinor = readNumber(orderInformation.total);
+        const totalRaw = Number(orderInformation.total);
+        const totalMinor = Number.isFinite(totalRaw) ? totalRaw : undefined;
+        const seatQuantities = normalizeSeatQuantities(orderInformation.seatQuantities, input.config.seatQuantities ?? [{ seatType: 'default', quantity: requestedQuantity }]);
         return {
           taskId,
           payUrl,
@@ -179,10 +184,11 @@ export class TeamCodeClient implements TeamCodeGateway {
             currency: readString(orderInformation.currency) || readString(result?.currency) || input.config.currency,
             requestedQuantity,
             quantity: readNumber(orderInformation.quantity, requestedQuantity),
-            subtotalMinor: readNumber(orderInformation.subtotal, totalMinor),
-            discountMinor: readNumber(orderInformation.discount, 0),
-            taxMinor: readNumber(orderInformation.tax, 0),
-            totalMinor,
+            ...(Number.isFinite(Number(orderInformation.subtotal)) ? { subtotalMinor: Number(orderInformation.subtotal) } : {}),
+            ...(Number.isFinite(Number(orderInformation.discount)) ? { discountMinor: Number(orderInformation.discount) } : {}),
+            ...(Number.isFinite(Number(orderInformation.tax)) ? { taxMinor: Number(orderInformation.tax) } : {}),
+            ...(totalMinor === undefined ? {} : { totalMinor }),
+            seatQuantities,
             ...(readString(orderInformation.status) ? { checkoutStatus: readString(orderInformation.status) } : {}),
             ...(readString(orderInformation.paymentStatus) ? { paymentStatus: readString(orderInformation.paymentStatus) } : {}),
             ...(readString(orderInformation.automaticTaxStatus) ? { automaticTaxStatus: readString(orderInformation.automaticTaxStatus) } : {}),
@@ -211,6 +217,7 @@ export function teamCodeOrderPayload(input: TeamCodeOrderInput) {
     order: {
       mode: 'normal',
       seatQuantity: input.config.seatQuantity,
+      ...(input.config.seatQuantities ? { seatQuantities: input.config.seatQuantities } : {}),
       workspaceId: input.targetWorkspaceId ?? '',
       workspaceName: input.workspaceName,
       promoCode: input.config.promoCode,
@@ -218,4 +225,20 @@ export function teamCodeOrderPayload(input: TeamCodeOrderInput) {
       currency: input.config.currency
     }
   };
+}
+
+function normalizeSeatQuantities(value: unknown, fallback: SeatQuantity[]): SeatQuantity[] {
+  const rows = Array.isArray(value) ? value : fallback;
+  const result: SeatQuantity[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const source = row as Record<string, unknown>;
+    const seatType = source.seatType ?? source.seat_type;
+    const quantity = Number(source.quantity);
+    if (!isSeatType(seatType) || !Number.isSafeInteger(quantity) || quantity < 0) continue;
+    const existing = result.find((item) => item.seatType === seatType);
+    if (existing) existing.quantity += quantity;
+    else result.push({ seatType, quantity });
+  }
+  return result.length ? result : fallback;
 }

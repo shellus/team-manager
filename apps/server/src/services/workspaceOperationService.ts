@@ -1,7 +1,9 @@
 import type { Kysely } from 'kysely';
+import { isSeatType } from '@team-manager/shared';
 import type {
   AccountWorkspaceJoinRequestResult,
   EditableMemberRole,
+  PromotionLookupView,
   SeatType,
   WorkspaceMemberRemovalResult,
   WorkspacePromotionApplyResultView,
@@ -33,6 +35,7 @@ import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
+import { promotionLookupView } from '../domain/promotion.js';
 import type { AccountManagerService } from './accountManagerService.js';
 
 export class WorkspaceOperationService {
@@ -373,6 +376,20 @@ export class WorkspaceOperationService {
     return workspacePromotionPreview(promoCode, eligibility, metadata, subscription);
   }
 
+  async lookupPromotion(workspaceId: string, executorAccountId: string, input: { promoCode?: string }): Promise<PromotionLookupView> {
+    const promoCode = promotionCode(input.promoCode);
+    const { api, workspace } = await this.context(workspaceId, executorAccountId);
+    const eligibility = await api.getPromotionEligibility(promoCode);
+    if (eligibility.is_eligible !== true) {
+      return promotionLookupView({ kind: 'workspace', workspaceId }, workspace.name ?? workspace.external_id, promoCode, eligibility);
+    }
+    const [metadata, subscription] = await Promise.all([
+      api.getPromotionMetadata(promoCode),
+      api.getSubscription()
+    ]);
+    return promotionLookupView({ kind: 'workspace', workspaceId }, workspace.name ?? workspace.external_id, promoCode, eligibility, metadata, subscription);
+  }
+
   async applyPromotion(workspaceId: string, executorAccountId: string, input: { promoCode?: string; acknowledgeRenewal?: boolean }): Promise<WorkspacePromotionApplyResultView> {
     const promoCode = promotionCode(input.promoCode);
     const { api, workspace } = await this.context(workspaceId, executorAccountId);
@@ -649,7 +666,7 @@ async function waitForRenewalCancellation(
 export function memberRemovalSummary(remoteUserId:string,member:{email:string|null;seat_type:string|null}|undefined,result:ChatGptMemberRemovalResponse):WorkspaceMemberRemovalResult['summary']{
   const policy=record(result.policy_notice);const number=(key:string)=>typeof policy?.[key]==='number'&&Number.isFinite(policy[key])?policy[key] as number:undefined;const string=(key:string)=>typeof policy?.[key]==='string'&&String(policy[key]).trim()?String(policy[key]).trim():undefined;
   const parsedPolicy=policy?{...optional('kind',string('kind')),...optional('billedSeatDelta',number('billed_seat_delta')),...optional('vacancyOrdinal',number('vacancy_ordinal')),...optional('freeVacancyThreshold',number('free_vacancy_threshold')),...optional('expiresAt',string('expires_at')),...optional('billingStartsAt',string('billing_starts_at')),...optional('replacementRequired',typeof policy.replacement_required==='boolean'?policy.replacement_required:undefined)}:undefined;
-  const seatType:SeatType|undefined=member?.seat_type==='default'||member?.seat_type==='usage_based'?member.seat_type:undefined;
+  const seatType:SeatType|undefined=isSeatType(member?.seat_type)?member.seat_type:undefined;
   return {remoteUserId,...optional('email',member?.email??undefined),...optional('seatType',seatType),...optional('upstreamSuccess',result.success),hasBillingNotice:result.billing_notice!==undefined,...(parsedPolicy&&Object.keys(parsedPolicy).length?{policy:parsedPolicy}:{})};
 }
 function record(value:unknown):Record<string,unknown>|undefined{return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}

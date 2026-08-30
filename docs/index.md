@@ -8,6 +8,7 @@ Team Manager 使用统一账号模型：所有受管 ChatGPT 登录身份都是�
 - [账号、Workspace、席位与凭证模型](./core/seat-and-credential-model)
 - [PostgreSQL 数据模型](./dev-spec/data-model)
 - [Team 升级订单维护](./guide/team-order-maintenance)
+- [Workspace 席位计价与优惠码](./guide/workspace-seat-pricing-and-promotions)
 - [凭证号池填充](./guide/fill-credential-pool)
 - [状态与排错](./guide/status-and-errors)
 - [账号运营主套餐和共享操作计划](./plans/account-operational-primary-plan-and-actions)

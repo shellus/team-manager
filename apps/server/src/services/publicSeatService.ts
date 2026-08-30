@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import type { PublicSeatSlotView } from '@team-manager/shared';
+import { isSeatType, type PublicSeatSlotView } from '@team-manager/shared';
 import type { Database, SeatSlotRow } from '../database/schema.js';
 import { seatSlotExpirationStatus } from '../domain/businessDate.js';
 import { normalizeEmail } from '../domain/identity.js';
@@ -49,7 +49,7 @@ export class PublicSeatService {
         await this.operations.removeMember(row.workspace_id, executor.account_id, relation.remoteUserId);
       }
       await this.operations.invite(row.workspace_id, executor.account_id, {
-        email, ...(row.seat_type === 'default' || row.seat_type === 'usage_based' ? { seat: row.seat_type } : {})
+        email, ...(isSeatType(row.seat_type) ? { seat: row.seat_type } : {})
       });
       await this.db.transaction().execute(async (trx) => {
         await trx.insertInto('seat_slot_identity_history').values({
@@ -104,7 +104,7 @@ function seatView(row: SeatSlotRow,relationStatus:PublicSeatSlotView['relationSt
     ...(row.remark ? { remark: row.remark } : {}),
     expiresOn: row.expires_on ?? '',
     ...(row.price ? { price: row.price } : {}),
-    ...(row.seat_type === 'default' || row.seat_type === 'usage_based' ? { seat: row.seat_type } : {}),
+    ...(isSeatType(row.seat_type) ? { seat: row.seat_type } : {}),
     relationStatus,
     expirationStatus:seatSlotExpirationStatus(row.expires_on)
   };

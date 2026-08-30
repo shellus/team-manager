@@ -61,7 +61,7 @@ GET /backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=-480
 | 下期账单 | `GET /backend-api/invoices/upcoming?account_id={account_id}` | `401` | 可用；无下期账单时可能返回缺失语义 | 判断当前 recurring Team 订阅和预计金额 |
 | 付款方式 | `GET /backend-api/payments/payment_methods?account_id={account_id}` | 已实测可用 | 可用 | 默认付款方式与付款方式摘要 |
 | 账单资料 | `GET /backend-api/payments/billing_info?account_id={account_id}` | 已实测可用 | 可用 | 账单姓名、邮箱、地址和税号 |
-| 席位统计 | `GET /backend-api/accounts/{account_id}/users/seat_type_counts` | `401` | 可用 | `default` 与 `usage_based` 当前席位数量 |
+| 席位统计 | `GET /backend-api/accounts/{account_id}/users/seat_type_counts` | `401` | 可用 | `default`、`usage_based` 与 `prolite` 当前席位数量 |
 
 以上接口均为 `GET`，没有请求体。所有请求仍应携带：
 

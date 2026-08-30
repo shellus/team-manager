@@ -44,6 +44,7 @@ import type {
   WorkspaceSettingMutationInput,
   WorkspacePromotionApplyResultView,
   WorkspacePromotionPreviewView,
+  PromotionLookupView,
   RenewalOperationalOverviewView,
   SeatOperationalOverviewView,
   TeamOrderDashboardView,
@@ -223,6 +224,8 @@ export const unifiedApi = {
     request<WorkspacePromotionPreviewView>('POST', `/workspaces/${id}/promotion/preview`, { executorAccountId, promoCode }),
   applyWorkspacePromotion: (id: string, executorAccountId: string, promoCode: string, acknowledgeRenewal: boolean) =>
     request<WorkspacePromotionApplyResultView>('POST', `/workspaces/${id}/promotion/apply`, { executorAccountId, promoCode, acknowledgeRenewal }),
+  lookupPromotion: (accountId: string, target: { kind: 'personal' | 'workspace'; workspaceId?: string }, promoCode: string) =>
+    request<PromotionLookupView>('POST', `/accounts/${accountId}/promotion/lookup`, { target, promoCode }),
   createSeatSlot: (workspaceId: string, executorAccountId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, { ...body, executorAccountId }),
   updateSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, body: Partial<SeatSlotInput>) => request<unknown>('PATCH', `/workspaces/${workspaceId}/seat-slots/${slotId}`, { ...body, executorAccountId }),
   deleteSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<boolean>('DELETE', `/workspaces/${workspaceId}/seat-slots/${slotId}`, { executorAccountId }),

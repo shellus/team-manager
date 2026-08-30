@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import type { SeatSlotMutationInput, SeatType, WorkspaceInvitationMutationInput } from '@team-manager/shared';
+import { isSeatType, type SeatSlotMutationInput, type SeatType, type WorkspaceInvitationMutationInput } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 import { SeatSlotRepository } from '../repositories/seatSlotRepository.js';
@@ -64,7 +64,7 @@ export class SeatSlotService {
     if((input as Record<string,unknown>).remoteUserId!==undefined||(input as Record<string,unknown>).status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
     const relation=await this.#relations.resolve(workspaceId,email);
     const seatType=relation.seatType??input.seatType;
-    if (seatType !== undefined && !['default', 'usage_based'].includes(seatType)) throw new ServiceError(400, '无效席位类型');
+    if (seatType !== undefined && !isSeatType(seatType)) throw new ServiceError(400, '无效席位类型');
     const duplicate = await this.db.selectFrom('seat_slots').select('id').where('workspace_id', '=', workspaceId)
       .where('normalized_current_email', '=', normalizeEmail(email)).executeTakeFirst();
     if (duplicate) throw new ServiceError(409, '该成员或邀请已有客户资料');

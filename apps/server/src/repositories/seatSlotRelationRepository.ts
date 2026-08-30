@@ -1,4 +1,4 @@
-import type { SeatSlotRelationStatus, SeatType } from '@team-manager/shared';
+import { isSeatType, type SeatSlotRelationStatus, type SeatType } from '@team-manager/shared';
 import { sql, type Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
@@ -95,7 +95,7 @@ function invitationRelation(row: { seat_type: string | null }): SeatSlotRelation
 }
 
 function seatType(value: string | null): SeatType | undefined {
-  return value === 'default' || value === 'usage_based' ? value : undefined;
+  return isSeatType(value) ? value : undefined;
 }
 
 function normalizeOptionalEmail(value?: string | null): string | null {

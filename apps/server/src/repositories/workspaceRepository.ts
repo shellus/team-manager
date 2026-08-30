@@ -1,4 +1,5 @@
 import { sql, type Kysely } from 'kysely';
+import type { SeatType } from '@team-manager/shared';
 import type { Database, WorkspaceMembershipRow, WorkspaceRow } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 
@@ -19,7 +20,7 @@ export interface UpsertMembershipInput {
   displayName?: string | null;
   rawRole?: string | null;
   normalizedRole: 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown';
-  seatType?: 'default' | 'usage_based' | null;
+  seatType?: SeatType | null;
   status?: 'active' | 'removed' | 'unknown';
   joinedAt?: Date | string | null;
   observedAt: Date | string;

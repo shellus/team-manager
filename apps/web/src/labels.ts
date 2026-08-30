@@ -8,12 +8,14 @@ import type {
 
 export const SEAT_LABEL: Record<SeatType, string> = {
   default: 'ChatGPT 席位',
-  usage_based: 'Codex 席位'
+  usage_based: 'Codex 席位',
+  prolite: 'Premium 席位'
 };
 
 export const SEAT_OPTIONS: Array<{ value: SeatType; label: string }> = [
   { value: 'usage_based', label: SEAT_LABEL.usage_based },
-  { value: 'default', label: SEAT_LABEL.default }
+  { value: 'default', label: SEAT_LABEL.default },
+  { value: 'prolite', label: SEAT_LABEL.prolite }
 ];
 
 export const LIMIT_TYPE_LABEL: Record<AccountLimitType, string> = {

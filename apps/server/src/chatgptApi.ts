@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { EditableMemberRole, Member, PendingInvite, SeatType, MemberRole } from '@team-manager/shared';
+import { isSeatType, type EditableMemberRole, type Member, type PendingInvite, type SeatType, type MemberRole } from '@team-manager/shared';
 import { fetchWithRawTrace, type Transport } from './transport.js';
 import { upstreamHttpError } from './serviceError.js';
 
@@ -143,6 +143,7 @@ export interface ChatGptPromotionMetadataResponse extends ChatGptPromotionEligib
     duration?: { num_periods?: number; period?: string } | null;
     no_auto_renewal_at_discount_end?: boolean;
     promotion_type?: string;
+    price_period?: string;
     processor?: string;
   } | null;
 }
@@ -428,7 +429,7 @@ export class ChatGptApi {
     return this.request<ChatGptMemberRemovalResponse>('DELETE', path);
   }
 
-  /** 修改成员席位类型（字段为 seat_type：default=ChatGPT，usage_based=Codex）。 */
+  /** 修改成员席位类型（字段为 seat_type：default=ChatGPT，usage_based=Codex，prolite=Premium）。 */
   async setMemberSeat(userId: string, seat: SeatType): Promise<unknown> {
     const path = `/backend-api/accounts/${this.account.accountId}/users/${userId}`;
     return this.request('PATCH', path, { seat_type: seat });
@@ -602,7 +603,7 @@ interface RawPendingInvite {
 }
 
 function optionalSeat(value: unknown): { seat: SeatType } | Record<string, never> {
-  return value === 'default' || value === 'usage_based' ? { seat: value } : {};
+  return isSeatType(value) ? { seat: value } : {};
 }
 
 export interface ChatGptMemberRemovalResponse {

@@ -13,7 +13,7 @@
 
 ## 配置与订单
 
-全局配置包含优惠码、国家、货币和订单席位数；Workspace 可保存覆盖值。Workspace 没有显式覆盖时依次使用全局席位数、最新订阅权益容量和 2 席位订单默认值。订单席位数只控制 TeamCode Checkout，不参与既有 Workspace 的容量投影。每份订单记录保存创建时的配置快照、状态、Checkout URL、有效期、错误和执行账号。
+全局配置包含优惠码、国家、货币和按类型的订单席位数；Workspace 可保存覆盖值。Business 固定席位 Checkout 的 `seat_quantities[]` 只使用 `default`（ChatGPT）和 `prolite`（Premium），`usage_based`（Codex）属于独立的按用量 Workspace 产品，不能放进该订单数组。Workspace 没有显式覆盖时依次使用全局明细、最新订阅权益容量和 2 席位订单默认值。订单席位数只控制 TeamCode Checkout，不参与既有 Workspace 的容量投影。每份订单记录保存创建时的配置快照、状态、Checkout URL、有效期、错误和执行账号。
 
 Checkout URL 有效不代表已支付。付款后必须刷新 Workspace 的订阅和账单确认最终状态。Team Manager 不保存完整支付卡，也不根据链接状态推测付款成功。
 

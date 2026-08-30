@@ -148,6 +148,7 @@ export function BillingSummary({ value, paymentMethodActions }: {
     {value.seatTypeCounts&&<><Typography.Title level={5}>当前席位类型数量</Typography.Title><Descriptions bordered size="small" column={{xs:1,sm:2}} items={[
       {key:'default',label:'ChatGPT 固定关系',children:value.seatTypeCounts.default},
       {key:'usage',label:'Codex 关系',children:value.seatTypeCounts.usageBased},
+      {key:'prolite',label:'Premium 关系',children:value.seatTypeCounts.prolite ?? 0},
     ]}/></>}
   </Space>;
 }

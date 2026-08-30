@@ -39,7 +39,7 @@ describe('席位概览对象', () => {
       id: 'vacancy:workspace:1', subject: 'vacancy', relationStatus: 'unclaimed', hasCustomerProfile: false,
     }) })));
     expect(html).toContain('空位');
-    expect(html).toContain('可分配固定 ChatGPT 成员');
+    expect(html).toContain('可分配固定席位成员');
     expect(html).not.toContain('未录入租客资料');
   });
 });

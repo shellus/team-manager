@@ -1,14 +1,15 @@
 import { sql, type Kysely } from 'kysely';
-import type {
-  AccountProfileStatus,
-  AccountAccessContextHealthView,
-  AccountRegistrationSummaryView,
-  AccountGroupView,
-  AccountLimitType,
-  UnifiedAccountDetailView,
-  UnifiedAccountSummaryView,
-  WorkspaceDetailView,
-  WorkspaceSummaryView
+import {
+  isSeatType,
+  type AccountProfileStatus,
+  type AccountAccessContextHealthView,
+  type AccountRegistrationSummaryView,
+  type AccountGroupView,
+  type AccountLimitType,
+  type UnifiedAccountDetailView,
+  type UnifiedAccountSummaryView,
+  type WorkspaceDetailView,
+  type WorkspaceSummaryView
 } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { AccountRepository, type AccountListFilters } from './accountRepository.js';
@@ -191,7 +192,7 @@ export class UnifiedProjectionRepository {
         id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}),
         status: row.status, plan: row.normalized_plan, ...(row.raw_plan_code ? { rawPlanCode: row.raw_plan_code } : {}),
         role: normalizeRole(row.normalized_role), ...(row.raw_role ? { rawRole: row.raw_role } : {}),
-        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
+        ...(isSeatType(row.seat_type) ? { seatType: row.seat_type } : {}),
         membershipStatus: row.membership_status,
         manageable: row.membership_status === 'active' && ['owner', 'admin'].includes(row.normalized_role)
       })),
@@ -199,7 +200,7 @@ export class UnifiedProjectionRepository {
         id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}),
         status: row.status, plan: row.normalized_plan, ...(row.raw_plan_code ? { rawPlanCode: row.raw_plan_code } : {}),
         role: normalizeRole(row.normalized_role), ...(row.raw_role ? { rawRole: row.raw_role } : {}),
-        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
+        ...(isSeatType(row.seat_type) ? { seatType: row.seat_type } : {}),
         membershipStatus: row.membership_status,
         manageable: false,
         removedAt: iso(row.observed_at)
@@ -275,13 +276,13 @@ export class UnifiedProjectionRepository {
         id: row.id, ...(row.account_id ? { accountId: row.account_id } : {}), ...(row.account_email ? { accountEmail: row.account_email } : {}),
         ...(row.remote_user_id ? { remoteUserId: row.remote_user_id } : {}), ...(row.email ? { email: row.email } : {}),
         ...(row.display_name ? { displayName: row.display_name } : {}), role: normalizeRole(row.normalized_role),
-        ...(row.raw_role ? { rawRole: row.raw_role } : {}), ...(row.seat_type ? { seatType: row.seat_type } : {}),
+        ...(row.raw_role ? { rawRole: row.raw_role } : {}), ...(isSeatType(row.seat_type) ? { seatType: row.seat_type } : {}),
         status: row.status, source: row.source, observedAt: iso(row.observed_at)
       })),
       invitations: invitations.map((row) => ({
         id: row.id, ...(row.account_id ? { accountId: row.account_id } : {}), email: row.email,
         role: normalizeRole(row.normalized_role), ...(row.raw_role ? { rawRole: row.raw_role } : {}),
-        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}), status: row.status,
+        ...(isSeatType(row.seat_type) ? { seatType: row.seat_type } : {}), status: row.status,
         ...(row.invited_at ? { invitedAt: iso(row.invited_at) } : {}), observedAt: iso(row.observed_at)
       })),
       credentials,
@@ -294,7 +295,7 @@ export class UnifiedProjectionRepository {
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
         ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
         expireReminder: row.expire_reminder, expireRemove: row.expire_remove,
-        ...(row.seat_type ? { seatType: row.seat_type as 'default' | 'usage_based' } : {}),
+        ...(isSeatType(row.seat_type) ? { seatType: row.seat_type } : {}),
         relationStatus:relation.status,expirationStatus:seatSlotExpirationStatus(row.expires_on),
         ...(expirationRemoval ? { expirationRemoval: {
           status:expirationRemoval.status as 'retrying'|'running'|'failed'|'succeeded',attemptCount:expirationRemoval.attempt_count,maxAttempts:LIMITED_MAX_ATTEMPTS,

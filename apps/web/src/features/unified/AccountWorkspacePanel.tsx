@@ -20,6 +20,7 @@ import { ProductModal, useProductMessage, useProductModal } from "../../componen
 import { ProductDatePicker } from "../../components/ProductDatePicker.js";
 import type {
   BillingDetailView,
+  AccountWorkspaceLinkView,
   CredentialPoolGroupView,
   SubscriptionDetailView,
   UnifiedAccountDetailView,
@@ -363,7 +364,7 @@ export function AccountWorkspacePanel({
           {
             key: "billing",
             label: "账单",
-            children: <BillingPanel workspace={workspace} accountId={account.id} canManage={canManage} value={billing} subscription={subscription} busy={busy} run={run} reload={load} modal={params.get("modal")} setParams={setPanelParams} />,
+            children: <BillingPanel workspace={workspace} accountId={account.id} workspaces={account.workspaces} selectedWorkspaceId={workspaceId} canManage={canManage} value={billing} subscription={subscription} busy={busy} run={run} reload={load} modal={params.get("modal")} setParams={setPanelParams} />,
           },
           {
             key: "settings",
@@ -638,9 +639,11 @@ function expirationRemovalTag(slot?:SeatSlotView):ReactNode{
   return <Tooltip title={removal.error}><Tag color="orange">自动移除 {removal.attemptCount}/{removal.maxAttempts}</Tag></Tooltip>;
 }
 
-function BillingPanel({ workspace, accountId, canManage, value, subscription, busy, run, reload, modal, setParams }: {
+function BillingPanel({ workspace, accountId, workspaces, selectedWorkspaceId, canManage, value, subscription, busy, run, reload, modal, setParams }: {
   workspace?: WorkspaceDetailView;
   accountId: string;
+  workspaces: AccountWorkspaceLinkView[];
+  selectedWorkspaceId?: string;
   canManage: boolean;
   value?: BillingDetailView;
   subscription?: SubscriptionDetailView;
@@ -686,8 +689,9 @@ function BillingPanel({ workspace, accountId, canManage, value, subscription, bu
       onRemove: (paymentMethodId) => unifiedApi.removeWorkspacePaymentMethod(workspace.id, accountId, paymentMethodId),
     }} />
     <WorkspacePromotionModal
-      workspaceId={workspace.id}
       accountId={accountId}
+      workspaces={workspaces}
+      selectedWorkspaceId={selectedWorkspaceId}
       open={modal === "workspace-promotion"}
       onClose={() => setParams({ modal: undefined })}
       onApplied={async () => { await reload(); }}
