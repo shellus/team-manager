@@ -576,18 +576,20 @@ body {
 .seat-position-head {
   display: flex;
   min-width: 0;
-  gap: 8px;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
 }
 
 .seat-position-head > .ant-typography {
+  display: block;
   min-width: 0;
+  width: 100%;
 }
 
-.seat-position-head > a {
+.seat-position-head > .ant-space {
   min-width: 0;
-  overflow: hidden;
+  width: 100%;
 }
 
 .seat-position-head .ant-tag,
