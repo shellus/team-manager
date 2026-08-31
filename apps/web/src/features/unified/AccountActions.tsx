@@ -443,6 +443,7 @@ export function AccountEditorModal({
       <Form<AccountEditorValues>
         form={form}
         layout="vertical"
+        autoComplete="off"
         disabled={loading}
         className="account-action-form"
         onFinish={async (values) => {
@@ -509,7 +510,7 @@ export function AccountEditorModal({
             }),
           ]}
         >
-          <Input autoComplete="email" />
+          <Input autoComplete="off" />
         </Form.Item>}
         <div className="responsive-form-grid">
           <Form.Item name="groupId" label="分组" rules={[{ required: true, message: "请选择分组" }]}>
@@ -530,7 +531,7 @@ export function AccountEditorModal({
           <Switch checkedChildren="已封号" unCheckedChildren="正常" />
         </Form.Item>
         {mode.showProxy && <Form.Item name="proxy" label="账号代理">
-          <Input.Password autoComplete="off" />
+          <Input autoComplete="off" spellCheck={false} />
         </Form.Item>}
         <Form.Item
           name="session"

@@ -44,4 +44,14 @@ describe('账号创建弹窗', () => {
     expect(source).not.toMatch(/params\.get\(["']operationId["']\)/);
     expect(source).not.toContain('setAccountActionInParams(params');
   });
+
+  it('添加账号表单不会被浏览器识别为后台登录表单', () => {
+    const source = readFileSync(new URL('./AccountActions.tsx', import.meta.url), 'utf8');
+    const editor = source.slice(source.indexOf('export function AccountEditorModal'));
+
+    expect(editor).toMatch(/<Form<AccountEditorValues>[^>]*autoComplete="off"/);
+    expect(editor).toMatch(/name="email"[\s\S]*?<Input autoComplete="off" \/>/);
+    expect(editor).toMatch(/name="proxy"[\s\S]*?<Input autoComplete="off" spellCheck=\{false\} \/>/);
+    expect(editor).not.toMatch(/name="proxy"[\s\S]*?<Input\.Password/);
+  });
 });
