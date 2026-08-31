@@ -52,11 +52,15 @@ export class WorkspaceRepository {
   async upsertMembership(input: UpsertMembershipInput): Promise<WorkspaceMembershipRow> {
     if (!input.accountId && !input.remoteUserId && !input.email) throw new Error('成员关系至少需要账号、远端用户 ID 或邮箱');
     const normalizedEmail = input.email ? normalizeEmail(input.email) : null;
-    const existing = input.accountId
-      ? await this.db.selectFrom('workspace_memberships').select('id').where('workspace_id', '=', input.workspaceId).where('account_id', '=', input.accountId).where('status', '=', 'active').executeTakeFirst()
-      : input.remoteUserId
-        ? await this.db.selectFrom('workspace_memberships').select('id').where('workspace_id', '=', input.workspaceId).where('remote_user_id', '=', input.remoteUserId).where('status', '=', 'active').executeTakeFirst()
-        : await this.db.selectFrom('workspace_memberships').select('id').where('workspace_id', '=', input.workspaceId).where('normalized_email', '=', normalizedEmail).where('status', '=', 'active').executeTakeFirst();
+    let existing = input.accountId
+      ? await this.activeMembership(input.workspaceId, 'account_id', input.accountId)
+      : undefined;
+    if (!existing && input.remoteUserId) {
+      existing = await this.activeMembership(input.workspaceId, 'remote_user_id', input.remoteUserId);
+    }
+    if (!existing && normalizedEmail) {
+      existing = await this.activeMembership(input.workspaceId, 'normalized_email', normalizedEmail);
+    }
     const values = {
       workspace_id: input.workspaceId,
       account_id: input.accountId ?? null,
@@ -74,6 +78,16 @@ export class WorkspaceRepository {
     };
     if (existing) return this.db.updateTable('workspace_memberships').set(values).where('id', '=', existing.id).returningAll().executeTakeFirstOrThrow();
     return this.db.insertInto('workspace_memberships').values(values).returningAll().executeTakeFirstOrThrow();
+  }
+
+  private activeMembership(
+    workspaceId: string,
+    identity: 'account_id' | 'remote_user_id' | 'normalized_email',
+    value: string
+  ) {
+    return this.db.selectFrom('workspace_memberships').select('id')
+      .where('workspace_id', '=', workspaceId).where(identity, '=', value)
+      .where('status', '=', 'active').executeTakeFirst();
   }
 
   listForAccount(accountId: string): Promise<Array<WorkspaceRow & { normalized_role: string; seat_type: string | null }>> {

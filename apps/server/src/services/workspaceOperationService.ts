@@ -34,7 +34,7 @@ import { ServiceError, asServiceError } from '../serviceError.js';
 import type { Transport } from '../transport.js';
 import { WorkspaceService } from './workspaceService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
-import { normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
+import { normalizeWorkspaceMemberUserId, normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
 import { promotionLookupView, promotionMetadataView } from '../domain/promotion.js';
 import type { AccountManagerService } from './accountManagerService.js';
 
@@ -82,6 +82,7 @@ export class WorkspaceOperationService {
 
         for (const item of visibleWorkspaces) {
           const knownWorkspace = await workspaces.findByExternalId(item.accountId);
+          const memberUserId = normalizeWorkspaceMemberUserId(item.accountUserId, item.accountId);
           const workspace = await workspaces.upsert({
             externalId: item.accountId,
             name: item.workspaceName ?? knownWorkspace?.name ?? null,
@@ -98,7 +99,7 @@ export class WorkspaceOperationService {
             await trx.updateTable('workspace_memberships').set({
               email: account.email,
               normalized_email: account.normalized_email,
-              ...(item.accountUserId ? { remote_user_id: item.accountUserId } : {}),
+              ...(memberUserId ? { remote_user_id: memberUserId } : {}),
               raw_role: item.role ?? current.raw_role,
               normalized_role: item.role ? normalizeWorkspaceRole(item.role) : current.normalized_role,
               observed_at: observedAt,
@@ -108,7 +109,7 @@ export class WorkspaceOperationService {
             await workspaces.upsertMembership({
               workspaceId: workspace.id,
               accountId,
-              remoteUserId: item.accountUserId ?? null,
+              remoteUserId: memberUserId ?? null,
               email: account.email,
               rawRole: item.role ?? null,
               normalizedRole: normalizeWorkspaceRole(item.role),

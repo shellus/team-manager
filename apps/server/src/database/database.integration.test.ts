@@ -69,6 +69,15 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.deepEqual((await accounts.list({ hasManageableWorkspace: true })).map((item) => item.email), ['owner@example.com']);
       assert.deepEqual((await accounts.list({ isWorkspaceMember: true })).map((item) => item.email), ['member@example.com']);
 
+      const sharedOwnerWorkspace = await workspaces.upsert({ externalId: 'shared-owner-workspace', name: 'Shared owners', normalizedPlan: 'business' });
+      await workspaces.upsertMembership({ workspaceId: sharedOwnerWorkspace.id, accountId: first.account.id, remoteUserId:'shared-owner-first',email:first.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
+      const unboundOwner = await workspaces.upsertMembership({ workspaceId: sharedOwnerWorkspace.id, remoteUserId:'shared-owner-future',email:'future-owner@example.com',normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'upstream_refresh' });
+      const futureOwner = await accounts.create({ email: 'future-owner@example.com', groupId: group.id });
+      const claimedOwner = await workspaces.upsertMembership({ workspaceId: sharedOwnerWorkspace.id, accountId:futureOwner.account.id,remoteUserId:'shared-owner-future',email:futureOwner.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'chatgpt_accounts_check' });
+      assert.equal(claimedOwner.id, unboundOwner.id, '新建 Account 认领同邮箱的既有远端 Membership');
+      assert.equal(claimedOwner.account_id, futureOwner.account.id);
+      assert.equal((await db.selectFrom('workspace_memberships').select('id').where('workspace_id','=',sharedOwnerWorkspace.id).where('status','=','active').where('normalized_role','=','owner').execute()).length,2,'同一 Workspace 允许多个不同 owner');
+
       const primaryPlanGroup = await accounts.createGroup('Primary plans');
       const createPlanAccount = async (name: string) => accounts.create({ email: `${name}@example.com`, groupId: primaryPlanGroup.id });
       const freeAccount = await createPlanAccount('primary-free');

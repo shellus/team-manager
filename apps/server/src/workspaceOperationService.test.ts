@@ -9,10 +9,23 @@ import {
   workspacePromotionPreview
 } from './services/workspaceOperationService.js';
 import { promotionLookupView } from './domain/promotion.js';
+import { normalizeWorkspaceMemberUserId } from './domain/workspace.js';
 
 test('Workspace 加入申请只接受 UUID 并统一为小写',()=>{
   assert.equal(normalizeWorkspaceExternalId(' 0A9B56EC-C0A2-473F-A8EA-8F25EF8CC5FC '),'0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc');
   assert.throws(()=>normalizeWorkspaceExternalId('not-a-workspace-id'),/Workspace ID 必须是有效的 UUID/);
+});
+
+test('Workspace accounts/check 用户 ID 去除当前空间后缀',()=>{
+  assert.equal(
+    normalizeWorkspaceMemberUserId(
+      'user-member__12611c82-0769-4b14-90ad-27649d007e0e',
+      '12611c82-0769-4b14-90ad-27649d007e0e'
+    ),
+    'user-member'
+  );
+  assert.equal(normalizeWorkspaceMemberUserId('user-member', 'workspace-id'), 'user-member');
+  assert.equal(normalizeWorkspaceMemberUserId(undefined, 'workspace-id'), undefined);
 });
 
 test('Workspace 单项设置成功后只合并提交值并保留已有快照细节',()=>{
