@@ -102,6 +102,37 @@ export interface AccountDeletionResult {
   credentialArtifactCleanupFailures: number;
 }
 
+export interface WorkspaceDeletionPreview {
+  workspace: { id: string; externalId: string; name?: string; status: string };
+  activeOwnerCount: number;
+  resources: {
+    memberships: number;
+    invitations: number;
+    credentials: number;
+    seatSlots: number;
+    operations: number;
+    maintenances: number;
+    orders: number;
+    activityLogs: number;
+    accessContexts: number;
+    oauthSessions: number;
+    billingSnapshots: number;
+    paymentMethods: number;
+    settingSnapshots: number;
+    subscriptionSnapshots: number;
+    orderConfigurations: number;
+  };
+  remoteWorkspaceDeletion: false;
+}
+
+export interface WorkspaceDeletionResult {
+  deleted: true;
+  workspaceId: string;
+  resources: WorkspaceDeletionPreview['resources'];
+  removedCredentialArtifactCount: number;
+  credentialArtifactCleanupFailures: number;
+}
+
 export interface AccountRegistrationSummaryView {
   kind: 'registration';
   id: string;

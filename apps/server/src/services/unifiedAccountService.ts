@@ -7,7 +7,9 @@ import {
   type BulkUpdateAccountsResult,
   type ChatGptSessionInput,
   type UnifiedAccountDetailView,
-  type UnifiedAccountSummaryView
+  type UnifiedAccountSummaryView,
+  type WorkspaceDeletionPreview,
+  type WorkspaceDeletionResult
 } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
@@ -222,6 +224,122 @@ export class UnifiedAccountService {
     }
   }
 
+  async workspaceDeletionPreview(id: string): Promise<WorkspaceDeletionPreview> {
+    try {
+      const workspace = await this.db.selectFrom('workspaces')
+        .select(['id', 'external_id', 'name', 'status'])
+        .where('id', '=', id)
+        .executeTakeFirst();
+      if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
+      return await this.buildWorkspaceDeletionPreview(this.db, workspace);
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  async removeWorkspace(id: string): Promise<WorkspaceDeletionResult> {
+    try {
+      const deleted = await this.db.transaction().execute(async (trx) => {
+        const workspace = await trx.selectFrom('workspaces')
+          .select(['id', 'external_id', 'name', 'status'])
+          .where('id', '=', id)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
+
+        const preview = await this.buildWorkspaceDeletionPreview(trx, workspace);
+        if (preview.activeOwnerCount > 0) {
+          throw new ServiceError(409, `Workspace 仍有 ${preview.activeOwnerCount} 个有效 owner，拒绝删除`);
+        }
+        const storageKeys = await trx.selectFrom('workspace_credentials')
+          .select('storage_key')
+          .where('workspace_id', '=', id)
+          .execute();
+
+        await trx.deleteFrom('automation_operations').where('workspace_id', '=', id).execute();
+        await trx.deleteFrom('team_upgrade_orders').where('workspace_id', '=', id).execute();
+        await trx.deleteFrom('team_order_maintenances').where('workspace_id', '=', id).execute();
+        await trx.deleteFrom('workspace_credentials').where('workspace_id', '=', id).execute();
+        await trx.deleteFrom('seat_slots').where('workspace_id', '=', id).execute();
+        await trx.deleteFrom('account_activity_logs').where('workspace_id', '=', id).execute();
+        await trx.deleteFrom('workspaces').where('id', '=', id).executeTakeFirstOrThrow();
+        await new ActivityLogRepository(trx).log({
+          kind: 'local_workspace_removed',
+          payload: {
+            workspaceId: id,
+            externalId: workspace.external_id,
+            name: workspace.name,
+            resources: preview.resources
+          }
+        });
+        return { preview, storageKeys: storageKeys.map((row) => row.storage_key) };
+      });
+
+      const artifactCleanup = await Promise.allSettled(
+        deleted.storageKeys.map((storageKey) => this.artifacts.remove(storageKey))
+      );
+      return {
+        deleted: true,
+        workspaceId: id,
+        resources: deleted.preview.resources,
+        removedCredentialArtifactCount: artifactCleanup.filter((item) => item.status === 'fulfilled').length,
+        credentialArtifactCleanupFailures: artifactCleanup.filter((item) => item.status === 'rejected').length
+      };
+    } catch (error) {
+      throw asServiceError(error);
+    }
+  }
+
+  private async buildWorkspaceDeletionPreview(
+    db: Kysely<Database>,
+    workspace: { id: string; external_id: string; name: string | null; status: string }
+  ): Promise<WorkspaceDeletionPreview> {
+    const workspaceId = workspace.id;
+    const count = (table: WorkspaceScopedTable) => this.countWorkspaceRows(db, table, [workspaceId]);
+    const activeOwnerCount = (await db.selectFrom('workspace_memberships')
+      .select('id')
+      .where('workspace_id', '=', workspaceId)
+      .where('status', '=', 'active')
+      .where('normalized_role', '=', 'owner')
+      .execute()).length;
+    const [
+      memberships, invitations, credentials, seatSlots, operations, maintenances, orders,
+      activityLogs, accessContexts, oauthSessions, billingSnapshots, paymentMethods,
+      settingSnapshots, subscriptionSnapshots, orderConfigurations
+    ] = await Promise.all([
+      count('workspace_memberships'),
+      count('workspace_invitations'),
+      count('workspace_credentials'),
+      count('seat_slots'),
+      count('automation_operations'),
+      count('team_order_maintenances'),
+      count('team_upgrade_orders'),
+      count('account_activity_logs'),
+      count('account_access_contexts'),
+      count('codex_oauth_sessions'),
+      count('billing_snapshots'),
+      count('payment_method_summaries'),
+      count('workspace_setting_snapshots'),
+      count('workspace_subscription_snapshots'),
+      count('team_order_configurations')
+    ]);
+    return {
+      workspace: {
+        id: workspace.id,
+        externalId: workspace.external_id,
+        ...(workspace.name ? { name: workspace.name } : {}),
+        status: workspace.status
+      },
+      activeOwnerCount,
+      resources: {
+        memberships, invitations, credentials, seatSlots, operations, maintenances, orders,
+        activityLogs, accessContexts, oauthSessions, billingSnapshots, paymentMethods,
+        settingSnapshots, subscriptionSnapshots, orderConfigurations
+      },
+      remoteWorkspaceDeletion: false
+    };
+  }
+
   private async buildDeletionPreview(
     db: Kysely<Database>,
     account: { id: string; email: string }
@@ -290,7 +408,7 @@ export class UnifiedAccountService {
   }
 
   private async countWorkspaceRows(
-    db: Kysely<Database>, table: 'seat_slots', workspaceIds: string[]
+    db: Kysely<Database>, table: WorkspaceScopedTable, workspaceIds: string[]
   ): Promise<number> {
     if (!workspaceIds.length) return 0;
     const result = await sql<{ count: number }>`
@@ -365,3 +483,20 @@ export class UnifiedAccountService {
 }
 
 function string(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
+
+type WorkspaceScopedTable =
+  | 'workspace_memberships'
+  | 'workspace_invitations'
+  | 'workspace_credentials'
+  | 'seat_slots'
+  | 'automation_operations'
+  | 'team_order_maintenances'
+  | 'team_upgrade_orders'
+  | 'account_activity_logs'
+  | 'account_access_contexts'
+  | 'codex_oauth_sessions'
+  | 'billing_snapshots'
+  | 'payment_method_summaries'
+  | 'workspace_setting_snapshots'
+  | 'workspace_subscription_snapshots'
+  | 'team_order_configurations';

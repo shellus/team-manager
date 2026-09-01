@@ -369,6 +369,16 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.delete('/settings/system/:key', (c)=>wrap(c,()=>settings.remove(c.req.param('key'))));
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
+  api.get('/workspaces/:id/deletion-preview', (c) =>
+    wrap(c, () => accounts.workspaceDeletionPreview(c.req.param('id')))
+  );
+  api.delete('/workspaces/:id', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { confirmLocalCascade?: boolean };
+    if (body.confirmLocalCascade !== true) {
+      return c.json({ ok: false, error: '请先预览并确认本地 Workspace 级联删除' }, 400);
+    }
+    return wrap(c, () => accounts.removeWorkspace(c.req.param('id')));
+  });
   api.get('/workspaces/:id/settings', (c)=>wrap(c,()=>workspaceOperations.settings(c.req.param('id'))));
   api.get('/workspaces/:id/billing', (c)=>wrap(c,()=>workspaceOperations.billing(c.req.param('id'))));
   api.get('/workspaces/:id/billing/invoices/:invoiceId', (c)=>wrap(c,()=>workspaceOperations.invoice(c.req.param('id'),c.req.param('invoiceId'))));

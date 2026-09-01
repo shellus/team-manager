@@ -746,6 +746,86 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(await db.selectFrom('automation_operations').select('id').where('id', '=', ownerOperation.id).executeTakeFirst(), undefined,
         '级联删除不因未结束操作而阻止用户确认的删除');
 
+      const workspaceDeleteWithoutConfirmation = await app.request(`/api/workspaces/${workspace.id}`, {
+        method: 'DELETE', headers
+      });
+      assert.equal(workspaceDeleteWithoutConfirmation.status, 400);
+      assert.match(await workspaceDeleteWithoutConfirmation.text(), /预览并确认/);
+      const workspaceDeleteWithOwner = await app.request(`/api/workspaces/${workspace.id}`, {
+        method: 'DELETE', headers, body: JSON.stringify({ confirmLocalCascade: true })
+      });
+      assert.equal(workspaceDeleteWithOwner.status, 409);
+      assert.match(await workspaceDeleteWithOwner.text(), /仍有 1 个有效 owner/);
+      assert.ok(await workspaces.findById(workspace.id), '有有效 owner 时保留 Workspace');
+
+      const zeroOwnerWorkspace = await workspaces.upsert({
+        externalId: 'zero-owner-workspace', name: 'Dirty local Workspace', normalizedPlan: 'business'
+      });
+      await workspaces.upsertMembership({
+        workspaceId: zeroOwnerWorkspace.id,
+        accountId: outsider.account.id,
+        remoteUserId: 'zero-owner-member',
+        email: outsider.account.email,
+        normalizedRole: 'member',
+        observedAt: new Date(),
+        source: 'workspace-delete-test'
+      });
+      await db.insertInto('workspace_subscription_snapshots').values({
+        workspace_id: zeroOwnerWorkspace.id,
+        normalized_plan: 'business',
+        raw_plan_code: 'chatgptteamplan',
+        status: 'active',
+        will_renew: true,
+        effective_at: null,
+        ends_at: null,
+        payload: {},
+        observed_at: new Date()
+      }).execute();
+      await db.insertInto('billing_snapshots').values({
+        personal_space_id: null,
+        workspace_id: zeroOwnerWorkspace.id,
+        normalized_workspace_plan: 'business',
+        payload: {},
+        observed_at: new Date()
+      }).execute();
+      const zeroOwnerActivity = await db.insertInto('account_activity_logs').values({
+        account_id: outsider.account.id,
+        workspace_id: zeroOwnerWorkspace.id,
+        kind: 'workspace-delete-test',
+        payload: {},
+        source_file_sha256: null,
+        source_line: null,
+        source_bytes_sha256: null,
+        occurred_at: new Date()
+      }).returning('id').executeTakeFirstOrThrow();
+      const zeroOwnerPreview = await app.request(`/api/workspaces/${zeroOwnerWorkspace.id}/deletion-preview`, { headers });
+      assert.equal(zeroOwnerPreview.status, 200, await zeroOwnerPreview.clone().text());
+      const zeroOwnerPreviewData = (await zeroOwnerPreview.json() as any).data;
+      assert.equal(zeroOwnerPreviewData.activeOwnerCount, 0);
+      assert.equal(zeroOwnerPreviewData.resources.memberships, 1);
+      assert.equal(zeroOwnerPreviewData.resources.billingSnapshots, 1);
+      assert.equal(zeroOwnerPreviewData.resources.subscriptionSnapshots, 1);
+      assert.equal(zeroOwnerPreviewData.resources.activityLogs, 1);
+      const zeroOwnerDelete = await app.request(`/api/workspaces/${zeroOwnerWorkspace.id}`, {
+        method: 'DELETE', headers, body: JSON.stringify({ confirmLocalCascade: true })
+      });
+      assert.equal(zeroOwnerDelete.status, 200, await zeroOwnerDelete.clone().text());
+      assert.equal((await zeroOwnerDelete.json() as any).data.resources.memberships, 1);
+      assert.equal(await workspaces.findById(zeroOwnerWorkspace.id), undefined, '零 owner Workspace 被彻底删除');
+      assert.ok(await accounts.findById(outsider.account.id), 'Workspace 成员对应账号实体保留');
+      assert.equal(await db.selectFrom('workspace_memberships').select('id')
+        .where('workspace_id', '=', zeroOwnerWorkspace.id).executeTakeFirst(), undefined,
+        'Workspace 的成员关系被一并删除');
+      assert.equal(await db.selectFrom('billing_snapshots').select('id')
+        .where('workspace_id', '=', zeroOwnerWorkspace.id).executeTakeFirst(), undefined,
+        'Workspace 的账单快照被一并删除');
+      assert.equal(await db.selectFrom('workspace_subscription_snapshots').select('id')
+        .where('workspace_id', '=', zeroOwnerWorkspace.id).executeTakeFirst(), undefined,
+        'Workspace 的订阅快照被一并删除');
+      assert.equal(await db.selectFrom('account_activity_logs').select('id')
+        .where('id', '=', zeroOwnerActivity.id).executeTakeFirst(), undefined,
+        'Workspace 的活动日志被一并删除，而不是仅清空外键');
+
       const batchGroup = await accounts.createGroup('Batch target');
       const batchResponse = await app.request('/api/accounts/bulk', {
         method: 'PATCH',
