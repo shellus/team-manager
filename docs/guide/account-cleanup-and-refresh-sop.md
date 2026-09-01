@@ -94,6 +94,8 @@ Team Manager 中必须区分以下事实：
 
 分类依据是 Workspace 首次开通的可靠历史证据和 owner 席位事实，不是账号列表当前显示的主套餐。若历史证据缺失，标记“待人工确认”，不自动归类；`workspaces.created_at`、成员 `joined_at` 或单次 `/checkAccounts` 结果不能冒充 Workspace 首次开通时间。
 
+`POST /api/accounts/:id/workspaces/join-request` 不能为目标 Workspace 凭空创建 Codex 席位。根据 2026-09-01 的上游实测，只有目标 Workspace 本身具有 `usage_based`/Codex 席位属性时，申请加入才可能形成 Codex Membership；不具备该属性的 Workspace 走此路径会返回 HTTP 403。GPT-only Workspace 增加备用 owner 必须邀请其实际支持的 GPT 席位（通常为 `default`），再确认活动 Membership 和 `account-owner` 角色，同时评估固定席位容量与新增计费风险。不得为了“卡出”Codex 席位而临时开启 `auto_accept_requests`；若申请失败，仍须恢复该设置原值。
+
 ### 6.1 早期开通、可自由修改席位类型
 
 首次开通时间早于 `2026-06-24`，并确认 Workspace/成员接口允许修改席位类型。邀请 Free Account 后，先确认形成活动 Membership，再按该 Workspace 的备用 owner 规则设置 `default` 或 `usage_based` 席位，最后设置 `account-owner`。
