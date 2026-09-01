@@ -673,6 +673,13 @@ export interface AccountWorkspaceJoinRequestResult {
   synchronizationError?: string;
 }
 
+export interface AccountWorkspaceInvitationAcceptanceResult {
+  workspaceExternalId: string;
+  status: 'joined' | 'accepted';
+  synchronized: boolean;
+  synchronizationError?: string;
+}
+
 export interface RemovedAccountWorkspaceRecordDeleteResult {
   deleted: true;
   deletedMembershipCount: number;

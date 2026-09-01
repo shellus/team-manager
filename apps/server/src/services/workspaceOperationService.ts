@@ -1,6 +1,7 @@
 import type { Kysely } from 'kysely';
 import { isSeatType } from '@team-manager/shared';
 import type {
+  AccountWorkspaceInvitationAcceptanceResult,
   AccountWorkspaceJoinRequestResult,
   EditableMemberRole,
   PromotionLookupView,
@@ -159,6 +160,38 @@ export class WorkspaceOperationService {
     accountId: string,
     workspaceExternalId: string
   ): Promise<AccountWorkspaceJoinRequestResult> {
+    const result = await this.performWorkspaceInvitationAction(accountId, workspaceExternalId, 'request');
+    return {
+      workspaceExternalId: result.workspaceExternalId,
+      status: result.activeRelationship ? 'joined' : 'requested',
+      synchronized: result.synchronized,
+      ...(result.synchronizationError ? { synchronizationError: result.synchronizationError } : {})
+    };
+  }
+
+  async acceptWorkspaceInvitation(
+    accountId: string,
+    workspaceExternalId: string
+  ): Promise<AccountWorkspaceInvitationAcceptanceResult> {
+    const result = await this.performWorkspaceInvitationAction(accountId, workspaceExternalId, 'accept');
+    return {
+      workspaceExternalId: result.workspaceExternalId,
+      status: result.activeRelationship ? 'joined' : 'accepted',
+      synchronized: result.synchronized,
+      ...(result.synchronizationError ? { synchronizationError: result.synchronizationError } : {})
+    };
+  }
+
+  private async performWorkspaceInvitationAction(
+    accountId: string,
+    workspaceExternalId: string,
+    action: 'request' | 'accept'
+  ): Promise<{
+    workspaceExternalId: string;
+    activeRelationship: boolean;
+    synchronized: boolean;
+    synchronizationError?: string;
+  }> {
     try {
       const target = normalizeWorkspaceExternalId(workspaceExternalId);
       const access = await this.personalAccessContext(accountId);
@@ -168,10 +201,13 @@ export class WorkspaceOperationService {
         proxy: access.proxy,
         refreshWebAccessToken: access.refreshWebAccessToken
       }, this.transport);
-      await api.requestWorkspaceInvite();
+      if (action === 'request') await api.requestWorkspaceInvite();
+      else await api.acceptWorkspaceInvite();
       await this.#activity.log({
         accountId,
-        kind: 'account_workspace_join_requested',
+        kind: action === 'request'
+          ? 'account_workspace_join_requested'
+          : 'account_workspace_invitation_accepted',
         payload: { workspaceExternalId: target }
       });
 
@@ -192,7 +228,7 @@ export class WorkspaceOperationService {
         .executeTakeFirst();
       return {
         workspaceExternalId: target,
-        status: activeRelationship ? 'joined' : 'requested',
+        activeRelationship: Boolean(activeRelationship),
         synchronized,
         ...(synchronizationError ? { synchronizationError } : {})
       };

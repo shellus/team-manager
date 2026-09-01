@@ -217,6 +217,11 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     if (!body.workspaceId?.trim()) return c.json({ ok: false, error: '缺少 Workspace ID' }, 400);
     return wrap(c, () => workspaceOperations.requestWorkspaceJoin(c.req.param('id'), body.workspaceId!));
   });
+  api.post('/accounts/:id/workspaces/invitation/accept', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { workspaceId?: string };
+    if (!body.workspaceId?.trim()) return c.json({ ok: false, error: '缺少 Workspace ID' }, 400);
+    return wrap(c, () => workspaceOperations.acceptWorkspaceInvitation(c.req.param('id'), body.workspaceId!));
+  });
   api.post('/accounts/:id/workspace-order-link', async (c) => {
     const body = await c.req.json().catch(() => ({})) as GenerateWorkspaceOrderLinkRequest;
     return wrap(c, () => workspaceOrderLinks.generate(c.req.param('id'), body));

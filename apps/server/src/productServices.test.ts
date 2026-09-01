@@ -92,6 +92,18 @@ test('Workspace 自助加入请求使用目标 Workspace 路径与账号上下�
   assert.deepEqual(JSON.parse(requests[0].body),{});
 });
 
+test('Workspace 邀请接受使用目标 Workspace 路径与账号上下文', async () => {
+  const requests:any[]=[];
+  const transport={fetch:async(request:any)=>{requests.push(request);return{status:200,body:'{}'};}};
+  const api=new ChatGptApi({accountId:'0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc',accessToken:'token'},transport);
+  await api.acceptWorkspaceInvite();
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].method,'POST');
+  assert.equal(requests[0].path,'/backend-api/accounts/0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc/invites/accept');
+  assert.equal(requests[0].headers['chatgpt-account-id'],'0a9b56ec-c0a2-473f-a8ea-8f25ef8cc5fc');
+  assert.deepEqual(JSON.parse(requests[0].body),{});
+});
+
 test('Workspace 成员和邀请响应缺少席位时保持未知', async () => {
   const transport={fetch:async(request:any)=>({status:200,body:request.path.includes('/invites?')
     ? JSON.stringify({items:[{id:'invite-1',email_address:'invite@example.com',role:'standard-user',status:0,created_time:'2026-08-21T00:00:00Z',is_scim_managed:false}]})

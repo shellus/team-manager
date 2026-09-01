@@ -390,6 +390,12 @@ export class ChatGptApi {
     return this.request('POST', path, {});
   }
 
+  /** 当前登录用户接受目标 workspace 已发送到其邮箱的邀请。 */
+  async acceptWorkspaceInvite(): Promise<unknown> {
+    const path = `/backend-api/accounts/${encodeURIComponent(this.account.accountId)}/invites/accept`;
+    return this.request('POST', path, {});
+  }
+
   /** 列待处理邀请（分页 ≤25，自动翻页聚合） */
   async listPendingInvites(): Promise<PendingInvite[]> {
     const all: PendingInvite[] = [];

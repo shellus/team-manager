@@ -131,6 +131,7 @@ Workspace 只有 `052`/`usage_based` Codex 空间，没有双席位 Team 订阅�
 | 刷新成员和邀请 | `POST /api/workspaces/:workspaceId/people/refresh` | 执行账号必须是活动 owner/admin |
 | 修改 Workspace 设置 | `PATCH /api/workspaces/:workspaceId/settings` | body 含 `executorAccountId`、`key`、`value`；临时开启自动同意后必须恢复原值 |
 | 申请加入 | `POST /api/accounts/:id/workspaces/join-request` | body 使用上游 external Workspace ID |
+| 接受邀请 | `POST /api/accounts/:id/workspaces/invitation/accept` | body 使用上游 external Workspace ID；成功后同步并确认活动 Membership |
 | 邀请成员 | `POST /api/workspaces/:workspaceId/invitations` | body 含 `executorAccountId`、`email`，席位按 Workspace 规则决定 |
 | 修改席位/角色 | `PATCH /api/workspaces/:workspaceId/members/:remoteUserId` | 每次只提交 `seat` 或 `role` 一项 |
 | 移除成员 | `DELETE /api/workspaces/:workspaceId/members/:remoteUserId` | 由另一名 owner/admin 执行 |
