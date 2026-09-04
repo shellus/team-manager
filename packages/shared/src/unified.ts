@@ -507,6 +507,7 @@ export interface RenewalOperationalOverviewView extends RenewalOperationalOvervi
   fixedSeatOccupied?: number;
   fixedSeatAvailable?: number;
   managingAccounts: OperationalAccountReferenceView[];
+  preferredManager: OperationalAccountReferenceView;
 }
 
 export interface SeatOperationalOverviewView {
@@ -760,6 +761,7 @@ export interface WorkspaceSummaryView {
   plan: string;
   rawPlanCode?: string;
   nextRenewalAt?: string;
+  preferredManagerAccountId?: string;
   riskLevel?: OperationalRiskLevel;
   risks?: string[];
   manageableAccountCount: number;

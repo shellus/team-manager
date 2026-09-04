@@ -6,6 +6,7 @@ import {
   Empty,
   Form,
   Input,
+  Radio,
   Select,
   Space,
   Switch,
@@ -15,7 +16,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { LinkOutlined, ReloadOutlined, UsergroupAddOutlined } from "@ant-design/icons";
+import { LinkOutlined, LoadingOutlined, ReloadOutlined, UsergroupAddOutlined } from "@ant-design/icons";
 import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 import { ProductDatePicker } from "../../components/ProductDatePicker.js";
 import type {
@@ -469,6 +470,13 @@ export function PeoplePanel({
     }
     return run(`seat-${row.id}`, () => unifiedApi.updateSeatSlot(workspace.id, row.seatSlot!.id, accountId, { seatType: seat }));
   };
+  const setPreferredManager = (row: AccountWorkspacePersonRow) => {
+    if (!row.accountId || workspace.preferredManagerAccountId === row.accountId) return;
+    return mutateWorkspace(
+      `preferred-manager-${row.accountId}`,
+      () => unifiedApi.setWorkspacePreferredManager(accountId, workspace.id, row.accountId!),
+    );
+  };
   return (
     <Space direction="vertical" className="panel-stack">
       <Space wrap className="member-list-toolbar">
@@ -497,7 +505,14 @@ export function PeoplePanel({
             title: "操作",
             fixed: "right",
             width: 120,
-            render: (_, row) => isWorkspaceOwner(row) ? null : <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />,
+            render: (_, row) => isWorkspaceOwner(row)
+              ? <PreferredManagerControl
+                  row={row}
+                  selected={workspace.preferredManagerAccountId === row.accountId}
+                  busy={busy}
+                  onSelect={() => void setPreferredManager(row)}
+                />
+              : <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />,
           },
         ]}
       />
@@ -512,6 +527,35 @@ export function PeoplePanel({
       />
       <InviteMemberModal open={modal === "invite"} busy={busy === "invite"} onClose={closeModal} onSubmit={(value) => run("invite", () => unifiedApi.invite(workspace.id, { ...value, executorAccountId: accountId }))} />
     </Space>
+  );
+}
+
+function PreferredManagerControl({ row, selected, busy, onSelect }: {
+  row: AccountWorkspacePersonRow;
+  selected: boolean;
+  busy: string;
+  onSelect: () => void;
+}) {
+  const key = row.accountId ? `preferred-manager-${row.accountId}` : '';
+  const saving = busy === key;
+  const unavailable = !row.accountId;
+  const title = unavailable
+    ? '该 owner 尚未关联 Team Manager 账号，不能设为首选'
+    : selected
+      ? '当前首选管理账号'
+      : '设为首选管理账号';
+  return (
+    <Tooltip title={title}>
+      <Space size={6}>
+        <Radio
+          aria-label={`${title}：${personAccount(row)}`}
+          checked={selected}
+          disabled={Boolean(busy) || unavailable}
+          onChange={onSelect}
+        >首选</Radio>
+        {saving && <LoadingOutlined spin aria-label="正在保存首选管理账号" />}
+      </Space>
+    </Tooltip>
   );
 }
 

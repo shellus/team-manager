@@ -375,6 +375,7 @@ function workspaceSummary(row: any): WorkspaceSummaryView {
     id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}), status: row.status,
     plan: row.normalized_plan, ...(row.raw_plan_code ? { rawPlanCode: row.raw_plan_code } : {}),
     ...(row.next_renewal_at ? { nextRenewalAt: iso(row.next_renewal_at) } : {}),
+    ...(row.preferred_manager_account_id ? { preferredManagerAccountId: row.preferred_manager_account_id } : {}),
     manageableAccountCount: Number(row.manageable_count), memberCount: Number(row.member_count),
     invitationCount: Number(row.invitation_count), seatSlotCount: Number(row.seat_count), credentialCount: Number(row.credential_count),
     riskLevel: risks.some((item)=>item.includes('过期'))?'critical':risks.length?'warning':'normal', risks,

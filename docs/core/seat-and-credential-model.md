@@ -19,6 +19,8 @@
 
 所有 Workspace 写操作显式选择当前有活动 owner/admin Membership 的执行账号。
 
+Workspace 可以通过 `preferred_manager_account_id` 在活动且已关联 Account 的 owner 中显式保存一个“首选管理账号”，用于本地运营界面的优先展示和跳转。该字段不改变上游角色、授权或 Workspace 归属，也不能指向 admin、普通成员、已移除关系或未关联 Account 的远端 owner。成员列表只在 owner 行提供单选入口；母号概览只读取这个显式选择，缺失或失效时不按邮箱、备注、分组或成员顺序回退猜测。
+
 ## 个人空间与套餐
 
 每个账号有且只有一个 `PersonalSpace`，承载个人套餐、支付摘要、账单、额度和个人设置。个人空间不是 Workspace。

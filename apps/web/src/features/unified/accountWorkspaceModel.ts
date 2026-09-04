@@ -10,6 +10,7 @@ export type AccountWorkspacePersonRow = {
   kind: "member" | "invitation" | "customer";
   rowKey: string;
   id: string;
+  accountId?: string;
   email?: string;
   accountEmail?: string;
   remoteUserId?: string;

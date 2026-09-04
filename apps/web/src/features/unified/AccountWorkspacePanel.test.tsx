@@ -96,6 +96,46 @@ describe("账号 Workspace 面板", () => {
     expect(html).not.toContain("空间级操作已禁用");
   });
 
+  it("owner 行在操作列显示首选管理账号单选控件", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <App>
+          <PeoplePanel
+            workspace={{
+              id: "workspace-id",
+              externalId: "remote-workspace-id",
+              preferredManagerAccountId: "primary-owner-id",
+              members: [
+                { id: "primary-membership", accountId: "primary-owner-id", accountEmail: "primary@example.com", role: "owner", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
+                { id: "backup-membership", accountId: "backup-owner-id", accountEmail: "backup@example.com", role: "owner", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
+                { id: "member-membership", accountId: "member-id", accountEmail: "member@example.com", role: "member", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
+              ],
+              invitations: [],
+              credentials: [],
+              seatSlots: [],
+              consistencyRisks: [],
+            } as unknown as import("@team-manager/shared").WorkspaceDetailView}
+            accountId="primary-owner-id"
+            canManage
+            loading={false}
+            busy=""
+            setLastRemoval={() => undefined}
+            run={async () => true}
+            mutateWorkspace={async () => true}
+            modal={null}
+            personId={null}
+            setParams={() => undefined}
+          />
+        </App>
+      </MemoryRouter>,
+    );
+
+    expect(html.match(/type="radio"/g)).toHaveLength(2);
+    expect(html).toContain("当前首选管理账号：primary@example.com");
+    expect(html).toContain("设为首选管理账号：backup@example.com");
+    expect(html).not.toContain("设为首选管理账号：member@example.com");
+  });
+
   it("没有其他账号使用时仍只展示退出关系删除入口", () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>

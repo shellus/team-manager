@@ -92,6 +92,7 @@ export interface WorkspaceTable extends AuditedTable {
   raw_plan_code: string | null;
   normalized_plan: Generated<string>;
   next_renewal_at: NullableTimestamp;
+  preferred_manager_account_id: Generated<string | null>;
 }
 
 export interface WorkspaceMembershipTable extends AuditedTable {

@@ -28,6 +28,10 @@ _Avoid_: 客户席位、待处理邀请、账号类型
 为 Workspace 保留的普通 Account，其活动 Membership 角色为 owner，用于主管理账号不可用时继续管理该 Workspace。备用 owner 不是账号类型、Workspace 字段或独立实体。
 _Avoid_: 备用账号类型、隐藏母号、Workspace 所有者字段
 
+**首选管理账号（Preferred Manager Account）**:
+Workspace 在多个活动 owner 中显式选择、供本地运营界面优先展示和跳转的 Account。它不改变远端 owner 权限，不把 Workspace 归属于该账号，也不允许按邮箱、备注、分组或成员排序推断；只有活动且已关联 Account 的 owner 可以被选择。
+_Avoid_: 主 owner、Workspace 所有者、首个 owner、账号排序推断
+
 **历史开通分类**:
 根据 Workspace 首次开通的可靠历史证据、订阅演进和 owner 席位事实，将 Workspace 区分为早期开通可改席位、Codex owner 保留型和 052-only 三类运营类别。证据不足时保持待人工确认，不从账号当前显示套餐推断。
 _Avoid_: 账号套餐分类、当前主套餐、052 账号类型
@@ -117,7 +121,7 @@ _Avoid_: Codex 空间、usage-based 席位、仅租客概览、Workspace 成员�
 _Avoid_: 双席位套餐、四席位套餐、Business 账号类型
 
 **母号概览**:
-独立一级运营页面，只展示固定席位 Business Workspace，并按精确续费/到期时间排序。页面从 owner 优先的可管理关系中确定一个管理账号；该账号缺失或已标记封号时不展示卡片。“母号”只作为界面中的运营称呼，卡片标题使用直接状态、账号备注和管理账号，不显示 Workspace 名称，也不产生母号实体。
+独立一级运营页面，只展示固定席位 Business Workspace，并按精确续费/到期时间排序。页面只使用 Workspace 显式保存的首选管理账号；该账号缺失、不再是活动 owner 或已标记封号时不展示卡片，不回退到其他 owner。“母号”只作为界面中的运营称呼，卡片标题使用直接状态、账号备注和管理账号，不显示 Workspace 名称，也不产生母号实体。
 _Avoid_: 个人套餐、Business 0.52、双席位专属页面、封号管理账号、母号数据表、Workspace 所有者字段
 
 **公开认领**:

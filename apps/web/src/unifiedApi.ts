@@ -147,6 +147,8 @@ export const unifiedApi = {
   account: (id: string) => request<UnifiedAccountDetailView>('GET', `/accounts/${id}`),
   accountWorkspace: (accountId: string, workspaceId: string) =>
     request<WorkspaceDetailView>('GET', `/accounts/${accountId}/workspaces/${workspaceId}`),
+  setWorkspacePreferredManager: (accountId: string, workspaceId: string, preferredManagerAccountId: string) =>
+    request<WorkspaceDetailView>('PATCH', `/accounts/${accountId}/workspaces/${workspaceId}/preferred-manager`, { preferredManagerAccountId }),
   syncAccountWorkspaces: (accountId: string) =>
     request<AccountWorkspaceRelationshipSyncResult>('POST', `/accounts/${accountId}/workspaces/sync`),
   requestWorkspaceJoin: (accountId: string, workspaceId: string) =>

@@ -25,6 +25,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 - 每个账号恰有一个个人空间、一个运营资料和至多一个 GAM 绑定。
 - Workspace 外部 ID 唯一。
 - 活动 owner/admin Membership 派生可管理能力。
+- `workspaces.preferred_manager_account_id` 是 Workspace 维度的本地展示选择，只能通过服务写为该 Workspace 当前活动且已关联 Account 的 owner；它不表达上游主次 owner 或 Workspace 归属。
 - Access Context 必须且只能选择个人空间或 Workspace。
 - Credential 分别外键关联账号与 Workspace；正文为文件制品。
 - `seatKey` 全局唯一；同一 SeatSlot 同时最多一个活动换号操作。
@@ -58,6 +59,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 | 字段 | 存储或投影位置 | 约束 |
 |---|---|---|
 | `workspace_subscription_snapshots.fixed_seat_capacity` | Workspace 订阅快照结构化列 | 正整数或 `null`；来自同一快照 `payload.subscription.seats_entitled` |
+| `workspaces.preferred_manager_account_id` | Workspace 本地运营选择 | 可空 Account 外键；写入时必须对应当前活动 owner Membership，展示层不得推断替代值 |
 | `workspace_subscription_snapshots.subscription_seats_in_use` | Workspace 订阅快照结构化列 | 非负整数或 `null`；来自同一快照 `payload.subscription.seats_in_use` |
 | `fixedSeatOccupied` | 查询投影 | 活动 `default` Membership 与待接受 `default` Invitation 数量之和，不持久化 |
 | `billedSeatQuantity` | Billing 查询投影 | 从具有明确 Business 周期计费语义的发票行读取，不写入 Workspace 或订阅快照 |

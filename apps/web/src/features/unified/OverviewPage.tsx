@@ -239,18 +239,14 @@ function PaginatedGrid<T extends { id: string }>({
 }
 
 function RenewalCard({ item }: { item: RenewalOperationalOverviewView }) {
-  const manager = item.managingAccounts[0];
-  const target = manager ? `/accounts/${manager.id}?tab=workspaces&workspaceId=${encodeURIComponent(item.workspaceId)}` : undefined;
+  const manager = item.preferredManager;
+  const target = `/accounts/${manager.id}?tab=workspaces&workspaceId=${encodeURIComponent(item.workspaceId)}`;
   const status = renewalStatusMeta[item.operationalStatus];
   return (
     <Card size="small" className={`overview-grid-card risk-${item.riskLevel}`}>
       <div className="parent-overview-head">
-        {manager.remark && (target
-          ? <Link className="parent-overview-remark" title={manager.remark} to={target}>{manager.remark}</Link>
-          : <Typography.Text strong className="parent-overview-remark" title={manager.remark}>{manager.remark}</Typography.Text>)}
-        {target
-          ? <Link className="parent-overview-account" title={manager.email} to={target}>{manager.email}</Link>
-          : <Typography.Text type="secondary" className="parent-overview-account" title={manager.email}>{manager.email}</Typography.Text>}
+        {manager.remark && <Link className="parent-overview-remark" title={manager.remark} to={target}>{manager.remark}</Link>}
+        <Link className="parent-overview-account" title={manager.email} to={target}>{manager.email}</Link>
       </div>
       <div className="overview-fact-grid">
         <OverviewField wide inline emphasis label={item.willRenew === false ? '到期时间' : item.willRenew === true ? '续费时间' : '有效至'}>

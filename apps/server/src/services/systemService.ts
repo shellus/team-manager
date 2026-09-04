@@ -96,8 +96,9 @@ export class SystemService {
       if (plan !== 'business') continue;
       const renewalAt = row.next_renewal_at ? iso(row.next_renewal_at) : subscription?.ends_at ? iso(subscription.ends_at) : undefined;
       const managingAccounts = managers.get(row.id) ?? [];
-      const primaryManager = managingAccounts[0];
-      if (!primaryManager || primaryManager.isBanned) continue;
+      const preferredManager = managingAccounts.find((manager) =>
+        manager.id === row.preferred_manager_account_id && manager.role === 'owner');
+      if (!preferredManager || preferredManager.isBanned) continue;
       const fixedSeatCapacity = subscription?.fixed_seat_capacity ?? undefined;
       const fixedSeatOccupied = Number(row.fixed_occupied);
       const riskInput = { renewalAt, willRenew: subscription?.will_renew, workspaceStatus: row.status,
@@ -114,7 +115,7 @@ export class SystemService {
         ...(subscription?.subscription_seats_in_use === null || subscription?.subscription_seats_in_use === undefined
           ? {} : { subscriptionSeatsInUse: subscription.subscription_seats_in_use }),
         ...(workspaceBilling?.billedSeatQuantity === undefined ? {} : { billedSeatQuantity: workspaceBilling.billedSeatQuantity }),
-        managingAccounts, operationalStatus: renewalOperationalStatus(riskInput), riskLevel: operationalRiskLevel(risks), risks
+        managingAccounts, preferredManager, operationalStatus: renewalOperationalStatus(riskInput), riskLevel: operationalRiskLevel(risks), risks
       });
     }
     return result.sort((left, right) => compareOptionalDate(left.renewalAt, right.renewalAt) || left.id.localeCompare(right.id));

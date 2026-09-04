@@ -33,7 +33,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities', '025_workspace_preferred_manager']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -129,6 +129,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       await addMembership(usageWorkspace.id, removedMember.account.id, 'member', 'removed');
       await addMembership(inactiveWorkspace.id, inactiveMember.account.id, 'member');
       await addMembership(billingWorkspace.id, billingOwner.account.id, 'owner');
+      await db.updateTable('workspaces').set({ preferred_manager_account_id: billingOwner.account.id })
+        .where('id', '=', billingWorkspace.id).execute();
       const primaryBilling = new BillingRepository(db);
       await primaryBilling.saveSnapshot({ kind: 'workspace', workspaceId: billingWorkspace.id }, {
         upcomingInvoice: { lines: [{ metadata: { user_origin_tag: 'ChatGPTTeamPlan' } }] }
@@ -955,8 +957,25 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await detailResponse.json() as any).data.personalPlan, 'unknown', '详情不再读取 GAM 套餐快照');
       const accountWorkspaceResponse = await app.request(`/api/accounts/${first.account.id}/workspaces/${workspace.id}`, { headers });
       assert.equal(accountWorkspaceResponse.status, 200);
-      assert.deepEqual((await accountWorkspaceResponse.json() as any).data.credentials.map((item: any) => item.id),
+      const accountWorkspaceDetail = (await accountWorkspaceResponse.json() as any).data;
+      assert.equal(accountWorkspaceDetail.preferredManagerAccountId, undefined, '新建 Workspace 不运行时猜测首选管理账号');
+      assert.deepEqual(accountWorkspaceDetail.credentials.map((item: any) => item.id),
         [scopedCredentials.find((item) => item.account_id === first.account.id)!.id], '账号作用域 Workspace 详情不能泄漏其他账号凭证');
+      const invalidPreferredManager = await app.request(`/api/accounts/${first.account.id}/workspaces/${workspace.id}/preferred-manager`, {
+        method: 'PATCH', headers, body: JSON.stringify({ preferredManagerAccountId: second.account.id })
+      });
+      assert.equal(invalidPreferredManager.status, 409, '普通成员不能成为首选管理账号');
+      const preferredManager = await app.request(`/api/accounts/${first.account.id}/workspaces/${workspace.id}/preferred-manager`, {
+        method: 'PATCH', headers, body: JSON.stringify({ preferredManagerAccountId: first.account.id })
+      });
+      assert.equal(preferredManager.status, 200, await preferredManager.clone().text());
+      assert.equal((await preferredManager.json() as any).data.preferredManagerAccountId, first.account.id);
+      const alphabeticalBackup = await accounts.create({ email: 'aaa-backup-owner@example.com', groupId: group.id });
+      await workspaces.upsertMembership({
+        workspaceId: workspace.id, accountId: alphabeticalBackup.account.id,
+        remoteUserId: 'alphabetical-backup-owner', email: alphabeticalBackup.account.email,
+        normalizedRole: 'owner', seatType: 'usage_based', observedAt: new Date(), source: 'test'
+      });
       const memberWorkspaceResponse = await app.request(`/api/accounts/${second.account.id}/workspaces/${workspace.id}`, { headers });
       assert.equal(memberWorkspaceResponse.status, 200);
       assert.deepEqual((await memberWorkspaceResponse.json() as any).data.credentials.map((item: any) => item.id),
@@ -1177,9 +1196,16 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const bannedOverviewManager = await accounts.create({ email: 'banned-overview@example.com', groupId: group.id, isBanned: true });
       const bannedOverviewWorkspace = await workspaces.upsert({ externalId: 'banned-overview-workspace', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: bannedOverviewWorkspace.id, accountId: bannedOverviewManager.account.id, remoteUserId:'banned-overview-owner',email:bannedOverviewManager.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
+      await db.updateTable('workspaces').set({ preferred_manager_account_id: bannedOverviewManager.account.id }).where('id', '=', bannedOverviewWorkspace.id).execute();
       const unknownCapacityManager = await accounts.create({ email: 'unknown-capacity@example.com', groupId: group.id });
       const unknownCapacityWorkspace = await workspaces.upsert({ externalId: 'unknown-capacity-workspace', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: unknownCapacityWorkspace.id, accountId: unknownCapacityManager.account.id, remoteUserId:'unknown-capacity-owner',email:unknownCapacityManager.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
+      await db.updateTable('workspaces').set({ preferred_manager_account_id: unknownCapacityManager.account.id }).where('id', '=', unknownCapacityWorkspace.id).execute();
+      await workspaces.upsertMembership({
+        workspaceId: workspace.id, accountId: alphabeticalBackup.account.id,
+        remoteUserId: 'alphabetical-backup-owner', email: alphabeticalBackup.account.email,
+        normalizedRole: 'owner', seatType: 'usage_based', observedAt: new Date(), source: 'test'
+      });
       const renewalOverviewResponse = await app.request('/api/overview/renewals', { headers });
       assert.equal(renewalOverviewResponse.status, 200);
       const renewalOverview = (await renewalOverviewResponse.json() as any).data;
@@ -1187,8 +1213,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(workspaceRenewalCard.subject, 'workspace');
       assert.equal(workspaceRenewalCard.renewalAt, overviewRenewalAt.toISOString(), '续费概览保留精确到秒的时间');
       assert.equal(workspaceRenewalCard.defaultPaymentCardLast4, '4242', '母号概览展示 Workspace 默认支付卡尾号');
-      assert.equal(workspaceRenewalCard.managingAccounts[0].email, first.account.email);
-      assert.equal(workspaceRenewalCard.managingAccounts[0].isBanned, false);
+      assert.equal(workspaceRenewalCard.managingAccounts[0].email, alphabeticalBackup.account.email, '管理账号列表仍可保持独立排序');
+      assert.equal(workspaceRenewalCard.preferredManager.email, first.account.email, '母号概览只使用显式首选管理账号');
+      assert.equal(workspaceRenewalCard.preferredManager.isBanned, false);
       assert.equal(workspaceRenewalCard.operationalStatus, 'payment_due', '当期待付发票优先于未来续费时间');
       assert.equal(renewalOverview.every((item: any) => item.plan === 'business'), true, '母号概览只展示固定席位 Business Workspace');
       assert.equal(workspaceRenewalCard.fixedSeatCapacity, 2);

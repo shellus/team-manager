@@ -80,7 +80,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   const accounts = new UnifiedAccountService(
     database, projections, sessions, operational, artifactsStore
   );
-  const workspaces = new WorkspaceService(projections);
+  const workspaces = new WorkspaceService(database, projections);
   const accountManager = providedAccountManager ?? (config.accountManagerBaseUrl && config.accountManagerToken
     ? new AccountManagerClient(config.accountManagerBaseUrl, config.accountManagerToken)
     : undefined);
@@ -203,6 +203,15 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.get('/accounts/:accountId/workspaces/:workspaceId', (c) =>
     wrap(c, () => workspaces.detailForAccount(c.req.param('workspaceId'), c.req.param('accountId')))
   );
+  api.patch('/accounts/:accountId/workspaces/:workspaceId/preferred-manager', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { preferredManagerAccountId?: string };
+    if (!body.preferredManagerAccountId) return c.json({ ok: false, error: '缺少 preferredManagerAccountId' }, 400);
+    return wrap(c, () => workspaces.setPreferredManager(
+      c.req.param('workspaceId'),
+      c.req.param('accountId'),
+      body.preferredManagerAccountId!
+    ));
+  });
   api.delete('/accounts/:accountId/workspaces/:workspaceId/removed-record', (c) =>
     wrap(c, () => workspaceOperations.removeAccountWorkspaceExitRecord(
       c.req.param('accountId'),
