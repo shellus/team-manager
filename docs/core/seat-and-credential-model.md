@@ -124,7 +124,7 @@ Workspace 固定席位空位始终由容量与远端关系实时派生，不能�
 
 只有 `fixedSeatCapacity` 可以用于补出固定席位空位和判断关系占用是否超出权益容量。待认领席位数量只从固定席位空位中扣出本地可分配固定席位余量，不得写入或覆盖 `fixedSeatOccupied`。`subscriptionSeatsInUse`、`billedSeatQuantity` 与 `fixedSeatOccupied` 不一致时应并列展示或产生风险提示，不得通过覆盖其中任一事实消除差异。
 
-席位概览只处理固定 ChatGPT/Premium 席位 Workspace，使用远端活动 `default`/`prolite` Membership 与待接受的 `default`/`prolite` Invitation 表达固定席位占用，并以已知 `fixedSeatCapacity` 补出空位。容量未知时仍展示已知占用，但不虚构空位。空位只是查询投影；只有管理员显式预留时才转换为具有稳定 `seatKey` 的待认领 `SeatSlot`。`SeatSlot` 为待认领席位或匹配邮箱附加联系方式、价格、备注、到期日和公开自助管理能力；没有 `SeatSlot` 的固定席位成员仍必须出现。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
+席位概览只处理固定 ChatGPT/Premium 席位 Workspace，使用远端活动 `default`/`prolite` Membership 与待接受的 `default`/`prolite` Invitation 表达固定席位占用，并以已知 `fixedSeatCapacity` 补出空位。容量未知时仍展示已知占用，但不虚构空位。空位只是查询投影；只有管理员显式预留时才转换为具有稳定 `seatKey` 的待认领 `SeatSlot`。`SeatSlot` 为待认领席位或匹配邮箱附加联系方式、价格、备注、到期日和公开自助管理能力；没有 `SeatSlot` 的固定席位成员仍必须出现。席位卡的 Workspace 链接和管理账号摘要使用显式首选管理账号；缺失时不从管理账号列表回退推断。Codex/`business_usage_based` Workspace、`usage_based` 关系及其客户资料不进入席位概览。
 
 ## 凭证与额度
 

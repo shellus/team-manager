@@ -1230,6 +1230,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const seatOverviewResponse = await app.request('/api/overview/seats', { headers });
       assert.equal(seatOverviewResponse.status, 200);
       const seatOverview = (await seatOverviewResponse.json() as any).data;
+      const workspaceSeatCard = seatOverview.find((item: any) => item.workspaceId === workspace.id);
+      assert.equal(workspaceSeatCard.managingAccounts[0].email, alphabeticalBackup.account.email, '席位概览保留完整管理账号列表');
+      assert.equal(workspaceSeatCard.preferredManager.email, first.account.email, '席位概览单独返回显式首选 owner 作为跳转上下文');
       assert.equal(seatOverview.find((item: any) => item.id === invitedTenantSlot.id), undefined, '概览卡片身份不直接等同 SeatSlot ID');
       assert.equal(seatOverview.some((item: any) => item.email === 'tenant-invite@example.com'), false, 'usage-based 邀请及客户资料不进入席位概览');
       assert.equal(seatOverview.every((item: any) => item.seatType === 'default'), true, '席位概览只返回固定 ChatGPT 席位');

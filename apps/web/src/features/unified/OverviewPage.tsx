@@ -267,7 +267,7 @@ function RenewalCard({ item }: { item: RenewalOperationalOverviewView }) {
 }
 
 export function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
-  const manager = item.managingAccounts[0];
+  const manager = item.preferredManager;
   const target = manager
     ? `/accounts/${manager.id}?tab=workspaces&workspaceId=${encodeURIComponent(item.workspaceId)}`
     : undefined;
@@ -285,7 +285,7 @@ export function SeatCard({ item }: { item: SeatOperationalOverviewView }) {
       </div>
       <div className="overview-context-line">
         <span title={item.workspaceName ?? item.workspaceExternalId}>{target ? <Link to={target}>{item.workspaceName ?? item.workspaceExternalId}</Link> : item.workspaceName ?? item.workspaceExternalId}</span>
-        <Typography.Text type="secondary" title={manager?.email}>{managerSummary(item.managingAccounts)}</Typography.Text>
+        <Typography.Text type="secondary" title={manager?.email ?? '未设置首选管理账号'}>{managerSummary(item.managingAccounts, manager)}</Typography.Text>
       </div>
       <div className="overview-fact-grid">
         {item.subject === 'vacancy' ? (
@@ -326,9 +326,12 @@ function RiskTags({ level, risks }: { level: OperationalRiskLevel; risks: string
   );
 }
 
-function managerSummary(managers: SeatOperationalOverviewView['managingAccounts']): ReactNode {
-  if (managers.length === 0) return '无';
-  return <>{managers[0].email}{managers.length > 1 && <Typography.Text type="secondary"> +{managers.length - 1}</Typography.Text>}</>;
+function managerSummary(
+  managers: SeatOperationalOverviewView['managingAccounts'],
+  preferredManager?: SeatOperationalOverviewView['preferredManager'],
+): ReactNode {
+  if (!preferredManager) return '未设置首选';
+  return <>{preferredManager.email}{managers.length > 1 && <Typography.Text type="secondary"> +{managers.length - 1}</Typography.Text>}</>;
 }
 
 function matches(

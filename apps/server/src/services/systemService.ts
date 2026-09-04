@@ -123,7 +123,7 @@ export class SystemService {
 
   async overviewSeats(): Promise<SeatOperationalOverviewView[]> {
     const [workspaces, memberships, invitations, slots, managers, subscriptions, billing] = await Promise.all([
-      this.db.selectFrom('workspaces').select(['id', 'external_id', 'name', 'status', 'normalized_plan']).execute(),
+      this.db.selectFrom('workspaces').select(['id', 'external_id', 'name', 'status', 'normalized_plan', 'preferred_manager_account_id']).execute(),
       this.db.selectFrom('workspace_memberships as wm').leftJoin('accounts as a', 'a.id', 'wm.account_id')
         .select([
           'wm.id', 'wm.workspace_id', 'wm.remote_user_id', 'wm.email', 'wm.normalized_role', 'wm.seat_type',
@@ -148,6 +148,9 @@ export class SystemService {
       const billingPlan = billing.get(workspace.id)?.normalizedPlan;
       if (!isFixedSeatOverviewWorkspace(workspace.normalized_plan, subscription?.normalized_plan, billingPlan)) continue;
       const managingAccounts = managers.get(workspace.id) ?? [];
+      const preferredManager = managingAccounts.find((manager) =>
+        manager.id === workspace.preferred_manager_account_id && manager.role === 'owner');
+      const workspaceContext = { workspace, managingAccounts, ...(preferredManager ? { preferredManager } : {}) };
       const remainingSlots = new Map((slotsByWorkspace.get(workspace.id) ?? []).map((slot) => [slot.id, slot]));
       const takeSlot = (email?: string | null) => {
         const normalizedEmail = normalizeOverviewEmail(email);
@@ -161,7 +164,7 @@ export class SystemService {
       for (const membership of workspaceMemberships) {
         const slot = takeSlot(membership.resolved_email);
         result.push(seatOverviewItem({
-          id: `member:${membership.id}`, subject: 'member', workspace, managingAccounts,
+          id: `member:${membership.id}`, subject: 'member', ...workspaceContext,
           email: membership.resolved_email, role: membership.normalized_role,
           seatType: membership.seat_type, relationStatus: 'member', slot
         }));
@@ -169,7 +172,7 @@ export class SystemService {
       for (const invitation of workspaceInvitations) {
         const slot = takeSlot(invitation.email);
         result.push(seatOverviewItem({
-          id: `invitation:${invitation.id}`, subject: 'invitation', workspace, managingAccounts,
+          id: `invitation:${invitation.id}`, subject: 'invitation', ...workspaceContext,
           email: invitation.email, role: invitation.normalized_role,
           seatType: invitation.seat_type, relationStatus: 'invited', slot
         }));
@@ -182,13 +185,13 @@ export class SystemService {
         const slot = [...remainingSlots.values()].find((row) => ['default', 'prolite'].includes(row.seat_type ?? '') && row.current_email === null);
         if (slot) remainingSlots.delete(slot.id);
         result.push(seatOverviewItem({
-          id: `vacancy:${workspace.id}:${index + 1}`, subject: 'vacancy', workspace, managingAccounts,
+          id: `vacancy:${workspace.id}:${index + 1}`, subject: 'vacancy', ...workspaceContext,
           seatType: slot?.seat_type ?? 'default', relationStatus: 'unclaimed', slot
         }));
       }
       for (const slot of remainingSlots.values()) {
         result.push(seatOverviewItem({
-          id: `customer:${slot.id}`, subject: 'customer', workspace, managingAccounts,
+          id: `customer:${slot.id}`, subject: 'customer', ...workspaceContext,
           email: slot.current_email, seatType: slot.seat_type,
           relationStatus: slot.current_email ? 'unlinked' : 'unclaimed', slot
         }));
@@ -199,7 +202,7 @@ export class SystemService {
   }
 }
 
-type SeatOverviewWorkspace = { id: string; external_id: string; name: string | null; status: string };
+type SeatOverviewWorkspace = { id: string; external_id: string; name: string | null; status: string; preferred_manager_account_id: string | null };
 type SeatOverviewSlot = SeatSlotRow;
 
 function seatOverviewItem(input: {
@@ -207,6 +210,7 @@ function seatOverviewItem(input: {
   subject: SeatOperationalOverviewView['subject'];
   workspace: SeatOverviewWorkspace;
   managingAccounts: OperationalAccountReferenceView[];
+  preferredManager?: OperationalAccountReferenceView;
   email?: string | null;
   role?: string | null;
   seatType?: string | null;
@@ -225,7 +229,8 @@ function seatOverviewItem(input: {
     ...(input.slot ? { seatSlotId: input.slot.id } : {}), hasCustomerProfile: Boolean(input.slot),
     ...(input.slot?.contact ? { contact: input.slot.contact } : {}), ...(input.slot?.remark ? { remark: input.slot.remark } : {}),
     ...(expiresOn ? { expiresOn } : {}), ...(input.slot?.price ? { price: input.slot.price } : {}),
-    managingAccounts: input.managingAccounts, riskLevel: operationalRiskLevel(risks), risks
+    managingAccounts: input.managingAccounts, ...(input.preferredManager ? { preferredManager: input.preferredManager } : {}),
+    riskLevel: operationalRiskLevel(risks), risks
   };
 }
 

@@ -42,6 +42,38 @@ describe('席位概览对象', () => {
     expect(html).toContain('可分配固定席位成员');
     expect(html).not.toContain('未录入租客资料');
   });
+
+  test('空间链接和管理账号摘要使用显式首选 owner', () => {
+    const preferredManager = {
+      id: 'preferred-owner', email: 'preferred@example.com', role: 'owner' as const,
+      isBanned: false, limitType: 'weekly' as const,
+    };
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SeatCard, { item: seat({
+      id: 'member:customer', subject: 'member', email: 'customer@example.com', relationStatus: 'member',
+      hasCustomerProfile: false,
+      managingAccounts: [
+        { id: 'alphabetical-backup', email: 'aaa-backup@example.com', role: 'owner', isBanned: false, limitType: 'weekly' },
+        preferredManager,
+      ],
+      preferredManager,
+    }) })));
+
+    expect(html).toContain('href="/accounts/preferred-owner?tab=workspaces&amp;workspaceId=workspace-id"');
+    expect(html).toContain('preferred@example.com');
+    expect(html).not.toContain('/accounts/alphabetical-backup');
+    expect(html).not.toContain('aaa-backup@example.com');
+  });
+
+  test('缺少显式首选账号时不按管理账号顺序生成链接', () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(SeatCard, { item: seat({
+      id: 'member:customer', subject: 'member', email: 'customer@example.com', relationStatus: 'member',
+      hasCustomerProfile: false,
+      managingAccounts: [{ id: 'owner', email: 'owner@example.com', role: 'owner', isBanned: false, limitType: 'weekly' }],
+    }) })));
+
+    expect(html).toContain('未设置首选');
+    expect(html).not.toContain('href="/accounts/owner');
+  });
 });
 
 function seat(input: Partial<SeatOperationalOverviewView> & Pick<SeatOperationalOverviewView, 'id' | 'subject' | 'relationStatus' | 'hasCustomerProfile'>): SeatOperationalOverviewView {

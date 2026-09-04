@@ -528,6 +528,7 @@ export interface SeatOperationalOverviewView {
   expiresOn?: string;
   price?: string;
   managingAccounts: OperationalAccountReferenceView[];
+  preferredManager?: OperationalAccountReferenceView;
   riskLevel: OperationalRiskLevel;
   risks: string[];
 }
