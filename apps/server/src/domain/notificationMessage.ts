@@ -44,7 +44,7 @@ export function seatExpiryMessage(
     `客户席位到期提醒｜${items.length} 项`,
     `统计时间：${formatInstant(context.observedAt, context.timeZone)}（${context.timeZone}）`,
     ...(context.windowStart && context.windowEnd ? [`提醒范围：${context.windowStart} 至 ${context.windowEnd}`] : []),
-    `到期处理：自动移除 ${items.filter((item) => item.expireRemove).length} 项，仅标记已到期 ${items.filter((item) => !item.expireRemove).length} 项`
+    `到期后处理：自动移除 ${items.filter((item) => item.expireRemove).length} 项，不自动移除 ${items.filter((item) => !item.expireRemove).length} 项`
   ];
   const change = expiryChange(items, previousItems);
   if (change) lines.push(`较上次：新增 ${change.added} 项，移出提醒范围 ${change.removed} 项`);
@@ -56,7 +56,7 @@ export function seatExpiryMessage(
       currentDate = date;
       lines.push('', `${date}（${remainingDays(date, context.observedAt, context.timeZone)}）`);
     }
-    lines.push(`• ${workspaceLabel(item)}｜${seatLabel(item)}｜${item.expireRemove ? '到期后自动移除' : '到期后仅标记已到期'}`);
+    lines.push(`• ${workspaceLabel(item)}｜${seatLabel(item)}｜${item.expireRemove ? '到期后自动移除' : '到期后不自动移除'}`);
   }
   appendRemainder(lines, items.length);
   return { summaryText: lines[0], text: fitMessage(lines, context.managementUrl) };
