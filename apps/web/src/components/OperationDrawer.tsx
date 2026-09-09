@@ -360,7 +360,7 @@ function RegistrationProxyButton({
             }
           }}
         >
-          <ProxyConfigurationFields form={form} />
+          <ProxyConfigurationFields form={form} showRandomSidButton />
           <Button type="primary" htmlType="submit" loading={saving}>保存注册代理</Button>
         </Form>
       </ProductModal>
