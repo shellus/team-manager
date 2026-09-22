@@ -505,14 +505,15 @@ export function PeoplePanel({
             title: "操作",
             fixed: "right",
             width: 120,
-            render: (_, row) => isWorkspaceOwner(row)
-              ? <PreferredManagerControl
+            render: (_, row) => <Space direction="vertical" size={4}>
+              {isWorkspaceOwner(row) && <PreferredManagerControl
                   row={row}
                   selected={workspace.preferredManagerAccountId === row.accountId}
                   busy={busy}
                   onSelect={() => void setPreferredManager(row)}
-                />
-              : <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />,
+                />}
+              <RelationAction row={row} canManage={canManage} workspaceId={workspace.id} accountId={accountId} run={run} setLastRemoval={setLastRemoval} />
+            </Space>,
           },
         ]}
       />
@@ -624,7 +625,6 @@ function RelationAction({row,canManage,workspaceId,accountId,run,setLastRemoval}
   setLastRemoval:(value:WorkspaceMemberRemovalResult["summary"])=>void;
 }) {
   const productModal = useProductModal();
-  if(isWorkspaceOwner(row))return null;
   if(!canManage)return <Typography.Text type="secondary">—</Typography.Text>;
   if(row.seatSlot?.relationStatus==="unclaimed")return <Button size="small" danger onClick={()=>productModal.confirm({title:"删除待认领租客资料？",content:"该资料没有关联邮箱，删除后无法恢复。",okText:"删除资料",onOk:()=>run(`delete-seat-${row.seatSlot!.id}`,()=>unifiedApi.deleteSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>删除资料</Button>;
   if(row.seatSlot){const copy=relationReleaseCopy(row);return <Button size="small" danger={row.kind==="member"} className={row.kind==="member"?undefined:"warning-action-button"} onClick={()=>productModal.confirm({...copy,onOk:()=>run(`release-${row.seatSlot!.id}`,()=>unifiedApi.releaseSeatSlot(workspaceId,row.seatSlot!.id,accountId))})}>{copy.okText}</Button>;}
