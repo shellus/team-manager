@@ -500,7 +500,7 @@ export function PeoplePanel({
           { title: "席位", width: 140, render: (_, row) => canManage && canEditSeat(row)
             ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} placeholder="—" options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
             : row.seatType ? <Tag>{seatLabel(row.seatType)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
-          { title: "租客信息", width: 320, render: (_, row) => isWorkspaceOwner(row) ? null : <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{expirationRemovalTag(row.seatSlot)}{canManage && (row.email || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
+          { title: "租客信息", width: 320, render: (_, row) => <TwoLineCell primary={tenantPrimary(row.seatSlot)} secondary={<Space size={8}><span>{tenantExpiry(row.seatSlot)}</span>{expirationRemovalTag(row.seatSlot)}{canManage && (row.email || row.accountEmail || row.seatSlot) && <Button type="link" size="small" onClick={() => setParams({ modal: "tenant", personId: row.rowKey })}>编辑租客</Button>}</Space>} /> },
           {
             title: "操作",
             fixed: "right",
@@ -517,7 +517,7 @@ export function PeoplePanel({
         ]}
       />
       <TenantDataModal
-        open={modal === "tenant" && Boolean(selectedPerson) && !isWorkspaceOwner(selectedPerson)}
+        open={modal === "tenant" && Boolean(selectedPerson)}
         workspaceId={workspace.id}
         initial={selectedSeatSlot}
         person={selectedPerson}
