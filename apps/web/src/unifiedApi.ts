@@ -231,6 +231,7 @@ export const unifiedApi = {
   createSeatSlot: (workspaceId: string, executorAccountId: string, body: SeatSlotInput) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots`, { ...body, executorAccountId }),
   updateSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, body: Partial<SeatSlotInput>) => request<unknown>('PATCH', `/workspaces/${workspaceId}/seat-slots/${slotId}`, { ...body, executorAccountId }),
   deleteSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<boolean>('DELETE', `/workspaces/${workspaceId}/seat-slots/${slotId}`, { executorAccountId }),
+  applySeatSlot: (workspaceId: string, slotId: string, executorAccountId: string, role: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/apply`, { executorAccountId, role }),
   releaseSeatSlot: (workspaceId: string, slotId: string, executorAccountId: string) => request<unknown>('POST', `/workspaces/${workspaceId}/seat-slots/${slotId}/release`, { executorAccountId }),
   teamOrders: () => request<TeamOrderDashboardView>('GET', '/team-orders'),
   saveTeamOrderConfiguration: (body: Record<string, unknown>) => request<void>('PUT', '/team-orders/configuration', body),

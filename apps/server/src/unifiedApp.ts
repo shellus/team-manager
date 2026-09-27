@@ -434,6 +434,12 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/workspaces/:id/seat-slots', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);const {executorAccountId,...input}=body;return wrap(c,()=>seatSlots.create(c.req.param('id'),executorAccountId,input));});
   api.patch('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);const {executorAccountId,...input}=body;return wrap(c,()=>seatSlots.update(c.req.param('id'),c.req.param('slotId'),executorAccountId,input));});
   api.delete('/workspaces/:id/seat-slots/:slotId', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;if(!body.executorAccountId)return c.json({ok:false,error:'缺少执行账号'},400);return wrap(c,()=>seatSlots.remove(c.req.param('id'),c.req.param('slotId'),body.executorAccountId));});
+  api.post('/workspaces/:id/seat-slots/:slotId/apply', async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; role?: unknown };
+    if (!body.executorAccountId) return c.json({ ok: false, error: '缺少执行账号' }, 400);
+    if (body.role !== undefined && !isEditableMemberRole(body.role)) return c.json({ ok: false, error: '无效 role' }, 400);
+    return wrap(c, () => seatSlots.apply(c.req.param('id'), c.req.param('slotId'), body.executorAccountId!, body.role as string | undefined));
+  });
   api.post('/workspaces/:id/seat-slots/:slotId/release', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;return wrap(c,()=>seatSlots.release(c.req.param('id'),c.req.param('slotId'),body.executorAccountId,body.force===true));});
   api.post('/workspaces/:id/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };
@@ -456,19 +462,20 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/workspaces/:id/invitations', async (c) => {
     const body = await c.req.json().catch(() => ({})) as Partial<WorkspaceInvitationMutationInput> & { executorAccountId?: string };
     if (!body.executorAccountId || !body.email) return c.json({ ok: false, error: '缺少 executorAccountId 或 email' }, 400);
+    if (body.applyToUpstream !== undefined && typeof body.applyToUpstream !== 'boolean') return c.json({ ok: false, error: '无效 applyToUpstream' }, 400);
     if (body.seat !== undefined && !isSeatType(body.seat)) return c.json({ ok: false, error: '无效 seat' }, 400);
     return wrap(c, () => seatSlots.invite(c.req.param('id'), body.executorAccountId!, {
       email: body.email!, seat: body.seat, role: body.role, contact: body.contact,
       remark: body.remark, price: body.price, expiresOn: body.expiresOn,
-      expireReminder: body.expireReminder, expireRemove: body.expireRemove
+      expireReminder: body.expireReminder, expireRemove: body.expireRemove, applyToUpstream: body.applyToUpstream
     }));
   });
   api.delete('/workspaces/:id/invitations', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; email?: string };
     if (!body.executorAccountId || !body.email) return c.json({ ok: false, error: '缺少 executorAccountId 或 email' }, 400);
-    return wrap(c, () => workspaceOperations.revokeInvitation(c.req.param('id'), body.executorAccountId!, body.email!));
+    return wrap(c, () => seatSlots.revokeInvitation(c.req.param('id'), body.executorAccountId!, body.email!));
   });
-  api.delete('/workspaces/:id/members/:remoteUserId', async (c) => withExecutor(c, (accountId) => workspaceOperations.removeMember(c.req.param('id'), accountId, c.req.param('remoteUserId'))));
+  api.delete('/workspaces/:id/members/:remoteUserId', async (c) => withExecutor(c, (accountId) => seatSlots.removeMember(c.req.param('id'), accountId, c.req.param('remoteUserId'))));
   api.patch('/workspaces/:id/members/:remoteUserId', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; seat?: string; role?: unknown };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);

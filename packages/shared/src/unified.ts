@@ -336,6 +336,7 @@ export interface WorkspaceInvitationMutationInput extends Pick<SeatSlotMutationI
   email: string;
   seat?: SeatType;
   role?: string;
+  applyToUpstream?: boolean;
 }
 
 export type WorkspaceSettingMutationInput =

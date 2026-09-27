@@ -132,9 +132,12 @@ Workspace 只有 `052`/`usage_based` Codex 空间，没有双席位 Team 订阅�
 | 修改 Workspace 设置 | `PATCH /api/workspaces/:workspaceId/settings` | body 含 `executorAccountId`、`key`、`value`；临时开启自动同意后必须恢复原值 |
 | 申请加入 | `POST /api/accounts/:id/workspaces/join-request` | body 使用上游 external Workspace ID |
 | 接受邀请 | `POST /api/accounts/:id/workspaces/invitation/accept` | body 使用上游 external Workspace ID；成功后同步并确认活动 Membership |
-| 邀请成员 | `POST /api/workspaces/:workspaceId/invitations` | body 含 `executorAccountId`、`email`，席位按 Workspace 规则决定 |
+| 添加成员/本地资料 | `POST /api/workspaces/:workspaceId/invitations` | body 含 `executorAccountId`、`email`；`applyToUpstream` 默认 `true`，传 `false` 仅保存本地资料 |
+| 应用本地资料 | `POST /api/workspaces/:workspaceId/seat-slots/:slotId/apply` | body 含 `executorAccountId`，可选 `role`；使用资料中已保存的邮箱和席位 |
+| 编辑/删除本地资料 | `PATCH /api/workspaces/:workspaceId/seat-slots/:slotId`、`DELETE /api/workspaces/:workspaceId/seat-slots/:slotId` | body 含 `executorAccountId`；有活动关系时禁止改邮箱或删除 |
+| 撤销邀请 | `DELETE /api/workspaces/:workspaceId/invitations` | body 含 `executorAccountId`、`email`；保留或补建本地资料 |
 | 修改席位/角色 | `PATCH /api/workspaces/:workspaceId/members/:remoteUserId` | 每次只提交 `seat` 或 `role` 一项 |
-| 移除成员 | `DELETE /api/workspaces/:workspaceId/members/:remoteUserId` | 由另一名 owner/admin 执行 |
+| 移除成员 | `DELETE /api/workspaces/:workspaceId/members/:remoteUserId` | 由另一名 owner/admin 执行，保留或补建本地资料 |
 | 删除账号 | 先 `GET .../deletion-preview`，再 `DELETE /api/accounts/:id` | body `{ "confirmLocalCascade": true }` |
 | GAM Session 恢复 | `POST /api/accounts/:id/account-manager/session/refresh` 或 `/rebuild` | 必须有完整 Session Token |
 

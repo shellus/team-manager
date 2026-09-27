@@ -77,9 +77,6 @@ describe("账号 Workspace 面板", () => {
             setLastRemoval={() => undefined}
             run={async () => true}
             mutateWorkspace={async () => true}
-            modal={null}
-            personId={null}
-            setParams={() => undefined}
           />
         </App>
       </MemoryRouter>,
@@ -91,7 +88,7 @@ describe("账号 Workspace 面板", () => {
       return html.slice(start, html.indexOf(">", start) + 1);
     };
     expect(buttonTag("刷新成员")).not.toContain("disabled");
-    expect(buttonTag("邀请成员")).not.toContain("disabled");
+    expect(buttonTag("添加成员")).not.toContain("disabled");
     expect(html).toContain("是否允许以上游响应为准");
     expect(html).not.toContain("空间级操作已禁用");
   });
@@ -122,9 +119,6 @@ describe("账号 Workspace 面板", () => {
             setLastRemoval={() => undefined}
             run={async () => true}
             mutateWorkspace={async () => true}
-            modal={null}
-            personId={null}
-            setParams={() => undefined}
           />
         </App>
       </MemoryRouter>,
@@ -204,6 +198,6 @@ describe("账号 Workspace 面板", () => {
     expect(relationReleaseCopy({ kind: "member" }).okText).toBe("移除成员");
     expect(relationReleaseCopy({ kind: "invitation" }).okText).toBe("撤销邀请");
     expect(relationReleaseCopy({ kind: "customer" }).okText).toBe("删除资料");
-    expect(relationReleaseCopy({ kind: "member" }).content).toContain("租客资料也会一并删除");
+    expect(relationReleaseCopy({ kind: "member" }).content).toContain("本地席位资料会保留");
   });
 });
