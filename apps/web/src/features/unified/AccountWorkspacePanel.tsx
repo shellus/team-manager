@@ -537,7 +537,7 @@ function PreferredManagerControl({ row, selected, busy, onSelect }: {
   onSelect: () => void;
 }) {
   const key = row.accountId ? `preferred-manager-${row.accountId}` : '';
-  const saving = busy === key;
+  const saving = Boolean(row.accountId) && busy === key;
   const unavailable = !row.accountId;
   const title = unavailable
     ? '该 owner 尚未关联 Team Manager 账号，不能设为首选'

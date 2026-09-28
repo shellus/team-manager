@@ -105,6 +105,7 @@ describe("账号 Workspace 面板", () => {
               members: [
                 { id: "primary-membership", accountId: "primary-owner-id", accountEmail: "primary@example.com", role: "owner", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
                 { id: "backup-membership", accountId: "backup-owner-id", accountEmail: "backup@example.com", role: "owner", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
+                { id: "unlinked-owner", email: "unlinked@example.com", role: "owner", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
                 { id: "member-membership", accountId: "member-id", accountEmail: "member@example.com", role: "member", status: "active", source: "test", observedAt: "2026-09-04T00:00:00.000Z" },
               ],
               invitations: [],
@@ -124,7 +125,9 @@ describe("账号 Workspace 面板", () => {
       </MemoryRouter>,
     );
 
-    expect(html.match(/type="radio"/g)).toHaveLength(2);
+    expect(html.match(/type="radio"/g)).toHaveLength(3);
+    expect(html).not.toContain("正在保存首选管理账号");
+    expect(html).toContain("该 owner 尚未关联 Team Manager 账号，不能设为首选");
     expect(html).toContain("当前首选管理账号：primary@example.com");
     expect(html).toContain("设为首选管理账号：backup@example.com");
     expect(html).not.toContain("设为首选管理账号：member@example.com");
