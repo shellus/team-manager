@@ -62,6 +62,9 @@ export class BillingRepository {
 
   async detail(context: BillingContext): Promise<BillingDetailView | undefined> {
     const snapshot = await this.latest(context); if (!snapshot) return undefined;
+    const subscription = context.kind === 'workspace'
+      ? await this.db.selectFrom('workspace_subscription_snapshots').select('ends_at').where('workspace_id', '=', context.workspaceId).orderBy('observed_at', 'desc').orderBy('created_at', 'desc').executeTakeFirst()
+      : await this.db.selectFrom('personal_subscription_snapshots').select('ends_at').where('personal_space_id', '=', context.personalSpaceId).orderBy('observed_at', 'desc').orderBy('created_at', 'desc').executeTakeFirst();
     const [invoices, paymentMethods] = await Promise.all([
       this.db.selectFrom('billing_invoices').selectAll().where('billing_snapshot_id', '=', snapshot.id).orderBy('occurred_at', 'desc').execute(),
       context.kind === 'personal'
@@ -74,6 +77,7 @@ export class BillingRepository {
     return {
       observedAt: new Date(snapshot.observed_at as any).toISOString(),
       ...billingSnapshotSummary(snapshot.payload),
+      ...(subscription?.ends_at ? { expectedPaymentAt: new Date(subscription.ends_at).toISOString() } : {}),
       invoices: invoiceViews,
       paymentMethods: paymentViews
     };

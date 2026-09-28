@@ -98,7 +98,7 @@ export function BillingSummary({ value, paymentMethodActions }: {
   return <Space direction="vertical" size={16} className="panel-stack">
     <Typography.Text type="secondary">账单快照：{formatTime(value.observedAt)}</Typography.Text>
     <Typography.Title level={5}>下期预计账单</Typography.Title>
-    <InvoiceTable invoices={value.upcomingInvoice?[value.upcomingInvoice]:[]} empty="暂无下期预计账单" upcoming />
+    <InvoiceTable invoices={value.upcomingInvoice?[value.upcomingInvoice]:[]} empty="暂无下期预计账单" upcoming expectedPaymentAt={value.expectedPaymentAt} />
     <Typography.Title level={5}>最近发票</Typography.Title>
     <InvoiceTable invoices={value.invoices} empty="暂无发票" />
     <Typography.Title level={5}>支付方式</Typography.Title>
@@ -153,13 +153,13 @@ export function BillingSummary({ value, paymentMethodActions }: {
   </Space>;
 }
 
-function InvoiceTable({ invoices, empty, upcoming=false }: { invoices: BillingInvoiceView[]; empty:string; upcoming?:boolean }) {
+function InvoiceTable({ invoices, empty, upcoming=false, expectedPaymentAt }: { invoices: BillingInvoiceView[]; empty:string; upcoming?:boolean; expectedPaymentAt?: string }) {
   return <Table rowKey="id" size="small" pagination={false} dataSource={invoices} locale={{emptyText:empty}} scroll={{x:950}} columns={[
     {title:upcoming?'状态':'发票',render:(_,row)=><Space direction="vertical" size={1}>{!upcoming&&<Typography.Text strong>{row.number??row.externalId??row.id}</Typography.Text>}<Tag>{statusLabels[row.status??'unknown']??row.status??'未知'}</Tag>{row.billingReason&&<Typography.Text type="secondary">{row.billingReason}</Typography.Text>}</Space>},
     {title:upcoming?'预计扣款':'金额',render:(_,row)=><Space direction="vertical" size={1}><Typography.Text strong>{money(row.amountDue??row.total,row.currency)}</Typography.Text>{row.subtotal!==undefined&&<Typography.Text type="secondary">小计 {money(row.subtotal,row.currency)} · 税 {money(row.tax,row.currency)}</Typography.Text>}{row.amountRemaining!==undefined&&<Typography.Text type="secondary">剩余 {money(row.amountRemaining,row.currency)}</Typography.Text>}</Space>},
     {title:'项目',render:(_,row)=><Space direction="vertical" size={1}><span>{row.lineDescription??'—'}</span>{(row.lineQuantity!==undefined||row.lineUnitAmount!==undefined)&&<Typography.Text type="secondary">数量 {row.lineQuantity??'—'} · 单价 {money(row.lineUnitAmount,row.currency)}</Typography.Text>}</Space>},
     {title:'账期',render:(_,row)=>row.periodStart||row.periodEnd?`${formatTime(row.periodStart)} — ${formatTime(row.periodEnd)}`:'—'},
-    {title:upcoming?'预计扣款时间':'开票时间',render:(_,row)=>formatTime(upcoming?row.nextPaymentAttempt:row.createdAt)},
+    {title:upcoming?'预计扣款时间':'开票时间',render:(_,row)=>formatTime(upcoming?expectedPaymentAt:row.createdAt)},
     ...(!upcoming?[{title:'链接',render:(_:unknown,row:BillingInvoiceView)=><Space>{row.hostedInvoiceUrl&&<Typography.Link href={row.hostedInvoiceUrl} target="_blank" rel="noreferrer">在线发票</Typography.Link>}{row.invoicePdfUrl&&<Typography.Link href={row.invoicePdfUrl} target="_blank" rel="noreferrer">PDF</Typography.Link>}{!row.hostedInvoiceUrl&&!row.invoicePdfUrl?'—':null}</Space>}]:[]),
   ]}/>;
 }

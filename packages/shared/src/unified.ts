@@ -280,6 +280,7 @@ export interface BillingSeatTypeCountsView {
 }
 
 export interface BillingDetailView {
+  expectedPaymentAt?: string;
   observedAt: string;
   upcomingInvoice?: BillingInvoiceView;
   invoices: BillingInvoiceView[];

@@ -1,3 +1,4 @@
+import { formatTime } from './ProductPrimitives.js';
 import { App } from 'antd';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -19,6 +20,15 @@ const billing = {
 } as BillingDetailView;
 
 describe('支付方式操作', () => {
+  it('预计扣款使用订阅结束时间，缺失时不回退到 Stripe 扣款重试时间', () => {
+    const value = { ...billing, expectedPaymentAt: '2026-10-23T03:01:04.000Z', upcomingInvoice: { id: 'upcoming', nextPaymentAttempt: '2026-10-23T04:01:04.000Z' } };
+    const html = renderToStaticMarkup(<App><BillingSummary value={value} /></App>);
+    expect(html).toContain(formatTime(value.expectedPaymentAt));
+    expect(html).not.toContain(formatTime(value.upcomingInvoice.nextPaymentAttempt));
+    const unknown = renderToStaticMarkup(<App><BillingSummary value={{ ...value, expectedPaymentAt: undefined }} /></App>);
+    expect(unknown).not.toContain(formatTime(value.upcomingInvoice.nextPaymentAttempt));
+  });
+
   it('默认卡不重复显示设置入口，每张卡都可直接移除', () => {
     const html = render();
     expect(html.match(/设为默认/g)).toHaveLength(1);
