@@ -440,7 +440,6 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
     if (body.role !== undefined && !isEditableMemberRole(body.role)) return c.json({ ok: false, error: '无效 role' }, 400);
     return wrap(c, () => seatSlots.apply(c.req.param('id'), c.req.param('slotId'), body.executorAccountId!, body.role as string | undefined));
   });
-  api.post('/workspaces/:id/seat-slots/:slotId/release', async (c)=>{const body=await c.req.json().catch(()=>({})) as any;return wrap(c,()=>seatSlots.release(c.req.param('id'),c.req.param('slotId'),body.executorAccountId,body.force===true));});
   api.post('/workspaces/:id/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少 executorAccountId' }, 400);

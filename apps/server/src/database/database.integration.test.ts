@@ -68,6 +68,19 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       ]).returning(['id', 'account_id']).execute();
       assert.deepEqual((await accounts.list({ hasManageableWorkspace: true })).map((item) => item.email), ['owner@example.com']);
       assert.deepEqual((await accounts.list({ isWorkspaceMember: true })).map((item) => item.email), ['member@example.com']);
+      for (const query of [first.account.id, first.personalSpace.id, ` ${first.account.id.toUpperCase()} `]) {
+        assert.deepEqual((await accounts.list({ query })).map((item) => item.id), [first.account.id]);
+      }
+      for (const query of [workspace.id, workspace.external_id, 'SPACE-EXTERNAL']) {
+        assert.deepEqual((await accounts.list({ query })).map((item) => item.id), [first.account.id, second.account.id]);
+        assert.deepEqual((await accounts.list({ query, hasManageableWorkspace: true })).map((item) => item.id), [first.account.id]);
+      }
+      const remoteIdentity = await accounts.create({ email: 'search-identity@example.com', remoteUserId: 'user-search-identity', remotePersonalAccountId: 'personal-search-identity' });
+      for (const query of ['user-search-identity', 'personal-search-identity']) {
+        assert.deepEqual((await accounts.list({ query })).map((item) => item.id), [remoteIdentity.account.id]);
+      }
+      await accounts.remove(remoteIdentity.account.id);
+      assert.deepEqual(await accounts.list({ query: 'nonexistent-search-identity' }), []);
 
       const sharedOwnerWorkspace = await workspaces.upsert({ externalId: 'shared-owner-workspace', name: 'Shared owners', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: sharedOwnerWorkspace.id, accountId: first.account.id, remoteUserId:'shared-owner-first',email:first.account.email,normalizedRole:'owner',seatType:'default',observedAt:new Date(),source:'test' });
@@ -1121,15 +1134,6 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(unauthorizedSlot.status,409,'普通成员不能维护客户资料');
       const missingEmailSlot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:first.account.id, seatType: 'usage_based', remark: '不能成为空资料' }) });
       assert.equal(missingEmailSlot.status,400,'不能创建没有关联邮箱的客户资料');
-      const releasableSlotResponse = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:first.account.id,email: 'release-customer@example.com', seatType: 'usage_based', contact: 'release-contact' }) });
-      assert.equal(releasableSlotResponse.status,200);
-      const releasableSlotId=(await releasableSlotResponse.json() as any).data.id;
-      const releasedSlotResponse=await app.request(`/api/workspaces/${workspace.id}/seat-slots/${releasableSlotId}/release`,{method:'POST',headers,body:JSON.stringify({executorAccountId:first.account.id})});
-      assert.equal(releasedSlotResponse.status,200);
-      assert.equal((await releasedSlotResponse.json() as any).data,true);
-      assert.equal(await db.selectFrom('seat_slots').select('id').where('id','=',releasableSlotId).executeTakeFirst(),undefined,'释放关系后应一并删除客户资料');
-      const releaseActivity=await db.selectFrom('account_activity_logs').select(['kind','payload']).where('workspace_id','=',workspace.id).where('kind','=','seat_slot_released').orderBy('occurred_at','desc').executeTakeFirstOrThrow();
-      assert.equal(releaseActivity.payload.localProfileDeleted,true);
       const invitedWithTenant=new SeatSlotService(db,{refreshPeople:async()=>undefined,invite:async(_workspaceId:string,_executorId:string,input:any)=>{await db.insertInto('workspace_invitations').values({workspace_id:workspace.id,account_id:null,remote_invitation_id:'tenant-invite',email:input.email,normalized_email:input.email.toLowerCase(),raw_role:input.role??'standard-user',normalized_role:'member',seat_type:input.seat,status:'pending',invited_at:new Date(),observed_at:new Date()}).execute();}} as any);
       await invitedWithTenant.invite(workspace.id,first.account.id,{email:'tenant-invite@example.com',seat:'usage_based',role:'standard-user',contact:'tenant-contact',remark:'tenant-remark',price:'52',expiresOn:'2032-08-14'});
       const invitedTenantSlot=await db.selectFrom('seat_slots').selectAll().where('workspace_id','=',workspace.id).where('normalized_current_email','=','tenant-invite@example.com').executeTakeFirstOrThrow();

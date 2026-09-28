@@ -189,16 +189,6 @@ export class SeatSlotService {
   }
 
   async remove(workspaceId: string, id: string, executorAccountId: string) { await this.requireManageableBy(workspaceId, executorAccountId);const row = await this.require(workspaceId, id); if (this.applying.has(id)) throw new ServiceError(409, '资料正在应用 GPT 上游，暂不能删除'); const relation=await this.#relations.resolve(workspaceId,row.current_email);if (['member', 'invited'].includes(relation.status)) throw new ServiceError(409, '请先移除上游成员或撤销邀请，再删除本地资料'); await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();await this.activity(workspaceId,'seat_slot_removed',{seatSlotId:id}); return true; }
-  async release(workspaceId: string, id: string, executorAccountId: string, force = false) {
-    await this.requireManageableBy(workspaceId, executorAccountId);
-    const row = await this.require(workspaceId, id);
-    const relation = await this.#relations.resolve(workspaceId, row.current_email);
-    if (relation.status === 'member' && relation.remoteUserId && !force) await this.workspaceOperations.removeMember(workspaceId, executorAccountId, relation.remoteUserId);
-    else if (relation.status === 'invited' && row.current_email && !force) await this.workspaceOperations.revokeInvitation(workspaceId, executorAccountId, row.current_email);
-    await this.db.deleteFrom('seat_slots').where('id', '=', id).execute();
-    await this.#activity.log({accountId:executorAccountId,workspaceId,kind:'seat_slot_released',payload:{seatSlotId:id,previousEmail:row.current_email,force,localProfileDeleted:true}});
-    return true;
-  }
   async runExpirations(now = new Date()) {
     const today = seatExpirationBusinessDate(now); const schedules = await this.notificationSchedules();
     const dueSchedules = schedules.filter((schedule) => !schedule.hasExplicitSchedule || notificationScheduleDue(schedule, now));
