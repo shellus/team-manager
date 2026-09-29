@@ -200,7 +200,22 @@ export class AccountRepository {
     if (filters.isBanned !== undefined) query = query.where('a.is_banned', '=', filters.isBanned);
     if (filters.query?.trim()) {
       const pattern = `%${filters.query.trim()}%`;
-      query = query.where((eb) => eb.or([eb('a.email', 'ilike', pattern), eb('a.remark', 'ilike', pattern)]));
+      query = query.where((eb) => eb.or([
+        eb('a.email', 'ilike', pattern),
+        eb('a.remark', 'ilike', pattern),
+        eb(sql<string>`a.id::text`, 'ilike', pattern),
+        eb('a.remote_user_id', 'ilike', pattern),
+        sql<boolean>`exists (
+          select 1 from personal_spaces ps where ps.account_id = a.id
+            and (ps.id::text ilike ${pattern} or ps.remote_account_id ilike ${pattern})
+        )`,
+        sql<boolean>`exists (
+          select 1 from workspace_memberships wm
+          join workspaces w on w.id = wm.workspace_id
+          where wm.account_id = a.id and wm.status = 'active'
+            and (w.id::text ilike ${pattern} or w.external_id ilike ${pattern})
+        )`
+      ]));
     }
     if (filters.hasManageableWorkspace !== undefined) {
       query = query.where(sql<boolean>`exists (

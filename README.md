@@ -28,6 +28,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 ## 功能
 
 - 账号列表、单一分组、主套餐与运营条件筛选和账号详情；固定席位 Business 动态显示关系占用与订阅权益容量；URL 保存筛选与详情 Tab，账号列表弹窗使用本地状态以免轮询刷新干扰表单。
+- 账号搜索支持邮箱、备注、本地账号 ID、上游用户 ID，以及个人空间和 Workspace 的本地/上游 ID；支持部分匹配、忽略大小写及首尾空白。Workspace ID 返回具有活动成员关系的账号，并与当前分组等筛选条件共同生效。
 - GAM 负责注册、纳管、Profile、住宅代理和浏览器 Checkout；账号、个人空间与 Workspace 业务状态及支付方式管理由 Team Manager 直连上游处理。
 - 住宅代理 SID 统一为 8 位字母或数字，由 GAM 自动生成；账号换 IP 和注册任务代理弹窗共用校验与随机按钮。上游 SID 变化不改变账号的稳定 HTTP 代理地址。
 - Go、Plus、Pro 5x、Pro 20x 首次开通；Plus 可通过 Team Manager 直连升级到 Pro 5x 或 Pro 20x，其他付费套餐转换在对应上游合同验证前安全拒绝。

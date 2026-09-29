@@ -453,7 +453,7 @@ export function AccountsPage() {
         <div className="filter-bar">
           <Input
             className="account-query-filter"
-            placeholder="邮箱、备注、名称"
+            placeholder="邮箱、备注、账号 ID、空间 ID"
             allowClear
             value={queryInput}
             onChange={(event) => setQueryInput(event.target.value)}
