@@ -4,6 +4,7 @@ export interface ChatGptSessionInput {
   };
   account: {
     id: string;
+    structure?: 'personal' | 'workspace';
   };
   accessToken: string;
   sessionToken?: string;
@@ -53,13 +54,15 @@ export function parseChatGptSessionInput(raw: unknown): ChatGptSessionParseResul
   const accountId = readString(account, 'id');
   if (!accountId) return { error: '缺少 account.id' };
 
+  const structure = readString(account, 'structure');
+
   const accessToken = readString(raw, 'accessToken');
   if (!accessToken) return { error: '缺少 accessToken' };
 
   const sessionToken = readSessionToken(raw);
   return {
     user: { email },
-    account: { id: accountId },
+    account: { id: accountId, ...(structure === 'personal' || structure === 'workspace' ? { structure } : {}) },
     accessToken,
     ...(sessionToken ? { sessionToken } : {})
   };

@@ -188,6 +188,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await db.selectFrom('account_session_revisions').selectAll().where('account_id', '=', first.account.id).execute()).length, 1, '保存新 Session 后删除旧 Session');
       await sessions.replaceCurrent({ accountId: first.account.id, personalSpaceId: first.personalSpace.id, session: { user: { email: first.account.email }, account: { id: workspace.external_id }, accessToken: 'workspace-session-token' }, source: 'workspace-session-test' });
       assert.equal(await sessions.accessToken(first.account.id, { kind: 'workspace', workspaceId: workspace.id }), 'workspace-session-token', 'Workspace Session 的 AT 写入目标 Workspace 上下文');
+      for (const email of ['unsynced-workspace-a@example.com', 'unsynced-workspace-b@example.com']) {
+        const member = await accounts.create({ email });
+        await sessions.replaceCurrent({ accountId: member.account.id, personalSpaceId: member.personalSpace.id, session: { user: { email }, account: { id: 'unsynced-workspace', structure: 'workspace' }, accessToken: 'unsynced-workspace-token' }, source: 'workspace-session-test' });
+        assert.equal((await db.selectFrom('personal_spaces').select('remote_account_id').where('id', '=', member.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id, null, '未同步 Workspace 的 Session 不写入个人空间 ID');
+      }
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'stale-workspace-token',{status:'valid'});
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),'stale-workspace-token');
       assert.equal(await sessions.invalidateWorkspaceAccessTokens(first.account.id),1);

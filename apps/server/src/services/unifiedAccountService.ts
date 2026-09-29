@@ -65,8 +65,7 @@ export class UnifiedAccountService {
         email,
         groupId: string(input.groupId) || undefined,
         remark: string(input.remark) || null,
-        isBanned: input.isBanned === true,
-        remotePersonalAccountId: parsed?.account.id ?? null
+        isBanned: input.isBanned === true
       });
       if (parsed) await this.saveSession(created.account.id, created.personalSpace.id, parsed, 'manual_create');
       const proxy = string(input.proxy);

@@ -64,7 +64,7 @@ export class SessionRepository {
         source: input.source,
         sourceUpdatedAt: input.sourceUpdatedAt,
         observedEmail: input.session.user.email,
-        observedPersonalAccountId: workspace ? null : input.session.account.id
+        observedPersonalAccountId: workspace || input.session.account.structure === 'workspace' ? null : input.session.account.id
       });
       await sessions.invalidateAccessTokens(input.accountId);
       if (workspace) {
@@ -74,7 +74,7 @@ export class SessionRepository {
           input.session.accessToken,
           { status: 'unknown' }
         );
-      } else {
+      } else if (input.session.account.structure !== 'workspace') {
         await trx.updateTable('personal_spaces').set({ remote_account_id: input.session.account.id })
           .where('id', '=', input.personalSpaceId).executeTakeFirstOrThrow();
         await sessions.saveAccessToken(
