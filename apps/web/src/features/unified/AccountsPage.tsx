@@ -17,7 +17,7 @@ import {
 } from "antd";
 import { ProductModal } from "../../components/ProductOverlays.js";
 import { useProductMessage } from "../../components/ProductOverlays.js";
-import { HolderOutlined, PlusOutlined, UserAddOutlined } from "@ant-design/icons";
+import { HolderOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   DndContext,
   KeyboardSensor,
@@ -37,7 +37,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type {
   AccountGroupView,
-  AccountRegistrationSummaryView,
   UnifiedAccountSummaryView,
 } from "@team-manager/shared";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
@@ -65,7 +64,6 @@ import {
   AccountActionModals,
   AccountEditorModal,
 } from "./AccountActions.js";
-import { AccountRegistrationModal } from "./AccountRegistrationModal.js";
 import {
   PRIMARY_PLAN_OPTIONS,
   accountRemarkLabel,
@@ -79,13 +77,10 @@ import { AccountOperationSummary, isActiveOperation } from "./AccountOperationSu
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
 
-type AccountListRow = UnifiedAccountSummaryView | AccountRegistrationSummaryView;
-function isRegistration(row: AccountListRow): row is AccountRegistrationSummaryView { return "kind" in row && row.kind === "registration"; }
-type AccountPageModal = "groups" | "batch-group" | "create-account" | "register-account";
+type AccountListRow = UnifiedAccountSummaryView;
+type AccountPageModal = "groups" | "batch-group" | "create-account";
 
 const TRI_STATE_FILTERS = [
-  ["hasGamBinding", "GAM"],
-  ["hasRunningProfile", "Profile 运行"],
   ["isBanned", "封号"],
 ] as const;
 
@@ -99,7 +94,6 @@ export function AccountsPage() {
   const [matchingAccounts, setMatchingAccounts] = useState<
     UnifiedAccountSummaryView[]
   >([]);
-  const [registrations, setRegistrations] = useState<AccountRegistrationSummaryView[]>([]);
   const [loading, setLoading] = useState(false);
   const [reorderingGroups, setReorderingGroups] = useState(false);
   const [multiSelect, setMultiSelect] = useState(false);
@@ -127,14 +121,11 @@ export function AccountsPage() {
     () => sortAccountList(selectAccountsByGroup(matchingAccounts, selectedGroupId), explicitSort),
     [explicitSort?.field, explicitSort?.order, matchingAccounts, selectedGroupId],
   );
-  const rows = useMemo<AccountListRow[]>(() => {
-    const pending = selectedGroupId ? registrations.filter((item) => item.group.id === selectedGroupId) : registrations;
-    return [...pending, ...accounts];
-  }, [accounts, registrations, selectedGroupId]);
+  const rows = accounts;
   const pagination = useUrlPagination({ total: rows.length, pageSizeStorageKey: "accounts" });
   const groupCounts = useMemo(
-    () => countAccountsByGroup([...matchingAccounts, ...registrations]),
-    [matchingAccounts, registrations],
+    () => countAccountsByGroup(matchingAccounts),
+    [matchingAccounts],
   );
   const filteredAccountIds = useMemo(
     () => accounts.map((account) => account.id),
@@ -161,15 +152,13 @@ export function AccountsPage() {
     setLoading(true);
     setError("");
     try {
-      const [nextGroups, nextAccounts, nextRegistrations] = await Promise.all([
+      const [nextGroups, nextAccounts] = await Promise.all([
         unifiedApi.groups(),
         unifiedApi.accounts(query),
-        unifiedApi.accountRegistrations(query),
       ]);
       if (requestId === latestRequest.current) {
         setGroups(nextGroups);
         setMatchingAccounts(nextAccounts);
-        setRegistrations(nextRegistrations);
       }
     } catch (cause) {
       if (requestId === latestRequest.current) {
@@ -208,10 +197,10 @@ export function AccountsPage() {
     );
   }, [filteredAccountIdSet]);
   useEffect(() => {
-    if (![...matchingAccounts.map((item) => item.latestOperation), ...registrations.map((item) => item.operation)].some(isActiveOperation)) return;
+    if (!matchingAccounts.map((item) => item.latestOperation).some(isActiveOperation)) return;
     const timer = window.setInterval(load, 5_000);
     return () => window.clearInterval(timer);
-  }, [matchingAccounts, registrations, accountRequestKey]);
+  }, [matchingAccounts, accountRequestKey]);
 
   const set = (key: string, value?: string) => {
     const next = new URLSearchParams(params);
@@ -293,18 +282,18 @@ export function AccountsPage() {
       render: (_, row) => (
         <div>
           <Space size={8}>
-            {isRegistration(row) ? <Typography.Text strong>{row.email ?? "邮箱分配中"}</Typography.Text> : <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
+            <Link to={`/accounts/${row.id}`} onClick={(event) => event.stopPropagation()}>
               <Typography.Text strong className="account-email-link">{row.email}</Typography.Text>
-            </Link>}
-            {!isRegistration(row) && row.isBanned && (
+            </Link>
+            {row.isBanned && (
               <Badge status="error" text="封号" title="人工封号" />
             )}
-            {!isRegistration(row) && row.lastError && <Badge status="error" text="同步失败" title={row.lastError} />}
-            {!isRegistration(row) && ["failed", "interrupted"].includes(row.latestOperation?.status ?? "") && <Badge status="error" text="操作失败" />}
+            {row.lastError && <Badge status="error" text="同步失败" title={row.lastError} />}
+            {["failed", "interrupted"].includes(row.latestOperation?.status ?? "") && <Badge status="error" text="操作失败" />}
           </Space>
           <br />
-          <Typography.Text type="secondary">{isRegistration(row) ? "注册中的临时账号" : accountRemarkLabel(row.remark)}</Typography.Text>
-          {(isRegistration(row) ? row.operation : row.latestOperation) && <AccountOperationSummary operation={isRegistration(row) ? row.operation : row.latestOperation!} onOpen={setOperationId} />}
+          <Typography.Text type="secondary">{accountRemarkLabel(row.remark)}</Typography.Text>
+          {row.latestOperation && <AccountOperationSummary operation={row.latestOperation} onOpen={setOperationId} />}
         </div>
       ),
     },
@@ -315,7 +304,7 @@ export function AccountsPage() {
       width: 180,
       sorter: true,
       sortOrder: explicitSort?.field === "primaryPlan" ? explicitSort.order : undefined,
-      render: (_, row) => isRegistration(row) ? "—" : (
+      render: (_, row) => (
         <Tag
           className="primary-plan-tag"
           color={row.primaryPlan === "business_fixed_seat" && row.primaryPlanSeatUsage
@@ -334,26 +323,14 @@ export function AccountsPage() {
       width: 150,
       sorter: true,
       sortOrder: explicitSort?.field === "lifecycle" ? explicitSort.order : undefined,
-      render: (_, row) => isRegistration(row) ? "—" : lifecycleLabel(row.primaryPlanLifecycle),
-    },
-    {
-      title: "能力",
-      key: "capability",
-      width: 90,
-      sorter: true,
-      sortOrder: explicitSort?.field === "capability" ? explicitSort.order : undefined,
-      render: (_, row) => !isRegistration(row) && row.hasGamBinding && <Tag color="green">GAM</Tag>,
+      render: (_, row) => lifecycleLabel(row.primaryPlanLifecycle),
     },
     {
       title: "操作",
       fixed: "right",
       width: 270,
-      render: (_, row) => isRegistration(row) ? <Button size="small" onClick={() => setOperationId(row.operation.id)}>查看进度</Button> : (
-        <AccountActionButtons
-          account={row as AccountActionSummary}
-          onOpen={(action) => openAccountAction(row, action)}
-          onChanged={load}
-        />
+      render: (_, row) => (
+        <AccountActionButtons onOpen={(action) => openAccountAction(row, action)} />
       ),
     },
   ];
@@ -368,7 +345,7 @@ export function AccountsPage() {
     const field = sorter.columnKey;
     const next = typeof field === "string" && sorter.order
       ? updateAccountListSortParams(params, {
-        field: field as "group" | "email" | "primaryPlan" | "lifecycle" | "capability",
+        field: field as "group" | "email" | "primaryPlan" | "lifecycle",
         order: sorter.order,
       })
       : updateAccountListSortParams(params);
@@ -405,12 +382,6 @@ export function AccountsPage() {
             <>
               <Button onClick={() => setModal("groups")}>管理分组</Button>
               <Button
-                icon={<UserAddOutlined />}
-                onClick={() => setModal("register-account")}
-              >
-                GAM 注册
-              </Button>
-              <Button
                 type="primary"
                 icon={<PlusOutlined />}
                 onClick={() => setModal("create-account")}
@@ -433,7 +404,7 @@ export function AccountsPage() {
               <span className="account-group-option">
                 全部
                 <span className="account-group-count">
-                  {matchingAccounts.length + registrations.length}
+                  {matchingAccounts.length}
                 </span>
               </span>
             </Radio.Button>
@@ -545,10 +516,8 @@ export function AccountsPage() {
               preserveSelectedRowKeys: true,
               hideSelectAll: true,
               getCheckboxProps: (row) => ({
-                disabled: isRegistration(row),
-                "aria-label": isRegistration(row)
-                  ? "注册中的临时账号不可选择"
-                  : `选择账号 ${row.email}`,
+                disabled: false,
+                "aria-label": `选择账号 ${row.email}`,
               }),
               onChange: (keys) => setSelectedAccountIds(
                 keys.map(String).filter((id) => filteredAccountIdSet.has(id)),
@@ -644,16 +613,6 @@ export function AccountsPage() {
         open={modal === "create-account"}
         onClose={() => setModal(undefined)}
         onSaved={load}
-      />
-      <AccountRegistrationModal
-        groups={groups}
-        open={modal === "register-account"}
-        onClose={() => setModal(undefined)}
-        onOperationCreated={(operation) => {
-          setModal(undefined);
-          setOperationId(operation.id);
-          void load();
-        }}
       />
       <AccountActionModals
         account={actionAccount}

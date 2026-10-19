@@ -2,50 +2,39 @@ import { App } from "antd";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { UnifiedAccountDetailView } from "@team-manager/shared";
-import { Management } from "./AccountDetailPage.js";
+import { Management, proxyLabel } from "./AccountDetailPage.js";
 
-describe("账号管理 GAM 重建入口", () => {
-  it("只为已有 GAM 绑定的账号显示重建操作", () => {
-    const render = (gamAccountRef?: string) => renderToStaticMarkup(
-      <App>
-        <Management
-          account={{
-            id: "account-id",
-            email: "account@example.com",
-            gamAccountRef,
-            hasSession: true,
-          } as UnifiedAccountDetailView}
-          busy=""
-          run={async () => undefined}
-          onRebuildGam={() => undefined}
-        />
-      </App>,
-    );
-
-    expect(render("account@example.com")).toContain("重建 GAM");
-    expect(render()).not.toContain("重建 GAM");
+describe("账号管理出口代理", () => {
+  it("住宅代理优先显示地区和 SID", () => {
+    expect(proxyLabel({
+      proxyConfigured: true,
+      residentialProxy: { sid: "Ab12Cd34", country: "SG", asn: null, state: null, city: null },
+    })).toBe("住宅代理 SG · SID Ab12Cd34");
+    expect(proxyLabel({
+      proxyConfigured: true,
+      residentialProxy: { sid: "Ab12Cd34", country: "US", asn: null, state: "Texas", city: "Abilene" },
+    })).toBe("住宅代理 US / Texas / Abilene · SID Ab12Cd34");
   });
 
-  it("没有完整 Session 时禁用重建按钮并说明恢复条件", () => {
+  it("区分手工代理与默认出口", () => {
+    expect(proxyLabel({ proxyConfigured: true })).toBe("手工代理地址");
+    expect(proxyLabel({ proxyConfigured: false })).toBe("未配置（默认出口）");
+  });
+
+  it("账号管理页展示出口代理与本地 Session", () => {
     const html = renderToStaticMarkup(
       <App>
         <Management
           account={{
             id: "account-id",
             email: "account@example.com",
-            gamAccountRef: "account@example.com",
-            hasSession: false,
+            proxyConfigured: false,
+            hasSession: true,
           } as UnifiedAccountDetailView}
-          busy=""
-          run={async () => undefined}
-          onRebuildGam={() => undefined}
         />
       </App>,
     );
-
-    expect(html).toContain("当前账号没有完整 Session");
-    const labelIndex = html.indexOf("重建 GAM");
-    const button = html.slice(html.lastIndexOf("<button", labelIndex), html.indexOf(">", labelIndex) + 1);
-    expect(button).toContain("disabled");
+    expect(html).toContain("未配置（默认出口）");
+    expect(html).toContain("可用");
   });
 });

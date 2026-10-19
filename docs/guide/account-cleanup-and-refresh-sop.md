@@ -1,6 +1,6 @@
 # 账号与 Workspace 运营 SOP
 
-本流程用于账号状态刷新、封号核验、账号清理、Workspace 关系维护以及备用 owner 替换。流程只操作 Team Manager 的 API、UI 或既有 service/repository，不直接编辑 PostgreSQL、运行 JSON、Session 文件或 GAM/CloakBrowser 资料。
+本流程用于账号状态刷新、封号核验、账号清理、Workspace 关系维护以及备用 owner 替换。流程只操作 Team Manager 的 API、UI 或既有 service/repository，不直接编辑 PostgreSQL、运行 JSON、Session 文件或生成的住宅代理网关配置。
 
 术语和实体边界以[账号、Workspace、席位与凭证模型](../core/seat-and-credential-model.md)为准；备用 owner 的替换顺序另见[备用 owner 替换安全顺序 ADR](../adr/0012-backup-owner-replacement-safety.md)。
 
@@ -62,9 +62,7 @@ Team Manager 中必须区分以下事实：
 
 ### 4.2 Session 内容错误
 
-以下错误属于 Session 或账号内容问题：缺少 `user.email`、Session 邮箱与 Account 不一致、Token/Session JSON 不完整、Refresh Token/Session Token 无法换取 Access Token。处理方式是重新登录、人工更新 Session，或显式调用 GAM 的 Session refresh/rebuild 流程；禁止通过更换 SID 规避。
-
-“重建 GAM”是显式灾难恢复动作：Team Manager 通过 Account Manager 删除旧 GAM/CloakBrowser 资料并使用现有完整 Session 重新纳管，成功后才恢复 GAM 绑定；失败时不得把旧状态伪装成成功。
+以下错误属于 Session 或账号内容问题：缺少 `user.email`、Session 邮箱与 Account 不一致、Token/Session JSON 不完整、Refresh Token/Session Token 无法换取 Access Token。处理方式是重新登录后经账号接口写入完整 Session；禁止通过更换 SID 规避。
 
 ### 4.3 网络、代理与 SID
 
@@ -139,7 +137,7 @@ Workspace 只有 `052`/`usage_based` Codex 空间，没有双席位 Team 订阅�
 | 修改席位/角色 | `PATCH /api/workspaces/:workspaceId/members/:remoteUserId` | 每次只提交 `seat` 或 `role` 一项 |
 | 移除成员 | `DELETE /api/workspaces/:workspaceId/members/:remoteUserId` | 由另一名 owner/admin 执行，保留或补建本地资料 |
 | 删除账号 | 先 `GET .../deletion-preview`，再 `DELETE /api/accounts/:id` | body `{ "confirmLocalCascade": true }` |
-| GAM Session 恢复 | `POST /api/accounts/:id/account-manager/session/refresh` 或 `/rebuild` | 必须有完整 Session Token |
+| 设置/清除住宅代理 | `PUT /api/accounts/:id/residential-proxy`、`DELETE /api/accounts/:id/residential-proxy` | body `{ sid, country, asn, state, city }`；保存后替换手工代理地址并热加载网关 |
 
 ## 8. 最终验收
 

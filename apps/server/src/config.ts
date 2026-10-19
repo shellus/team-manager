@@ -9,6 +9,7 @@ import {
   isBcryptLike,
   isSupportedBcryptHash,
 } from './auth/password.js';
+import type { ResidentialProxyGatewayConfig } from './residentialProxyGateway.js';
 
 const MAX_CONFIG_BYTES = 1024 * 1024;
 const LOCK_TIMEOUT_MS = 5_000;
@@ -31,18 +32,16 @@ export interface AppConfig {
   apiToken?: string;
   allowedOrigins: string[];
   webDistDir: string;
-  accountManagerBaseUrl?: string;
-  accountManagerToken?: string;
   teamCodeBaseUrl?: string;
   teamCodePasscode?: string;
   stripePublishableKeys?: string[];
   stripePaymentUserAgent?: string;
   stripeWalletConfigId?: string;
-  paymentHttpProxyHost?: string;
   paymentBillingPostalCode?: string;
   paymentBillingRegion?: string;
   curlCffiUrl?: string;
   upstreamTraceFile?: string;
+  residentialProxy?: ResidentialProxyGatewayConfig;
 }
 
 export interface RuntimeConfig {
@@ -112,11 +111,10 @@ export function parseRuntimeConfig(raw: string, configPath: string, profile: Run
   const database = strictObject(root.database, 'database', ['name', 'username', 'password', 'hosts']);
   const databaseHosts = profileValues(database.hosts, 'database.hosts');
   const webDistDirs = profileValues(server.webDistDirs, 'server.webDistDirs');
-  const integrations = strictObject(root.integrations, 'integrations', ['accountManager', 'teamCode', 'stripe', 'payment']);
-  const accountManager = strictObject(integrations.accountManager, 'integrations.accountManager', ['token', 'baseUrls']);
+  const integrations = strictObject(root.integrations, 'integrations', ['teamCode', 'stripe', 'payment', 'residentialProxy']);
   const teamCode = strictObject(integrations.teamCode, 'integrations.teamCode', ['baseUrl', 'passcode']);
   const stripe = strictObject(integrations.stripe, 'integrations.stripe', ['publishableKeys', 'paymentUserAgent', 'walletConfigId']);
-  const payment = strictObject(integrations.payment, 'integrations.payment', ['httpProxyHosts', 'billingPostalCode', 'billingRegion']);
+  const payment = strictObject(integrations.payment, 'integrations.payment', ['billingPostalCode', 'billingRegion']);
   const transport = strictObject(root.transport, 'transport', ['curlCffiUrls', 'upstreamTraceFile']);
   const deployment = strictObject(root.deployment, 'deployment', ['postgres', 'worker', 'web']);
   const deployPostgres = strictObject(deployment.postgres, 'deployment.postgres', ['publishedPort']);
@@ -132,25 +130,23 @@ export function parseRuntimeConfig(raw: string, configPath: string, profile: Run
     if (!allowPlaintextAdmin || isBcryptLike(adminHash)) throw new Error('配置 admin.password 必须是有效 bcrypt hash');
     assertPasswordFitsBcrypt(adminHash);
   }
-  const accountManagerUrls = profileValues(accountManager.baseUrls, 'integrations.accountManager.baseUrls');
-  const paymentHosts = profileValues(payment.httpProxyHosts, 'integrations.payment.httpProxyHosts');
   const curlCffiUrls = profileValues(transport.curlCffiUrls, 'transport.curlCffiUrls');
   const workerPorts = profileValues(worker.ports, 'deployment.worker.ports');
   const dataDir = configPathValue(server.dataDir, 'server.dataDir', configDir);
   const apiToken = optionalText(server.apiToken);
-  const accountManagerBaseUrl = optionalProfileText(accountManagerUrls[profile]);
-  const accountManagerToken = optionalText(accountManager.token);
   const teamCodeBaseUrl = optionalText(teamCode.baseUrl);
   const teamCodePasscode = optionalText(teamCode.passcode);
   const stripePublishableKeys = optionalStringArray(stripe.publishableKeys, 'integrations.stripe.publishableKeys');
   const stripePaymentUserAgent = optionalText(stripe.paymentUserAgent);
   const stripeWalletConfigId = optionalText(stripe.walletConfigId);
-  const paymentHttpProxyHost = optionalProfileText(paymentHosts[profile]);
   const paymentBillingPostalCode = optionalText(payment.billingPostalCode);
   const paymentBillingRegion = optionalText(payment.billingRegion);
   const curlCffiUrl = optionalProfileText(curlCffiUrls[profile]);
   const upstreamTraceFile = optionalPath(transport.upstreamTraceFile, configDir);
   const workerProxy = optionalText(worker.chatgptProxy);
+  const residentialProxy = integrations.residentialProxy === undefined || integrations.residentialProxy === null
+    ? undefined
+    : residentialProxyConfig(integrations.residentialProxy, profile, configDir);
   return {
     app: {
       port: port(server.port, 'server.port'),
@@ -166,18 +162,16 @@ export function parseRuntimeConfig(raw: string, configPath: string, profile: Run
       allowedOrigins: stringArray(server.allowedOrigins, 'server.allowedOrigins'),
       webDistDir: configPathValue(webDistDirs[profile], `server.webDistDirs.${profile}`, configDir),
       ...(apiToken ? { apiToken } : {}),
-      ...(accountManagerBaseUrl ? { accountManagerBaseUrl } : {}),
-      ...(accountManagerToken ? { accountManagerToken } : {}),
       ...(teamCodeBaseUrl ? { teamCodeBaseUrl } : {}),
       ...(teamCodePasscode ? { teamCodePasscode } : {}),
       ...(stripePublishableKeys ? { stripePublishableKeys } : {}),
       ...(stripePaymentUserAgent ? { stripePaymentUserAgent } : {}),
       ...(stripeWalletConfigId ? { stripeWalletConfigId } : {}),
-      ...(paymentHttpProxyHost ? { paymentHttpProxyHost } : {}),
       ...(paymentBillingPostalCode ? { paymentBillingPostalCode } : {}),
       ...(paymentBillingRegion ? { paymentBillingRegion } : {}),
       ...(curlCffiUrl ? { curlCffiUrl } : {}),
       ...(upstreamTraceFile ? { upstreamTraceFile } : {}),
+      ...(residentialProxy ? { residentialProxy } : {}),
     },
     deployment: {
       postgres: {
@@ -195,6 +189,27 @@ export function parseRuntimeConfig(raw: string, configPath: string, profile: Run
       },
       web: { devApiTarget: text(web.devApiTarget, 'deployment.web.devApiTarget') },
     },
+  };
+}
+
+function residentialProxyConfig(value: unknown, profile: RuntimeProfile, configDir: string): ResidentialProxyGatewayConfig {
+  const path = 'integrations.residentialProxy';
+  const section = strictObject(value, path, ['upstream', 'normalProxy', 'stickyMinutes', 'listenPort', 'gatewayUrls', 'gatewayPassword', 'controllerUrls', 'controllerSecret', 'configPath', 'controllerConfigPath']);
+  const gatewayUrls = profileValues(section.gatewayUrls, `${path}.gatewayUrls`);
+  const controllerUrls = profileValues(section.controllerUrls, `${path}.controllerUrls`);
+  const stickyMinutes = section.stickyMinutes === undefined ? 120 : integer(section.stickyMinutes, `${path}.stickyMinutes`);
+  if (stickyMinutes <= 0) throw new Error(`配置 ${path}.stickyMinutes 必须是正整数`);
+  return {
+    upstreamProxy: text(section.upstream, `${path}.upstream`),
+    normalProxy: text(section.normalProxy, `${path}.normalProxy`),
+    stickyMinutes,
+    listenPort: section.listenPort === undefined ? 3016 : port(section.listenPort, `${path}.listenPort`),
+    gatewayUrl: text(gatewayUrls[profile], `${path}.gatewayUrls.${profile}`),
+    gatewayPassword: text(section.gatewayPassword, `${path}.gatewayPassword`),
+    controllerUrl: text(controllerUrls[profile], `${path}.controllerUrls.${profile}`),
+    controllerSecret: text(section.controllerSecret, `${path}.controllerSecret`),
+    configPath: configPathValue(section.configPath, `${path}.configPath`, configDir),
+    controllerConfigPath: text(section.controllerConfigPath, `${path}.controllerConfigPath`),
   };
 }
 

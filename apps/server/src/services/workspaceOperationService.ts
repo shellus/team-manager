@@ -37,7 +37,6 @@ import { WorkspaceService } from './workspaceService.js';
 import { ActivityLogRepository } from '../repositories/activityLogRepository.js';
 import { normalizeWorkspaceMemberUserId, normalizeWorkspacePlan, normalizeWorkspaceRole } from '../domain/workspace.js';
 import { promotionLookupView, promotionMetadataView } from '../domain/promotion.js';
-import type { AccountManagerService } from './accountManagerService.js';
 
 export class WorkspaceOperationService {
   readonly #workspaces: WorkspaceRepository;
@@ -48,8 +47,7 @@ export class WorkspaceOperationService {
     private readonly views: WorkspaceService,
     private readonly sessions: SessionRepository,
     private readonly operational: AccountOperationalRepository,
-    private readonly transport: Transport,
-    private readonly accountManagement?: AccountManagerService
+    private readonly transport: Transport
   ) {
     this.#workspaces = new WorkspaceRepository(db);
     this.#billing = new BillingRepository(db);
@@ -611,8 +609,7 @@ export class WorkspaceOperationService {
       const workspace = await this.#workspaces.findById(workspaceId);
       if (!workspace) throw new ServiceError(404, 'Workspace 不存在');
       let accessToken = await this.sessions.accessToken(executorAccountId, { kind: 'workspace', workspaceId });
-      let proxy = await this.operational.proxy(executorAccountId);
-      if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(executorAccountId).catch(() => undefined);
+      const proxy = await this.operational.proxy(executorAccountId);
       const refresh = async () => {
         const session = await this.sessions.currentSession(executorAccountId) as { sessionToken?: string } | undefined;
         if (!session?.sessionToken) throw new ServiceError(409, '执行账号缺少可换取 Workspace Token 的 sessionToken');

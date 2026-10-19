@@ -1,5 +1,7 @@
 # Team Manager 独占当前 Web Session
 
+> 2026-10-19：GAM 注册交付与受管 Profile Session 刷新已由 [ADR 0013](./0013-remove-gam-and-own-residential-proxy-gateway.md) 下线。
+
 **Status:** Accepted
 
 Team Manager 是业务 Web Session 的唯一持久化事实源。保存新 Session 时，在同一事务中设为当前值、删除该账号的旧 Session，并使所有旧 Access Context 失效；Session 的 `account.id` 命中已知 Workspace 时，其 Access Token 直接归入该 Workspace 上下文。

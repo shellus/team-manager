@@ -1,68 +1,40 @@
 import { useEffect, useState, type MouseEvent } from "react";
-import { Alert, Button, Descriptions, Form, Input, Select, Space, Switch, Tooltip } from "antd";
+import { Alert, Button, Form, Input, Select, Space, Switch } from "antd";
 import type {
   AccountGroupView,
   AccountLimitType,
-  AccountManagerOperationView,
-  AccountProfileStatus,
-  AccountManagerStateView,
+  AutomationOperationView,
   ResidentialProxyConfig,
 } from "@team-manager/shared";
 import { ProxyConfigurationFields } from "../../components/ProxyConfigurationFields.js";
 import { unifiedApi } from "../../unifiedApi.js";
 import { ApiError } from "../../api.js";
 import {
-  executeProfileAction,
-  profileAction,
   parseSessionEditorInput,
   type AccountActionModal,
   type AccountActionSummary,
 } from "./accountActionsModel.js";
 import { SubscriptionModal } from "./SubscriptionModal.js";
-import { ProductModal, useProductMessage } from "../../components/ProductOverlays.js";
+import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 
 export function AccountActionButtons({
-  account,
-  profileStatus,
   onOpen,
-  onChanged,
 }: {
-  account: AccountActionSummary;
-  profileStatus?: AccountProfileStatus;
   onOpen: (action: AccountActionModal) => void;
-  onChanged: () => void | Promise<void>;
 }) {
-  const productMessage = useProductMessage();
-  const [profileBusy, setProfileBusy] = useState(false);
-  const currentProfileStatus = profileStatus ?? account.profileStatus;
-  const nextProfileAction = profileAction(
-    currentProfileStatus,
-    account.hasRunningProfile,
-  );
-  const gamDisabled = !account.hasGamBinding;
-  const profilePending = nextProfileAction === "pending";
   const stopPropagation = (event: MouseEvent<HTMLElement>) =>
     event.stopPropagation();
 
-  const actionButton = (
-    action: AccountActionModal,
-    label: string,
-    disabled = false,
-  ) => (
-    <Tooltip title={disabled ? "请先绑定 GAM 账号引用" : undefined}>
-      <span>
-        <Button
-          size="small"
-          disabled={disabled}
-          onClick={(event) => {
-            stopPropagation(event);
-            onOpen(action);
-          }}
-        >
-          {label}
-        </Button>
-      </span>
-    </Tooltip>
+  const actionButton = (action: AccountActionModal, label: string) => (
+    <Button
+      size="small"
+      onClick={(event) => {
+        stopPropagation(event);
+        onOpen(action);
+      }}
+    >
+      {label}
+    </Button>
   );
 
   return (
@@ -72,52 +44,8 @@ export function AccountActionButtons({
       className="account-action-buttons"
       onClick={stopPropagation}
     >
-      <Tooltip
-        title={
-          gamDisabled
-            ? "请先绑定 GAM 账号引用"
-            : profilePending
-              ? "Profile 状态正在切换，请稍后再操作"
-              : undefined
-        }
-      >
-        <span>
-          <Button
-            size="small"
-            loading={profileBusy}
-            disabled={gamDisabled || profilePending || profileBusy}
-            onClick={async (event) => {
-              stopPropagation(event);
-              setProfileBusy(true);
-              try {
-                if (nextProfileAction === "pending") return;
-                await executeProfileAction(account.id, nextProfileAction, {
-                  start: unifiedApi.startProfile,
-                  stop: unifiedApi.stopProfile,
-                });
-                productMessage.success(`Profile 已${nextProfileAction === "stop" ? "停止" : "启动"}`);
-                await onChanged();
-              } catch (reason) {
-                productMessage.error((reason as Error).message);
-              } finally {
-                setProfileBusy(false);
-              }
-            }}
-          >
-            {profileBusy
-              ? nextProfileAction === "stop" ? "停止中" : "启动中"
-              : profilePending
-              ? currentProfileStatus === "stopping"
-                ? "停止中"
-                : "启动中"
-              : nextProfileAction === "stop"
-                ? "停止"
-                : "启动"}
-          </Button>
-        </span>
-      </Tooltip>
-      {actionButton("proxy", "换 IP", gamDisabled)}
-      {actionButton("subscription", "开通", gamDisabled)}
+      {actionButton("proxy", "住宅代理")}
+      {actionButton("subscription", "升级套餐")}
       {actionButton("edit", "编辑")}
     </Space>
   );
@@ -134,7 +62,7 @@ export function AccountActionModals({
   action?: AccountActionModal;
   onClose: () => void;
   onChanged: () => void | Promise<void>;
-  onOperationCreated?: (operation: AccountManagerOperationView) => void;
+  onOperationCreated?: (operation: AutomationOperationView) => void;
 }) {
   if (!account) return null;
   return (
@@ -153,13 +81,6 @@ export function AccountActionModals({
         onChanged={onChanged}
         onOperationCreated={onOperationCreated}
       />
-      <RebuildGamModal
-        account={account}
-        open={action === "rebuild-gam"}
-        onClose={onClose}
-        onChanged={onChanged}
-        onOperationCreated={onOperationCreated}
-      />
       <AccountEditorModal
         account={account}
         open={action === "edit"}
@@ -167,89 +88,6 @@ export function AccountActionModals({
         onSaved={onChanged}
       />
     </>
-  );
-}
-
-export function RebuildGamModal({
-  account,
-  open,
-  onClose,
-  onChanged,
-  onOperationCreated,
-}: {
-  account: AccountActionSummary;
-  open: boolean;
-  onClose: () => void;
-  onChanged: () => void | Promise<void>;
-  onOperationCreated?: (operation: AccountManagerOperationView) => void;
-}) {
-  const productMessage = useProductMessage();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setError("");
-  }, [open]);
-
-  return (
-    <ProductModal
-      title={`重建 GAM · ${account.email}`}
-      open={open}
-      onCancel={onClose}
-      footer={(
-        <Space>
-          <Button onClick={onClose} disabled={saving}>取消</Button>
-          <Button
-            danger
-            type="primary"
-            loading={saving}
-            disabled={!account.hasSession}
-            onClick={async () => {
-              setSaving(true);
-              setError("");
-              try {
-                const operation = await unifiedApi.rebuildAccountManager(account.id);
-                productMessage.success("旧 GAM 资料已清理，正在应用当前 Session");
-                await onChanged();
-                onClose();
-                onOperationCreated?.(operation);
-              } catch (reason) {
-                setError((reason as Error).message);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            重建 GAM
-          </Button>
-        </Space>
-      )}
-      width={620}
-    >
-      <Space direction="vertical" size={16} className="panel-stack">
-        <Alert
-          type="warning"
-          showIcon
-          message="该操作会删除现有 GAM 账号资料和 CloakBrowser Profile"
-          description="正在运行的 GAM 业务操作必须先结束。Team Manager 保存的当前 Session 不会被删除。"
-        />
-        {error && <Alert type="error" showIcon message={error} />}
-        {!account.hasSession && (
-          <Alert type="error" showIcon message="当前账号没有完整 Session，请先编辑账号并保存 Session JSON。" />
-        )}
-        <Descriptions
-          bordered
-          size="small"
-          column={1}
-          items={[
-            { key: "remove", label: "清理范围", children: "GAM 账号凭据、浏览器身份归档、运行及旧 CloakBrowser Profile" },
-            { key: "keep", label: "保留内容", children: "Team Manager 中的账号、Workspace 关系和当前 Session" },
-            { key: "recreate", label: "重建方式", children: "按首次纳管流程把当前 Session 写入新运行 Profile，校验邮箱后建立新的 GAM 浏览器身份" },
-          ]}
-        />
-      </Space>
-    </ProductModal>
   );
 }
 
@@ -265,9 +103,11 @@ function ProxyModal({
   onSaved: () => void | Promise<void>;
 }) {
   const productMessage = useProductMessage();
+  const productModal = useProductModal();
   const [form] = Form.useForm<ResidentialProxyConfig>();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [configured, setConfigured] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -275,10 +115,11 @@ function ProxyModal({
     setLoading(true);
     setError("");
     void unifiedApi
-      .accountManagerState(accountId)
-      .then((state: AccountManagerStateView) => {
+      .residentialProxy(accountId)
+      .then((proxy) => {
+        setConfigured(Boolean(proxy));
         form.setFieldsValue(
-          state.proxy ?? { sid: "", country: "US", asn: null, state: null, city: null },
+          proxy ?? { sid: "", country: "US", asn: null, state: null, city: null },
         );
       })
       .catch((reason) => setError((reason as Error).message))
@@ -287,7 +128,7 @@ function ProxyModal({
 
   return (
     <ProductModal
-      title="换 IP"
+      title="住宅代理"
       open={open}
       onCancel={onClose}
       width={640}
@@ -295,7 +136,7 @@ function ProxyModal({
       <Alert
         type="info"
         showIcon
-        message="修改 8 位 SID 会更换住宅代理的粘性会话并获得新 IP；ASN 与州/省、城市是两种互斥定位方式。"
+        message="账号的 ChatGPT 请求经 Team Manager 住宅代理网关按此配置出站；修改 8 位 SID 会更换粘性会话并获得新 IP。ASN 与州/省、城市是两种互斥定位方式；保存后会替换账号原有的手工代理地址。"
       />
       {error && <Alert className="modal-error" type="error" showIcon message={error} />}
       <Form
@@ -307,7 +148,7 @@ function ProxyModal({
           setSaving(true);
           setError("");
           try {
-            await unifiedApi.configureProxy(accountId, {
+            await unifiedApi.configureResidentialProxy(accountId, {
               sid: values.sid,
               country: values.country.toUpperCase(),
               asn: values.asn || null,
@@ -325,9 +166,39 @@ function ProxyModal({
         }}
       >
         <ProxyConfigurationFields form={form} showRandomSidButton />
-        <Button type="primary" htmlType="submit" loading={saving}>
-          保存代理配置
-        </Button>
+        <Space>
+          <Button type="primary" htmlType="submit" loading={saving}>
+            保存代理配置
+          </Button>
+          {configured && (
+            <Button
+              danger
+              disabled={saving}
+              onClick={() => productModal.confirm({
+                title: "清除住宅代理？",
+                content: "清除后账号回退到默认出口。",
+                okText: "清除",
+                okButtonProps: { danger: true },
+                onOk: async () => {
+                  setSaving(true);
+                  setError("");
+                  try {
+                    await unifiedApi.clearResidentialProxy(accountId);
+                    productMessage.success("住宅代理已清除");
+                    await onSaved();
+                    onClose();
+                  } catch (reason) {
+                    setError((reason as Error).message);
+                  } finally {
+                    setSaving(false);
+                  }
+                },
+              })}
+            >
+              清除住宅代理
+            </Button>
+          )}
+        </Space>
       </Form>
     </ProductModal>
   );

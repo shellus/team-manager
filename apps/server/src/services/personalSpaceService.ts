@@ -16,14 +16,12 @@ import {
 } from '../domain/personalPlan.js';
 import { fetchChatGptWebAccessTokenFromSessionToken } from '../chatgptWebSession.js';
 import { promotionLookupView } from '../domain/promotion.js';
-import type { AccountManagerService } from './accountManagerService.js';
 
 export class PersonalSpaceService {
   readonly #billing: BillingRepository;
   constructor(
     private readonly db: Kysely<Database>, private readonly sessions: SessionRepository,
-    private readonly operational: AccountOperationalRepository, private readonly transport: Transport,
-    private readonly accountManagement?: AccountManagerService
+    private readonly operational: AccountOperationalRepository, private readonly transport: Transport
   ) { this.#billing = new BillingRepository(db); }
 
   async refresh(accountId: string, resources: string[] = ['subscription', 'billing', 'quota', 'settings']) {
@@ -231,8 +229,7 @@ export class PersonalSpaceService {
     if (!accountIdHeader) throw new ServiceError(409, '账号缺少可用的个人态 ChatGPT Session');
     let token = await this.sessions.accessToken(accountId, { kind: 'personal', personalSpaceId: personal.id })
       ?? (currentSessionAccountId === accountIdHeader ? session?.accessToken?.trim() : undefined);
-    let proxy = await this.operational.proxy(accountId);
-    if (!proxy) proxy = await this.accountManagement?.ensureHttpProxy(accountId).catch(() => undefined);
+    const proxy = await this.operational.proxy(accountId);
     const fetchFreshWebAccessToken = async (remoteAccountId: string) => {
       if (!session?.sessionToken) throw new ServiceError(409, '执行账号缺少可刷新 Access Token 的 sessionToken');
       return fetchChatGptWebAccessTokenFromSessionToken(

@@ -19,7 +19,6 @@ function deletionPreview(ownedWorkspaceCount: number): AccountDeletionPreview {
       personalSpaces: 1,
       sessionRecords: 1,
       accessContexts: 0,
-      gamBindings: 0,
       memberships: 1,
       invitations: 0,
       credentials: 0,

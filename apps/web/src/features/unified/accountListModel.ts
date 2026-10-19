@@ -1,7 +1,7 @@
 import type { UnifiedAccountSummaryView } from "@team-manager/shared";
 
 export type AccountListBooleanFilter = "true" | "false" | undefined;
-export type AccountListSortField = "group" | "email" | "primaryPlan" | "lifecycle" | "capability";
+export type AccountListSortField = "group" | "email" | "primaryPlan" | "lifecycle";
 export type AccountListSortOrder = "ascend" | "descend";
 
 export interface AccountListSort {
@@ -21,7 +21,7 @@ type GroupedAccount = Pick<UnifiedAccountSummaryView, "group">;
 
 export function accountListBooleanFilter(
   params: URLSearchParams,
-  key: "hasGamBinding" | "hasRunningProfile" | "isBanned",
+  key: "isBanned",
 ): AccountListBooleanFilter {
   const value = params.get(key);
   return value === "true" || value === "false" ? value : undefined;
@@ -35,7 +35,7 @@ export function accountListRequestQuery(
   if (textQuery) query.set("query", textQuery);
   const primaryPlan = normalizePrimaryPlanFilter(params.get("primaryPlan"));
   if (primaryPlan) query.set("primaryPlan", primaryPlan);
-  for (const key of ["hasGamBinding", "hasRunningProfile", "isBanned"] as const) {
+  for (const key of ["isBanned"] as const) {
     const value = accountListBooleanFilter(params, key);
     if (value) query.set(key, value);
   }
@@ -135,7 +135,7 @@ export function selectAccountsByGroup<T extends GroupedAccount>(
 
 type SortableAccount = Pick<
   UnifiedAccountSummaryView,
-  "id" | "email" | "createdAt" | "group" | "primaryPlan" | "primaryPlanLifecycle" | "hasGamBinding"
+  "id" | "email" | "createdAt" | "group" | "primaryPlan" | "primaryPlanLifecycle"
 >;
 
 const PRIMARY_PLAN_ORDER: UnifiedAccountSummaryView["primaryPlan"][] = [
@@ -183,9 +183,7 @@ function compareByField(
     ? compareText(left.email, right.email)
     : sort.field === "group"
       ? compareText(left.group.name, right.group.name)
-      : sort.field === "capability"
-        ? Number(left.hasGamBinding) - Number(right.hasGamBinding)
-        : PRIMARY_PLAN_ORDER.indexOf(left.primaryPlan) - PRIMARY_PLAN_ORDER.indexOf(right.primaryPlan);
+      : PRIMARY_PLAN_ORDER.indexOf(left.primaryPlan) - PRIMARY_PLAN_ORDER.indexOf(right.primaryPlan);
   return sort.order === "descend" ? -compared : compared;
 }
 
@@ -199,7 +197,7 @@ function timestamp(value: string): number {
 }
 
 function isAccountListSortField(value: string | null): value is AccountListSortField {
-  return value === "group" || value === "email" || value === "primaryPlan" || value === "lifecycle" || value === "capability";
+  return value === "group" || value === "email" || value === "primaryPlan" || value === "lifecycle";
 }
 
 export function accountSelectionState(

@@ -24,7 +24,7 @@ describe('账号创建弹窗', () => {
     });
   });
 
-  it('账号页直接提供添加账号和 GAM 注册两个弹窗入口', () => {
+  it('账号页只提供添加账号入口，GAM 注册已下线', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <App>
@@ -33,8 +33,7 @@ describe('账号创建弹窗', () => {
       </MemoryRouter>,
     );
     expect(html).toContain('添加账号');
-    expect(html).toContain('GAM 注册');
-    expect(html).not.toContain('手工录入已有账号，或让 GAM 注册一个新账号');
+    expect(html).not.toContain('GAM');
   });
 
   it('账号页弹窗和操作抽屉不再由查询参数驱动', () => {

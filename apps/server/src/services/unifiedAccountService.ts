@@ -39,8 +39,6 @@ export class UnifiedAccountService {
     return this.projections.accounts(filters);
   }
 
-  registrations(filters: AccountListFilters) { return this.projections.registrations(filters); }
-
   groups() { return this.projections.groups(); }
 
   async detail(id: string): Promise<UnifiedAccountDetailView> {
@@ -378,7 +376,6 @@ export class UnifiedAccountService {
         personalSpaces: (await db.selectFrom('personal_spaces').select('id').where('account_id', '=', account.id).execute()).length,
         sessionRecords: (await db.selectFrom('account_session_revisions').select('id').where('account_id', '=', account.id).execute()).length,
         accessContexts: (await db.selectFrom('account_access_contexts').select('id').where('account_id', '=', account.id).execute()).length,
-        gamBindings: (await db.selectFrom('gam_bindings').select('id').where('account_id', '=', account.id).execute()).length,
         memberships: await count('workspace_memberships'),
         invitations: await count('workspace_invitations'),
         credentials: await count('workspace_credentials'),

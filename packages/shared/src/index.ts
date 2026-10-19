@@ -114,34 +114,16 @@ export interface PublicSeatSlotView {
   swapHistory?: SeatSlotSwapState[];
 }
 
-export type AccountManagerOperationStatus =
-  | 'queued'
-  | 'running'
-  | 'waiting_for_otp'
-  | 'waiting_manual'
-  | 'succeeded'
-  | 'failed'
-  | 'interrupted';
+export type AutomationOperationStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted';
 
-export interface AccountManagerOperationView {
+/** Team Manager 本地操作记录，例如个人套餐升级。 */
+export interface AutomationOperationView {
   id: string;
   accountId?: string;
   type: string;
-  status: AccountManagerOperationStatus;
+  status: AutomationOperationStatus;
   phase: string;
-  message?: string;
-  email?: string;
   progress: number;
-  control?: {
-    id: string;
-    type: 'retry_current_step' | 'rotate_proxy_sid';
-    status: 'queued' | 'executing' | 'succeeded' | 'failed';
-    requestedAt: number;
-    updatedAt: number;
-    requestedFromPhase?: string;
-    completedAt?: number;
-    error?: string;
-  };
   requestSummary?: Record<string, unknown>;
   result?: Record<string, unknown>;
   errorCode?: string;
@@ -149,16 +131,6 @@ export interface AccountManagerOperationView {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
-}
-
-export type AccountManagerProfileStatus = 'stopped' | 'queued' | 'running' | 'stopping' | 'failed';
-export type AccountProfileStatus = AccountManagerProfileStatus | 'unknown';
-export interface AccountManagerProfileView {
-  accountId: string;
-  status: AccountManagerProfileStatus;
-  profileId?: string;
-  error?: string;
-  updatedAt: number;
 }
 
 export interface ResidentialProxyConfig {

@@ -17,7 +17,7 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 ## 产品模型
 
 - `AccountGroup`：稳定 ID 的结构化账号分组；账号恰好属于一个分组，重命名不改账号记录。
-- `Account`：唯一受管 ChatGPT 登录身份，承载邮箱、备注、封号标记、GAM 引用、代理和当前 Session。
+- `Account`：唯一受管 ChatGPT 登录身份，承载邮箱、备注、封号标记、出口代理（住宅代理配置或手工代理地址）和当前 Session。
 - `PersonalSpace`：账号一对一的个人空间，承载 Free、Go、Plus、Pro 5x、Pro 20x、个人支付摘要和个人设置。
 - `Workspace`：独立 Team/Business 空间，承载成员、邀请、设置、订阅、账单、客户席位和 Team 订单；管理入口统一位于账号详情中。
 - `WorkspaceMembership`：账号或远端成员在 Workspace 中的角色和席位事实。活动 owner/admin 关系产生“拥有可管理空间”能力。
@@ -29,11 +29,10 @@ Team Manager 是以“账号 + Workspace”为核心的 ChatGPT 运营后台。�
 
 - 账号列表、单一分组、主套餐与运营条件筛选和账号详情；固定席位 Business 动态显示关系占用与订阅权益容量；URL 保存筛选与详情 Tab，账号列表弹窗使用本地状态以免轮询刷新干扰表单。
 - 账号搜索支持邮箱、备注、本地账号 ID、上游用户 ID，以及个人空间和 Workspace 的本地/上游 ID；支持部分匹配、忽略大小写及首尾空白。Workspace ID 返回具有活动成员关系的账号，并与当前分组等筛选条件共同生效。
-- GAM 负责注册、纳管、Profile、住宅代理和浏览器 Checkout；账号、个人空间与 Workspace 业务状态及支付方式管理由 Team Manager 直连上游处理。
-- 住宅代理 SID 统一为 8 位字母或数字，由 GAM 自动生成；账号换 IP 和注册任务代理弹窗共用校验与随机按钮。上游 SID 变化不改变账号的稳定 HTTP 代理地址。
-- Go、Plus、Pro 5x、Pro 20x 首次开通；Plus 可通过 Team Manager 直连升级到 Pro 5x 或 Pro 20x，其他付费套餐转换在对应上游合同验证前安全拒绝。
+- 账号、个人空间与 Workspace 业务状态及支付方式管理由 Team Manager 直连上游处理；不集成 GPT Account Manager（见 [ADR 0013](./docs/adr/0013-remove-gam-and-own-residential-proxy-gateway.md)）。
+- 账号住宅代理由 Team Manager 自有的 Mihomo 网关提供：每个账号保存国家、ASN 或州/城市与 8 位 SID，网关按账号认证用户路由到对应住宅节点，住宅节点经前置代理拨号；修改 SID 会更换粘性会话。住宅代理与手工代理地址互斥，都未配置时使用 worker 默认代理。
+- Plus 可通过 Team Manager 直连升级到 Pro 5x 或 Pro 20x；首次开通与 Business 浏览器开通已下线，其他付费套餐转换在对应上游合同验证前安全拒绝。
 - 个人空间与 Workspace 都支持绑定、设置默认和移除支付方式，以及取消续费；完整卡号/CVC 只进入当前 Team Manager 请求中的无追踪 Stripe Transport，不写数据库、普通日志或 HTTP trace，支付写操作都在返回前复读上游状态。
-- Business 创建新 Workspace，或升级账号当前可管理的既有 Workspace。
 - 账号详情内切换 Workspace；成员与邀请合并显示，并可从 owner 行单选 Workspace 的首选管理账号；账单集中呈现订阅、续费、金额、计费席位、支付方式和发票，并可校验和应用现有 Workspace 优惠码；凭证严格按 `Account × Workspace` 显示。
 - 客户联系方式、备注、价格、到期日和显式到期提醒开关合并显示在账号 Workspace 的成员与邀请列表；提醒默认开启，只有同时设置到期日的席位才进入提醒调度。
 - Team 升级订单维护、逐渠道幂等的有限重试通知、包含明细与管理入口的客户席位到期任务，以及独立的席位概览和母号概览页面。
@@ -62,7 +61,7 @@ PostgreSQL 是结构化业务数据的唯一事实源。应用启动只检查 mi
 - PostgreSQL、Kysely、`pg`；
 - HS256 JWT、bcrypt 管理员密码；
 - curl_cffi sidecar 作为 ChatGPT Web 传输实现；
-- GAM 负责密码、浏览器身份、代理租约和浏览器 Checkout；Team Manager 负责普通 ChatGPT/Stripe HTTP 业务请求。
+- Team Manager 负责 ChatGPT/Stripe HTTP 业务请求，账号住宅出口经自有 Mihomo 网关。
 
 ## 目录
 

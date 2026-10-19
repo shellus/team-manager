@@ -1,5 +1,7 @@
 # 使用本地 Session 同步账号与 Workspace 关系
 
+> 2026-10-19：GAM 负责 Profile、代理、注册和浏览器 Checkout 的部分已由 [ADR 0013](./0013-remove-gam-and-own-residential-proxy-gateway.md) 取代。
+
 ## 状态
 
 已接受，2026-08-17。

@@ -3,7 +3,6 @@ import {
   Alert,
   Button,
   Descriptions,
-  Form,
   Progress,
   Space,
   Table,
@@ -11,20 +10,17 @@ import {
   Typography,
 } from "antd";
 import type {
-  AccountManagerOperationView,
+  AutomationOperationView,
   OperationDetailView,
 } from "@team-manager/shared";
 import { unifiedApi } from "../unifiedApi.js";
 import { LoadBoundary, formatPaymentCardLast4, formatTime } from "./ProductPrimitives.js";
-import { PaymentCardFields } from "./PaymentCardFields.js";
 import {
   operationDrawerActions,
   operationPhaseLabel,
   operationTypeLabel,
 } from "../features/unified/operationUiModel.js";
-import type { ResidentialProxyConfig } from "@team-manager/shared";
-import { ProxyConfigurationFields } from "./ProxyConfigurationFields.js";
-import { ProductDrawer, ProductModal, useProductMessage, useProductModal } from "./ProductOverlays.js";
+import { ProductDrawer, useProductModal } from "./ProductOverlays.js";
 
 export function OperationDrawer({
   operation,
@@ -33,7 +29,7 @@ export function OperationDrawer({
   onClose,
   onChanged,
 }: {
-  operation?: AccountManagerOperationView;
+  operation?: AutomationOperationView;
   operationId?: string;
   open: boolean;
   onClose: () => void;
@@ -44,7 +40,6 @@ export function OperationDrawer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
-  const [cardOpen, setCardOpen] = useState(false);
   const targetOperationId = operationId ?? operation?.id;
   const load = async () => {
     if (!targetOperationId) return;
@@ -96,7 +91,7 @@ export function OperationDrawer({
   return (
     <>
       <ProductDrawer
-        title="操作详情与恢复"
+        title="操作详情"
         open={open}
         onClose={onClose}
         width={720}
@@ -153,55 +148,15 @@ export function OperationDrawer({
                       : "active"
                 }
               />
-              {(value.message || value.errorMessage) && (
+              {value.errorMessage && (
                 <Alert
-                  type={value.errorMessage ? "error" : "info"}
+                  type="error"
                   showIcon
-                  message={value.errorMessage ?? value.message}
+                  message={value.errorMessage}
                   description={value.errorCode}
                 />
               )}
               <Space wrap>
-                {actions?.retry && <Button
-                  loading={busy === "retry"}
-                  onClick={() =>
-                    run("retry", () =>
-                      unifiedApi.controlOperation(value.id, "retry"),
-                    )
-                  }
-                >
-                  重试当前步骤
-                </Button>}
-                {actions?.rotateIp && <Button
-                  loading={busy === "proxy"}
-                  onClick={() =>
-                    productModal.confirm({
-                      title: "轮换代理 IP 并重试？",
-                      content: "GAM 会切换住宅代理会话并从当前步骤继续。",
-                      okText: "轮换 IP",
-                      onOk: () => run("proxy", () => unifiedApi.controlOperation(value.id, "rotate-ip")),
-                    })
-                  }
-                >
-                  轮换代理 IP
-                </Button>}
-                {actions?.terminate && <Button
-                  loading={busy === "terminate"}
-                  danger
-                  onClick={() =>
-                    productModal.confirm({
-                      title: "终止当前操作？",
-                      content: "终止后任务不会自动继续，已经发生的上游行为不会回滚。",
-                      okText: "终止操作",
-                      okButtonProps: { danger: true },
-                      onOk: () => run("terminate", () => unifiedApi.controlOperation(value.id, "terminate")),
-                    })
-                  }
-                >
-                  终止操作
-                </Button>}
-                {actions?.editRegistrationProxy && <RegistrationProxyButton operationId={value.id} onChanged={() => { void load(); onChanged?.(); }} />}
-                {actions?.supplyCard && <Button onClick={() => setCardOpen(true)}>补充支付卡</Button>}
                 {actions?.remove && <Button
                   loading={busy === "delete"}
                   danger
@@ -265,30 +220,6 @@ export function OperationDrawer({
           )}
         </LoadBoundary>
       </ProductDrawer>
-      <ProductModal
-        title="补充支付卡"
-        open={cardOpen}
-        onCancel={() => setCardOpen(false)}
-      >
-        <Alert
-          type="info"
-          showIcon
-          message="卡号和 CVC 直接提交给 GAM，不写入 Team Manager 数据库。"
-        />
-        <Form
-          layout="vertical"
-          onFinish={(card) =>
-            run("card", () =>
-              unifiedApi.supplyOperationCard(value!.id, { card }),
-            ).then(() => setCardOpen(false))
-          }
-        >
-          <PaymentCardFields />
-          <Button type="primary" htmlType="submit" loading={busy === "card"}>
-            提交支付卡
-          </Button>
-        </Form>
-      </ProductModal>
     </>
   );
 }
@@ -302,68 +233,4 @@ function operationEventSummary(payload: Record<string, unknown>): string {
     .slice(0, 3)
     .map(([key, value]) => `${key}: ${String(value)}`);
   return entries.join(" · ") || "—";
-}
-
-function RegistrationProxyButton({
-  operationId,
-  onChanged,
-}: {
-  operationId: string;
-  onChanged: () => void;
-}) {
-  const productMessage = useProductMessage();
-  const [form] = Form.useForm<ResidentialProxyConfig>();
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    setError('');
-    void unifiedApi.registrationProxy(operationId)
-      .then((value) => form.setFieldsValue(value))
-      .catch((reason) => setError((reason as Error).message))
-      .finally(() => setLoading(false));
-  }, [form, open, operationId]);
-
-  return (
-    <>
-      <Button onClick={() => setOpen(true)}>编辑注册代理</Button>
-      <ProductModal title="编辑注册任务代理" open={open} onCancel={() => setOpen(false)} width={640}>
-        <Alert type="info" showIcon message="修改的是当前注册任务使用的住宅代理，不影响其他账号。" />
-        {error && <Alert className="modal-error" type="error" showIcon message={error} />}
-        <Form
-          form={form}
-          layout="vertical"
-          disabled={loading}
-          className="account-action-form"
-          onFinish={async (values) => {
-            setSaving(true);
-            setError('');
-            try {
-              await unifiedApi.configureRegistrationProxy(operationId, {
-                sid: values.sid,
-                country: values.country.toUpperCase(),
-                asn: values.asn || null,
-                state: values.state || null,
-                city: values.city || null,
-              });
-              productMessage.success('注册任务代理已保存');
-              setOpen(false);
-              onChanged();
-            } catch (reason) {
-              setError((reason as Error).message);
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          <ProxyConfigurationFields form={form} showRandomSidButton />
-          <Button type="primary" htmlType="submit" loading={saving}>保存注册代理</Button>
-        </Form>
-      </ProductModal>
-    </>
-  );
 }

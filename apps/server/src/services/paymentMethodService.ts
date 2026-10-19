@@ -16,7 +16,6 @@ import { SessionRepository } from '../repositories/sessionRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { ServiceError, asServiceError, upstreamHttpError } from '../serviceError.js';
 import type { HttpResponse, Transport } from '../transport.js';
-import type { AccountManagerService } from './accountManagerService.js';
 import type { PersonalSpaceService } from './personalSpaceService.js';
 import type { WorkspaceOperationService } from './workspaceOperationService.js';
 
@@ -92,7 +91,7 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
     private readonly chatGptTransport: Transport,
     private readonly stripeTransport: SensitiveStripeTransport,
     private readonly config: Pick<AppConfig,
-      'stripePublishableKeys' | 'stripePaymentUserAgent' | 'stripeWalletConfigId' | 'paymentHttpProxyHost'>,
+      'stripePublishableKeys' | 'stripePaymentUserAgent' | 'stripeWalletConfigId'>,
     private readonly wait: (milliseconds: number) => Promise<void> = delay
   ) {}
 
@@ -103,11 +102,10 @@ export class HttpPaymentMethodBinder implements PaymentMethodBinder {
     if (!publishableKeys.length || !paymentUserAgent) {
       throw new ServiceError(503, 'Stripe HTTP 绑定配置不完整');
     }
-    const proxy = overrideProxyHost(input.proxy, this.config.paymentHttpProxyHost);
     const { accessToken, cookie } = await this.targetContext(input);
     const clientSecret = await this.createSetupIntent(accessToken, input.targetAccountId, cookie, input.proxy);
-    const publishableKey = await this.selectPublishableKey(clientSecret, publishableKeys, proxy);
-    await this.confirmSetupIntent(clientSecret, publishableKey, paymentMethod, paymentUserAgent, proxy);
+    const publishableKey = await this.selectPublishableKey(clientSecret, publishableKeys, input.proxy);
+    await this.confirmSetupIntent(clientSecret, publishableKey, paymentMethod, paymentUserAgent, input.proxy);
     const paymentMethods = await this.waitForPaymentMethod(
       accessToken,
       input.targetAccountId,
@@ -311,7 +309,6 @@ export class SubscriptionPaymentMethodService {
     private readonly sessions: SessionRepository,
     private readonly operational: AccountOperationalRepository,
     private readonly binder: PaymentMethodBinder,
-    private readonly accountManagement: AccountManagerService,
     private readonly personalSpaces: PersonalSpaceService,
     private readonly workspaceOperations: WorkspaceOperationService,
     private readonly config: Pick<AppConfig, 'paymentBillingPostalCode' | 'paymentBillingRegion'>
@@ -426,8 +423,7 @@ export class SubscriptionPaymentMethodService {
     this.#activePaymentWrites.add(key);
     try {
       const session = await this.requireSession(accountId);
-      const proxy = await this.operational.proxy(accountId)
-        ?? await this.accountManagement.ensureHttpProxy(accountId);
+      const proxy = await this.operational.proxy(accountId);
       if (!proxy) throw new ServiceError(409, '账号没有可用的 HTTP 代理');
       return await action(session.sessionToken!, proxy);
     } catch (error) {
@@ -578,11 +574,6 @@ function validatePaymentMethodId(value: string) {
   const paymentMethodId = String(value ?? '').trim();
   if (!/^[A-Za-z0-9_-]{3,255}$/u.test(paymentMethodId)) throw new ServiceError(400, '支付方式 ID 无效');
   return paymentMethodId;
-}
-
-function overrideProxyHost(proxy: string, hostOverride?: string) {
-  if (!hostOverride?.trim()) return proxy;
-  const url = new URL(proxy); url.hostname = hostOverride.trim(); return url.toString();
 }
 
 function randomHolderName() {

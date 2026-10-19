@@ -18,8 +18,7 @@ import { ReloadOutlined } from "@ant-design/icons";
 import { ProductModal, useProductMessage, useProductModal } from "../../components/ProductOverlays.js";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type {
-  AccountManagerOperationView,
-  AccountManagerStateView,
+  AutomationOperationView,
   UnifiedAccountDetailView,
 } from "@team-manager/shared";
 import {
@@ -45,6 +44,7 @@ import {
 import { LoadBoundary, PageHeader, formatTime } from "../../components/ProductPrimitives.js";
 import { ActivityTimeline, BillingSummary, SubscriptionSummary } from "../../components/OperationalDataPanels.js";
 import { AccountOperationSummary } from "./AccountOperationSummary.js";
+import { operationTypeLabel } from "./operationUiModel.js";
 import { OperationDrawer } from "../../components/OperationDrawer.js";
 import { SubscriptionPaymentMethodModal } from "../../components/SubscriptionPaymentMethodModal.js";
 import { errorMessage } from "../../api.js";
@@ -63,14 +63,12 @@ export function AccountDetailPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [account, setAccount] = useState<UnifiedAccountDetailView>();
-  const [manager, setManager] = useState<AccountManagerStateView>();
   const [personal, setPersonal] = useState<PersonalSpaceDetailView>();
   const [activity, setActivity] = useState<AccountActivityView[]>([]);
   const [poolGroups, setPoolGroups] = useState<CredentialPoolGroupView[]>([]);
   const [error, setError] = useState("");
   const [optionalErrors, setOptionalErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState("");
   const load = async () => {
     if (!accountId) return;
     setLoading(true);
@@ -79,18 +77,14 @@ export function AccountDetailPage() {
       const nextAccount = await unifiedApi.account(accountId);
       setAccount(nextAccount);
       const optional = await Promise.allSettled([
-        nextAccount.gamAccountRef
-          ? unifiedApi.accountManagerState(accountId)
-          : Promise.resolve(undefined),
         unifiedApi.personalSpace(accountId),
         unifiedApi.accountActivity(accountId),
         unifiedApi.credentialPoolGroups(),
       ]);
       setOptionalErrors(optional.flatMap((result) => result.status === 'rejected' ? [(result.reason as Error).message] : []));
-      if (optional[0].status === "fulfilled") setManager(optional[0].value);
-      if (optional[1].status === "fulfilled") setPersonal(optional[1].value);
-      if (optional[2].status === "fulfilled") setActivity(optional[2].value);
-      if (optional[3].status === "fulfilled") setPoolGroups(optional[3].value);
+      if (optional[0].status === "fulfilled") setPersonal(optional[0].value);
+      if (optional[1].status === "fulfilled") setActivity(optional[1].value);
+      if (optional[2].status === "fulfilled") setPoolGroups(optional[2].value);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -100,28 +94,11 @@ export function AccountDetailPage() {
   useEffect(() => {
     void load();
   }, [accountId]);
-  const run = async (key: string, action: () => Promise<unknown>) => {
-    setBusy(key);
-    setError("");
-    try {
-      await action();
-      productMessage.success("操作已完成");
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy("");
-    }
-  };
   const tab = params.get("tab") ?? "overview";
   const accountAction = actionModalFromParams(params);
   const selectedOperation = useMemo(
-    () =>
-      mergeOperations(
-        account?.operations ?? [],
-        manager?.operations ?? [],
-      ).find((item) => item.id === params.get("operationId")),
-    [account, manager, params],
+    () => account?.operations.find((item) => item.id === params.get("operationId")),
+    [account, params],
   );
   const setUrl = (key: string, value?: string) => {
     const next = new URLSearchParams(params);
@@ -132,7 +109,7 @@ export function AccountDetailPage() {
     setParams(setAccountActionInParams(params, action, account?.id));
   const closeAccountAction = () =>
     setParams(setAccountActionInParams(params));
-  const showCreatedOperation = (operation: AccountManagerOperationView) => {
+  const showCreatedOperation = (operation: AutomationOperationView) => {
     const next = setAccountActionInParams(params);
     next.set("operationId", operation.id);
     setParams(next);
@@ -163,12 +140,7 @@ export function AccountDetailPage() {
               description={accountDetailDescription(account.group.name, account.remark)}
               actions={
                 <>
-                  <AccountActionButtons
-                    account={account as AccountActionSummary}
-                    profileStatus={manager?.profile?.status}
-                    onOpen={openAccountAction}
-                    onChanged={load}
-                  />
+                  <AccountActionButtons onOpen={openAccountAction} />
                   <Button
                     danger
                     onClick={() => setUrl("delete", "1")}
@@ -187,19 +159,13 @@ export function AccountDetailPage() {
                 {
                   key: "overview",
                   label: "概览",
-                  children: <Overview account={account} manager={manager} openOperation={(id) => setUrl("operationId", id)} />,
+                  children: <Overview account={account} openOperation={(id) => setUrl("operationId", id)} />,
                 },
                 {
                   key: "management",
                   label: "账号管理",
                   children: (
-                    <Management
-                      account={account}
-                      manager={manager}
-                      busy={busy}
-                      run={run}
-                      onRebuildGam={() => openAccountAction("rebuild-gam")}
-                    />
+                    <Management account={account} />
                   ),
                 },
                 {
@@ -226,13 +192,10 @@ export function AccountDetailPage() {
                 },
                 {
                   key: "operations",
-                  label: `操作记录 (${mergeOperations(account.operations, manager?.operations ?? []).length})`,
+                  label: `操作记录 (${account.operations.length})`,
                   children: (
                     <Operations
-                      operations={mergeOperations(
-                        account.operations,
-                        manager?.operations ?? [],
-                      )}
+                      operations={account.operations}
                       open={(id) => setUrl("operationId", id)}
                     />
                   ),
@@ -246,12 +209,7 @@ export function AccountDetailPage() {
             />
           </Card>
           <AccountActionModals
-            account={
-              {
-                ...account,
-                profileStatus: manager?.profile?.status,
-              } as AccountActionSummary
-            }
+            account={account as AccountActionSummary}
             action={accountAction}
             onClose={closeAccountAction}
             onChanged={load}
@@ -279,11 +237,9 @@ export function AccountDetailPage() {
 
 function Overview({
   account,
-  manager,
   openOperation,
 }: {
   account: UnifiedAccountDetailView;
-  manager?: AccountManagerStateView;
   openOperation: (id: string) => void;
 }) {
   const invalidContexts = account.accessContexts.filter((item) => item.status === "invalid");
@@ -299,7 +255,6 @@ function Overview({
         message="访问凭证需要刷新"
         description={`${invalidContexts.length} 个访问上下文的 Access Token 无效或过期；这不代表账号登录失效。`}
       />}
-      {manager?.errors && <AccountManagerErrors errors={manager.errors} />}
       {account.latestOperation && <AccountOperationSummary operation={account.latestOperation} onOpen={openOperation} />}
       <Descriptions
         bordered
@@ -310,16 +265,6 @@ function Overview({
           key: "plan",
           label: "主套餐",
           children: <Space><Tag color="blue">{primaryPlanLabel(account.primaryPlan)}</Tag><Typography.Text type="secondary">{lifecycleLabel(account.primaryPlanLifecycle)}</Typography.Text></Space>,
-        },
-        {
-          key: "gam",
-          label: "GAM",
-          children: account.gamAccountRef ?? "未关联",
-        },
-        {
-          key: "profile",
-          label: "Profile",
-          children: manager?.profile?.status ?? "未知",
         },
         { key: "health", label: "访问凭证健康", children: invalidContexts.length > 0 ? <Tag color="warning">存在异常</Tag> : account.accessContexts.length > 0 && account.accessContexts.every((item) => item.status === "valid") ? <Tag color="success">有效</Tag> : "未验证" },
         { key: "remote-user-id", label: "ChatGPT User ID", children: account.remoteUserId ? <Typography.Text copyable>{account.remoteUserId}</Typography.Text> : "—" },
@@ -343,76 +288,23 @@ function Overview({
   );
 }
 
-export function Management({
-  account,
-  manager,
-  busy,
-  run,
-  onRebuildGam,
-}: {
-  account: UnifiedAccountDetailView;
-  manager?: AccountManagerStateView;
-  busy: string;
-  run: (k: string, a: () => Promise<unknown>) => Promise<void>;
-  onRebuildGam: () => void;
-}) {
+export function Management({ account }: { account: UnifiedAccountDetailView }) {
   return (
-    <Space direction="vertical" size={16} className="panel-stack">
-      {!account.gamAccountRef && (
-        <Alert
-          type="warning"
-          showIcon
-          message="账号尚未纳入 GAM 管理"
-          description={account.hasSession ? "可以使用当前 Session 发起 existing_session 纳管。" : "请先通过“编辑”保存完整 Session。"}
-          action={<Button type="primary" disabled={!account.hasSession} loading={busy === 'enroll'} onClick={() => run('enroll', () => unifiedApi.enrollAccountManager(account.id))}>纳入 GAM 管理</Button>}
-        />
-      )}
-      {manager?.errors && <AccountManagerErrors errors={manager.errors} />}
-      <Descriptions
-        bordered
-        column={{ xs: 1, sm: 2 }}
-        items={[
-          {
-            key: "profile",
-            label: "Profile",
-            children: manager?.profile?.status ?? "未知",
-          },
-          {
-            key: "profileId",
-            label: "Profile ID",
-            children: manager?.profile?.profileId ?? "—",
-          },
-          {
-            key: "proxy",
-            label: "住宅代理",
-            children: manager?.proxy
-              ? `${manager.proxy.country} / ${manager.proxy.sid}`
-              : "未读取",
-          },
-          {
-            key: "session",
-            label: "本地 Session",
-            children: account.hasSession ? "可用" : "无",
-          },
-        ]}
-      />
-      {account.gamAccountRef && (
-        <Alert
-          type="warning"
-          showIcon
-          message="GAM 资料异常时可从当前 Session 重建"
-          description={account.hasSession
-            ? "重建会清理现有 GAM 账号和 CloakBrowser Profile，再按首次纳管流程应用登录态。"
-            : "当前账号没有完整 Session，请先编辑账号并保存 Session JSON。"}
-          action={(
-            <Button danger disabled={!account.hasSession} onClick={onRebuildGam}>
-              重建 GAM
-            </Button>
-          )}
-        />
-      )}
-    </Space>
+    <Descriptions
+      bordered
+      column={{ xs: 1, sm: 2 }}
+      items={[
+        { key: "proxy", label: "出口代理", children: proxyLabel(account) },
+        { key: "session", label: "本地 Session", children: account.hasSession ? "可用" : "无" },
+      ]}
+    />
   );
+}
+
+export function proxyLabel(account: Pick<UnifiedAccountDetailView, "proxyConfigured" | "residentialProxy">): string {
+  const proxy = account.residentialProxy;
+  if (proxy) return `住宅代理 ${[proxy.country, proxy.asn, proxy.state, proxy.city].filter(Boolean).join(" / ")} · SID ${proxy.sid}`;
+  return account.proxyConfigured ? "手工代理地址" : "未配置（默认出口）";
 }
 
 function PersonalPanel({
@@ -667,7 +559,7 @@ function Operations({
   operations,
   open,
 }: {
-  operations: AccountManagerOperationView[];
+  operations: AutomationOperationView[];
   open: (id: string) => void;
 }) {
   const pagination=useUrlPagination({total:operations.length,pageKey:"operationsPage",pageSizeStorageKey:"account-operations"});
@@ -689,7 +581,7 @@ function Operations({
           fixed: "right",
           render: (_, row) => (
             <Button size="small" onClick={() => open(row.id)}>
-              查看与恢复
+              查看
             </Button>
           ),
         },
@@ -702,15 +594,6 @@ function readableCode(value: unknown): string {
   return String(value ?? "—").replaceAll("_", " ");
 }
 
-function operationTypeLabel(value: string): string {
-  return ({ register_account: "注册账号", change_personal_subscription: "个人套餐", cancel_personal_subscription_renewal: "取消续费", open_business_subscription: "Business 套餐" } as Record<string, string>)[value] ?? readableCode(value);
-}
-
-function AccountManagerErrors({ errors }: { errors: NonNullable<AccountManagerStateView['errors']> }) {
-  const labels = { service: 'GAM 服务', profile: 'Profile', proxy: '住宅代理', operations: '操作记录' };
-  const values = Object.entries(errors).map(([key, value]) => `${labels[key as keyof typeof labels]}：${value}`);
-  return values.length ? <Alert type="warning" showIcon message="GAM 部分资源读取失败" description={values.join('；')} /> : null;
-}
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -765,12 +648,4 @@ function notificationChannel(
   const options = asRecordArray(value?.options) ?? [];
   const option = options.find((item) => item.channel === channel);
   return typeof option?.enabled === "boolean" ? option.enabled : undefined;
-}
-function mergeOperations<T extends { id: string; updatedAt: number }>(
-  local: T[],
-  remote: T[],
-): T[] {
-  const values = new Map(remote.map((item) => [item.id, item]));
-  for (const item of local) if (!values.has(item.id)) values.set(item.id, item);
-  return [...values.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }

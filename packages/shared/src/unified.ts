@@ -1,10 +1,9 @@
-import type { AccountLimitType, AccountManagerOperationView, AccountManagerProfileView, AccountProfileStatus, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatSlotExpirationStatus, SeatSlotRelationStatus, SeatType } from './index.js';
+import type { AccountLimitType, AutomationOperationView, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatSlotExpirationStatus, SeatSlotRelationStatus, SeatType } from './index.js';
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export type PersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
 export type PrimaryPlan = PersonalPlan | 'business_fixed_seat' | 'business_usage_based' | 'team_member';
-export type PersonalSubscriptionMode = 'start_new' | 'change_existing';
-export type BusinessSubscriptionMode = 'create_workspace' | 'upgrade_existing_workspace';
+export type PersonalSubscriptionMode = 'change_existing';
 export type NormalizedWorkspaceRole = 'owner' | 'admin' | 'member' | 'analytics_viewer' | 'unknown';
 export type AccountLifecycleKind = 'renews' | 'expires' | 'valid_until' | 'expired';
 export type AccessContextHealthStatus = 'valid' | 'invalid' | 'unknown' | 'missing';
@@ -36,9 +35,6 @@ export interface UnifiedAccountSummaryView {
   remark?: string;
   group: Pick<AccountGroupView, 'id' | 'name'>;
   isBanned: boolean;
-  hasGamBinding: boolean;
-  profileStatus: AccountProfileStatus;
-  hasRunningProfile: boolean;
   hasSession: boolean;
   hasManageableWorkspace: boolean;
   isWorkspaceMember: boolean;
@@ -46,7 +42,7 @@ export interface UnifiedAccountSummaryView {
   primaryPlan: PrimaryPlan;
   primaryPlanSeatUsage?: { occupied: number; capacity?: number };
   primaryPlanLifecycle?: AccountPlanLifecycleView;
-  latestOperation?: AccountManagerOperationView;
+  latestOperation?: AutomationOperationView;
   limitType: AccountLimitType;
   workspaceCount: number;
   credentialCount: number;
@@ -82,7 +78,6 @@ export interface AccountDeletionPreview {
     personalSpaces: number;
     sessionRecords: number;
     accessContexts: number;
-    gamBindings: number;
     memberships: number;
     invitations: number;
     credentials: number;
@@ -131,14 +126,6 @@ export interface WorkspaceDeletionResult {
   resources: WorkspaceDeletionPreview['resources'];
   removedCredentialArtifactCount: number;
   credentialArtifactCleanupFailures: number;
-}
-
-export interface AccountRegistrationSummaryView {
-  kind: 'registration';
-  id: string;
-  email?: string;
-  group: Pick<AccountGroupView, 'id' | 'name'>;
-  operation: AccountManagerOperationView;
 }
 
 export interface PersonalSubscriptionSnapshotView {
@@ -319,8 +306,6 @@ export interface WorkspaceMemberRemovalResult {
   };
 }
 
-export type OperationControl = 'retry' | 'rotate-ip' | 'terminate';
-
 export interface SeatSlotMutationInput {
   seatKey?: string;
   email?: string | null;
@@ -413,7 +398,7 @@ export interface PaymentAttemptSummaryView {
   createdAt: string;
 }
 
-export interface OperationDetailView extends AccountManagerOperationView {
+export interface OperationDetailView extends AutomationOperationView {
   events: OperationEventView[];
   payment?: PaymentAttemptSummaryView;
   effectiveAt?: string;
@@ -707,8 +692,8 @@ export interface WorkspaceCredentialView {
 
 export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
   remoteUserId?: string;
-  gamAccountRef?: string;
   proxyConfigured: boolean;
+  residentialProxy?: ResidentialProxyConfig;
   personalPlan: PersonalPlan;
   session?: ChatGptSessionInput;
   personalSpace: {
@@ -721,28 +706,8 @@ export interface UnifiedAccountDetailView extends UnifiedAccountSummaryView {
   removedWorkspaces: RemovedAccountWorkspaceView[];
   credentials: WorkspaceCredentialView[];
   paymentMethods: PersonalPaymentMethodView[];
-  operations: AccountManagerOperationView[];
+  operations: AutomationOperationView[];
   accessContexts: AccountAccessContextHealthView[];
-  accountManager?: {
-    profile?: AccountManagerProfileView;
-    operations: AccountManagerOperationView[];
-    proxy?: ResidentialProxyConfig;
-  };
-}
-
-export interface AccountManagerStateView {
-  profile?: AccountManagerProfileView;
-  proxy?: ResidentialProxyConfig;
-  operations: AccountManagerOperationView[];
-  errors?: Partial<Record<'service' | 'profile' | 'proxy' | 'operations', string>>;
-}
-
-export interface RegisterAccountRequest {
-  groupId: string;
-  email?: string;
-  country?: string;
-  mailGroup?: string;
-  resumeExisting?: boolean;
 }
 
 export interface AddSubscriptionPaymentMethodRequest {
@@ -856,11 +821,7 @@ export interface PaymentCardInput {
 export interface ChangePersonalSubscriptionRequest {
   targetPlan: Exclude<PersonalPlan, 'free' | 'unknown'>;
   mode: PersonalSubscriptionMode;
-  country: string;
-  currency: string;
-  promoCode?: string;
   autoPay: boolean;
-  card?: PaymentCardInput;
 }
 
 export interface PersonalSubscriptionChangePreviewView {
@@ -875,16 +836,6 @@ export interface PersonalSubscriptionChangePreviewView {
     brand: string;
     last4: string;
   };
-}
-
-export interface OpenBusinessSubscriptionRequest {
-  mode: BusinessSubscriptionMode;
-  workspaceId?: string;
-  country: string;
-  currency: string;
-  promoCode?: string;
-  autoPay: boolean;
-  card?: PaymentCardInput;
 }
 
 export const PERSONAL_PLAN_OPTIONS: ReadonlyArray<{

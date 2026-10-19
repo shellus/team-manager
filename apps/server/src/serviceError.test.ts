@@ -11,7 +11,7 @@ test('上游 HTTP 状态与 Team Manager 响应状态分层保存', () => {
 });
 
 test('带状态的上游客户端错误统一转换并保留 upstreamStatus', () => {
-  const error = asServiceError(Object.assign(new Error('GAM unauthorized'), { status: 401 }));
+  const error = asServiceError(Object.assign(new Error('upstream unauthorized'), { status: 401 }));
   assert.equal(error.status, 502);
   assert.equal(error.upstreamStatus, 401);
 });

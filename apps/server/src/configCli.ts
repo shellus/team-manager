@@ -108,13 +108,6 @@ function migrationDocument(env: Record<string, string>, configRoot: string): Rec
       },
     },
     integrations: {
-      accountManager: {
-        token: env.TEAMMGR_ACCOUNT_MANAGER_TOKEN || null,
-        baseUrls: {
-          development: env.TEAMMGR_ACCOUNT_MANAGER_BASE_URL || null,
-          compose: 'http://registrar-api:3000',
-        },
-      },
       teamCode: {
         baseUrl: env.TEAMMGR_TEAMCODE_BASE_URL || null,
         passcode: env.TEAMMGR_TEAMCODE_PASSCODE || null,
@@ -125,10 +118,6 @@ function migrationDocument(env: Record<string, string>, configRoot: string): Rec
         walletConfigId: env.TEAMMGR_STRIPE_WALLET_CONFIG_ID || null,
       },
       payment: {
-        httpProxyHosts: {
-          development: env.TEAMMGR_PAYMENT_HTTP_PROXY_HOST || null,
-          compose: 'host.docker.internal',
-        },
         billingPostalCode: env.TEAMMGR_PAYMENT_BILLING_POSTAL_CODE || null,
         billingRegion: env.TEAMMGR_PAYMENT_BILLING_REGION || null,
       },

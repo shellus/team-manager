@@ -12,7 +12,7 @@ Team Manager 面向负责 ChatGPT 账号、Workspace、席位、凭证、订阅�
 
 Team Manager 以统一账号和 Workspace 关系模型集中管理 ChatGPT 运营事实。产品需要让管理员快速识别当前操作对象、区分个人空间与 Workspace、通过受控 API 执行业务操作，并以 PostgreSQL 中的结构化快照和关系记录呈现可复核结果。
 
-核心体验从统一账号页管理 GAM、Profile、代理、Session、个人套餐和支付方式，并在账号详情的 Workspace 标签内切换空间、同步账号关系、管理成员与邀请、设置、账单及当前 `Account × Workspace` 凭证。个人空间与 Workspace 都能绑定目标支付方式和直接取消续费，已退出关系保留独立的本地清理入口。Workspace 保持独立领域实体，但不设独立管理页面；账号是否可管理 Workspace 由活动 owner/admin Membership 派生。
+核心体验从统一账号页管理住宅代理、Session、个人套餐和支付方式，并在账号详情的 Workspace 标签内切换空间、同步账号关系、管理成员与邀请、设置、账单及当前 `Account × Workspace` 凭证。个人空间与 Workspace 都能绑定目标支付方式和直接取消续费，已退出关系保留独立的本地清理入口。Workspace 保持独立领域实体，但不设独立管理页面；账号是否可管理 Workspace 由活动 owner/admin Membership 派生。
 
 完整 HTTP trace、rrweb 与凭证 JSON 保持文件存储并由数据库索引。源码和公开文档不包含真实运行秘密。
 

@@ -22,7 +22,7 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 
 - 规范化账号邮箱唯一；账号分组外键必填。
 - Account 以邮箱标识，账号备注承担人工运营称呼，不保存重复的账号显示名。
-- 每个账号恰有一个个人空间、一个运营资料和至多一个 GAM 绑定。
+- 每个账号恰有一个个人空间和一个运营资料；运营资料保存限额类型、手工代理地址（加密）和账号住宅代理配置（`residential_proxy_*`，与手工代理互斥）。`gam_bindings` 为已停用的历史表，代码不再读写。
 - Workspace 外部 ID 唯一。
 - 活动 owner/admin Membership 派生可管理能力。
 - `workspaces.preferred_manager_account_id` 是 Workspace 维度的本地展示选择，只能通过服务写为该 Workspace 当前活动且已关联 Account 的 owner；它不表达上游主次 owner 或 Workspace 归属。

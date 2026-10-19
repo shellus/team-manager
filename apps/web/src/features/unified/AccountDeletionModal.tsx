@@ -156,7 +156,6 @@ export function AccountDeletionModal({
                 { key: "personalSpaces", label: "个人空间", children: preview.resources.personalSpaces },
                 { key: "sessionRecords", label: "Session", children: preview.resources.sessionRecords },
                 { key: "accessContexts", label: "访问上下文", children: preview.resources.accessContexts },
-                { key: "gamBindings", label: "GAM 绑定", children: preview.resources.gamBindings },
                 { key: "memberships", label: "成员关系", children: preview.resources.memberships },
                 { key: "invitations", label: "邀请", children: preview.resources.invitations },
                 { key: "credentials", label: "Workspace 凭证", children: preview.resources.credentials },

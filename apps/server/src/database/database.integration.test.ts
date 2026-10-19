@@ -33,7 +33,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities', '025_workspace_preferred_manager']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities', '025_workspace_preferred_manager', '026_account_residential_proxy']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -47,18 +47,17 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const first = await accounts.create({ email: 'owner@example.com', groupId: group.id });
       const second = await accounts.create({ email: 'member@example.com', groupId: group.id });
       const outsider = await accounts.create({ email: 'outsider@example.com', groupId: group.id });
-      const rebuildAccount = await accounts.create({ email: 'rebuild@example.com', groupId: group.id });
+      const proxyAccount = await accounts.create({ email: 'proxy@example.com', groupId: group.id });
       await assert.rejects(accounts.create({ email: 'OWNER@example.com', groupId: group.id }), /duplicate key/i);
       const olderSortAccount = await accounts.create({ email: 'sort-order-older@example.com', groupId: group.id });
       const newerSortAccount = await accounts.create({ email: 'sort-order-newer@example.com', groupId: group.id });
       await db.updateTable('accounts').set({ created_at: new Date('2025-01-01T00:00:00Z') }).where('id', '=', olderSortAccount.account.id).execute();
       await db.updateTable('accounts').set({ created_at: new Date('2025-01-02T00:00:00Z') }).where('id', '=', newerSortAccount.account.id).execute();
       await accounts.update(olderSortAccount.account.id, { remark: '最近编辑但创建更早' });
-      await db.updateTable('account_operational_profiles').set({ profile_status: 'running' }).where('account_id', '=', olderSortAccount.account.id).execute();
       assert.deepEqual((await accounts.list({ query: 'sort-order' })).map((item) => item.id), [
         olderSortAccount.account.id,
         newerSortAccount.account.id
-      ], '账号列表默认按创建时间正序，不受更新时间或 Profile 运行状态影响');
+      ], '账号列表默认按创建时间正序，不受更新时间影响');
       const workspace = await workspaces.upsert({ externalId: 'workspace-external', name: 'Business', normalizedPlan: 'business' });
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: first.account.id, remoteUserId:'owner-remote',email: first.account.email, normalizedRole: 'owner', seatType: 'default', observedAt: new Date(), source: 'test' });
       await workspaces.upsertMembership({ workspaceId: workspace.id, accountId: second.account.id, remoteUserId:'member-remote',email: second.account.email, normalizedRole: 'member', seatType: 'usage_based', observedAt: new Date(), source: 'test' });
@@ -197,21 +196,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),'stale-workspace-token');
       assert.equal(await sessions.invalidateWorkspaceAccessTokens(first.account.id),1);
       assert.equal(await sessions.accessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id}),undefined,'新 Session 保存后不能继续使用旧 Workspace Token');
-      await accounts.bindGamAccount(first.account.id, first.account.email);
-      await sessions.saveRevision({
-        accountId: rebuildAccount.account.id,
-        session: {
-          user: { email: rebuildAccount.account.email },
-          account: { id: 'rebuild-personal' },
-          accessToken: 'rebuild-access-token',
-          sessionToken: 'rebuild-session-token'
-        },
-        source: 'test-rebuild'
-      });
-      await accounts.bindGamAccount(rebuildAccount.account.id, rebuildAccount.account.email);
-      await operational.setProxy(rebuildAccount.account.id, 'http://stale-proxy.example:8080');
-      await db.updateTable('account_operational_profiles').set({ profile_status: 'running' })
-        .where('account_id', '=', rebuildAccount.account.id).execute();
+      await operational.setProxy(proxyAccount.account.id, 'http://manual-proxy.example:8080');
+      await operational.setProxy(first.account.id, 'http://proxy.example:8080');
       const renewalByAccount = new Map<string, boolean>();
       const personalPlanByAccount = new Map<string, string>();
       const missingPersonalSubscriptionAccounts = new Set<string>();
@@ -221,34 +207,11 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       }>>();
       const workspaceMutationRequests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
       const workspaceInvites: Array<Record<string, unknown>> = [];
-      const completedOperations = new Set<string>();
-      const acknowledgedRegistrationDeliveries: string[] = [];
-      const removedGamAccounts: string[] = [];
-      const importedGamAccounts: Array<Record<string, unknown>> = [];
       const workspaceOrderLinkInputs: any[] = [];
 
       const app = await buildUnifiedApp({
         database: db,
         config: { port: 0, dataDir: '/tmp', artifactDir: '/tmp', databaseUrl, dataEncryptionKey: '0'.repeat(64), dataEncryptionKeyVersion: 'test-v1', jwtSecret: 'secret', jwtIssuer: 'team-manager', adminUsername: 'admin', adminPasswordHash: await hashPassword('password'), apiToken: 'test-token', allowedOrigins: [], webDistDir: '/missing' },
-        accountManager: {
-          operation: async (id) => completedOperations.has(id)
-            ? { ...operation(id), status: 'succeeded', phase: 'complete', progress: 100, completedAt: Date.now(), updatedAt: Date.now() }
-            : operation(id),
-          changePersonalSubscription: async () => operation('personal-operation'),
-          openBusinessSubscription: async (_account, input) => operation('business-operation', { workspaceId: input.workspaceId }),
-          accountHttpProxy: async()=>({proxy:'http://proxy.example:8080'}),
-          deleteAccount: async(id)=>{removedGamAccounts.push(id);return true;},
-          startAccountImport:async(input)=>{importedGamAccounts.push(input as unknown as Record<string, unknown>);return operation('rebuild-import-operation');},
-          startRegistration:async()=>operation('registration-operation'),
-          registrationSessionDelivery:async()=>({
-            email:'new@example.com',
-            session:{
-              user:{email:'new@example.com'},account:{id:'new-personal-account'},
-              accessToken:'new-registration-access-token',sessionToken:'new-registration-session-token'
-            }
-          }),
-          acknowledgeRegistrationSessionDelivery:async(id)=>{acknowledgedRegistrationDeliveries.push(id);return true;}
-        },
         teamCode: {
           configured: true,
           generateOrder: async (input) => {
@@ -420,24 +383,31 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         }
       });
       const headers = { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' };
-      const rebuilt = await app.request(`/api/accounts/${rebuildAccount.account.id}/account-manager/rebuild`, {
-        method: 'POST',
-        headers
+      assert.equal((await app.request(`/api/accounts/${proxyAccount.account.id}/account-manager/rebuild`, { method: 'POST', headers })).status, 404,
+        'GAM 重建入口已下线');
+      const emptyResidential = await app.request(`/api/accounts/${proxyAccount.account.id}/residential-proxy`, { headers });
+      assert.equal(emptyResidential.status, 200);
+      assert.equal((await emptyResidential.json() as any).data, null);
+      const unconfiguredGateway = await app.request(`/api/accounts/${proxyAccount.account.id}/residential-proxy`, {
+        method: 'PUT', headers, body: JSON.stringify({ sid: 'Ab12Cd34', country: 'SG', asn: null, state: null, city: null })
       });
-      assert.equal(rebuilt.status, 200, await rebuilt.clone().text());
-      const rebuildOperation = (await rebuilt.json() as any).data;
-      assert.match(rebuildOperation.id, /^[0-9a-f-]{36}$/);
-      assert.equal(rebuildOperation.requestSummary.rebuild, true);
-      assert.deepEqual(removedGamAccounts, [rebuildAccount.account.email]);
-      assert.equal((importedGamAccounts[0] as any).authMethod, 'existing_session');
-      assert.equal((importedGamAccounts[0] as any).session.sessionToken, 'rebuild-session-token');
-      assert.equal(await db.selectFrom('gam_bindings').select('account_id')
-        .where('account_id', '=', rebuildAccount.account.id).executeTakeFirst(), undefined,
-      '发起重建后旧 GAM 绑定必须立即清除');
-      assert.equal(await operational.proxy(rebuildAccount.account.id), undefined,
-        '发起重建后旧 GAM 代理缓存必须清除');
-      assert.equal((await db.selectFrom('account_operational_profiles').select('profile_status')
-        .where('account_id', '=', rebuildAccount.account.id).executeTakeFirstOrThrow()).profile_status, 'unknown');
+      assert.equal(unconfiguredGateway.status, 503, '未配置住宅代理网关时拒绝保存住宅代理');
+      const gatewayAware = new AccountOperationalRepository(db, new SecretCipher('0'.repeat(64), 'test-v1'), (id) => `http://${id}:gateway@residential-proxy:3016`);
+      assert.equal(await gatewayAware.proxy(proxyAccount.account.id), 'http://manual-proxy.example:8080');
+      await gatewayAware.setResidentialProxy(proxyAccount.account.id, { sid: 'Ab12Cd34', country: 'SG', asn: null, state: null, city: null });
+      assert.equal(await gatewayAware.proxy(proxyAccount.account.id), `http://${proxyAccount.account.id}:gateway@residential-proxy:3016`,
+        '住宅代理优先于手工代理并经网关出站');
+      assert.equal((await db.selectFrom('account_operational_profiles').select('proxy_url_ciphertext')
+        .where('account_id', '=', proxyAccount.account.id).executeTakeFirstOrThrow()).proxy_url_ciphertext, null,
+      '保存住宅代理时清除手工代理地址');
+      assert.deepEqual((await gatewayAware.residentialProxies()).map((item) => item.accountId), [proxyAccount.account.id]);
+      const residentialDetail = await app.request(`/api/accounts/${proxyAccount.account.id}`, { headers });
+      assert.deepEqual((await residentialDetail.json() as any).data.residentialProxy,
+        { sid: 'Ab12Cd34', country: 'SG', asn: null, state: null, city: null });
+      await gatewayAware.setProxy(proxyAccount.account.id, 'http://manual-proxy.example:8080');
+      assert.equal(await gatewayAware.residentialProxy(proxyAccount.account.id), undefined, '手工代理与住宅代理互斥');
+      await gatewayAware.setResidentialProxy(proxyAccount.account.id, null);
+      assert.equal(await gatewayAware.proxy(proxyAccount.account.id), 'http://manual-proxy.example:8080', '清除住宅代理不影响手工代理');
       assert.equal((await app.request('/health')).status, 200);
       const unauthorizedResponse = await app.request('/api/accounts', {
         headers: { Authorization: 'Bearer invalid-token' }
@@ -481,7 +451,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         email: workspaceSyncAccount.account.email,
         normalizedRole: 'member',
         observedAt: new Date(),
-        source: 'gam_sync'
+        source: 'relationship_sync_test'
       });
       const accountWorkspaceSync = await app.request(`/api/accounts/${workspaceSyncAccount.account.id}/workspaces/sync`, { method: 'POST', headers });
       assert.equal(accountWorkspaceSync.status, 200, await accountWorkspaceSync.clone().text());
@@ -878,7 +848,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(primaryPlanAccounts[0].primaryPlan, 'team_member');
       assert.equal(primaryPlanAccounts[0].personalPlan, undefined, '列表摘要不暴露个人套餐事实字段');
       assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'displayName'), false, '账号摘要不保留无业务用途的显示名');
-      assert.equal(typeof primaryPlanAccounts[0].profileStatus, 'string');
+      assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'profileStatus'), false, '账号摘要不再包含浏览器 Profile 状态');
       assert.equal(typeof primaryPlanAccounts[0].limitType, 'string');
       assert.equal(Object.hasOwn(primaryPlanAccounts[0], 'accessContextHealth'), false,
         '账号摘要不把 Access Token 健康作为账号状态');
@@ -967,12 +937,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await accounts.findById(first.account.id))?.remark, 'Edited with session', 'Session 校验失败时不提前写入账号字段');
       const syncResponse = await app.request(`/api/accounts/${first.account.id}/sync`, { method: 'POST', headers });
       assert.equal(syncResponse.status, 404, '旧 GAM 全量同步入口已移除');
-      assert.equal((await db.selectFrom('personal_subscription_snapshots').selectAll().where('personal_space_id', '=', first.personalSpace.id).execute()).length, 0,
-        'GAM 同步资料不能写入个人套餐事实');
-      await db.updateTable('account_operational_profiles').set({account_manager_plan_code:'plus',account_manager_synced_at:new Date()}).where('account_id','=',first.account.id).execute();
       const detailResponse = await app.request(`/api/accounts/${first.account.id}`, { headers });
       assert.equal(detailResponse.status, 200);
-      assert.equal((await detailResponse.json() as any).data.personalPlan, 'unknown', '详情不再读取 GAM 套餐快照');
+      assert.equal((await detailResponse.json() as any).data.personalPlan, 'unknown', '没有个人套餐快照时详情显示未知');
       const accountWorkspaceResponse = await app.request(`/api/accounts/${first.account.id}/workspaces/${workspace.id}`, { headers });
       assert.equal(accountWorkspaceResponse.status, 200);
       const accountWorkspaceDetail = (await accountWorkspaceResponse.json() as any).data;
@@ -1059,14 +1026,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal(secondAfterRemoval.status, 200);
       assert.deepEqual((await secondAfterRemoval.json() as any).data.workspaces, [], '已移除的成员关系不能进入账号 Workspace 切换器');
 
-      const personal = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'plus', mode: 'start_new', country: 'US', currency: 'USD', autoPay: true, card: { number: '4242424242424242', expiryMonth: 12, expiryYear: 2030, cvc: '123' } }) });
-      assert.equal(personal.status, 200, await personal.clone().text());
-      const personalOperationId=(await personal.clone().json() as any).data.id;assert.match(personalOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${personalOperationId}`,{headers})).status,200);
-      const stored = await db.selectFrom('automation_operations').selectAll().where('external_operation_id', '=', 'personal-operation').executeTakeFirstOrThrow();
-      assert.equal(stored.id,personalOperationId);assert.equal(stored.progress,0);
-      const serializedStoredOperation = JSON.stringify(stored);
-      assert.equal(serializedStoredOperation.includes('4242424242424242'), false);
-      assert.equal(serializedStoredOperation.includes('"cvc":"123"'), false);
+      const startNew = await app.request(`/api/accounts/${first.account.id}/personal-subscription`, { method: 'POST', headers, body: JSON.stringify({ targetPlan: 'plus', mode: 'start_new', autoPay: true }) });
+      assert.equal(startNew.status, 400, '首次开通依赖的浏览器 Checkout 已下线');
 
       const paidPersonalRemoteId = (await db.selectFrom('personal_spaces').select('remote_account_id')
         .where('id', '=', first.personalSpace.id).executeTakeFirstOrThrow()).remote_account_id ?? 'personal-remote';
@@ -1090,9 +1051,8 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       const upgradedPayment = (await upgradedDetailResponse.json() as any).data.payment;
       assert.equal(upgradedPayment.resultCode, 'succeeded');assert.equal(upgradedPayment.cardBrand, 'mastercard');assert.equal(upgradedPayment.cardLast4, '1461');assert.equal(upgradedPayment.amount, '4819.02');assert.equal(upgradedPayment.currency, 'PHP');
       assert.equal(personalPlanByAccount.get(paidPersonalRemoteId), 'pro');
-      const business = await app.request(`/api/accounts/${first.account.id}/business-subscription`, { method: 'POST', headers, body: JSON.stringify({ mode: 'upgrade_existing_workspace', workspaceId: workspace.id, country: 'US', currency: 'USD', autoPay: false }) });
-      assert.equal(business.status, 200);
-      const businessOperationId=(await business.clone().json() as any).data.id;assert.match(businessOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${businessOperationId}`,{headers})).status,200);
+      assert.equal((await app.request(`/api/accounts/${first.account.id}/business-subscription`, { method: 'POST', headers, body: JSON.stringify({ mode: 'create_workspace' }) })).status, 404,
+        'Business 浏览器开通入口已下线');
 
       const personalCancel=await app.request(`/api/accounts/${first.account.id}/personal-subscription/cancel-renewal`,{method:'POST',headers});assert.equal(personalCancel.status,200,await personalCancel.clone().text());assert.equal((await personalCancel.json() as any).data.subscription.willRenew,false);
       await sessions.saveAccessToken(first.account.id,{kind:'workspace',workspaceId:workspace.id},'workspace-cancel-token',{status:'valid'});
@@ -1120,20 +1080,9 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
       assert.equal((await billing.detail({kind:'workspace',workspaceId:workspace.id}))?.paymentMethods[0]?.id,workspaceDefaultId,'移除 Workspace 卡片后返回前刷新账单快照');
       const paymentMutationActivities=await db.selectFrom('account_activity_logs').select('kind').where('account_id','=',first.account.id).where('kind','in',['subscription_payment_method_defaulted','subscription_payment_method_removed']).execute();assert.equal(paymentMutationActivities.length,4);
       const paymentOperationCountAfterMutations=Number((await db.selectFrom('automation_operations').select(({fn})=>fn.countAll().as('count')).executeTakeFirstOrThrow()).count);assert.equal(paymentOperationCountAfterMutations,paymentOperationCountBefore,'支付方式写操作不创建自动化操作记录');
-      const registration=await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id,country:'US'})});assert.equal(registration.status,200,await registration.clone().text());const registrationOperationId=(await registration.json() as any).data.id;assert.match(registrationOperationId,/^[0-9a-f-]{36}$/);assert.equal((await app.request(`/api/operations/${registrationOperationId}`,{headers})).status,200);
-      completedOperations.add('registration-operation');
-      const completedRegistration=await app.request(`/api/operations/${registrationOperationId}`,{headers});
-      assert.equal(completedRegistration.status,200,await completedRegistration.clone().text());
-      const registeredAccount=await accounts.findByEmail('new@example.com');
-      assert.ok(registeredAccount);
-      assert.equal((await sessions.currentSession(registeredAccount.id) as any).accessToken,'new-registration-access-token');
-      assert.deepEqual(acknowledgedRegistrationDeliveries,['registration-operation']);
-      const registrationRows=await app.request('/api/account-registrations',{headers});assert.equal(registrationRows.status,200);assert.deepEqual((await registrationRows.json() as any).data,[],'已完成注册收敛为正式账号后不再保留临时行');
+      assert.equal((await app.request('/api/operations/registrations',{method:'POST',headers,body:JSON.stringify({email:'new@example.com',groupId:group.id})})).status,404,'GAM 注册入口已下线');
+      assert.equal((await app.request('/api/account-registrations',{headers})).status,404,'注册中临时账号列表已下线');
       await accounts.update(first.account.id,{remark:'Visible Operator',isBanned:false});const remarkSearch=await app.request('/api/accounts?query=Visible%20Operator',{headers});assert.equal((await remarkSearch.json() as any).data[0].id,first.account.id);
-
-      const operationRow = await db.selectFrom('automation_operations').select('id').where('external_operation_id', '=', 'business-operation').executeTakeFirstOrThrow();
-      assert.equal((await app.request(`/api/operations/${operationRow.id}`, { headers })).status, 200);
-      assert.ok((await db.selectFrom('automation_operation_events').selectAll().where('operation_id', '=', operationRow.id).execute()).length > 0);
 
       const unauthorizedSlot = await app.request(`/api/workspaces/${workspace.id}/seat-slots`, { method: 'POST', headers, body: JSON.stringify({ executorAccountId:outsider.account.id,email: 'customer@example.com', seatType: 'usage_based' }) });
       assert.equal(unauthorizedSlot.status,409,'普通成员不能维护客户资料');
@@ -1298,8 +1247,5 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
   }
 });
 
-function operation(id: string, requestSummary: Record<string, unknown> = {}) {
-  return { id, type: id, status: 'queued' as const, phase: 'queued', progress: 0, requestSummary, createdAt: 1, updatedAt: 1 };
-}
 function databaseUrlFor(source: string, databaseName: string): string { const parsed = new URL(source); parsed.pathname = `/${databaseName}`; return parsed.toString(); }
 function quoteIdentifier(value: string): string { return `"${value.replaceAll('"', '""')}"`; }

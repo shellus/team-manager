@@ -22,10 +22,9 @@ const account = (id: string, groupId: string) => ({
 
 describe("account list filters", () => {
   test("represents every boolean filter as all, yes, or no", () => {
-    expect(accountListBooleanFilter(new URLSearchParams(), "hasGamBinding")).toBeUndefined();
-    expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=true"), "hasGamBinding")).toBe("true");
-    expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=false"), "hasGamBinding")).toBe("false");
-    expect(accountListBooleanFilter(new URLSearchParams("hasGamBinding=all"), "hasGamBinding")).toBeUndefined();
+    expect(accountListBooleanFilter(new URLSearchParams(), "isBanned")).toBeUndefined();
+    expect(accountListBooleanFilter(new URLSearchParams("isBanned=false"), "isBanned")).toBe("false");
+    expect(accountListBooleanFilter(new URLSearchParams("isBanned=all"), "isBanned")).toBeUndefined();
     expect(accountListBooleanFilter(new URLSearchParams("isBanned=true"), "isBanned")).toBe("true");
   });
 
@@ -34,9 +33,7 @@ describe("account list filters", () => {
       "groupId=group-a&query=alice&modal=edit&actionAccountId=account-1&operationId=op-1&hasGamBinding=true",
     );
 
-    expect(accountListRequestQuery(params).toString()).toBe(
-      "query=alice&hasGamBinding=true",
-    );
+    expect(accountListRequestQuery(params).toString()).toBe("query=alice");
   });
 
   test("preserves the explicit banned-state filter", () => {
@@ -55,14 +52,12 @@ describe("account list filters", () => {
       .toBe("primaryPlan=business_fixed_seat");
   });
 
-  test("drops removed filters and preserves every tri-state boolean value", () => {
+  test("drops removed filters, including retired GAM and Profile filters", () => {
     const params = new URLSearchParams(
       "hasManageableWorkspace=true&isWorkspaceMember=true&hasWorkspaceCredential=true&hasSession=true&hasGamBinding=false&hasRunningProfile=true",
     );
 
-    expect(accountListRequestQuery(params).toString()).toBe(
-      "hasGamBinding=false&hasRunningProfile=true",
-    );
+    expect(accountListRequestQuery(params).toString()).toBe("");
   });
 
   test("derives group counts and the selected table from one filtered result", () => {
@@ -118,7 +113,7 @@ describe("account list filters", () => {
 
     persistAccountListFilters(filtered, storage);
     expect(values.get(ACCOUNT_LIST_FILTER_STORAGE_KEY)).toBe(
-      "query=alice&primaryPlan=plus&hasGamBinding=true&hasRunningProfile=false&isBanned=true&groupId=group-a",
+      "query=alice&primaryPlan=plus&isBanned=true&groupId=group-a",
     );
     expect(accountListPersistedFilterQuery(filtered).has("page")).toBe(false);
 
@@ -128,7 +123,7 @@ describe("account list filters", () => {
         storage,
       )?.toString(),
     ).toBe(
-      "page=2&query=alice&primaryPlan=plus&hasGamBinding=true&hasRunningProfile=false&isBanned=true&groupId=group-a",
+      "page=2&query=alice&primaryPlan=plus&isBanned=true&groupId=group-a",
     );
   });
 
@@ -152,15 +147,15 @@ describe("account list filters", () => {
 
   test("defaults to oldest accounts and supports explicit sortable fields", () => {
     const sortable = [
-      { id: "new", email: "z@example.com", createdAt: "2026-01-02T00:00:00Z", group: { id: "b", name: "乙组" }, primaryPlan: "plus" as const, hasGamBinding: false },
-      { id: "old", email: "a@example.com", createdAt: "2026-01-01T00:00:00Z", group: { id: "a", name: "甲组" }, primaryPlan: "free" as const, hasGamBinding: true },
-      { id: "middle", email: "m@example.com", createdAt: "2026-01-01T12:00:00Z", group: { id: "b", name: "乙组" }, primaryPlan: "pro_20x" as const, hasGamBinding: false, primaryPlanLifecycle: { kind: "renews" as const, at: "2027-01-01T12:00:01Z" } },
+      { id: "new", email: "z@example.com", createdAt: "2026-01-02T00:00:00Z", group: { id: "b", name: "乙组" }, primaryPlan: "plus" as const },
+      { id: "old", email: "a@example.com", createdAt: "2026-01-01T00:00:00Z", group: { id: "a", name: "甲组" }, primaryPlan: "free" as const },
+      { id: "middle", email: "m@example.com", createdAt: "2026-01-01T12:00:00Z", group: { id: "b", name: "乙组" }, primaryPlan: "pro_20x" as const, primaryPlanLifecycle: { kind: "renews" as const, at: "2027-01-01T12:00:01Z" } },
     ];
 
     expect(sortAccountList(sortable).map(({ id }) => id)).toEqual(["old", "middle", "new"]);
     expect(sortAccountList(sortable, { field: "email", order: "descend" }).map(({ id }) => id)).toEqual(["new", "middle", "old"]);
     expect(sortAccountList(sortable, { field: "lifecycle", order: "ascend" }).map(({ id }) => id)).toEqual(["middle", "old", "new"]);
-    expect(sortAccountList(sortable, { field: "capability", order: "descend" }).map(({ id }) => id)).toEqual(["old", "middle", "new"]);
+    expect(sortAccountList(sortable, { field: "primaryPlan", order: "ascend" }).map(({ id }) => id)).toEqual(["old", "new", "middle"]);
   });
 
   test("stores explicit sorting and cancellation returns to the default order", () => {

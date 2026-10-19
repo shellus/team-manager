@@ -2,9 +2,8 @@
 
 ## 账号
 
-- 无 Session 或长期会话凭据失效：账号登录状态只由 Refresh Token / Session Token 的真实可用性决定；可以使用账号编辑弹窗粘贴 Session JSON，已绑定 GAM 的账号也可显式通过受管 Profile 刷新。Access Token 无效或过期只需从可用 Session Token 换取，不代表账号登录失效。
-- GAM 未关联：注册、Profile、代理和浏览器 Checkout 会返回 409；通过 GAM 纳管或注册流程建立自动关联，界面不手工填写 GAM 引用。纯 HTTP 绑卡只在账号缺少可用代理时依赖 GAM 提供代理事实。
-- Profile/代理不可用：检查 GAM 健康、账号引用和运行环境 Token。
+- 无 Session 或长期会话凭据失效：账号登录状态只由 Refresh Token / Session Token 的真实可用性决定；可以使用账号编辑弹窗粘贴 Session JSON。Access Token 无效或过期只需从可用 Session Token 换取，不代表账号登录失效。
+- 住宅代理保存失败：返回 503 表示部署未配置 `integrations.residentialProxy`；保存时网关热加载失败会返回错误，检查住宅代理网关容器与控制端。绑卡要求账号有住宅代理或手工代理地址，否则返回 409。
 - Session 邮箱不一致：系统拒绝导入，不能覆盖账号身份。
 
 ## Workspace
@@ -19,7 +18,7 @@
 - Plus 升级预览失败：Team Manager 不会提交订阅更新；检查当前默认支付方式、Session、账号代理和上游预览响应。
 - Plus 升级提交后未收敛：上游写请求已返回成功但套餐回读未确认目标值，不能自动重复提交；刷新个人订阅与账单后再判断。
 - 支付方式写入失败：绑定、设置默认和移除卡片都同步返回 ChatGPT 或 Stripe 的安全错误，并在成功后刷新账单。Stripe confirm 不写 HTTP trace，完整卡号和 CVC 不写数据库或普通日志。遇到 3DS、Radar 或结果未确认时停止提交，刷新账单后再判断，不通过操作面板恢复。
-- Business Checkout 长时间未完成：查看账号“操作记录”和 GAM 对应操作。支付方式管理和取消续费是 Team Manager 直连请求，失败时查看活动日志；只有不含完整卡片的 ChatGPT 请求进入 HTTP trace。
+- 支付方式管理和取消续费是 Team Manager 直连请求，失败时查看活动日志；只有不含完整卡片的 ChatGPT 请求进入 HTTP trace。
 
 ## 个人设置
 

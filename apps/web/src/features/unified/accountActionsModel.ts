@@ -7,7 +7,6 @@ import type {
 export type AccountActionModal =
   | "proxy"
   | "subscription"
-  | "rebuild-gam"
   | "edit";
 
 export type AccountActionSummary = UnifiedAccountSummaryView & {
@@ -60,23 +59,8 @@ export function lifecycleLabel(lifecycle?: UnifiedAccountSummaryView["primaryPla
   return `${label} ${new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(lifecycle.at))}`;
 }
 
-export function operationStatusLabel(status: import("@team-manager/shared").AccountManagerOperationStatus): string {
-  return ({ queued: "等待开始", running: "进行中", waiting_for_otp: "等待验证码", waiting_manual: "等待处理", succeeded: "已完成", failed: "失败", interrupted: "已中断" } as const)[status];
-}
-
-export function selectUpgradeableWorkspaces<
-  T extends {
-    manageable: boolean;
-    membershipStatus: string;
-    role: string;
-  },
->(workspaces: readonly T[]): T[] {
-  return workspaces.filter(
-    (workspace) =>
-      workspace.manageable &&
-      workspace.membershipStatus === "active" &&
-      (workspace.role === "owner" || workspace.role === "admin"),
-  );
+export function operationStatusLabel(status: import("@team-manager/shared").AutomationOperationStatus): string {
+  return ({ queued: "等待开始", running: "进行中", succeeded: "已完成", failed: "失败", interrupted: "已中断" } as const)[status];
 }
 
 export function parseSessionEditorInput(value: string): Record<string, unknown> {
@@ -87,35 +71,12 @@ export function parseSessionEditorInput(value: string): Record<string, unknown> 
   return parsed as Record<string, unknown>;
 }
 
-export type ProfileAction = "start" | "stop" | "pending";
-
-export function profileAction(
-  profileStatus: UnifiedAccountSummaryView["profileStatus"],
-  hasRunningProfile: boolean,
-): ProfileAction {
-  if (profileStatus === "queued" || profileStatus === "stopping") return "pending";
-  if (profileStatus === "running") return "stop";
-  return hasRunningProfile ? "stop" : "start";
-}
-
-export function executeProfileAction(
-  accountId: string,
-  action: Exclude<ProfileAction, "pending">,
-  commands: {
-    start: (id: string) => Promise<unknown>;
-    stop: (id: string) => Promise<unknown>;
-  },
-): Promise<unknown> {
-  return action === "stop" ? commands.stop(accountId) : commands.start(accountId);
-}
-
 export function actionModalFromParams(
   params: URLSearchParams,
 ): AccountActionModal | undefined {
   const modal = params.get("modal");
   return modal === "proxy" ||
     modal === "subscription" ||
-    modal === "rebuild-gam" ||
     modal === "edit"
     ? modal
     : undefined;

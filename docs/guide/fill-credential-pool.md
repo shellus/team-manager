@@ -17,7 +17,7 @@
 
 ## 创建账号
 
-在账号页启动 GAM 注册，创建时选择目标账号分组。注册成功后导入 GAM 交付的 Web Session，再由 Team Manager 直连刷新个人空间和账号与 Workspace 关系。注册任务异常在账号操作记录和 GAM 中处理。
+在账号页“添加账号”，选择目标账号分组并粘贴已登录账号的完整 Web Session，再由 Team Manager 直连刷新个人空间和账号与 Workspace 关系。账号注册不在 Team Manager 中进行。
 
 ## 调整席位
 

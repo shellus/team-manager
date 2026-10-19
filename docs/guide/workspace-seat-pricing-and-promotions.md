@@ -58,4 +58,4 @@ Checkout 页面返回按钮只导航到创建请求中的 `cancel_url`，不会�
 
 ## 集成边界
 
-GAM 的 Business Checkout 生成器支持显式 `checkoutUiMode: 'custom'` 和 `seatQuantities`。默认仍使用 Stripe Hosted 路径，避免现有自动支付流程误把 ChatGPT Custom Checkout 当成 Stripe 表单；Custom 模式只负责生成并校准 ChatGPT Checkout URL，后续支付自动化需要单独实现 Custom Checkout 页面协议。
+Team Manager 不再集成 GAM 的 Business Checkout 生成器；Business 浏览器开通已下线，见 [ADR 0013](../adr/0013-remove-gam-and-own-residential-proxy-gateway.md)。

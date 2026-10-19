@@ -7,9 +7,7 @@ export interface AccountListFilters {
   hasManageableWorkspace?: boolean;
   isWorkspaceMember?: boolean;
   hasWorkspaceCredential?: boolean;
-  hasGamBinding?: boolean;
   hasSession?: boolean;
-  hasRunningProfile?: boolean;
   primaryPlan?: string;
   isBanned?: boolean;
   query?: string;
@@ -24,7 +22,6 @@ export interface AccountListItem extends AccountRow {
   primary_fixed_seat_occupied: number | null;
   primary_fixed_seat_capacity: number | null;
   limit_type: string;
-  profile_status: string;
   lifecycle_at: Date | null;
   lifecycle_will_renew: boolean | null;
   workspace_count: number;
@@ -104,10 +101,11 @@ export class AccountRepository {
         proxy_url_nonce: null,
         proxy_url_auth_tag: null,
         proxy_url_key_version: null,
-        account_manager_plan_code: null,
-        account_manager_synced_at: null,
-        profile_status: 'unknown',
-        profile_checked_at: null
+        residential_proxy_sid: null,
+        residential_proxy_country: null,
+        residential_proxy_asn: null,
+        residential_proxy_state: null,
+        residential_proxy_city: null
       }).execute();
       return { account, personalSpace };
     };
@@ -143,23 +141,6 @@ export class AccountRepository {
     return row;
   }
 
-  async bindGamAccount(accountId: string, externalAccountRef: string): Promise<void> {
-    const normalized = normalizeEmail(externalAccountRef);
-    if (!normalized) throw new Error('GAM 账号引用不能为空');
-    await this.db.insertInto('gam_bindings').values({
-      account_id: accountId,
-      external_account_ref: externalAccountRef.trim(),
-      normalized_external_account_ref: normalized
-    }).onConflict((oc) => oc.column('account_id').doUpdateSet({
-      external_account_ref: externalAccountRef.trim(),
-      normalized_external_account_ref: normalized
-    })).execute();
-  }
-
-  async unbindGamAccount(accountId: string): Promise<void> {
-    await this.db.deleteFrom('gam_bindings').where('account_id', '=', accountId).execute();
-  }
-
   async remove(id: string): Promise<void> {
     const result = await this.db.deleteFrom('accounts').where('id', '=', id).executeTakeFirst();
     if (Number(result.numDeletedRows) === 0) throw new Error('账号不存在');
@@ -190,7 +171,6 @@ export class AccountRepository {
         'aos.primary_fixed_seat_occupied',
         'aos.primary_fixed_seat_capacity',
         'aos.limit_type',
-        'aos.profile_status',
         'aos.lifecycle_at',
         'aos.lifecycle_will_renew',
         sql<number>`(select count(distinct wm.workspace_id)::int from workspace_memberships wm where wm.account_id = a.id and wm.status = 'active')`.as('workspace_count'),
@@ -237,16 +217,8 @@ export class AccountRepository {
         select 1 from workspace_credentials wc where wc.account_id = a.id and wc.status = 'active'
       )`, '=', filters.hasWorkspaceCredential);
     }
-    if (filters.hasGamBinding !== undefined) {
-      query = query.where(sql<boolean>`exists (
-        select 1 from gam_bindings gb where gb.account_id = a.id
-      )`, '=', filters.hasGamBinding);
-    }
     if (filters.hasSession !== undefined) {
       query = query.where('a.current_session_revision_id', filters.hasSession ? 'is not' : 'is', null);
-    }
-    if (filters.hasRunningProfile !== undefined) {
-      query = query.where(sql<boolean>`exists (select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping'))`, '=', filters.hasRunningProfile);
     }
     if (filters.primaryPlan) query = query.where('aos.primary_plan', '=', normalizePrimaryPlanFilter(filters.primaryPlan));
     return query

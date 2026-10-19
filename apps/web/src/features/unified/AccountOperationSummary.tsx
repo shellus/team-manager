@@ -1,12 +1,10 @@
 import { Button, Progress, Space, Tag, Typography } from "antd";
-import type { AccountManagerOperationView } from "@team-manager/shared";
+import type { AutomationOperationView } from "@team-manager/shared";
 import { operationPhaseLabel, operationTypeLabel } from './operationUiModel.js';
 
 const STATUS_LABEL = {
   queued: "等待开始",
   running: "进行中",
-  waiting_for_otp: "等待验证码",
-  waiting_manual: "等待处理",
   succeeded: "已完成",
   failed: "失败",
   interrupted: "已中断",
@@ -16,7 +14,7 @@ export function AccountOperationSummary({
   operation,
   onOpen,
 }: {
-  operation: AccountManagerOperationView;
+  operation: AutomationOperationView;
   onOpen: (id: string) => void;
 }) {
   const failed = operation.status === "failed" || operation.status === "interrupted";
@@ -29,10 +27,10 @@ export function AccountOperationSummary({
         <Typography.Text strong>{operationTypeLabel(operation.type)}</Typography.Text>
         <Typography.Text type="secondary">{operationPhaseLabel(operation.phase || "queued")}</Typography.Text>
         <Button type="link" size="small" onClick={() => onOpen(operation.id)}>
-          {failed || operation.status.startsWith("waiting") ? "处理" : "详情"}
+          {failed ? "处理" : "详情"}
         </Button>
       </Space>
-      {!operation.status.startsWith("waiting") && operation.status !== "succeeded" && (
+      {operation.status !== "succeeded" && (
         <Progress percent={operation.progress ?? 0} size="small" status={failed ? "exception" : "active"} showInfo={false} />
       )}
       {operation.errorMessage && <Typography.Text type="danger">{operation.errorMessage}</Typography.Text>}
@@ -40,6 +38,6 @@ export function AccountOperationSummary({
   );
 }
 
-export function isActiveOperation(operation?: AccountManagerOperationView): boolean {
+export function isActiveOperation(operation?: AutomationOperationView): boolean {
   return Boolean(operation && !["succeeded", "failed", "interrupted"].includes(operation.status));
 }

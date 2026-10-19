@@ -60,12 +60,12 @@ _Avoid_: 待邀请、成员关系
 账号在至少一个活动 Workspace 中拥有活动 owner/admin 成员关系的派生能力。它是筛选和授权条件，不是账号字段或账号类型。
 _Avoid_: 母号、`isParent`、Workspace 所有者字段
 
-**受管账号引用**:
-账号在 GPT Account Manager 中使用的规范化邮箱引用。它允许 Team Manager 发起 Profile、代理、注册和支付操作，但不转移浏览器身份、密码或支付现场的所有权。
-_Avoid_: CloakBrowser Profile ID、GAM 数据库 UUID
+**账号住宅代理**:
+账号保存的住宅出口身份：国家、ASN 或州/城市与 8 位 SID。Team Manager 的住宅代理网关按账号认证用户把请求路由到这个身份；它与手工代理地址互斥，SID 变化即更换粘性会话。
+_Avoid_: 换 IP、GAM 代理、GAM 稳定 HTTP 代理
 
 **当前账号会话（Current Account Session）**:
-Team Manager 独占持久化的账号完整 ChatGPT Web Session。账号登录是否有效只由长期会话凭据 Refresh Token / Session Token 的真实可用性决定，Access Token 失效不改变账号登录状态；保存新 Session 时原子替换并删除旧 Session，同时使旧 Access Context 失效。管理员可以显式要求 GAM 从受管 Profile 一次性交付新 Session，但 GAM 不保留账号级 Session 副本。
+Team Manager 独占持久化的账号完整 ChatGPT Web Session。账号登录是否有效只由长期会话凭据 Refresh Token / Session Token 的真实可用性决定，Access Token 失效不改变账号登录状态；保存新 Session 时原子替换并删除旧 Session，同时使旧 Access Context 失效。新 Session 由管理员粘贴或外部工具经账号接口写入。
 _Avoid_: Session 修订历史、GAM Session、GAM 持久 Session
 
 **访问上下文（Account Access Context）**:
@@ -212,6 +212,3 @@ _Avoid_: Session 失败即封号、网络错误即封号、自动删除
 个人订阅接口明确返回没有该账号订阅记录时的 Free 事实，不等同于接口异常或套餐未知。
 _Avoid_: 404 一律 Free、账单为空、未知套餐
 
-**Profile 控制**:
-Team Manager 通过受管账号引用请求 GPT Account Manager 启动或关闭账号运行 Profile。Team Manager 不拥有浏览器 Profile，也不提供 VNC。
-_Avoid_: Profile 所有权、直接调用 CloakBrowser

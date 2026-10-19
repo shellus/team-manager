@@ -34,7 +34,7 @@ Workspace 可以通过 `preferred_manager_account_id` 在活动且已关联 Acco
 | Pro 5x | `pro_5x` | `chatgptprolite` |
 | Pro 20x | `pro_20x` | `chatgptpro` |
 
-首次开通使用 `start_new` 并由 GAM 执行浏览器 Checkout。`Plus → Pro 5x` 与 `Plus → Pro 20x` 已验证为 Team Manager 可直连的订阅更新：先读取 `/backend-api/subscriptions/update/preview`，管理员确认后调用 `/backend-api/subscriptions/update`，再回读当前套餐。其他付费套餐转换仍必须拒绝，不能用 plan name 猜测。Business 操作分为创建新 Workspace 和升级当前账号可管理的既有 Workspace。
+首次开通与 Business 开通依赖的浏览器 Checkout 已随 GAM 集成下线。`Plus → Pro 5x` 与 `Plus → Pro 20x` 已验证为 Team Manager 可直连的订阅更新：先读取 `/backend-api/subscriptions/update/preview`，管理员确认后调用 `/backend-api/subscriptions/update`，再回读当前套餐。其他付费套餐转换仍必须拒绝，不能用 plan name 猜测。
 
 当前个人套餐以 `accounts/check` 中对应 `structure=personal` 的账号条目为准。`subscriptions` 返回的记录只提供续费、有效期和欠费等订阅生命周期事实；套餐取消并到期后该接口仍可能保留历史 `plan_type`，不得据此覆盖 `accounts/check` 已明确返回的 Free 或其他当前套餐。只有 `accounts/check` 未提供个人套餐时，才允许回退到订阅记录。
 
@@ -64,9 +64,7 @@ Workspace 可以通过 `preferred_manager_account_id` 在活动且已关联 Acco
 
 ## Session 与访问上下文
 
-账号完整 Web Session 只由 Team Manager 持久化并在应用层加密。保存新 Session 时原子替换并删除旧 Session，GAM 不保留副本；注册成功时 GAM 只做一次性交付，Team Manager 保存后确认清除。账号登录状态只由 Refresh Token / Session Token 的真实可用性决定；Access Token 是可重新换取的短期访问凭证，其无效或过期不得改变账号登录状态。Access Token 按以下上下文隔离：
-
-“重建 GAM”是管理员显式触发的灾难恢复操作，界面入口只对已有 GAM 绑定且 Team Manager 持有完整 Session Token 的账号展示。GAM 在没有活动业务操作时关闭并删除运行资料实例、旧 CloakBrowser Profile、浏览器身份归档和账号资料；Team Manager 保留账号、Workspace 关系与当前 Session，清除旧 GAM 绑定、Profile 状态和代理缓存，再以 `existing_session` 重新纳管。重新导入成功后才恢复 GAM 绑定；导入失败时账号保持未绑定，当前 Session 仍可用于同一接口恢复重试，不得回写旧 GAM 状态伪装成功。
+账号完整 Web Session 只由 Team Manager 持久化并在应用层加密。保存新 Session 时原子替换并删除旧 Session。账号登录状态只由 Refresh Token / Session Token 的真实可用性决定；Access Token 是可重新换取的短期访问凭证，其无效或过期不得改变账号登录状态。Access Token 按以下上下文隔离：
 
 - `Account × PersonalSpace`；
 - `Account × Workspace`。

@@ -1,9 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 import {
   isSeatType,
-  type AccountProfileStatus,
   type AccountAccessContextHealthView,
-  type AccountRegistrationSummaryView,
   type AccountGroupView,
   type AccountLimitType,
   type UnifiedAccountDetailView,
@@ -42,14 +40,12 @@ export class UnifiedProjectionRepository {
     const rows = await new AccountRepository(this.db).list(filters);
     const ids = rows.map((row) => row.id);
     const extras = ids.length === 0 ? [] : (await sql<{
-      id: string; group_id: string; gam_ref: string | null; has_member: boolean; has_credential: boolean; has_running_profile: boolean;
-    }>`select a.id, a.group_id, gb.external_account_ref gam_ref,
+      id: string; group_id: string; has_member: boolean; has_credential: boolean;
+    }>`select a.id, a.group_id,
           exists(select 1 from workspace_memberships wm where wm.account_id=a.id and wm.status='active' and wm.normalized_role not in ('owner','admin')) has_member,
-          exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential,
-          exists(select 1 from account_operational_profiles op where op.account_id=a.id and op.profile_status in ('queued','running','stopping')) has_running_profile
-        from accounts a left join gam_bindings gb on gb.account_id=a.id
-        join account_operational_profiles op on op.account_id=a.id
-        where a.id = any(${ids}::uuid[]) group by a.id,gb.external_account_ref`.execute(this.db)).rows;
+          exists(select 1 from workspace_credentials wc where wc.account_id=a.id and wc.status='active') has_credential
+        from accounts a
+        where a.id = any(${ids}::uuid[])`.execute(this.db)).rows;
     const operations = ids.length === 0 ? [] : (await sql<any>`
       select distinct on (ao.account_id) ao.* from automation_operations ao
       where ao.account_id=any(${ids}::uuid[])
@@ -67,9 +63,6 @@ export class UnifiedProjectionRepository {
         ...(row.remark ? { remark: row.remark } : {}),
         group: { id: row.group_id, name: row.group_name },
         isBanned: row.is_banned,
-        hasGamBinding: Boolean(extra?.gam_ref),
-        profileStatus: normalizeProfileStatus(row.profile_status),
-        hasRunningProfile: extra?.has_running_profile ?? false,
         hasSession: Boolean(row.current_session_revision_id),
         hasManageableWorkspace: row.has_manageable_workspace,
         isWorkspaceMember: extra?.has_member ?? false,
@@ -93,36 +86,24 @@ export class UnifiedProjectionRepository {
     });
   }
 
-  async registrations(filters: AccountListFilters = {}): Promise<AccountRegistrationSummaryView[]> {
-    if (filters.primaryPlan || filters.hasGamBinding === true || filters.hasRunningProfile === true || filters.isBanned === true) return [];
-    const query = filters.query?.trim().toLowerCase();
-    const rows = await sql<any>`select ao.*,g.name group_name
-      from automation_operations ao join account_groups g on g.id=ao.target_group_id
-      where ao.kind='register_account' and ao.account_id is null and ao.status<>'succeeded'
-      order by ao.updated_at desc`.execute(this.db);
-    return rows.rows.flatMap((row) => {
-      const email = text(row.safe_request_summary?.email);
-      if (query && !email?.includes(query) && !String(row.group_name).toLowerCase().includes(query)) return [];
-      return [{ kind: 'registration' as const, id: row.id, ...(email ? { email } : {}),
-        group: { id: row.target_group_id, name: row.group_name }, operation: operationSummary(row) }];
-    });
-  }
-
   async account(id: string): Promise<UnifiedAccountDetailView | undefined> {
     const summaries = await this.accounts();
     const summary = summaries.find((item) => item.id === id);
     if (!summary) return undefined;
     const base = await sql<{
-      remote_user_id: string | null; external_account_ref: string | null; limit_type: string; personal_plan: string;
-      proxy_configured: boolean; personal_space_id: string; remote_account_id: string | null; personal_status: string;
-    }>`select a.remote_user_id, gb.external_account_ref, op.limit_type, aos.personal_plan,
-          (op.proxy_url_ciphertext is not null) proxy_configured,
+      remote_user_id: string | null; limit_type: string; personal_plan: string;
+      proxy_configured: boolean; residential_proxy_sid: string | null; residential_proxy_country: string | null;
+      residential_proxy_asn: string | null; residential_proxy_state: string | null; residential_proxy_city: string | null;
+      personal_space_id: string; remote_account_id: string | null; personal_status: string;
+    }>`select a.remote_user_id, op.limit_type, aos.personal_plan,
+          (op.proxy_url_ciphertext is not null or op.residential_proxy_sid is not null) proxy_configured,
+          op.residential_proxy_sid, op.residential_proxy_country, op.residential_proxy_asn,
+          op.residential_proxy_state, op.residential_proxy_city,
           ps.id personal_space_id, ps.remote_account_id, ps.status personal_status
         from accounts a
         join account_operational_profiles op on op.account_id=a.id
         join account_operational_summaries aos on aos.account_id=a.id
         join personal_spaces ps on ps.account_id=a.id
-        left join gam_bindings gb on gb.account_id=a.id
         where a.id=${id}::uuid`.execute(this.db).then((result) => result.rows[0]);
     if (!base) return undefined;
     const subscription = await this.db.selectFrom('personal_subscription_snapshots').selectAll()
@@ -170,8 +151,11 @@ export class UnifiedProjectionRepository {
     return {
       ...summary,
       ...(base.remote_user_id ? { remoteUserId: base.remote_user_id } : {}),
-      ...(base.external_account_ref ? { gamAccountRef: base.external_account_ref } : {}),
       proxyConfigured: base.proxy_configured,
+      ...(base.residential_proxy_sid && base.residential_proxy_country ? { residentialProxy: {
+        sid: base.residential_proxy_sid, country: base.residential_proxy_country, asn: base.residential_proxy_asn,
+        state: base.residential_proxy_state, city: base.residential_proxy_city
+      } } : {}),
       personalPlan: normalizePersonalPlan(base.personal_plan),
       ...(summary.hasSession ? { session: await this.sessions.currentSession(id) as UnifiedAccountDetailView['session'] } : {}),
       personalSpace: {
@@ -343,8 +327,8 @@ function operationSummary(row: any) {
     ...(row.completed_at ? { completedAt: new Date(row.completed_at).getTime() } : {}) };
 }
 
-function normalizeOperationStatus(value: string): import('@team-manager/shared').AccountManagerOperationView['status'] {
-  return ['queued','running','waiting_for_otp','waiting_manual','succeeded','failed','interrupted'].includes(value) ? value as any : 'running';
+function normalizeOperationStatus(value: string): import('@team-manager/shared').AutomationOperationView['status'] {
+  return ['queued','running','succeeded','failed','interrupted'].includes(value) ? value as any : 'running';
 }
 function normalizeAccessContextHealth(value?: string): import('@team-manager/shared').AccessContextHealthStatus {
   return value && ['valid','invalid','unknown','missing'].includes(value) ? value as any : 'missing';
@@ -353,7 +337,6 @@ function lifecycleKind(at: Date, willRenew: boolean | null): import('@team-manag
   if (new Date(at).getTime() < Date.now()) return 'expired';
   return willRenew === true ? 'renews' : willRenew === false ? 'expires' : 'valid_until';
 }
-function text(value: unknown): string | undefined { return typeof value==='string' && value.trim() ? value.trim().toLowerCase() : undefined; }
 async function credentialViews(db: Kysely<Database>, predicate: ReturnType<typeof sql>) {
   const result = await sql<any>`select wc.*,a.email account_email,w.name workspace_name,w.external_id workspace_external_id,cpg.id pool_id,cpg.name pool_name,
     cqs.payload latest_quota,cqs.observed_at quota_observed_at
@@ -398,9 +381,6 @@ function iso(value: unknown): string {
 function normalizePrimaryPlan(value: string): UnifiedAccountSummaryView['primaryPlan'] {
   return ['free', 'go', 'plus', 'pro_5x', 'pro_20x', 'business_fixed_seat', 'business_usage_based', 'team_member'].includes(value)
     ? value as UnifiedAccountSummaryView['primaryPlan'] : 'unknown';
-}
-function normalizeProfileStatus(value: string): AccountProfileStatus {
-  return ['stopped', 'queued', 'running', 'stopping', 'failed'].includes(value) ? value as AccountProfileStatus : 'unknown';
 }
 function normalizeLimitType(value: string): AccountLimitType {
   return ['weekly', 'monthly'].includes(value) ? value as AccountLimitType : 'unknown';

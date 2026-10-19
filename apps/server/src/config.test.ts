@@ -50,6 +50,30 @@ test('relative paths and runtime profiles are resolved from the fixed config roo
   assert.match(development.app.databaseUrl, /@127\.0\.0\.1:5433\//);
   assert.equal(compose.app.webDistDir, '/app/apps/web/dist');
   assert.match(compose.app.databaseUrl, /@postgres:5432\//);
+  assert.equal(compose.app.residentialProxy, undefined);
+});
+
+test('residential proxy gateway resolves profile URLs and the config path from the config root', () => {
+  const hash = '$2b$12$012345678901234567890u0123456789012345678901234567890';
+  const raw = validConfig(hash).replace('  payment:\n', `  residentialProxy:
+    upstream: socks5://user:secret@residential.example:3000
+    normalProxy: http://front-proxy.example:7890
+    gatewayUrls: { development: http://127.0.0.1:3018, compose: http://residential-proxy:3016 }
+    gatewayPassword: gateway-secret
+    controllerUrls: { development: http://127.0.0.1:3019, compose: http://residential-proxy:9090 }
+    controllerSecret: controller-secret
+    configPath: ./data/residential-proxy/config.yaml
+    controllerConfigPath: /root/.config/mihomo/config.yaml
+  payment:\n`);
+  const development = parseRuntimeConfig(raw, '/srv/team-manager/config.yaml', 'development').app.residentialProxy;
+  const compose = parseRuntimeConfig(raw, '/app/config.yaml', 'compose').app.residentialProxy;
+  assert.equal(development?.gatewayUrl, 'http://127.0.0.1:3018');
+  assert.equal(development?.configPath, '/srv/team-manager/data/residential-proxy/config.yaml');
+  assert.equal(compose?.controllerUrl, 'http://residential-proxy:9090');
+  assert.equal(compose?.configPath, '/app/data/residential-proxy/config.yaml');
+  assert.equal(compose?.stickyMinutes, 120);
+  assert.equal(compose?.listenPort, 3016);
+  assert.throws(() => parseRuntimeConfig(raw.replace('gatewayPassword: gateway-secret', 'gatewayPassword: null'), '/app/config.yaml', 'compose'), /gatewayPassword 不能为空/);
 });
 
 function validConfig(password: string): string {
@@ -79,13 +103,9 @@ database:
     development: { host: 127.0.0.1, port: 5433 }
     compose: { host: postgres, port: 5432 }
 integrations:
-  accountManager:
-    token: null
-    baseUrls: { development: null, compose: null }
   teamCode: { baseUrl: null, passcode: null }
   stripe: { publishableKeys: [], paymentUserAgent: null, walletConfigId: null }
   payment:
-    httpProxyHosts: { development: null, compose: null }
     billingPostalCode: null
     billingRegion: null
 transport:

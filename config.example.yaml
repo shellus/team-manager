@@ -29,11 +29,6 @@ database:
       host: postgres
       port: 5432
 integrations:
-  accountManager:
-    token: null
-    baseUrls:
-      development: http://127.0.0.1:3015
-      compose: http://registrar-api:3000
   teamCode:
     baseUrl: null
     passcode: null
@@ -42,11 +37,24 @@ integrations:
     paymentUserAgent: null
     walletConfigId: null
   payment:
-    httpProxyHosts:
-      development: 127.0.0.1
-      compose: host.docker.internal
     billingPostalCode: null
     billingRegion: null
+  # 账号住宅代理网关（可选）。Team Manager 按账号生成 Mihomo 配置并热加载；未配置住宅代理的账号走 worker 默认代理。
+  residentialProxy:
+    upstream: socks5://user:password@residential.example:3000
+    normalProxy: http://front-proxy.example:7890
+    stickyMinutes: 120
+    listenPort: 3016
+    gatewayUrls:
+      development: http://127.0.0.1:3018
+      compose: http://residential-proxy:3016
+    gatewayPassword: replace-with-random-secret
+    controllerUrls:
+      development: http://127.0.0.1:3019
+      compose: http://residential-proxy:9090
+    controllerSecret: replace-with-random-secret
+    configPath: ./data/residential-proxy/config.yaml
+    controllerConfigPath: /root/.config/mihomo/config.yaml
 transport:
   curlCffiUrls:
     development: http://127.0.0.1:3011

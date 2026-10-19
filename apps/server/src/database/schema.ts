@@ -39,16 +39,11 @@ export interface AccountOperationalProfileTable extends AuditedTable {
   proxy_url_nonce: string | null;
   proxy_url_auth_tag: string | null;
   proxy_url_key_version: string | null;
-  account_manager_plan_code: string | null;
-  account_manager_synced_at: NullableTimestamp;
-  profile_status: string;
-  profile_checked_at: NullableTimestamp;
-}
-
-export interface GamBindingTable extends AuditedTable {
-  account_id: string;
-  external_account_ref: string;
-  normalized_external_account_ref: string;
+  residential_proxy_sid: string | null;
+  residential_proxy_country: string | null;
+  residential_proxy_asn: string | null;
+  residential_proxy_state: string | null;
+  residential_proxy_city: string | null;
 }
 
 export interface PersonalSpaceTable extends AuditedTable {
@@ -323,7 +318,6 @@ export interface AccountOperationalSummaryTable {
   primary_fixed_seat_occupied: number | null;
   primary_fixed_seat_capacity: number | null;
   limit_type: string;
-  profile_status: string;
   lifecycle_at: NullableTimestamp;
   lifecycle_will_renew: boolean | null;
 }
@@ -450,7 +444,6 @@ export interface Database {
   accounts: AccountTable;
   account_operational_profiles: AccountOperationalProfileTable;
   account_operational_summaries: AccountOperationalSummaryTable;
-  gam_bindings: GamBindingTable;
   personal_spaces: PersonalSpaceTable;
   account_session_revisions: AccountSessionRevisionTable;
   account_access_contexts: AccountAccessContextTable;
