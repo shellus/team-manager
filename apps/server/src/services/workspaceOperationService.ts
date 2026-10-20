@@ -289,6 +289,11 @@ export class WorkspaceOperationService {
   }
 
   async refreshMembers(workspaceId: string, executorAccountId: string) {
+    await this.syncMembers(workspaceId, executorAccountId);
+    return this.views.detailForAccount(workspaceId, executorAccountId);
+  }
+
+  private async syncMembers(workspaceId: string, executorAccountId: string) {
     const { api } = await this.context(workspaceId, executorAccountId, { requireManageable: false });
     const members = await api.listMembers();
     const observedAt = new Date();
@@ -310,7 +315,6 @@ export class WorkspaceOperationService {
         .where('id', '=', row.id).execute();
     }
     await this.reconcileCredentials(workspaceId);
-    return this.views.detailForAccount(workspaceId, executorAccountId);
   }
 
   async refreshInvitations(workspaceId: string, executorAccountId: string) {
@@ -498,9 +502,11 @@ export class WorkspaceOperationService {
     const member=await this.db.selectFrom('workspace_memberships').select(['email','seat_type']).where('workspace_id','=',workspaceId).where('remote_user_id','=',remoteUserId).where('status','=','active').executeTakeFirst();
     const result=await api.removeMember(remoteUserId);
     if(result.success===false)throw new ServiceError(502,'上游返回成员移除失败');
+    await this.#workspaces.recordMemberRemoval(workspaceId, remoteUserId, executorAccountId);
     const summary=memberRemovalSummary(remoteUserId,member,result);
     await this.activity(executorAccountId,workspaceId,'workspace_member_removed',{...summary,billingNotice:result.billing_notice??null,policyNotice:result.policy_notice??null});
-    return {workspace:await this.refreshMembers(workspaceId, executorAccountId),summary};
+    await this.syncMembers(workspaceId, executorAccountId);
+    return {workspace:await this.views.detail(workspaceId),summary};
   }
 
   async updateMemberRole(workspaceId: string, executorAccountId: string, remoteUserId: string, role: EditableMemberRole) {

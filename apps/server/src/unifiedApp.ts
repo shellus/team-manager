@@ -359,6 +359,7 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.delete('/settings/system/:key', (c)=>wrap(c,()=>settings.remove(c.req.param('key'))));
 
   api.get('/workspaces', (c) => wrap(c, () => workspaces.list(c.req.query('query'))));
+  api.get('/workspaces/:id', (c) => wrap(c, () => workspaces.detail(c.req.param('id'))));
   api.get('/workspaces/:id/deletion-preview', (c) =>
     wrap(c, () => accounts.workspaceDeletionPreview(c.req.param('id')))
   );

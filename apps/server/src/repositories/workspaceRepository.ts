@@ -90,6 +90,27 @@ export class WorkspaceRepository {
       .where('status', '=', 'active').executeTakeFirst();
   }
 
+  async recordMemberRemoval(workspaceId: string, remoteUserId: string, executorAccountId: string) {
+    await this.db.transaction().execute(async (trx) => {
+      const workspace = await trx.selectFrom('workspaces').select('preferred_manager_account_id')
+        .where('id', '=', workspaceId).forUpdate().executeTakeFirstOrThrow();
+      const removed = await trx.updateTable('workspace_memberships')
+        .set({ status: 'removed', observed_at: new Date(), source: 'upstream_mutation' })
+        .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
+        .where('status', '=', 'active').returning('account_id').execute();
+      if (!workspace.preferred_manager_account_id ||
+          !removed.some((row) => row.account_id === workspace.preferred_manager_account_id)) return;
+      const owners = await trx.selectFrom('workspace_memberships as wm')
+        .innerJoin('accounts as a', 'a.id', 'wm.account_id')
+        .select('a.id').where('wm.workspace_id', '=', workspaceId)
+        .where('wm.status', '=', 'active').where('wm.normalized_role', '=', 'owner')
+        .where('a.is_banned', '=', false).orderBy('wm.email').orderBy('a.id').execute();
+      const replacement = owners.find((owner) => owner.id === executorAccountId) ?? owners[0];
+      await trx.updateTable('workspaces').set({ preferred_manager_account_id: replacement?.id ?? null })
+        .where('id', '=', workspaceId).execute();
+    });
+  }
+
   listForAccount(accountId: string): Promise<Array<WorkspaceRow & { normalized_role: string; seat_type: string | null }>> {
     return this.db.selectFrom('workspaces as w')
       .innerJoin('workspace_memberships as wm', 'wm.workspace_id', 'w.id')

@@ -208,8 +208,12 @@ export class UnifiedProjectionRepository {
     const result = await sql<{
       id: string; external_id: string; name: string | null; status: string; normalized_plan: string;
       raw_plan_code: string | null; next_renewal_at: Date | null; created_at: Date; updated_at: Date;
+      preferred_manager_account_id: string | null; preferred_manager_valid: boolean;
       manageable_count: number; member_count: number; invitation_count: number; seat_count: number; credential_count: number;
     }>`select w.*,
+          exists(select 1 from workspace_memberships preferred
+            where preferred.workspace_id=w.id and preferred.account_id=w.preferred_manager_account_id
+              and preferred.status='active' and preferred.normalized_role='owner') preferred_manager_valid,
           count(distinct wm.account_id) filter(where wm.status='active' and wm.normalized_role in ('owner','admin'))::int manageable_count,
           count(distinct wm.id) filter(where wm.status='active')::int member_count,
           count(distinct wi.id) filter(where wi.status='pending')::int invitation_count,
@@ -242,7 +246,7 @@ export class UnifiedProjectionRepository {
     return this.workspaceDetail(id, sql`wc.workspace_id=${id}::uuid and wc.account_id=${accountId}::uuid`);
   }
 
-  private async workspaceDetail(id: string, credentialPredicate: ReturnType<typeof sql>): Promise<WorkspaceDetailView | undefined> {
+  async workspaceDetail(id: string, credentialPredicate: ReturnType<typeof sql> = sql`wc.workspace_id=${id}::uuid`): Promise<WorkspaceDetailView | undefined> {
     const summary = (await this.workspaces()).find((item) => item.id === id);
     if (!summary) return undefined;
     const members = await sql<any>`select wm.*,a.email account_email from workspace_memberships wm left join accounts a on a.id=wm.account_id where wm.workspace_id=${id}::uuid order by wm.normalized_role,wm.email`.execute(this.db);
@@ -358,7 +362,8 @@ function workspaceSummary(row: any): WorkspaceSummaryView {
     id: row.id, externalId: row.external_id, ...(row.name ? { name: row.name } : {}), status: row.status,
     plan: row.normalized_plan, ...(row.raw_plan_code ? { rawPlanCode: row.raw_plan_code } : {}),
     ...(row.next_renewal_at ? { nextRenewalAt: iso(row.next_renewal_at) } : {}),
-    ...(row.preferred_manager_account_id ? { preferredManagerAccountId: row.preferred_manager_account_id } : {}),
+    ...(row.preferred_manager_valid ? { preferredManagerAccountId: row.preferred_manager_account_id } : {}),
+    preferredManagerMissing: !row.preferred_manager_valid,
     manageableAccountCount: Number(row.manageable_count), memberCount: Number(row.member_count),
     invitationCount: Number(row.invitation_count), seatSlotCount: Number(row.seat_count), credentialCount: Number(row.credential_count),
     riskLevel: risks.some((item)=>item.includes('过期'))?'critical':risks.length?'warning':'normal', risks,

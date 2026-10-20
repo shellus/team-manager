@@ -730,6 +730,7 @@ export interface WorkspaceSummaryView {
   rawPlanCode?: string;
   nextRenewalAt?: string;
   preferredManagerAccountId?: string;
+  preferredManagerMissing?: boolean;
   riskLevel?: OperationalRiskLevel;
   risks?: string[];
   manageableAccountCount: number;

@@ -20,6 +20,12 @@ export class WorkspaceService {
       return { ...item, riskLevel: risks.some((risk) => risk.includes('过期')) ? 'critical' as const : risks.length ? 'warning' as const : 'normal' as const, risks };
     }).sort((a,b)=>riskRank(a.riskLevel)-riskRank(b.riskLevel)||(a.nextRenewalAt??'9999').localeCompare(b.nextRenewalAt??'9999'));
   }
+  async detail(id: string) {
+    const result = await this.projections.workspaceDetail(id);
+    if (!result) throw new ServiceError(404, 'Workspace 不存在');
+    return result;
+  }
+
   async detailForAccount(id: string, accountId: string) {
     const result = await this.projections.workspaceForAccount(id, accountId);
     if (!result) throw new ServiceError(404, '账号没有该 Workspace 成员关系');
