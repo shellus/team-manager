@@ -142,6 +142,7 @@ export interface WorkspaceCredentialTable extends AuditedTable {
 }
 
 export interface SeatSlotTable extends AuditedTable {
+  role: string | null;
   workspace_id: string;
   seat_key: string;
   current_email: string | null;

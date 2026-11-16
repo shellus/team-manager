@@ -56,12 +56,12 @@ describe("account workspace model", () => {
       invitations: [{ id: "i1", status: "pending", email: "invite@example.com" }],
       seatSlots: [
         { id: "s1", email: "member@example.com", contact: "member-contact" },
-        { id: "s2", email: "orphan@example.com", remark: "历史资料" },
+        { id: "s2", email: "orphan@example.com", role: "account-admin", remark: "历史资料" },
       ],
     } as any);
     expect(rows).toHaveLength(3);
     expect(rows[0].seatSlot?.id).toBe("s1");
     expect(rows[1].seatSlot).toBeUndefined();
-    expect(rows[2]).toMatchObject({ kind: "customer", email: "orphan@example.com", seatSlot: { id: "s2" } });
+    expect(rows[2]).toMatchObject({ kind: "customer", email: "orphan@example.com", rawRole: "account-admin", seatSlot: { id: "s2" } });
   });
 });

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import { isSeatType, type SeatSlotMutationInput, type SeatType, type WorkspaceInvitationMutationInput } from '@team-manager/shared';
+import { isSeatSlotRole, type SeatSlotRole, isSeatType, type SeatSlotMutationInput, type SeatType, type WorkspaceInvitationMutationInput } from '@team-manager/shared';
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 import { SeatSlotRepository } from '../repositories/seatSlotRepository.js';
@@ -34,25 +34,25 @@ export class SeatSlotService {
     if (input.applyToUpstream === false) await this.requireManageableBy(workspaceId, executorAccountId);
     const existing = await this.findByEmail(workspaceId, input.email);
     const customerInput: SeatSlotMutationInput = {
-      email: input.email, seatType: input.seat, contact: input.contact, remark: input.remark,
+      email: input.email, role: input.role as SeatSlotRole | undefined, seatType: input.seat, contact: input.contact, remark: input.remark,
       price: input.price, expiresOn: input.expiresOn, expireReminder: input.expireReminder,
       expireRemove: input.expireRemove
     };
     const row = existing
       ? await this.updateRecord(workspaceId, existing.id, customerInput)
       : await this.createRecord(workspaceId, customerInput);
-    if (input.applyToUpstream !== false) await this.applyRecord(workspaceId, row.id, executorAccountId, input.role);
+    if (input.applyToUpstream !== false) await this.applyRecord(workspaceId, row.id, executorAccountId);
     return row;
   }
 
-  async apply(workspaceId: string, id: string, executorAccountId: string, role?: string) {
+  async apply(workspaceId: string, id: string, executorAccountId: string) {
     await this.requireManageableBy(workspaceId, executorAccountId);
-    return this.applyRecord(workspaceId, id, executorAccountId, role);
+    return this.applyRecord(workspaceId, id, executorAccountId);
   }
 
   private readonly applying = new Set<string>();
 
-  private async applyRecord(workspaceId: string, id: string, executorAccountId: string, role?: string) {
+  private async applyRecord(workspaceId: string, id: string, executorAccountId: string) {
     if (this.applying.has(id)) throw new ServiceError(409, '该资料正在应用 GPT 上游，请等待完成');
     const row = await this.require(workspaceId, id);
     if (this.applying.has(id)) throw new ServiceError(409, '该资料正在应用 GPT 上游，请等待完成');
@@ -67,7 +67,7 @@ export class SeatSlotService {
       const relation = await this.#relations.resolve(workspaceId, row.current_email);
       if (relation.status === 'member' || relation.status === 'invited') return row;
       await this.workspaceOperations.invite(workspaceId, executorAccountId, {
-        email: row.current_email, ...(isSeatType(row.seat_type) ? { seat: row.seat_type } : {}), role
+        email: row.current_email, ...(isSeatType(row.seat_type) ? { seat: row.seat_type } : {}), ...(isSeatSlotRole(row.role) ? { role: row.role } : {})
       });
       await this.workspaceOperations.refreshPeople(workspaceId, executorAccountId);
       const applied = await this.#relations.resolve(workspaceId, row.current_email);
@@ -88,11 +88,11 @@ export class SeatSlotService {
     await this.requireManageableBy(workspaceId, executorAccountId);
     const member = await this.db.selectFrom('workspace_memberships as member')
       .leftJoin('accounts as account', 'account.id', 'member.account_id')
-      .select(['member.email', 'account.email as account_email', 'member.seat_type'])
+      .select(['member.email', 'account.email as account_email', 'member.seat_type', 'member.raw_role'])
       .where('member.workspace_id', '=', workspaceId).where('member.remote_user_id', '=', remoteUserId)
       .where('member.status', '=', 'active').executeTakeFirst();
     if (!member) throw new ServiceError(404, '成员不存在或已失效，请刷新成员列表');
-    await this.ensureProfile(workspaceId, member.email ?? member.account_email, member.seat_type);
+    await this.ensureProfile(workspaceId, member.email ?? member.account_email, member.seat_type, member.raw_role);
     const result = await this.workspaceOperations.removeMember(workspaceId, executorAccountId, remoteUserId);
     const remaining = await this.#relations.resolve(workspaceId, member.email ?? member.account_email);
     if (remaining.status === 'member') throw new ServiceError(502, '移除请求已提交，但上游成员关系仍存在；本地资料已保留，请刷新核对');
@@ -101,24 +101,24 @@ export class SeatSlotService {
 
   async revokeInvitation(workspaceId: string, executorAccountId: string, email: string) {
     await this.requireManageableBy(workspaceId, executorAccountId);
-    const invitation = await this.db.selectFrom('workspace_invitations').select(['email', 'seat_type'])
+    const invitation = await this.db.selectFrom('workspace_invitations').select(['email', 'seat_type', 'raw_role'])
       .where('workspace_id', '=', workspaceId).where('normalized_email', '=', normalizeEmail(email))
       .where('status', '=', 'pending').executeTakeFirst();
     if (!invitation) throw new ServiceError(404, '邀请不存在或已失效，请刷新成员列表');
-    await this.ensureProfile(workspaceId, invitation.email, invitation.seat_type);
+    await this.ensureProfile(workspaceId, invitation.email, invitation.seat_type, invitation.raw_role);
     const result = await this.workspaceOperations.revokeInvitation(workspaceId, executorAccountId, email);
     const remaining = await this.#relations.resolve(workspaceId, invitation.email);
     if (remaining.status === 'invited') throw new ServiceError(502, '撤销请求已提交，但上游邀请仍存在；本地资料已保留，请刷新核对');
     return result;
   }
 
-  private async ensureProfile(workspaceId: string, email: string | null, seat: string | null) {
+  private async ensureProfile(workspaceId: string, email: string | null, seat: string | null, role: string | null) {
     if (!email) throw new ServiceError(409, '成员缺少邮箱，无法保留本地席位资料，请刷新后重试');
     const existing = await this.findByEmail(workspaceId, email);
     if (!existing) {
-      await this.createRecord(workspaceId, { email, ...(isSeatType(seat) ? { seatType: seat } : {}) });
-    } else if (isSeatType(seat) && existing.seat_type !== seat) {
-      await this.updateRecord(workspaceId, existing.id, { seatType: seat });
+      await this.createRecord(workspaceId, { email, ...(isSeatSlotRole(role) ? { role } : {}), ...(isSeatType(seat) ? { seatType: seat } : {}) });
+    } else if ((isSeatType(seat) && existing.seat_type !== seat) || (isSeatSlotRole(role) && existing.role !== role)) {
+      await this.updateRecord(workspaceId, existing.id, { ...(isSeatType(seat) ? { seatType: seat } : {}), ...(isSeatSlotRole(role) ? { role } : {}) });
     }
   }
 
@@ -139,6 +139,8 @@ export class SeatSlotService {
     await this.assertWorkspace(workspaceId);
     if((input as Record<string,unknown>).remoteUserId!==undefined||(input as Record<string,unknown>).status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
     const relation=await this.#relations.resolve(workspaceId,email);
+    if (input.role !== undefined && input.role !== null && !isSeatSlotRole(input.role)) throw new ServiceError(400, '无效租客角色，不能使用 owner');
+    const role = relation.role ?? input.role;
     const seatType=relation.seatType??input.seatType;
     if (seatType !== undefined && !isSeatType(seatType)) throw new ServiceError(400, '无效席位类型');
     const duplicate = await this.db.selectFrom('seat_slots').select('id').where('workspace_id', '=', workspaceId)
@@ -148,8 +150,8 @@ export class SeatSlotService {
       contact: input.contact, remark: input.remark, price: input.price, expiresOn: input.expiresOn,
       expireReminder: input.expireReminder,
       expireRemove: input.expireRemove,
-      seatType });
-    await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,seatType:row.seat_type}); return row;
+      seatType, role });
+    await this.log(row.id, null, row.current_email, 'created');await this.activity(workspaceId,'seat_slot_created',{seatSlotId:row.id,email:row.current_email,role:row.role,seatType:row.seat_type}); return row;
   }
 
   async update(workspaceId: string, id: string, executorAccountId: string, input: SeatSlotMutationInput) {
@@ -159,6 +161,7 @@ export class SeatSlotService {
 
   private async updateRecord(workspaceId: string, id: string, input: SeatSlotMutationInput) {
     const row = await this.require(workspaceId, id);
+    if (input.role !== undefined && input.role !== null && !isSeatSlotRole(input.role)) throw new ServiceError(400, '无效租客角色，不能使用 owner');
     if (this.applying.has(id)) throw new ServiceError(409, '资料正在应用 GPT 上游，暂不能编辑');
     if (input.seatType !== undefined && !isSeatType(input.seatType)) throw new ServiceError(400, '无效席位类型');
     const email = input.email === undefined ? row.current_email : input.email?.trim();
@@ -180,11 +183,12 @@ export class SeatSlotService {
       price: input.price === undefined ? row.price : input.price, expiresOn: nextExpiresOn,
       expireReminder: nextExpireReminder,
       expireRemove: nextExpireRemove,
+      role: relation.role ?? (input.role === undefined ? row.role as SeatSlotRole | null : input.role),
       seatType: relation.seatType ?? input.seatType ?? row.seat_type as SeatType });
     if (removalPolicyChanged) await this.db.deleteFrom('seat_expiration_removal_attempts').where('seat_slot_id', '=', id).execute();
     if (emailChanged) await this.log(id, row.current_email, updated.current_email, 'email_changed');
     const before=seatAuditState(row);const after=seatAuditState(updated);const changedFields=Object.keys(after).filter(key=>before[key]!==after[key]);
-    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,relationStatus:relation.status,seatType:updated.seat_type,changedFields,before,after});
+    await this.activity(workspaceId,'seat_slot_updated',{seatSlotId:id,email:updated.current_email,relationStatus:relation.status,role:updated.role,seatType:updated.seat_type,changedFields,before,after});
     return updated;
   }
 
@@ -305,7 +309,7 @@ export class SeatSlotService {
 export function notificationScheduleDue(schedule:{triggerTime:string;timeZone:string;hasExplicitSchedule?:boolean},now:Date):boolean{if(schedule.hasExplicitSchedule===false)return true;const parts=new Intl.DateTimeFormat('en-CA',{timeZone:schedule.timeZone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);const hour=parts.find(item=>item.type==='hour')?.value??'00';const minute=parts.find(item=>item.type==='minute')?.value??'00';return `${hour}:${minute}`>=schedule.triggerTime;}
 function dateOnly(value:string|Date){return value instanceof Date?value.toISOString().slice(0,10):String(value).slice(0,10);}
 function expirationRemovalError(error:unknown){const message=error instanceof Error?error.message:String(error);return message.slice(0,2000)||'未知错误';}
-function seatAuditState(row:{current_email:string|null;contact:string|null;remark:string|null;price:string|null;expires_on:string|null;expire_reminder:boolean;expire_remove:boolean;seat_type:string|null}){return{email:row.current_email,contact:row.contact,remark:row.remark,price:row.price,expiresOn:row.expires_on,expireReminder:row.expire_reminder,expireRemove:row.expire_remove,seatType:row.seat_type} as Record<string,unknown>;}
+function seatAuditState(row:{current_email:string|null;contact:string|null;remark:string|null;price:string|null;expires_on:string|null;expire_reminder:boolean;expire_remove:boolean;seat_type:string|null;role:string|null}){return{email:row.current_email,contact:row.contact,remark:row.remark,price:row.price,expiresOn:row.expires_on,expireReminder:row.expire_reminder,expireRemove:row.expire_remove,role:row.role,seatType:row.seat_type} as Record<string,unknown>;}
 
 export function startSeatExpirationScheduler(service: SeatSlotService, intervalMs = 60_000): () => void {
   const tick = () => void service.runExpirations().catch((error) => console.warn('[team-manager] 席位到期任务失败:', error));

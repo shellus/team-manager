@@ -14,7 +14,8 @@ import type {
   RenewalOperationalStatus,
   SeatOperationalOverviewView
 } from '@team-manager/shared';
-import { isSeatType, type SeatQuantity } from '@team-manager/shared';
+import { normalizeWorkspaceRole } from '../domain/workspace.js';
+import { isSeatSlotRole, isSeatType, type SeatQuantity } from '@team-manager/shared';
 
 const SUPPORTED_NOTIFICATION_POLICY_KINDS = ['seat_expiration', 'workspace_renewal'] as const;
 
@@ -217,6 +218,7 @@ function seatOverviewItem(input: {
   relationStatus: SeatOperationalOverviewView['relationStatus'];
   slot?: SeatOverviewSlot;
 }): SeatOperationalOverviewView {
+  const role = input.role ?? (isSeatSlotRole(input.slot?.role) ? normalizeWorkspaceRole(input.slot.role) : undefined);
   const expiresOn = input.slot?.expires_on ? dateKey(input.slot.expires_on) : undefined;
   const tracksCustomerExpiry = Boolean(input.slot) && input.subject !== 'vacancy';
   const risks = seatRisks(expiresOn, input.workspace.status, input.managingAccounts.length === 0, new Date(), tracksCustomerExpiry);
@@ -225,7 +227,7 @@ function seatOverviewItem(input: {
     ...(input.workspace.name ? { workspaceName: input.workspace.name } : {}), ...(input.email ? { email: input.email } : {}),
     seatType: isSeatType(input.seatType) ? input.seatType : 'default', relationStatus: input.relationStatus,
     expirationStatus:seatSlotExpirationStatus(expiresOn),
-    ...(normalizeOverviewRole(input.role) ? { role: normalizeOverviewRole(input.role) } : {}),
+    ...(normalizeOverviewRole(role) ? { role: normalizeOverviewRole(role) } : {}),
     ...(input.slot ? { seatSlotId: input.slot.id } : {}), hasCustomerProfile: Boolean(input.slot),
     ...(input.slot?.contact ? { contact: input.slot.contact } : {}), ...(input.slot?.remark ? { remark: input.slot.remark } : {}),
     ...(expiresOn ? { expiresOn } : {}), ...(input.slot?.price ? { price: input.slot.price } : {}),

@@ -511,15 +511,18 @@ export class WorkspaceOperationService {
 
   async updateMemberRole(workspaceId: string, executorAccountId: string, remoteUserId: string, role: EditableMemberRole) {
     const { api } = await this.context(workspaceId, executorAccountId);
-    const member = await this.db.selectFrom('workspace_memberships').select('id')
+    const member = await this.db.selectFrom('workspace_memberships').select(['id', 'normalized_email'])
       .where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
       .where('status', '=', 'active').executeTakeFirst();
     if (!member) throw new ServiceError(404, '成员不存在或已失效');
     await api.setMemberRole(remoteUserId, role);
-    await this.db.updateTable('workspace_memberships').set({
-      raw_role: role, normalized_role: normalizeRole(role), observed_at: new Date(), source: 'upstream_mutation'
-    }).where('workspace_id', '=', workspaceId).where('remote_user_id', '=', remoteUserId)
-      .where('status', '=', 'active').execute();
+    await this.db.transaction().execute(async (trx) => {
+      await trx.updateTable('workspace_memberships').set({
+        raw_role: role, normalized_role: normalizeRole(role), observed_at: new Date(), source: 'upstream_mutation'
+      }).where('id', '=', member.id).execute();
+      if (member.normalized_email) await trx.updateTable('seat_slots').set({ role: role === 'account-owner' ? null : role })
+        .where('workspace_id', '=', workspaceId).where('normalized_current_email', '=', member.normalized_email).execute();
+    });
     await this.activity(executorAccountId,workspaceId,'workspace_member_role_changed',{remoteUserId,role});
     return this.views.detailForAccount(workspaceId, executorAccountId);
   }

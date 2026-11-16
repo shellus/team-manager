@@ -41,7 +41,7 @@ import { BillingSummary, SubscriptionSummary } from "../../components/Operationa
 import { formatTime } from "../../components/ProductPrimitives.js";
 import { WorkspaceCredentialActions } from "../../components/WorkspaceCredentialActions.js";
 import { useUrlPagination } from "../../components/urlPagination.js";
-import { editableMemberRoleOptions, roleLabel, seatLabel, statusLabel, SEAT_OPTIONS } from "../../labels.js";
+import { editableMemberRoleOptions, roleLabel, seatLabel, statusLabel, SEAT_SLOT_ROLE_OPTIONS, SEAT_OPTIONS } from "../../labels.js";
 import { SNAPSHOT_BOOLEAN_OPTIONS } from "../../components/selectOptions.js";
 import { useRememberedForm } from "../../webPreferences.js";
 import {
@@ -493,8 +493,8 @@ export function PeoplePanel({
           { title: "成员", width: 270, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark} /> },
           { title: "关系", width: 160, render: (_, row) => <Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag> },
           { title: "角色", width: 140, render: (_, row) => row.kind === "member" && row.remoteUserId && canManage
-            ? <Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" />
-            : row.role ? <Tag>{roleLabel(row.role)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
+            ? <Tooltip title={row.seatSlot ? "角色修改会同步到租客资料；管理员角色将禁止通过公开 URL 认领和换号。" : undefined}><Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" /></Tooltip>
+            : row.rawRole || row.role ? <Tag>{roleLabel(row.rawRole ?? row.role!)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
           { title: "席位", width: 140, render: (_, row) => canManage && canEditSeat(row)
             ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} placeholder="—" options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
             : row.seatType ? <Tag>{seatLabel(row.seatType)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
@@ -524,7 +524,7 @@ export function PeoplePanel({
         onClose={closeModal}
         onSubmit={(value) => run("tenant", () => selectedSeatSlot ? unifiedApi.updateSeatSlot(workspace.id, selectedSeatSlot.id, accountId, value) : unifiedApi.createSeatSlot(workspace.id, accountId, value))}
       />
-      <ApplySeatSlotModal slot={applyingSlot} busy={busy === "apply-seat"} onClose={() => setApplyingSlot(undefined)} onSubmit={(role) => run("apply-seat", () => unifiedApi.applySeatSlot(workspace.id, applyingSlot!.id, accountId, role))} />
+      <ApplySeatSlotModal slot={applyingSlot} busy={busy === "apply-seat"} onClose={() => setApplyingSlot(undefined)} onSubmit={() => run("apply-seat", () => unifiedApi.applySeatSlot(workspace.id, applyingSlot!.id, accountId))} />
       <InviteMemberModal open={modal === "invite"} busy={busy === "invite"} onClose={closeModal} onSubmit={(value) => run("invite", () => unifiedApi.invite(workspace.id, { ...value, executorAccountId: accountId }))} />
     </Space>
   );
@@ -574,10 +574,11 @@ function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, on
   const email = initial?.email ?? person?.email ?? person?.accountEmail;
   const seatType = initial?.seatType ?? person?.seatType;
   return <ProductModal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose}>
-    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ email, contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireReminder: initial?.expireReminder ?? true, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues & { email?: string }) => { if (await onSubmit({ ...tenantDataInput(value), email: value.email ?? email, seatType })) onClose(); }} disabled={busy}>
+    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ email, role: initial?.role ?? (person?.rawRole !== "account-owner" ? person?.rawRole : undefined), contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireReminder: initial?.expireReminder ?? true, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues & { email?: string; role?: SeatSlotInput["role"] }) => { if (await onSubmit({ ...tenantDataInput(value), role: value.role ?? null, email: value.email ?? email, seatType })) onClose(); }} disabled={busy}>
       {initial?.relationStatus === "unlinked"
         ? <Form.Item name="email" label="关联邮箱" rules={[{ required: true, type: "email", message: "请输入有效邮箱" }]}><Input /></Form.Item>
         : <Descriptions size="small" bordered column={1} items={[{ key: "email", label: "关联邮箱", children: email ?? "—" }]} />}
+      <Form.Item name="role" label="角色" extra="留空表示未知；管理员角色将禁止通过公开 URL 认领和换号。已有成员或邀请时以关联的上游角色为准。"><Select allowClear disabled={person?.kind === "member" || person?.kind === "invitation"} placeholder="由 GPT 上游决定" options={SEAT_SLOT_ROLE_OPTIONS} /></Form.Item>
       <TenantDataFields />
       <Button type="primary" htmlType="submit" loading={busy}>保存租客信息</Button>
     </Form>
@@ -606,7 +607,7 @@ function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boole
       <Form.Item name="email" label="账号邮箱" rules={[{required:true,type:"email",message:"请输入有效邮箱"}]}><Input /></Form.Item>
       <Form.Item name="applyToUpstream" valuePropName="checked" extra="取消勾选时仅保存本地席位资料，不发送 GPT 邀请。"><Checkbox>应用GPT上游</Checkbox></Form.Item>
       <div className="responsive-form-grid">
-        {applyToUpstream && <Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions("standard-user")} /></Form.Item>}
+        <Form.Item name="role" label="角色" extra="角色随租客资料保存；管理员角色禁止公开认领和换号。"><Select allowClear placeholder="由 GPT 上游决定" options={SEAT_SLOT_ROLE_OPTIONS} /></Form.Item>
         <Form.Item name="seat" label="席位" extra="留空时不指定席位类型，应用时由 GPT 上游决定。"><Select allowClear placeholder="由 GPT 上游决定" options={SEAT_OPTIONS} /></Form.Item>
       </div>
       <Typography.Title level={5}>租客信息</Typography.Title>
@@ -617,15 +618,15 @@ function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boole
 }
 
 function ApplySeatSlotModal({ slot, busy, onClose, onSubmit }: {
-  slot?: SeatSlotView; busy: boolean; onClose: () => void; onSubmit: (role: string) => Promise<boolean>;
+  slot?: SeatSlotView; busy: boolean; onClose: () => void; onSubmit: () => Promise<boolean>;
 }) {
   return <ProductModal title="应用GPT上游" open={Boolean(slot)} onCancel={onClose}>
-    <Form key={slot?.id} layout="vertical" initialValues={{ role: "standard-user" }} disabled={busy} onFinish={async ({ role }: { role: string }) => { if (await onSubmit(role)) onClose(); }}>
+    <Form key={slot?.id} layout="vertical" disabled={busy} onFinish={async () => { if (await onSubmit()) onClose(); }}>
       <Descriptions size="small" bordered column={1} items={[
         { key: "email", label: "邮箱", children: slot?.email },
         { key: "seat", label: "席位", children: slot?.seatType ? seatLabel(slot.seatType) : "由 GPT 上游决定" },
+        { key: "role", label: "角色", children: slot?.role ? roleLabel(slot.role) : "由 GPT 上游决定" },
       ]} />
-      <Form.Item name="role" label="角色"><Select options={editableMemberRoleOptions("standard-user")} /></Form.Item>
       <Typography.Paragraph type="secondary">向该邮箱发送邀请，保留现有租客资料。固定席位可能产生费用。</Typography.Paragraph>
       <Button type="primary" htmlType="submit" loading={busy}>应用GPT上游</Button>
     </Form>

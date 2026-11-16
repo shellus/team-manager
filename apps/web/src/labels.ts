@@ -75,6 +75,10 @@ export function editableMemberRoleOptions(currentRole: MemberRole) {
   return [{ value: currentRole, label: roleLabel(currentRole), disabled: true }, ...supported];
 }
 
+export const SEAT_SLOT_ROLE_OPTIONS = EDITABLE_MEMBER_ROLES
+  .filter((role) => role !== 'account-owner')
+  .map((value) => ({ value, label: roleLabel(value) }));
+
 export function planLabel(plan?: string | null): string {
   return plan ? PLAN_LABELS[plan] ?? plan : '暂无套餐';
 }

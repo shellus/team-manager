@@ -3,6 +3,7 @@ import type { PublicSeatSlotView, SeatSlotSwapState, SeatSlotSwapStep } from '@t
 import { Alert, Button, Collapse, Descriptions, Form, Input, Result, Space, Spin, Steps, Tag, Typography } from 'antd';
 import { SwapOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
+import { roleLabel } from '../../labels.js';
 import { apiClient } from '../../api.js';
 import { SeatSlotStatusTag } from '../../components/StatusTag.js';
 import { useActionBusy } from '../../components/useActionBusy.js';
@@ -44,6 +45,7 @@ export function PublicSeatPage() {
   const actionBusy = useActionBusy();
   const submitting = actionBusy.isBusy('public-seat-swap');
   const blocksStandardMemberSwap = slot?.seat === 'default' && slot.relationStatus === 'member';
+  const blocksAdminRole = slot?.role === 'account-admin';
   const expired = slot?.expirationStatus === 'expired';
 
   const steps = useMemo(() => buildStepItems(slot?.swap?.steps), [slot?.swap?.steps]);
@@ -130,6 +132,7 @@ export function PublicSeatPage() {
           </div>
 
           {error && <Alert type="error" showIcon message={error} />}
+          {blocksAdminRole && <Alert type="error" showIcon message="管理员角色席位不能公开认领或换号" description="请联系管理员处理。" />}
           {expired && <Alert type="error" showIcon message="客户席位已到期" description="到期资料保留用于查询，但不能继续认领或换号。" />}
           {slot.seat === 'default' && (
             <Alert
@@ -147,13 +150,14 @@ export function PublicSeatPage() {
             <Descriptions.Item label="到期时间">{slot.expiresOn}</Descriptions.Item>
             <Descriptions.Item label="价格">{slot.price || '未填写'}</Descriptions.Item>
             <Descriptions.Item label="席位类型">{slot.seat === 'usage_based' ? 'Codex' : 'ChatGPT'}</Descriptions.Item>
+            {slot.role && <Descriptions.Item label="角色">{roleLabel(slot.role)}</Descriptions.Item>}
             <Descriptions.Item label="当前邮箱">{slot.email || '未绑定'}</Descriptions.Item>
           </Descriptions>
 
           <Form
             form={form}
             layout="vertical"
-            disabled={submitting || blocksStandardMemberSwap || expired}
+            disabled={submitting || blocksStandardMemberSwap || blocksAdminRole || expired}
             onFinish={(values) => void submit(values)}
           >
             <Form.Item

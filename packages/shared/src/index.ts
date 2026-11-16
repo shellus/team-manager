@@ -36,6 +36,10 @@ export const EDITABLE_MEMBER_ROLES = [
   'account-owner'
 ] as const;
 export type EditableMemberRole = (typeof EDITABLE_MEMBER_ROLES)[number];
+export type SeatSlotRole = Exclude<EditableMemberRole, 'account-owner'>;
+export function isSeatSlotRole(value: unknown): value is SeatSlotRole {
+  return isEditableMemberRole(value) && value !== 'account-owner';
+}
 export type MemberRole = EditableMemberRole | string;
 
 export function isEditableMemberRole(value: unknown): value is EditableMemberRole {
@@ -102,6 +106,7 @@ export interface SeatSlotSwapState {
 
 export interface PublicSeatSlotView {
   seatKey: string;
+  role?: SeatSlotRole;
   email?: string;
   contact?: string;
   remark?: string;

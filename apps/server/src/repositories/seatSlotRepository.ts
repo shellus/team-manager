@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely';
-import type { SeatType } from '@team-manager/shared';
+import type { SeatSlotRole, SeatType } from '@team-manager/shared';
 import type { Database, SeatSlotRow } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
 
@@ -14,6 +14,7 @@ export interface SaveSeatSlotInput {
   expireReminder?: boolean;
   expireRemove?: boolean;
   seatType?: SeatType | null;
+  role?: SeatSlotRole | null;
 }
 
 export class SeatSlotRepository {
@@ -31,6 +32,7 @@ export class SeatSlotRepository {
       expires_on: input.expiresOn ?? null,
       expire_reminder: input.expireReminder ?? true,
       expire_remove: input.expireRemove ?? false,
+      role: input.role ?? null,
       seat_type: input.seatType ?? null
     }).onConflict((oc) => oc.column('seat_key').doUpdateSet({
       workspace_id: input.workspaceId,
@@ -42,6 +44,7 @@ export class SeatSlotRepository {
       expires_on: input.expiresOn ?? null,
       expire_reminder: input.expireReminder ?? true,
       expire_remove: input.expireRemove ?? false,
+      role: input.role ?? null,
       seat_type: input.seatType ?? null
     })).returningAll().executeTakeFirstOrThrow();
   }

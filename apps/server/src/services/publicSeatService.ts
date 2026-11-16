@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
-import { isSeatType, type PublicSeatSlotView } from '@team-manager/shared';
+import { isSeatSlotRole, isSeatType, type PublicSeatSlotView } from '@team-manager/shared';
 import type { Database, SeatSlotRow } from '../database/schema.js';
 import { seatSlotExpirationStatus } from '../domain/businessDate.js';
 import { normalizeEmail } from '../domain/identity.js';
@@ -24,6 +24,7 @@ export class PublicSeatService {
     const email = normalizeEmail(rawEmail);
     if (!email || !email.includes('@')) throw new ServiceError(400, '邮箱格式无效');
     const row = await this.row(seatKey);
+    if (row.role === 'account-admin') throw new ServiceError(403, '管理员角色席位不能公开认领或换号，请联系管理员处理');
     if (seatSlotExpirationStatus(row.expires_on) === 'expired') throw new ServiceError(409, '客户席位已到期，不能继续认领或换号');
     const executor = await this.db.selectFrom('workspace_memberships').select('account_id')
       .where('workspace_id', '=', row.workspace_id).where('status', '=', 'active')
@@ -49,7 +50,7 @@ export class PublicSeatService {
         await this.operations.removeMember(row.workspace_id, executor.account_id, relation.remoteUserId);
       }
       await this.operations.invite(row.workspace_id, executor.account_id, {
-        email, ...(isSeatType(row.seat_type) ? { seat: row.seat_type } : {})
+        email, ...(isSeatSlotRole(row.role) ? { role: row.role } : {}), ...(isSeatType(row.seat_type) ? { seat: row.seat_type } : {})
       });
       await this.db.transaction().execute(async (trx) => {
         await trx.insertInto('seat_slot_identity_history').values({
@@ -99,6 +100,7 @@ function swapStatus(value: string): 'running' | 'succeeded' | 'failed' { return 
 function seatView(row: SeatSlotRow,relationStatus:PublicSeatSlotView['relationStatus']): PublicSeatSlotView {
   return {
     seatKey: row.seat_key,
+    ...(isSeatSlotRole(row.role) ? { role: row.role } : {}),
     ...(row.current_email ? { email: row.current_email } : {}),
     ...(row.contact ? { contact: row.contact } : {}),
     ...(row.remark ? { remark: row.remark } : {}),

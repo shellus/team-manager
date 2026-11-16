@@ -1,4 +1,4 @@
-import { isSeatType, type SeatSlotRelationStatus, type SeatType } from '@team-manager/shared';
+import { isSeatSlotRole, type SeatSlotRole, isSeatType, type SeatSlotRelationStatus, type SeatType } from '@team-manager/shared';
 import { sql, type Kysely } from 'kysely';
 import type { Database } from '../database/schema.js';
 import { normalizeEmail } from '../domain/identity.js';
@@ -7,6 +7,7 @@ export interface SeatSlotRelation {
   status: SeatSlotRelationStatus;
   remoteUserId: string | null;
   seatType?: SeatType;
+  role?: SeatSlotRole;
 }
 
 interface SeatIdentity {
@@ -21,6 +22,7 @@ interface MembershipFact {
   account_email?: string | null;
   remote_user_id: string | null;
   seat_type: string | null;
+  raw_role?: string | null;
   status: string;
 }
 
@@ -28,6 +30,7 @@ interface InvitationFact {
   workspace_id: string;
   normalized_email: string;
   seat_type: string | null;
+  raw_role?: string | null;
   status: string;
 }
 
@@ -39,14 +42,14 @@ export class SeatSlotRelationRepository {
     const normalized = normalizeEmail(email);
     const member = await this.db.selectFrom('workspace_memberships as membership')
       .leftJoin('accounts as account', 'account.id', 'membership.account_id')
-      .select(['membership.remote_user_id', 'membership.seat_type'])
+      .select(['membership.remote_user_id', 'membership.seat_type', 'membership.raw_role'])
       .where('membership.workspace_id', '=', workspaceId)
       .where(sql<string>`coalesce(membership.normalized_email, account.normalized_email)`, '=', normalized)
       .where('membership.status', '=', 'active')
       .executeTakeFirst();
     if (member) return memberRelation(member);
     const invitation = await this.db.selectFrom('workspace_invitations')
-      .select('seat_type')
+      .select(['seat_type', 'raw_role'])
       .where('workspace_id', '=', workspaceId)
       .where('normalized_email', '=', normalized)
       .where('status', '=', 'pending')
@@ -78,17 +81,19 @@ function unlinkedRelation(): SeatSlotRelation {
   return { status: 'unlinked', remoteUserId: null };
 }
 
-function memberRelation(row: { remote_user_id: string | null; seat_type: string | null }): SeatSlotRelation {
+function memberRelation(row: { remote_user_id: string | null; seat_type: string | null; raw_role?: string | null }): SeatSlotRelation {
   return {
     status: 'member',
     remoteUserId: row.remote_user_id,
+    ...(isSeatSlotRole(row.raw_role) ? { role: row.raw_role } : {}),
     ...(seatType(row.seat_type) ? { seatType: seatType(row.seat_type) } : {})
   };
 }
 
-function invitationRelation(row: { seat_type: string | null }): SeatSlotRelation {
+function invitationRelation(row: { seat_type: string | null; raw_role?: string | null }): SeatSlotRelation {
   return {
     status: 'invited',
+    ...(isSeatSlotRole(row.raw_role) ? { role: row.raw_role } : {}),
     remoteUserId: null,
     ...(seatType(row.seat_type) ? { seatType: seatType(row.seat_type) } : {})
   };

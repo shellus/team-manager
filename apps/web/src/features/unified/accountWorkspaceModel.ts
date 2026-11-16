@@ -89,6 +89,7 @@ export function accountWorkspacePeople(
     id: seatSlot.id,
     email: seatSlot.email,
     seatType: seatSlot.seatType,
+    rawRole: seatSlot.role,
     seatSlot,
   }));
   return [...members, ...invitations, ...customers];

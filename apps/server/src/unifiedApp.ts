@@ -414,8 +414,8 @@ export async function buildUnifiedApp({ config, database, artifactStore, transpo
   api.post('/workspaces/:id/seat-slots/:slotId/apply', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string; role?: unknown };
     if (!body.executorAccountId) return c.json({ ok: false, error: '缺少执行账号' }, 400);
-    if (body.role !== undefined && !isEditableMemberRole(body.role)) return c.json({ ok: false, error: '无效 role' }, 400);
-    return wrap(c, () => seatSlots.apply(c.req.param('id'), c.req.param('slotId'), body.executorAccountId!, body.role as string | undefined));
+    if (body.role !== undefined) return c.json({ ok: false, error: '请先编辑租客资料角色，再应用 GPT 上游' }, 400);
+    return wrap(c, () => seatSlots.apply(c.req.param('id'), c.req.param('slotId'), body.executorAccountId!));
   });
   api.post('/workspaces/:id/refresh', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { executorAccountId?: string };

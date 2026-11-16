@@ -1,5 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 import {
+  isSeatSlotRole,
   isSeatType,
   type AccountAccessContextHealthView,
   type AccountGroupView,
@@ -283,6 +284,7 @@ export class UnifiedProjectionRepository {
         ...(row.remark ? { remark: row.remark } : {}), ...(row.price ? { price: row.price } : {}),
         ...(row.expires_on ? { expiresOn: row.expires_on } : {}),
         expireReminder: row.expire_reminder, expireRemove: row.expire_remove,
+        ...(isSeatSlotRole(row.role) ? { role: row.role } : {}),
         ...(isSeatType(row.seat_type) ? { seatType: row.seat_type } : {}),
         relationStatus:relation.status,expirationStatus:seatSlotExpirationStatus(row.expires_on),
         ...(expirationRemoval ? { expirationRemoval: {

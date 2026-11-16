@@ -1,4 +1,4 @@
-import type { AccountLimitType, AutomationOperationView, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatSlotExpirationStatus, SeatSlotRelationStatus, SeatType } from './index.js';
+import type { SeatSlotRole, AccountLimitType, AutomationOperationView, CodexQuotaSnapshot, PersonalPaymentMethodView, ResidentialProxyConfig, SeatSlotExpirationStatus, SeatSlotRelationStatus, SeatType } from './index.js';
 import type { ChatGptSessionInput } from './sessionInput.js';
 
 export type PersonalPlan = 'free' | 'go' | 'plus' | 'pro_5x' | 'pro_20x' | 'unknown';
@@ -307,6 +307,7 @@ export interface WorkspaceMemberRemovalResult {
 }
 
 export interface SeatSlotMutationInput {
+  role?: SeatSlotRole | null;
   seatKey?: string;
   email?: string | null;
   contact?: string | null;
@@ -770,6 +771,7 @@ export interface WorkspaceInvitationView {
 }
 
 export interface SeatSlotView {
+  role?: SeatSlotRole;
   id: string;
   seatKey: string;
   email?: string;

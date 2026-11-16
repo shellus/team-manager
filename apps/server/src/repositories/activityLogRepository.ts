@@ -57,7 +57,7 @@ function workspaceOrderLinkActivityText(payload:Record<string,unknown>){
   const promo=payload.hasPromoCode===true?'已填写优惠码':'未填写优惠码';const error=typeof payload.error==='string'?`；原因：${payload.error}`:'';
   return `${mode} · ${workspaceName} · ${seatQuantity} · ${[country,currency].filter(Boolean).join('/')||'账单地区未知'} · ${promo}${error}`;
 }
-function seatFieldLabel(value:string){return({contact:'联系方式',remark:'备注',price:'价格',expiresOn:'到期日',expireReminder:'到期提醒',expireRemove:'到期移除',seatType:'席位类型'} as Record<string,string>)[value]??value;}
-function seatChangeText(payload:Record<string,unknown>,fields:string[]){const before=record(payload.before),after=record(payload.after);return fields.map(field=>['expiresOn','expireReminder','expireRemove','seatType'].includes(field)?`${seatFieldLabel(field)} ${auditValue(before?.[field])} → ${auditValue(after?.[field])}`:seatFieldLabel(field)).join('、');}
+function seatFieldLabel(value:string){return({contact:'联系方式',remark:'备注',price:'价格',expiresOn:'到期日',expireReminder:'到期提醒',expireRemove:'到期移除',role:'角色',seatType:'席位类型'} as Record<string,string>)[value]??value;}
+function seatChangeText(payload:Record<string,unknown>,fields:string[]){const before=record(payload.before),after=record(payload.after);return fields.map(field=>['expiresOn','expireReminder','expireRemove','seatType','role'].includes(field)?`${seatFieldLabel(field)} ${auditValue(before?.[field])} → ${auditValue(after?.[field])}`:seatFieldLabel(field)).join('、');}
 function auditValue(value:unknown){if(value===true)return'开启';if(value===false)return'关闭';if(value===null||value===undefined||value==='')return'未设置';return String(value);}
 function record(value:unknown){return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:undefined;}

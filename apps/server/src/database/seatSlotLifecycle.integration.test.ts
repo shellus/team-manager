@@ -7,6 +7,7 @@ import { migrateToLatest } from './migrator.js';
 import { AccountRepository } from '../repositories/accountRepository.js';
 import { WorkspaceRepository } from '../repositories/workspaceRepository.js';
 import { SeatSlotRelationRepository } from '../repositories/seatSlotRelationRepository.js';
+import { PublicSeatService } from '../services/publicSeatService.js';
 import { SeatSlotService } from '../services/seatSlotService.js';
 import type { WorkspaceOperationService } from '../services/workspaceOperationService.js';
 
@@ -50,6 +51,17 @@ test('本地席位资料与上游关系独立，失败可恢复且移除保留�
       const service = new SeatSlotService(db, operations);
       const slot = await service.invite(workspace.id, owner.id, { email: 'local@example.com', applyToUpstream: false, remark: '保留', price: '52' });
       assert.equal(calls, 0);
+      assert.equal(slot.role, null);
+      await assert.rejects(service.update(workspace.id, slot.id, owner.id, { role: 'account-owner' as any }), /无效租客角色/);
+      await service.update(workspace.id, slot.id, owner.id, { role: 'account-admin' });
+      const beforePublic = calls;
+      await assert.rejects(new PublicSeatService(db, operations).swap(slot.seat_key, 'public@example.com'), /管理员角色席位不能公开认领或换号/);
+      assert.equal(calls, beforePublic);
+      const audit = await db.selectFrom('account_activity_logs').select('payload').where('kind', '=', 'seat_slot_updated').orderBy('created_at', 'desc').executeTakeFirstOrThrow();
+      assert.equal((audit.payload as any).after.role, 'account-admin');
+      await service.update(workspace.id, slot.id, owner.id, { role: null });
+      assert.equal((await db.selectFrom('seat_slots').select('role').where('id', '=', slot.id).executeTakeFirstOrThrow()).role, null);
+      await service.update(workspace.id, slot.id, owner.id, { role: 'analytics-viewer' });
       assert.equal(slot.seat_type, null, '未选择的席位类型保持未知');
       assert.equal((await relations.resolve(workspace.id, slot.current_email)).status, 'unlinked');
       await service.update(workspace.id, slot.id, owner.id, { email: 'edited@example.com', seatType: 'usage_based' });
@@ -67,6 +79,7 @@ test('本地席位资料与上游关系独立，失败可恢复且移除保留�
       fail = false;
       await service.apply(workspace.id, slot.id, owner.id);
       assert.equal((await relations.resolve(workspace.id, edited.current_email)).status, 'invited');
+      assert.equal((await relations.resolve(workspace.id, edited.current_email)).role, 'analytics-viewer');
       const inviteCount = invites;
       await service.apply(workspace.id, slot.id, owner.id);
       assert.equal(invites, inviteCount, '再次应用已存在的邀请不重复发送');
