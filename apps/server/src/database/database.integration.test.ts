@@ -33,7 +33,7 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
     await admin.query(`create database ${quoteIdentifier(databaseName)}`);
     const db = createDatabase({ connectionString: databaseUrl, applicationName: 'team-manager-unified-test' });
     try {
-      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities', '025_workspace_preferred_manager', '026_account_residential_proxy', '027_seat_slot_role']);
+      assert.deepEqual(await migrateToLatest(db), ['001_initial_unified_model', '002_complete_operational_fields', '003_add_quarantined_artifacts', '004_complete_product_runtime', '005_reliable_background_lifecycle', '006_operation_progress', '007_account_operational_primary_plan', '008_account_operational_visibility', '009_remove_seat_expire_reminder', '010_add_reminder_policy_defaults', '011_remove_account_display_name', '012_primary_plan_seat_usage', '013_retire_gam_business_snapshots', '014_variable_fixed_seat_capacity', '015_keep_only_current_account_session', '016_allow_unknown_seat_type', '017_persist_seat_expiration_removal_attempts', '018_add_explicit_seat_expiration_reminders', '019_notification_channel_delivery_state', '020_disable_legacy_channel_notification_policies', '021_derive_seat_slot_relationships', '022_preserve_seat_expiration_removal_outcomes', '023_add_prolite_seat_type', '024_team_order_seat_quantities', '025_workspace_preferred_manager', '026_account_residential_proxy', '027_seat_slot_role', '028_preserve_owner_seat_slot_role']);
       assert.deepEqual(await migrateToLatest(db), []);
       assert.deepEqual(await pendingMigrations(db), []);
       assert.equal((await sql<{ matched: boolean }>`select jsonb_path_exists(
@@ -1003,12 +1003,19 @@ test('统一账号 PostgreSQL 模型与 API', { skip: !adminUrl, timeout: 60_000
         method:'POST',path:`/backend-api/accounts/${workspace.external_id}/settings/default_seat_type`,body:{value:'default'}
       }],'Workspace 单项设置只写对应上游接口，不自动回读设置');
       requestOffset=workspaceMutationRequests.length;
+      const roleMember = await db.selectFrom('workspace_memberships').select('email').where('workspace_id', '=', workspace.id).where('remote_user_id', '=', 'member-remote').executeTakeFirstOrThrow();
+      const roleProfile = await new SeatSlotService(db, {} as any).invite(workspace.id, first.account.id, { email: roleMember.email!, applyToUpstream: false });
       const roleMutation=await app.request(`/api/workspaces/${workspace.id}/members/member-remote`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,role:'analytics-viewer'})});
       assert.equal(roleMutation.status,200,await roleMutation.clone().text());
       assert.equal((await roleMutation.json() as any).data.members.find((item:any)=>item.remoteUserId==='member-remote')?.role,'analytics_viewer');
       assert.deepEqual(workspaceMutationRequests.slice(requestOffset),[{
         method:'PATCH',path:`/backend-api/accounts/${workspace.external_id}/users/member-remote`,body:{role:'analytics-viewer'}
       }],'角色修改只写角色，不自动回读成员列表');
+      assert.equal((await db.selectFrom('seat_slots').select('role').where('id', '=', roleProfile.id).executeTakeFirstOrThrow()).role, 'analytics-viewer');
+      const ownerRoleMutation = await app.request(`/api/workspaces/${workspace.id}/members/member-remote`, { method: 'PATCH', headers, body: JSON.stringify({ executorAccountId: first.account.id, role: 'account-owner' }) });
+      assert.equal(ownerRoleMutation.status, 200, await ownerRoleMutation.clone().text());
+      assert.equal((await db.selectFrom('seat_slots').select('role').where('id', '=', roleProfile.id).executeTakeFirstOrThrow()).role, 'account-owner', '提升 owner 不丢失租客角色');
+      assert.equal((await app.request(`/api/workspaces/${workspace.id}/members/member-remote`, { method: 'PATCH', headers, body: JSON.stringify({ executorAccountId: first.account.id, role: 'analytics-viewer' }) })).status, 200);
       requestOffset=workspaceMutationRequests.length;
       const seatMutation=await app.request(`/api/workspaces/${workspace.id}/members/member-remote`,{method:'PATCH',headers,body:JSON.stringify({executorAccountId:first.account.id,seat:'default'})});
       assert.equal(seatMutation.status,200,await seatMutation.clone().text());

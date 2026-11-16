@@ -493,7 +493,7 @@ export function PeoplePanel({
           { title: "成员", width: 270, render: (_, row) => <TwoLineCell primary={personAccount(row)} secondary={row.seatSlot?.remark} /> },
           { title: "关系", width: 160, render: (_, row) => <Tag color={relationColor(row.kind)}>{relationLabel(row.kind)}</Tag> },
           { title: "角色", width: 140, render: (_, row) => row.kind === "member" && row.remoteUserId && canManage
-            ? <Tooltip title={row.seatSlot ? "角色修改会同步到租客资料；管理员角色将禁止通过公开 URL 认领和换号。" : undefined}><Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" /></Tooltip>
+            ? <Tooltip title={row.seatSlot ? "角色修改会同步到租客资料；管理员或所有者角色将禁止通过公开 URL 认领和换号。" : undefined}><Select aria-label={`修改 ${personAccount(row)} 的角色`} value={(row.rawRole ?? roleForSelect(row.role) ?? "standard-user") as EditableMemberRole} options={editableMemberRoleOptions(row.rawRole ?? row.role ?? "standard-user")} loading={busy === `role-${row.id}`} disabled={Boolean(busy)} onChange={(role: EditableMemberRole) => void updateMemberRole(row, role)} className="workspace-inline-select" /></Tooltip>
             : row.rawRole || row.role ? <Tag>{roleLabel(row.rawRole ?? row.role!)}</Tag> : <Typography.Text type="secondary">—</Typography.Text> },
           { title: "席位", width: 140, render: (_, row) => canManage && canEditSeat(row)
             ? <Select aria-label={`修改 ${personAccount(row)} 的席位`} value={row.seatType} placeholder="—" options={SEAT_OPTIONS} loading={busy === `seat-${row.id}`} disabled={Boolean(busy)} onChange={(seat: SeatType) => void updateSeat(row, seat)} className="workspace-inline-select" />
@@ -574,11 +574,11 @@ function TenantDataModal({ open, workspaceId, initial, person, busy, onClose, on
   const email = initial?.email ?? person?.email ?? person?.accountEmail;
   const seatType = initial?.seatType ?? person?.seatType;
   return <ProductModal title={initial ? "编辑租客信息" : "添加租客信息"} open={open} onCancel={onClose}>
-    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ email, role: initial?.role ?? (person?.rawRole !== "account-owner" ? person?.rawRole : undefined), contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireReminder: initial?.expireReminder ?? true, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues & { email?: string; role?: SeatSlotInput["role"] }) => { if (await onSubmit({ ...tenantDataInput(value), role: value.role ?? null, email: value.email ?? email, seatType })) onClose(); }} disabled={busy}>
+    <Form key={`${workspaceId}:${initial?.id ?? person?.rowKey ?? "new"}`} layout="vertical" initialValues={{ email, role: initial?.role ?? person?.rawRole, contact: initial?.contact, remark: initial?.remark, price: initial?.price, expiresOn: initial?.expiresOn, expireReminder: initial?.expireReminder ?? true, expireRemove: initial?.expireRemove ?? false }} onFinish={async (value:TenantDataValues & { email?: string; role?: SeatSlotInput["role"] }) => { if (await onSubmit({ ...tenantDataInput(value), role: value.role ?? null, email: value.email ?? email, seatType })) onClose(); }} disabled={busy}>
       {initial?.relationStatus === "unlinked"
         ? <Form.Item name="email" label="关联邮箱" rules={[{ required: true, type: "email", message: "请输入有效邮箱" }]}><Input /></Form.Item>
         : <Descriptions size="small" bordered column={1} items={[{ key: "email", label: "关联邮箱", children: email ?? "—" }]} />}
-      <Form.Item name="role" label="角色" extra="留空表示未知；管理员角色将禁止通过公开 URL 认领和换号。已有成员或邀请时以关联的上游角色为准。"><Select allowClear disabled={person?.kind === "member" || person?.kind === "invitation"} placeholder="由 GPT 上游决定" options={SEAT_SLOT_ROLE_OPTIONS} /></Form.Item>
+      <Form.Item name="role" label="角色" extra="留空表示未知；管理员或所有者角色将禁止通过公开 URL 认领和换号。已有成员或邀请时以关联的上游角色为准。"><Select allowClear disabled={person?.kind === "member" || person?.kind === "invitation"} placeholder="由 GPT 上游决定" options={SEAT_SLOT_ROLE_OPTIONS} /></Form.Item>
       <TenantDataFields />
       <Button type="primary" htmlType="submit" loading={busy}>保存租客信息</Button>
     </Form>
@@ -607,7 +607,7 @@ function InviteMemberModal({open,busy,onClose,onSubmit}:{open:boolean;busy:boole
       <Form.Item name="email" label="账号邮箱" rules={[{required:true,type:"email",message:"请输入有效邮箱"}]}><Input /></Form.Item>
       <Form.Item name="applyToUpstream" valuePropName="checked" extra="取消勾选时仅保存本地席位资料，不发送 GPT 邀请。"><Checkbox>应用GPT上游</Checkbox></Form.Item>
       <div className="responsive-form-grid">
-        <Form.Item name="role" label="角色" extra="角色随租客资料保存；管理员角色禁止公开认领和换号。"><Select allowClear placeholder="由 GPT 上游决定" options={SEAT_SLOT_ROLE_OPTIONS} /></Form.Item>
+        <Form.Item name="role" label="角色" extra="角色随租客资料保存；管理员或所有者角色禁止公开认领和换号。"><Select allowClear placeholder="由 GPT 上游决定" options={SEAT_SLOT_ROLE_OPTIONS} /></Form.Item>
         <Form.Item name="seat" label="席位" extra="留空时不指定席位类型，应用时由 GPT 上游决定。"><Select allowClear placeholder="由 GPT 上游决定" options={SEAT_OPTIONS} /></Form.Item>
       </div>
       <Typography.Title level={5}>租客信息</Typography.Title>

@@ -110,7 +110,7 @@ describe("账号 Workspace 面板", () => {
               ],
               invitations: [],
               credentials: [],
-              seatSlots: [],
+              seatSlots: [{ id: "owner-profile", seatKey: "owner-public-key", email: "primary@example.com", role: "account-owner", contact: "owner-contact", remark: "owner-tenant-remark", expireReminder: true, expireRemove: false, relationStatus: "member", expirationStatus: "not_set" }],
               consistencyRisks: [],
             } as unknown as import("@team-manager/shared").WorkspaceDetailView}
             accountId="primary-owner-id"
@@ -125,6 +125,9 @@ describe("账号 Workspace 面板", () => {
       </MemoryRouter>,
     );
 
+    const ownerRow = html.split('data-row-key="member:primary-membership"')[1]?.split("</tr>")[0];
+    expect(ownerRow).toContain("owner-contact");
+    expect(ownerRow).toContain("编辑租客");
     expect(html.match(/type="radio"/g)).toHaveLength(3);
     expect(html).not.toContain("正在保存首选管理账号");
     expect(html).toContain("该 owner 尚未关联 Team Manager 账号，不能设为首选");

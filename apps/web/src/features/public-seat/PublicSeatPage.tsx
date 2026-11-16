@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { isPrivilegedSeatSlotRole } from '@team-manager/shared';
 import type { PublicSeatSlotView, SeatSlotSwapState, SeatSlotSwapStep } from '@team-manager/shared';
 import { Alert, Button, Collapse, Descriptions, Form, Input, Result, Space, Spin, Steps, Tag, Typography } from 'antd';
 import { SwapOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -45,7 +46,7 @@ export function PublicSeatPage() {
   const actionBusy = useActionBusy();
   const submitting = actionBusy.isBusy('public-seat-swap');
   const blocksStandardMemberSwap = slot?.seat === 'default' && slot.relationStatus === 'member';
-  const blocksAdminRole = slot?.role === 'account-admin';
+  const blocksPrivilegedRole = isPrivilegedSeatSlotRole(slot?.role);
   const expired = slot?.expirationStatus === 'expired';
 
   const steps = useMemo(() => buildStepItems(slot?.swap?.steps), [slot?.swap?.steps]);
@@ -132,7 +133,7 @@ export function PublicSeatPage() {
           </div>
 
           {error && <Alert type="error" showIcon message={error} />}
-          {blocksAdminRole && <Alert type="error" showIcon message="管理员角色席位不能公开认领或换号" description="请联系管理员处理。" />}
+          {blocksPrivilegedRole && <Alert type="error" showIcon message="管理员或所有者角色席位不能公开认领或换号" description="请联系管理员处理。" />}
           {expired && <Alert type="error" showIcon message="客户席位已到期" description="到期资料保留用于查询，但不能继续认领或换号。" />}
           {slot.seat === 'default' && (
             <Alert
@@ -157,7 +158,7 @@ export function PublicSeatPage() {
           <Form
             form={form}
             layout="vertical"
-            disabled={submitting || blocksStandardMemberSwap || blocksAdminRole || expired}
+            disabled={submitting || blocksStandardMemberSwap || blocksPrivilegedRole || expired}
             onFinish={(values) => void submit(values)}
           >
             <Form.Item

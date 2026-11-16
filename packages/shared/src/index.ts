@@ -36,9 +36,12 @@ export const EDITABLE_MEMBER_ROLES = [
   'account-owner'
 ] as const;
 export type EditableMemberRole = (typeof EDITABLE_MEMBER_ROLES)[number];
-export type SeatSlotRole = Exclude<EditableMemberRole, 'account-owner'>;
+export type SeatSlotRole = EditableMemberRole;
 export function isSeatSlotRole(value: unknown): value is SeatSlotRole {
-  return isEditableMemberRole(value) && value !== 'account-owner';
+  return isEditableMemberRole(value);
+}
+export function isPrivilegedSeatSlotRole(value: unknown): boolean {
+  return value === 'account-admin' || value === 'account-owner';
 }
 export type MemberRole = EditableMemberRole | string;
 

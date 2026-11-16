@@ -80,8 +80,8 @@ AccountGroup 1 ── N Account 1 ── 1 PersonalSpace
 
 ## 客户席位角色
 
-`seat_slots.role` 为可空 text，数据库约束只接受上游原始值 `analytics-viewer`、`standard-user`、`account-admin`；owner 与未识别角色不写入该字段。未知为 null，无默认值，共享视图在未知时省略 `role`，编辑合同接受 null 显式清空。
+`seat_slots.role` 为可空 text，数据库约束只接受上游原始值 `analytics-viewer`、`standard-user`、`account-admin`、`account-owner`；未识别角色不写入该字段。未知为 null，无默认值，共享视图在未知时省略 `role`，编辑合同接受 null 显式清空。
 
-角色与 `seat_type` 使用相同资料生命周期：创建、邀请保存资料、移除/撤销前补建和编辑时读取当前邮箱在同 Workspace 的活动成员或待接受邀请；已知关系值优先。修改成员角色成功时，在同一事务更新关系与已有资料；提升为 owner 时清空资料角色。资料审计记录角色前后值与 changedFields。应用与公开认领/换号传递资料角色，null 时省略上游角色参数；应用 API 拒绝一次性 role 参数。
+角色与 `seat_type` 使用相同资料生命周期：创建、邀请保存资料、移除/撤销前补建和编辑时读取当前邮箱在同 Workspace 的活动成员或待接受邀请；已知关系值优先。修改成员角色成功时，在同一事务更新关系与已有资料；提升为 owner 时如实同步 `account-owner`。资料审计记录角色前后值与 changedFields。应用与公开认领/换号传递资料角色，null 时省略上游角色参数；应用 API 拒绝一次性 role 参数。
 
-migration `027_seat_slot_role` 按当前规范化邮箱回填，优先活动 Membership（包括通过 Account 邮箱关联），其次待接受 Invitation；无匹配、owner 或未知角色保持 null。公开流程在刷新和所有上游写操作前拒绝 admin 角色，防止 URL 能力授予管理权限。
+migration `027_seat_slot_role` 引入角色字段；`028_preserve_owner_seat_slot_role` 将约束扩展为四种原始角色，并仅对角色为 null 的资料按当前规范化邮箱重新回填。优先活动 Membership（包括通过 Account 邮箱关联），其次待接受 Invitation；无匹配或未知角色保持 null，已有非空角色不覆盖。公开流程在刷新和所有上游写操作前拒绝 admin 与 owner 角色，防止 URL 能力授予管理权限。

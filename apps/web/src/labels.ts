@@ -76,7 +76,6 @@ export function editableMemberRoleOptions(currentRole: MemberRole) {
 }
 
 export const SEAT_SLOT_ROLE_OPTIONS = EDITABLE_MEMBER_ROLES
-  .filter((role) => role !== 'account-owner')
   .map((value) => ({ value, label: roleLabel(value) }));
 
 export function planLabel(plan?: string | null): string {

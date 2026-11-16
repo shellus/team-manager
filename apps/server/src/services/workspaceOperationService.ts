@@ -520,7 +520,7 @@ export class WorkspaceOperationService {
       await trx.updateTable('workspace_memberships').set({
         raw_role: role, normalized_role: normalizeRole(role), observed_at: new Date(), source: 'upstream_mutation'
       }).where('id', '=', member.id).execute();
-      if (member.normalized_email) await trx.updateTable('seat_slots').set({ role: role === 'account-owner' ? null : role })
+      if (member.normalized_email) await trx.updateTable('seat_slots').set({ role })
         .where('workspace_id', '=', workspaceId).where('normalized_current_email', '=', member.normalized_email).execute();
     });
     await this.activity(executorAccountId,workspaceId,'workspace_member_role_changed',{remoteUserId,role});

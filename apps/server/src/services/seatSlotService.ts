@@ -139,7 +139,7 @@ export class SeatSlotService {
     await this.assertWorkspace(workspaceId);
     if((input as Record<string,unknown>).remoteUserId!==undefined||(input as Record<string,unknown>).status!==undefined)throw new ServiceError(400,'客户席位关系状态不能手工指定，请使用邀请、换号或释放操作');
     const relation=await this.#relations.resolve(workspaceId,email);
-    if (input.role !== undefined && input.role !== null && !isSeatSlotRole(input.role)) throw new ServiceError(400, '无效租客角色，不能使用 owner');
+    if (input.role !== undefined && input.role !== null && !isSeatSlotRole(input.role)) throw new ServiceError(400, '无效租客角色');
     const role = relation.role ?? input.role;
     const seatType=relation.seatType??input.seatType;
     if (seatType !== undefined && !isSeatType(seatType)) throw new ServiceError(400, '无效席位类型');
@@ -161,7 +161,7 @@ export class SeatSlotService {
 
   private async updateRecord(workspaceId: string, id: string, input: SeatSlotMutationInput) {
     const row = await this.require(workspaceId, id);
-    if (input.role !== undefined && input.role !== null && !isSeatSlotRole(input.role)) throw new ServiceError(400, '无效租客角色，不能使用 owner');
+    if (input.role !== undefined && input.role !== null && !isSeatSlotRole(input.role)) throw new ServiceError(400, '无效租客角色');
     if (this.applying.has(id)) throw new ServiceError(409, '资料正在应用 GPT 上游，暂不能编辑');
     if (input.seatType !== undefined && !isSeatType(input.seatType)) throw new ServiceError(400, '无效席位类型');
     const email = input.email === undefined ? row.current_email : input.email?.trim();
